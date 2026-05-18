@@ -274,7 +274,8 @@ describe('classifyMacroRegimeV3 — sentiment_extreme (dual-source OR)', () => {
     assert.equal(r.sentiment_extreme, 1);
   });
 
-  it('fires on extreme-complacency put/call (<= 0.65)', () => {
+  it('fires on extreme-complacency put/call (<= 0.77)', () => {
+    // s78 retune: floor 0.65 → 0.77. 0.6 sits well below either floor.
     const r = classifyMacroRegimeV3(baseInputV3({
       put_call_value_5d_ma: 0.6,
       vix_close: 15, vix3m_close: 16,
@@ -512,7 +513,24 @@ describe('phase1_v3 threshold constants — locked', () => {
     assert.equal(CREDIT_STRESS_20D_RETURN_FLOOR, -0.03);
     assert.equal(RISK_OFF_SPREAD_FLOOR, -0.10);
     assert.equal(PUT_CALL_FEAR_HIGH, 1.15);
-    assert.equal(PUT_CALL_COMPLACENCY_LOW, 0.65);
+    // Recalibrated 2026-05-17 (session 78): 0.65 → 0.77. Tier 0 0.65 fired
+    // only 0.17% (7 of 4,014 days) on the 2003-10-17 → 2019-10-04 CBOE
+    // corpus, effectively dormant. 0.77 was selected by quantile matching
+    // — smallest 2-decimal floor at or above the empirical p05 of the
+    // put/call 5d MA (p05 = 0.7620), so firings sit in the bottom-5%
+    // complacency tail. Post-retune corpus-wide fire rate 6.23%;
+    // per-regime p05 range [0.711, 0.826] brackets 0.77 across
+    // pre-GFC / GFC / post-GFC / 2015-2019-calm. PUT_CALL_FEAR_HIGH=1.15
+    // is empirically at p95 (5.46% fire rate, per-regime stability
+    // [4.75%, 6.73%]) and stays unchanged. Same methodology as session
+    // 40's VIX_TERM_COMPLACENCY_FLOOR retune. Operational caveat: CBOE
+    // 2019-present is gated behind DataShop, and macro_regimes carries
+    // put_call_value_5d_ma=NULL across all 4,622 phase1_v3 rows as of
+    // session 78 — so this constant takes effect only after (a) the
+    // macro_regimes backfill joins CBOE in and (b) DataShop ingest
+    // restores live 2019+ coverage. Diagnostic:
+    // scripts/_diagnose_put_call_thresholds.ts.
+    assert.equal(PUT_CALL_COMPLACENCY_LOW, 0.77);
     // Recalibrated 2026-05-10 (session 40): 0.85 → 0.80. The original 0.85
     // over-fired sentiment_extreme on 25.77% of phase1_v3 days via the
     // VIX/VIX3M arm alone (CBOE empty); 0.80 was selected by quantile

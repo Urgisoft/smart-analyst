@@ -325,7 +325,7 @@ describe('ADR_037_BASELINE (archival phase1_v2)', () => {
 // ── 9b. ADR_038_BASELINE — phase1_v3 distribution pin (LIVE) ────────────────
 
 describe('ADR_038_BASELINE (live phase1_v3)', () => {
-  it('matches the empirically verified 2026-05-15 phase1_v3 numbers exactly (post CBOE 2003-2019 activation)', () => {
+  it('matches the empirically verified 2026-05-17 phase1_v3 numbers exactly (post s78 retune + CBOE 2003-2019 activation)', () => {
     // If this test fails, the all-time distribution under phase1_v3 has
     // shifted (e.g., npm run macro:backfill:v3 ran over a wider window, a
     // threshold-tuning PR like `VIX_TERM_COMPLACENCY_FLOOR` shifted the
@@ -342,18 +342,22 @@ describe('ADR_038_BASELINE (live phase1_v3)', () => {
     //     red=32, orange=370, yellow=1406, green=2809 (sentiment_extreme
     //     at 5.98%). Whaley 2009 §3 framing; 5% number is empirical
     //     quantile of vix_term_ratio.
-    //   - Session 45 (2026-05-15, CURRENT): CBOE 2003-2019 arm active,
-    //     2019-present remains dark. Sentiment-extreme now has two
-    //     independent signal sources for 2003-2019 (CBOE OR VIX/VIX3M)
-    //     and one for 2019-present (VIX/VIX3M only). New distribution:
-    //     red=127, orange=349, yellow=1392, green=2754 over 4622 days.
-    //     The session-44 PUSHBACK lock against a rerun was vacated by
-    //     session 45 after the pre-rerun CH state was found to have
-    //     drifted to v2-shaped output that didn't represent v3 at all.
-    assert.equal(ADR_038_BASELINE.red, 127);
-    assert.equal(ADR_038_BASELINE.orange, 349);
-    assert.equal(ADR_038_BASELINE.yellow, 1392);
-    assert.equal(ADR_038_BASELINE.green, 2754);
+    //   - Session 45 (2026-05-15) docstring claim: red=127, orange=349,
+    //     yellow=1392, green=2754. The s79 probe (2026-05-17) showed
+    //     CH actually held {50, 78, 1176, 3318} with 0 put_call_value_5d_ma
+    //     non-null and 0 sentiment_extreme firings — the s45 claim either
+    //     was overwritten by a later rerun that lost the CBOE join, or
+    //     was a docstring intent that never landed.
+    //   - Session 79 (2026-05-17, CURRENT): CBOE 2003-2019 arm activated
+    //     via macro:backfill:v3 rerun with the s78 retune
+    //     `PUT_CALL_COMPLACENCY_LOW=0.77` in effect. 2,961 / 4,622 rows
+    //     carry non-null put_call MA; 556 sentiment_extreme firings.
+    //     New distribution: red=131, orange=359, yellow=1473, green=2659
+    //     over 4622 days. First empirically-verifiable post-CBOE pin.
+    assert.equal(ADR_038_BASELINE.red, 131);
+    assert.equal(ADR_038_BASELINE.orange, 359);
+    assert.equal(ADR_038_BASELINE.yellow, 1473);
+    assert.equal(ADR_038_BASELINE.green, 2659);
     assert.equal(ADR_038_BASELINE_TRADING_DAYS, 4622);
   });
 });

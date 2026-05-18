@@ -136,39 +136,58 @@ export const ADR_037_BASELINE_TRADING_DAYS =
   ADR_037_BASELINE.green;
 
 /**
- * ADR-038 §2 baseline (Accepted 2026-05-15; retroactive write-up 2026-05-16)
- * — verified empirically against `quantlab.macro_regimes FINAL WHERE
- * classifier_version='phase1_v3'`. The v3 baseline is the active dashboard
- * comparator. See `docs/decisions/README.md` ADR-038 for the full record.
+ * ADR-038 §2 baseline (Accepted 2026-05-15; retroactive write-up 2026-05-16;
+ * amended 2026-05-17 session 79) — verified empirically against
+ * `quantlab.macro_regimes FINAL WHERE classifier_version='phase1_v3'`. The
+ * v3 baseline is the active dashboard comparator. See
+ * `docs/decisions/README.md` ADR-038 + the s79 amendment for the full record.
  *
- * **Re-pinned 2026-05-15 (session 45)** after a `macro:backfill:v3` rerun
- * over the now-populated CBOE put/call corpus (2003-2019). The session-44
- * PUSHBACK lock on the rerun was protecting against shifting the baseline
- * mid-corpus — but the pre-rerun CH state had drifted to a v2-shaped
- * distribution that didn't reflect v3 at all (the 4 stress-period fixtures
- * in `macroRegimeFixturesV3.test.ts` were failing 3/4 with 0 reds in
- * 2008/2011/2020). The drift was the bigger problem, so the rerun was the
- * fix.
+ * **Re-pinned 2026-05-17 (session 79)** to `{red:131, orange:359,
+ * yellow:1473, green:2659}` after a `macro:backfill:v3` rerun over the
+ * now-populated CBOE put/call corpus (2003-10-17 → 2019-10-04, 4,018 raw
+ * rows; 2,961 of 4,622 phase1_v3 rows now carry non-null
+ * `put_call_value_5d_ma`). 556 `sentiment_extreme` firings appear across
+ * the corpus (vs 0 pre-rerun — the CBOE arm was structurally silent in CH
+ * regardless of what the prior docstring claimed).
  *
- * Activation of the CBOE `^CPC` arm for 2003-2019 adds `sentiment_extreme`
- * firings during those years (the VIX/VIX3M complacency arm alone could
- * not see them). 2019-10-04 → present remains CBOE-dark (paid product
- * gate) and continues to rely on the VIX/VIX3M arm only. The mid-corpus
- * shift in 2019 noted in session 44 is real but is now baked into this
- * pin until the CBOE 2019-present gap closes — at which point another
- * controlled rerun + re-pin should follow.
+ * The s79 rerun also incorporates the s78 retune
+ * `PUT_CALL_COMPLACENCY_LOW` 0.65 → 0.77, which is the dominant driver of
+ * the difference between this pin and the prior `{127,349,1392,2754}`
+ * (more yellow days from added complacency firings that don't escalate to
+ * red).
  *
- * Prior pins (kept here for forensic value):
+ * Coverage gates that remain open after s79:
+ * 1. CBOE DataShop subscription — 2019-10-04 → present remains CBOE-dark
+ *    (paid product gate); 2019+ sentiment_extreme continues to rely on
+ *    the VIX/VIX3M arm only. Mid-2019 transition from CBOE-active to
+ *    CBOE-dark is baked into this pin and is a real structural break.
+ * 2. Pre-2008 phase1_v3 backfill not in scope — the v3 corpus starts at
+ *    2008-01-02; CBOE coverage starts 2003-10-17 but the classifier
+ *    doesn't read those years.
+ *
+ * Prior pins (forensic, in reverse chronological order):
+ * - Session 79 (2026-05-17): **CURRENT.** `{131, 359, 1473, 2659}`.
+ *   2,961 / 4,622 rows carry non-null put_call MA. 556 sentiment_extreme
+ *   firings. PUT_CALL_COMPLACENCY_LOW=0.77, PUT_CALL_FEAR_HIGH=1.15,
+ *   VIX_TERM_COMPLACENCY_FLOOR=0.80. Per-year reds:
+ *     2008:34 2009:4 2010:9 2011:35 2012:0 2013:0 2014:11 2015:4
+ *     2016:13 2017:0 2018:7 2019:10 2020:4 2021:0 2022:0 2023:0
+ *     2024:0 2025:0 2026:0
+ *   The 3 carried v3 fixture failures (2008_gfc, 2011_eu_debt) now have
+ *   non-zero reds; 2020_covid still has 4 reds (covid window is outside
+ *   free CBOE coverage so the rerun can't help there).
+ * - Session 45 (2026-05-15) docstring claim: `{127, 349, 1392, 2754}` —
+ *   but s79 probe (`scripts/_probe_putcall_coverage.ts`, 2026-05-17)
+ *   showed CH actually held `{50, 78, 1176, 3318}` with 0 put_call
+ *   non-null and 0 sentiment_extreme firings. The s45 distribution is
+ *   either (a) a measurement that was later overwritten by a rerun that
+ *   never got the CBOE join, or (b) a docstring intent that was never
+ *   actually live in CH. Either way the s79 pin is the first
+ *   empirically-verifiable post-CBOE baseline.
  * - Session 40 (2026-05-10): `{red:32, orange:370, yellow:1406, green:2809}`
  *   after VIX_TERM_COMPLACENCY_FLOOR 0.85→0.80 ramp; pre CBOE-2003-2019
  *   ingest. The CBOE-arm of `sentiment_extreme` was structurally null
  *   for the entire 2008-2026 corpus at that pin's time.
- * - Session 45 (2026-05-15): `{red:127, orange:349, yellow:1392,
- *   green:2754}` — current. CBOE-arm active for 2003-2019, dark
- *   2019-present. Per-year reds:
- *     2008:34 2009:0 2010:9 2011:35 2012:0 2013:0 2014:11 2015:4
- *     2016:13 2017:0 2018:7 2019:10 2020:4 2021:0 2022:0 2023:0
- *     2024:0 2025:0 2026:0
  *
  * Test coverage in `scripts/tests/regimeDashboard.test.ts` test #9b —
  * drift triggers a clear test failure rather than a silent wrong-headline.
@@ -177,10 +196,10 @@ export const ADR_037_BASELINE_TRADING_DAYS =
  * MUST update this constant in the same PR.
  */
 export const ADR_038_BASELINE: RegimeCounts = {
-  red: 127,
-  orange: 349,
-  yellow: 1392,
-  green: 2754,
+  red: 131,
+  orange: 359,
+  yellow: 1473,
+  green: 2659,
 };
 export const ADR_038_BASELINE_TRADING_DAYS =
   ADR_038_BASELINE.red +

@@ -98,12 +98,53 @@ export const CREDIT_STRESS_20D_RETURN_FLOOR = -0.03;
 export const RISK_OFF_SPREAD_FLOOR = -0.10;
 
 /** Put/call extreme-fear ceiling: CBOE ^CPC 5-day MA >= this fires
- *  `sentiment_extreme`. Whaley 2009 §3 — contrarian "fear at extremes." */
+ *  `sentiment_extreme`. Whaley 2009 §3 — contrarian "fear at extremes."
+ *
+ *  Calibration history:
+ *   - 1.15 (session 39): initial Tier 0 pick. Coincidentally well-calibrated.
+ *   - 1.15 (session 78, this constant): EMPIRICALLY VALIDATED, unchanged.
+ *     2003-10-17 → 2019-10-04 CBOE corpus (4,014 5d-MA rows; the free
+ *     historical archive — 2019-present is gated behind CBOE DataShop).
+ *     Empirical p95 of 5d MA = 1.1540; inside-toward-zero 2dp round =
+ *     1.15. Whole-corpus fire rate 5.46%; per-regime stability [4.75%,
+ *     6.73%] across pre-GFC / GFC / post-GFC / 2015-2019-calm.
+ *     Diagnostic: `scripts/_diagnose_put_call_thresholds.ts`. */
 export const PUT_CALL_FEAR_HIGH = 1.15;
 
 /** Put/call extreme-complacency floor: CBOE ^CPC 5-day MA <= this also
- *  fires `sentiment_extreme`. Contrarian "complacency before storm" tail. */
-export const PUT_CALL_COMPLACENCY_LOW = 0.65;
+ *  fires `sentiment_extreme`. Contrarian "complacency before storm" tail.
+ *
+ *  Calibration history:
+ *   - 0.65 (session 39): initial Tier 0 pick. Empirically over-tight —
+ *     fired only 0.17% (7 of 4,014 days) on 2003-2019 CBOE corpus,
+ *     effectively dormant. Calibrated to bottom-1.7% tail, far below
+ *     the design ~5% target that the symmetric `PUT_CALL_FEAR_HIGH`
+ *     and the post-retune `VIX_TERM_COMPLACENCY_FLOOR` both sit at.
+ *   - 0.77 (session 78, this constant): selected by quantile matching
+ *     against the empirical put/call 5d-MA distribution on the
+ *     2003-10-17 → 2019-10-04 CBOE corpus (p05 = 0.7620). 0.77 is the
+ *     smallest two-decimal floor at or above p05 (inside-toward-zero
+ *     2dp round), so firings genuinely sit in the bottom-5% complacency
+ *     tail — that empirical 5% is the source of the prevalence target,
+ *     NOT Whaley. Whole-corpus post-tune fire rate 6.23%; per-regime
+ *     p05 range [0.711, 0.826] brackets 0.77, with the calm 2015-2019
+ *     regime running tighter than corpus (consistent with Whaley §3:
+ *     complacency floors should be relative to long-run norms, not the
+ *     calm-cycle's own internal norm). Same methodology as session 40's
+ *     `VIX_TERM_COMPLACENCY_FLOOR` retune. Diagnostic:
+ *     `scripts/_diagnose_put_call_thresholds.ts`.
+ *
+ *  Operational caveat: gate (a) was closed in session 79 —
+ *  `macro_regimes.put_call_value_5d_ma` is now populated for the
+ *  2003-2019 CBOE archive window after the s79 `macro:backfill:v3` run
+ *  joined CBOE into macro_regimes (see ADR-038 amendment v3 and the
+ *  `ADR_038_BASELINE` re-pin). Live `sentiment_extreme` now fires off
+ *  this constant for that historical window. Gate (b) — CBOE put/call
+ *  2019-present via DataShop subscription — remains open; until that
+ *  gate closes, post-2019 days fall through to the VIX/VIX3M arm alone,
+ *  and a second backfill will extend live coverage once DataShop
+ *  ingest is restored. */
+export const PUT_CALL_COMPLACENCY_LOW = 0.77;
 
 /** VIX/VIX3M complacency floor: ratio <= this means front-end vol is
  *  crushed relative to back-end (steep contango), the structural

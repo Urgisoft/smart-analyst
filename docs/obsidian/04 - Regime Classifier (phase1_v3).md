@@ -60,8 +60,8 @@ After the session-45 controlled rerun of `npm run macro:backfill:v3`, the corpus
 | Constant | Value | Where | Why |
 |---|---|---|---|
 | `VIX_TERM_COMPLACENCY_FLOOR` | `0.80` | [src/server/macro_regime_v3.ts](../../src/server/macro_regime_v3.ts) | Empirical p05 of VIX/VIX3M close-close ratio. Below ~0.78 the arm goes dormant. |
-| `PUT_CALL_FEAR_HIGH` | `1.15` | classifier | Sentiment-extreme floor (5d MA). |
-| `PUT_CALL_COMPLACENCY_LOW` | `0.65` | classifier | Sentiment-extreme ceiling (5d MA). |
+| `PUT_CALL_FEAR_HIGH` | `1.15` | classifier | Sentiment-extreme fear ceiling (5d MA). Empirically validated at p95 in s78 (5.46% fire rate, per-regime stability 4.75-6.73%) — unchanged from Tier 0. |
+| `PUT_CALL_COMPLACENCY_LOW` | `0.77` | classifier | Sentiment-extreme complacency floor (5d MA). Was `0.65` Tier 0 (fired 0.17% — dormant); retuned in s78 to corpus p05 round = 0.77 (~5% tail). Live for the 2003-2019 archive window since s79 `macro:backfill:v3` joined CBOE into `macro_regimes`; 2019+ ingest remains DataShop-gated. |
 
 ## CBOE coverage caveat
 

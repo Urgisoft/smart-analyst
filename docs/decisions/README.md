@@ -4180,6 +4180,75 @@ The four-path fork (after the Stooq drop discovery) was: (1) wait for Sharadar �
 
 ---
 
+### ADR-038 amendment · session 79 (2026-05-17) — re-pin to `{131, 359, 1473, 2659}` after empirical verification revealed the s45 pin did not correspond to live CH state
+
+**Status:** Accepted · **Date:** 2026-05-17 · **Ratified:** pending Pejman ack (s79 ship).
+
+**Context — what the s79 probe found:**
+
+1. The s79 [`scripts/_probe_putcall_coverage.ts`](../../scripts/_probe_putcall_coverage.ts) probe queried `quantlab.macro_regimes FINAL WHERE classifier_version='phase1_v3'` directly. It returned:
+   - **Total rows:** 4,622 (matches ADR-038).
+   - **`put_call_value_5d_ma` non-null:** 0 of 4,622 (the s78 handoff was right; the s45 docstring claim of "CBOE-arm active for 2003-2019" was not reflected in CH).
+   - **`sentiment_extreme` firings:** 0 of 4,622 (the arm was structurally silent).
+   - **Distribution:** `{red:50, orange:78, yellow:1176, green:3318}` — close to but not identical to the v2 baseline `{50, 78, 1172, 3317}`.
+2. This contradicts the s45 docstring claim and ADR-038 §2's pinned `{127, 349, 1392, 2754}`. Either (a) the s45 rerun was real but was later overwritten by a rerun that lost the CBOE join, or (b) the s45 distribution was a docstring intent that never landed in CH. The discrepancy is unrecoverable from session logs alone — both git history and the prior HANDOFF chain are silent on any intermediate rerun between s45 and s78. The s79 record explicitly does **not** litigate which of (a) or (b) is true; the s79 pin is the first empirically-verifiable post-CBOE baseline regardless.
+
+**Decision:**
+
+1. **Run `npm run macro:backfill:v3 -- --start 2008-01-01` over the full corpus**, with the s78 retune `PUT_CALL_COMPLACENCY_LOW=0.77` (vs s45's `0.65`) and unchanged `PUT_CALL_FEAR_HIGH=1.15` + `VIX_TERM_COMPLACENCY_FLOOR=0.80`.
+2. **Re-pin `ADR_038_BASELINE` to the empirically measured post-rerun distribution:**
+
+   ```ts
+   export const ADR_038_BASELINE: RegimeCounts = {
+     red: 131,
+     orange: 359,
+     yellow: 1473,
+     green: 2659,
+   };
+   // ADR_038_BASELINE_TRADING_DAYS = 4622
+   ```
+
+   Verification post-rerun: 2,961 / 4,622 rows carry non-null `put_call_value_5d_ma` (matches the 2008-01-02 → 2019-10-04 CBOE coverage window). 556 `sentiment_extreme` firings appear across the corpus. Per-year reds:
+
+   | Year | Reds | Year | Reds | Year | Reds |
+   | --- | --- | --- | --- | --- | --- |
+   | 2008 | 34 | 2014 | 11 | 2020 | 4 |
+   | 2009 | 4  | 2015 | 4  | 2021 | 0 |
+   | 2010 | 9  | 2016 | 13 | 2022 | 0 |
+   | 2011 | 35 | 2017 | 0  | 2023 | 0 |
+   | 2012 | 0  | 2018 | 7  | 2024 | 0 |
+   | 2013 | 0  | 2019 | 10 | 2025 | 0 |
+   |      |    |      |    | 2026 | 0 |
+
+3. **Preserve the s45 docstring claim `{127, 349, 1392, 2754}` only as a forensic history entry in the constant's docstring,** flagged as "unverifiable in CH at s79 probe time." It is not exported.
+
+**Why the s79 pin differs from the s45 claim:**
+
+The two relevant deltas between the s45 rerun (whatever it actually wrote) and the s79 rerun are:
+
+- **`PUT_CALL_COMPLACENCY_LOW`: 0.65 → 0.77** (s78 retune). At 0.77 the complacency arm fires ~6.18% of the time vs ~0.17% at 0.65 (per [`scripts/_diagnose_put_call_thresholds.ts`](../../scripts/_diagnose_put_call_thresholds.ts)). On a 2,961-row CBOE-covered window this is ~180 additional complacency-arm firings vs the s45 pin's calibration, most of which sit in calm regimes and shift days green → yellow without escalating to red.
+- The s45 docstring lists per-year reds — `2009:0`, `2014:11`, `2016:13`, `2018:7`, `2019:10`. The s79 measurement matches all of those except `2009:0 → 2009:4`. The +4 in 2009 is consistent with the s78 retune's wider complacency floor catching the early-2009 recovery rally as still-complacent (the 2009-March rally had VIX dropping while put/call was still elevated; the wider 0.77 floor doesn't change that, but the s79 rerun also picks up s73-s77 framework changes which can interact via `categories_firing_5d` rolling unions).
+
+Net shift vs s45 docstring: `+4 red / +10 orange / +81 yellow / -95 green`. The bulk is green → yellow, consistent with "more complacency firings that don't drive enough other-category coincidence to escalate to red."
+
+**Watch-outs unique to this amendment:**
+
+- The s79 pin is now the **first** empirically-verifiable post-CBOE baseline. Test #9b enforces it byte-equal; any future rerun (DataShop 2019-present unlock, threshold retune, schema change) must re-pin in the same PR per the same rule the original ADR-038 already encoded.
+- The s45 → s79 discrepancy is itself a **process watch-out**: a baseline pin should be set from a probe-script measurement against live CH, not from a developer-claimed value in a docstring. The s79 amendment adds [`scripts/_probe_putcall_coverage.ts`](../../scripts/_probe_putcall_coverage.ts) to the repo as the reproducible verification path; future re-pins should re-run it and quote its output in the docstring + the amending ADR.
+- The 3 v3 fixture failures (2008_gfc, 2011_eu_debt, 2020_covid) carried since s39 are all closed by this rerun (npm test now reports 0 fails vs the pre-s79 baseline of 3). 2020_covid stays at 4 reds; the COVID stress window is outside free CBOE coverage so this rerun can't push it higher, and the fixture's `>=1 red` lower bound passes regardless.
+
+**Consequences:**
+
+- The `/#/regime` dashboard's "deviation from baseline" headline now corresponds to a baseline that was actually measured against today's CH state — closing the silent-drift hole the original ADR-038 §4 was trying to close but failed to actually close in CH.
+- `npm test` baseline: **1259 pass / 0 fail / 6 skipped** (was 1256 pass / 3 fail / 6 skipped pre-s79).
+- `npx tsc --noEmit`: **13 errors** (unchanged from s78 baseline; no new errors introduced).
+- The carried "macro_regimes carries put_call=NULL" caveat in [src/server/macro_regime_v3.ts](../../src/server/macro_regime_v3.ts) (s78 docstring footnote a) is **closed** by this amendment. The constant's calibration-on-the-shelf framing should be removed in a follow-up edit pass (low-priority documentation cleanup, not load-bearing).
+- CBOE 2019-present coverage (DataShop) remains the only open gate on `sentiment_extreme`'s full coverage. ADR-038 will need to be reopened a third time when that closes.
+
+**Source:** s79 probe artifacts captured in the constant docstring at [`src/server/regime_dashboard.ts`](../../src/server/regime_dashboard.ts#L138-L201), the reproducible probe script at [`scripts/_probe_putcall_coverage.ts`](../../scripts/_probe_putcall_coverage.ts), the test pin at [`scripts/tests/regimeDashboard.test.ts`](../../scripts/tests/regimeDashboard.test.ts#L325-L360), and the s79 HANDOFF entry.
+
+---
+
 ## ADR-039 · Capital deployment ramp — pre-commit four-stage allocation schedule before paper-trading completion
 
 **Status:** Accepted · **Date:** 2026-05-16 · **Ratified:** 2026-05-17 (session 73, Pejman) · **Numbering note:** ADR-038 (Accepted 2026-05-15, retroactively written up 2026-05-16) covers the post-v3-backfill regime distribution baseline `{red:127, orange:349, yellow:1392, green:2754}` enforced by the `ADR_038_BASELINE` code constant in [`src/server/regime_dashboard.ts`](../../src/server/regime_dashboard.ts) and test #9b.
