@@ -1,0 +1,30 @@
+# SignalForge Python dependencies — Phase 2 onward.
+#
+# Install: pip install -r requirements.txt
+#          (or under a venv: python -m venv .venv && .venv\Scripts\pip install -r requirements.txt)
+#
+# Pinned to majors known to work on Python 3.11+; bump deliberately, not opportunistically.
+# Test deps and runtime deps live in the same file (small project; no separate dev-requirements).
+
+# Numerics
+numpy>=1.26,<3.0
+pandas>=2.1,<3.0
+scipy>=1.11,<2.0
+
+# ML / clustering — Phase 2 §5.2 (HDBSCAN ships natively in sklearn >= 1.3)
+scikit-learn>=1.3,<2.0
+
+# Gradient boosting — ADR-017 meta-labeling (M2 model). Tabular features, modest
+# sample sizes, native NaN handling. Pre-built wheels for win_amd64.
+lightgbm>=4.0,<5.0
+
+# ClickHouse client — Python -> warehouse (ADR-003)
+clickhouse-connect>=0.7,<1.0
+
+# Equity OHLC data source — A4 cross-asset-class smoke test (yfinance free tier).
+# Auto-adjusted close handles splits + dividends; survivorship caveat documented
+# in ADR-027. Replaces the dead Google Finance API.
+yfinance>=0.2,<2.0
+
+# Tests
+pytest>=7.4,<9.0

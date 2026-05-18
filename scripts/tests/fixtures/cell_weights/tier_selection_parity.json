@@ -1,0 +1,6489 @@
+{
+  "id": "tier_selection_parity",
+  "spec_section": "docs/specs/correlation-weighted-per-cell-allocation.md \u00a76.4",
+  "generator": "scripts/_compute_cell_weights_reference.py --gen-tier-fixtures",
+  "description": "Cartesian sweep over (observedN, observedDaysWithTrades, observedMinClosedTrades, priorActiveTier) pinning the Python `select_tier` expected output. The TS `selectCellWeightsTier` must agree on every row \u2014 see #TIER-PARITY in scripts/tests/cellWeights.test.ts (L-2 cross-check).",
+  "scenarioCount": 720,
+  "scenarios": [
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 1,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 2,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 3,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": null,
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": true
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T0",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": true
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T1",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": true
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": true
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": null,
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": true
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T0",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": true
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T1",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": true
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": true
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": null,
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": true
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T0",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": true
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T1",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": true
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": true
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": null,
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": true
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T0",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": true
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T1",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": true
+    },
+    {
+      "observedN": 4,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": true
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 0,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 89,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 90,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 179,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": null,
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": true
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T0",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": true
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T1",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": true
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": true
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": null,
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": true
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T0",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": true
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T1",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": true
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 180,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": true
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 0,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": null,
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T0",
+      "expectedTier": "T0",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 29,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": false,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 30,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": null,
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T0",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T1",
+      "expectedTier": "T1",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 59,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": false
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": null,
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": true
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T0",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": true
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T1",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": true
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 60,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": true
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": null,
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": true
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T0",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": true
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T1",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": true
+    },
+    {
+      "observedN": 5,
+      "observedDaysWithTrades": 365,
+      "observedMinClosedTrades": 120,
+      "priorActiveTier": "T2",
+      "expectedTier": "T2",
+      "sufficientForT1": true,
+      "sufficientForT2": true
+    }
+  ]
+}

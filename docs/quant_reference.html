@@ -1,0 +1,861 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Quant Reference — ML, Cross-Market Validation, Deflation, Conditional Clustering</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --panel: #161b22;
+  --panel-2: #1c2128;
+  --border: #30363d;
+  --text: #e6edf3;
+  --text-dim: #8b949e;
+  --accent: #58a6ff;
+  --accent-2: #d2a8ff;
+  --green: #3fb950;
+  --red: #f85149;
+  --yellow: #d29922;
+  --orange: #ff8c42;
+  --purple: #bc8cff;
+  --teal: #56d4dd;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  line-height: 1.65;
+  font-size: 16px;
+}
+.container { max-width: 980px; margin: 0 auto; padding: 48px 32px 96px; }
+h1 { font-size: 32px; font-weight: 700; margin: 0 0 8px; letter-spacing: -0.5px; }
+.subtitle { color: var(--text-dim); margin-bottom: 32px; font-size: 15px; }
+.meta-line { color: var(--text-dim); font-size: 13px; margin-bottom: 48px; padding: 12px 16px; background: var(--panel-2); border-left: 2px solid var(--accent); border-radius: 0 4px 4px 0; }
+h2 { font-size: 24px; margin-top: 56px; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); color: var(--accent); }
+h3 { font-size: 18px; margin-top: 32px; margin-bottom: 12px; color: var(--accent-2); }
+h4 { font-size: 15px; margin-top: 20px; margin-bottom: 8px; color: var(--text); text-transform: uppercase; letter-spacing: 0.5px; }
+p { margin: 12px 0; }
+.toc { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 20px 28px; margin-bottom: 32px; }
+.toc ol { margin: 8px 0; padding-left: 24px; }
+.toc a { color: var(--accent); text-decoration: none; }
+.toc a:hover { text-decoration: underline; }
+.callout { background: var(--panel); border-left: 3px solid var(--accent); padding: 16px 20px; margin: 20px 0; border-radius: 0 6px 6px 0; }
+.callout.warn { border-left-color: var(--yellow); }
+.callout.danger { border-left-color: var(--red); }
+.callout.success { border-left-color: var(--green); }
+.callout-title { font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; color: var(--accent); }
+.callout.warn .callout-title { color: var(--yellow); }
+.callout.danger .callout-title { color: var(--red); }
+.callout.success .callout-title { color: var(--green); }
+.viz { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 24px; margin: 24px 0; }
+.viz-caption { color: var(--text-dim); font-size: 13px; margin-top: 12px; text-align: center; font-style: italic; }
+.papers { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 16px 24px; margin: 16px 0; }
+.paper { padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+.paper:last-child { border-bottom: none; }
+.paper-title { font-weight: 600; color: var(--text); }
+.paper-meta { color: var(--text-dim); font-size: 13px; }
+.paper-use { color: var(--teal); font-size: 13px; margin-top: 4px; }
+code { background: var(--panel-2); padding: 2px 6px; border-radius: 3px; font-size: 13px; font-family: "SF Mono", Monaco, Consolas, monospace; color: var(--accent-2); }
+table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px; }
+th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+th { background: var(--panel-2); font-weight: 600; color: var(--accent); }
+tr:hover { background: var(--panel); }
+.sig { color: var(--green); }
+.bad { color: var(--red); }
+.warn-c { color: var(--yellow); }
+hr { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+ul li, ol li { margin: 6px 0; }
+.kv-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 16px 0; }
+.kv-card { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 14px 18px; }
+.kv-label { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+.kv-value { font-size: 15px; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>Quant Reference</h1>
+<div class="subtitle">ML applications · Cross-market validation · Deflation methodology · Conditional clustering</div>
+
+<div class="meta-line">
+<strong>Origin:</strong> kickoff thesis delivered to SignalForge 2026-05-03 · <strong>This file:</strong> repository-committed copy, encoding-cleaned, structure preserved · <strong>Authority:</strong> the canonical research-pipeline reference, complemented by <a href="../MASTER.html">MASTER.html</a> for SignalForge-specific architecture and operating rules.
+</div>
+
+<div class="toc">
+<strong>Contents</strong>
+<ol>
+  <li><a href="#overview">The big picture: how it all fits together</a></li>
+  <li><a href="#deflation">Deflation methodology (DSR, PBO, HLZ)</a></li>
+  <li><a href="#clustering">Conditional clustering and behavioral buckets</a></li>
+  <li><a href="#crossmarket">Cross-market validation</a></li>
+  <li><a href="#ml">Machine learning — where it actually works in quant</a></li>
+  <li><a href="#workflow">The unified research workflow</a></li>
+  <li><a href="#papers">Master citation list</a></li>
+  <li><a href="#glossary">Quick glossary</a></li>
+</ol>
+</div>
+
+<!-- ====================================================== -->
+<h2 id="overview">1. The big picture: how it all fits together</h2>
+
+<p>Four concepts, one workflow. Each fixes a specific failure mode that retail systematic traders fall into. The point of seeing them together is that <em>none of them work alone</em> — the whole pipeline is greater than the sum of its parts.</p>
+
+<div class="viz">
+<svg viewBox="0 0 920 480" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#58a6ff"/>
+    </marker>
+    <linearGradient id="g1" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1c2128"/>
+      <stop offset="100%" style="stop-color:#161b22"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="20" y="60" width="170" height="100" rx="8" fill="url(#g1)" stroke="#bc8cff" stroke-width="2"/>
+  <text x="105" y="88" text-anchor="middle" fill="#bc8cff" font-size="13" font-weight="700">1. ML CLUSTERING</text>
+  <text x="105" y="110" text-anchor="middle" fill="#e6edf3" font-size="11">Find behavioral groups</text>
+  <text x="105" y="126" text-anchor="middle" fill="#e6edf3" font-size="11">in your asset universe</text>
+  <text x="105" y="146" text-anchor="middle" fill="#8b949e" font-size="10">unsupervised, on features</text>
+
+  <rect x="220" y="60" width="170" height="100" rx="8" fill="url(#g1)" stroke="#56d4dd" stroke-width="2"/>
+  <text x="305" y="88" text-anchor="middle" fill="#56d4dd" font-size="13" font-weight="700">2. STRATEGY DESIGN</text>
+  <text x="305" y="110" text-anchor="middle" fill="#e6edf3" font-size="11">Hand-craft simple rule</text>
+  <text x="305" y="126" text-anchor="middle" fill="#e6edf3" font-size="11">for ONE cluster</text>
+  <text x="305" y="146" text-anchor="middle" fill="#8b949e" font-size="10">grounded in canon</text>
+
+  <rect x="420" y="60" width="170" height="100" rx="8" fill="url(#g1)" stroke="#3fb950" stroke-width="2"/>
+  <text x="505" y="88" text-anchor="middle" fill="#3fb950" font-size="13" font-weight="700">3. BACKTEST</text>
+  <text x="505" y="110" text-anchor="middle" fill="#e6edf3" font-size="11">Walk-forward, fee-adj</text>
+  <text x="505" y="126" text-anchor="middle" fill="#e6edf3" font-size="11">on cluster only</text>
+  <text x="505" y="146" text-anchor="middle" fill="#8b949e" font-size="10">CSCV, multiple folds</text>
+
+  <rect x="620" y="60" width="170" height="100" rx="8" fill="url(#g1)" stroke="#d29922" stroke-width="2"/>
+  <text x="705" y="88" text-anchor="middle" fill="#d29922" font-size="13" font-weight="700">4. DEFLATION</text>
+  <text x="705" y="110" text-anchor="middle" fill="#e6edf3" font-size="11">DSR + PBO + HLZ</text>
+  <text x="705" y="126" text-anchor="middle" fill="#e6edf3" font-size="11">correct for selection</text>
+  <text x="705" y="146" text-anchor="middle" fill="#8b949e" font-size="10">survives or dies here</text>
+
+  <rect x="280" y="220" width="380" height="100" rx="8" fill="url(#g1)" stroke="#ff8c42" stroke-width="2"/>
+  <text x="470" y="250" text-anchor="middle" fill="#ff8c42" font-size="14" font-weight="700">5. CROSS-MARKET VALIDATION</text>
+  <text x="470" y="276" text-anchor="middle" fill="#e6edf3" font-size="12">Re-run steps 1–4 on Market B with independent calibration</text>
+  <text x="470" y="296" text-anchor="middle" fill="#e6edf3" font-size="12">Pattern survives → it's a behavioral truth, not a quirk</text>
+  <text x="470" y="312" text-anchor="middle" fill="#8b949e" font-size="11">transfer hypothesis, not parameters</text>
+
+  <rect x="320" y="370" width="300" height="80" rx="8" fill="url(#g1)" stroke="#58a6ff" stroke-width="2"/>
+  <text x="470" y="398" text-anchor="middle" fill="#58a6ff" font-size="14" font-weight="700">6. DEPLOY (small)</text>
+  <text x="470" y="420" text-anchor="middle" fill="#e6edf3" font-size="12">paper trade → small real capital</text>
+  <text x="470" y="438" text-anchor="middle" fill="#8b949e" font-size="11">monitor live vs. backtest divergence</text>
+
+  <line x1="190" y1="110" x2="218" y2="110" stroke="#58a6ff" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="390" y1="110" x2="418" y2="110" stroke="#58a6ff" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="590" y1="110" x2="618" y2="110" stroke="#58a6ff" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="705" y1="160" x2="600" y2="220" stroke="#58a6ff" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="105" y1="160" x2="340" y2="220" stroke="#58a6ff" stroke-width="2" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+  <line x1="470" y1="320" x2="470" y2="368" stroke="#58a6ff" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <text x="470" y="40" text-anchor="middle" fill="#e6edf3" font-size="14" font-weight="700">The unified quant research pipeline</text>
+  <text x="225" y="200" text-anchor="middle" fill="#8b949e" font-size="10" font-style="italic">if survived</text>
+</svg>
+<div class="viz-caption">Each stage exists to catch a specific failure mode. Skipping any one lets bugs propagate downstream.</div>
+</div>
+
+<div class="callout">
+<div class="callout-title">The single most important idea</div>
+The four concepts are not alternatives. They are <em>sequential filters</em> on the same research process. Clustering finds where the edge might live; strategy design proposes what to do; backtesting tests it on data; deflation corrects for selection bias; cross-market validation confirms the pattern is real and not a quirk. Each filter rejects different failure modes. Skipping any one means inheriting that failure mode silently.
+</div>
+
+<!-- ====================================================== -->
+<h2 id="deflation">2. Deflation methodology</h2>
+
+<p>The problem deflation solves: <strong>when you test many strategies, the best one will look great by chance alone, even if none have real edge.</strong> Deflation corrects for this. Without it, every backtest result is overstated.</p>
+
+<h3>Why selection bias inflates results</h3>
+
+<div class="viz">
+<svg viewBox="0 0 920 360" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto">
+  <text x="460" y="28" text-anchor="middle" fill="#e6edf3" font-size="14" font-weight="700">Distribution of best-of-N Sharpe ratios under the null hypothesis (no real edge)</text>
+  <text x="460" y="48" text-anchor="middle" fill="#8b949e" font-size="11">Even when ALL strategies have zero true edge, the apparent best looks profitable</text>
+
+  <line x1="80" y1="300" x2="860" y2="300" stroke="#30363d" stroke-width="1"/>
+  <line x1="80" y1="80" x2="80" y2="300" stroke="#30363d" stroke-width="1"/>
+
+  <text x="80" y="320" text-anchor="middle" fill="#8b949e" font-size="10">0.0</text>
+  <text x="210" y="320" text-anchor="middle" fill="#8b949e" font-size="10">0.5</text>
+  <text x="340" y="320" text-anchor="middle" fill="#8b949e" font-size="10">1.0</text>
+  <text x="470" y="320" text-anchor="middle" fill="#8b949e" font-size="10">1.5</text>
+  <text x="600" y="320" text-anchor="middle" fill="#8b949e" font-size="10">2.0</text>
+  <text x="730" y="320" fill="#8b949e" font-size="10">Best-of-N Sharpe Ratio →</text>
+
+  <path d="M 80,300 Q 130,180 210,150 Q 290,180 340,300" fill="none" stroke="#56d4dd" stroke-width="2" opacity="0.9"/>
+  <text x="220" y="135" text-anchor="middle" fill="#56d4dd" font-size="11" font-weight="600">N=1 trial</text>
+
+  <path d="M 80,300 Q 200,260 320,200 Q 380,170 410,160 Q 440,170 510,260 Q 560,290 600,300" fill="none" stroke="#d29922" stroke-width="2" opacity="0.9"/>
+  <text x="430" y="145" text-anchor="middle" fill="#d29922" font-size="11" font-weight="600">N=10 trials</text>
+
+  <path d="M 80,300 Q 280,295 470,285 Q 540,250 580,180 Q 610,120 640,140 Q 690,200 740,290 Q 790,298 820,300" fill="none" stroke="#f85149" stroke-width="2" opacity="0.9"/>
+  <text x="640" y="105" text-anchor="middle" fill="#f85149" font-size="11" font-weight="600">N=100 trials</text>
+
+  <path d="M 80,300 Q 400,300 700,295 Q 770,260 800,150 Q 820,90 830,100 Q 845,180 860,300" fill="none" stroke="#bc8cff" stroke-width="2" opacity="0.9"/>
+  <text x="820" y="80" text-anchor="middle" fill="#bc8cff" font-size="11" font-weight="600">N=41,472</text>
+
+  <line x1="340" y1="80" x2="340" y2="300" stroke="#3fb950" stroke-width="1" stroke-dasharray="4,3" opacity="0.6"/>
+  <text x="345" y="92" fill="#3fb950" font-size="10">SR &gt; 1.0 "looks tradeable"</text>
+
+  <text x="630" y="340" text-anchor="middle" fill="#e6edf3" font-size="12">With 41,472 trials, even pure noise produces apparent SRs above 2.0</text>
+</svg>
+<div class="viz-caption">Each curve shows the probability distribution of the *best* Sharpe found when testing N strategies that all have zero true edge. As N grows, the best result inflates rapidly even though nothing has changed about the strategies themselves.</div>
+</div>
+
+<h3>The three deflation gates</h3>
+
+<table>
+  <thead>
+    <tr><th>Gate</th><th>What it measures</th><th>Pass threshold</th><th>Source</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>DSR</strong> (Deflated Sharpe Ratio)</td>
+      <td>Probability the true Sharpe &gt; 0 after correcting for N trials</td>
+      <td><span class="sig">&gt; 0.95</span></td>
+      <td>Bailey &amp; López de Prado (2014)</td>
+    </tr>
+    <tr>
+      <td><strong>PBO</strong> (Prob. of Backtest Overfit)</td>
+      <td>Probability the chosen "best" strategy ranks below median OOS</td>
+      <td><span class="sig">&lt; 0.5</span></td>
+      <td>Bailey, Borwein, López de Prado, Zhu (2014)</td>
+    </tr>
+    <tr>
+      <td><strong>HLZ haircut</strong></td>
+      <td>t-stat adjustment for multiple testing across factor zoo</td>
+      <td><span class="sig">passes BHY at α = 0.05</span></td>
+      <td>Harvey, Liu &amp; Zhu (2016)</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>How CSCV (Combinatorially Symmetric Cross-Validation) actually works</h3>
+
+<p>Single-split walk-forward (60/20/20) underestimates overfitting because you only get one OOS estimate. CSCV generates many synthetic OOS estimates from limited data by combinatorial sampling. This is what López de Prado uses to compute PBO.</p>
+
+<div class="viz">
+<svg viewBox="0 0 920 280" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto">
+  <text x="460" y="24" text-anchor="middle" fill="#e6edf3" font-size="14" font-weight="700">CSCV: split into S blocks, every (S/2)-combination becomes a train/test pair</text>
+
+  <text x="80" y="68" fill="#8b949e" font-size="11">Time series:</text>
+  <rect x="180" y="55" width="100" height="22" fill="#1c2128" stroke="#30363d"/>
+  <rect x="280" y="55" width="100" height="22" fill="#1c2128" stroke="#30363d"/>
+  <rect x="380" y="55" width="100" height="22" fill="#1c2128" stroke="#30363d"/>
+  <rect x="480" y="55" width="100" height="22" fill="#1c2128" stroke="#30363d"/>
+  <rect x="580" y="55" width="100" height="22" fill="#1c2128" stroke="#30363d"/>
+  <rect x="680" y="55" width="100" height="22" fill="#1c2128" stroke="#30363d"/>
+  <text x="230" y="71" text-anchor="middle" fill="#e6edf3" font-size="11">Block 1</text>
+  <text x="330" y="71" text-anchor="middle" fill="#e6edf3" font-size="11">Block 2</text>
+  <text x="430" y="71" text-anchor="middle" fill="#e6edf3" font-size="11">Block 3</text>
+  <text x="530" y="71" text-anchor="middle" fill="#e6edf3" font-size="11">Block 4</text>
+  <text x="630" y="71" text-anchor="middle" fill="#e6edf3" font-size="11">Block 5</text>
+  <text x="730" y="71" text-anchor="middle" fill="#e6edf3" font-size="11">Block 6</text>
+
+  <text x="80" y="115" fill="#8b949e" font-size="11">Split 1:</text>
+  <rect x="180" y="100" width="100" height="22" fill="#3fb950" opacity="0.5"/>
+  <rect x="280" y="100" width="100" height="22" fill="#3fb950" opacity="0.5"/>
+  <rect x="380" y="100" width="100" height="22" fill="#3fb950" opacity="0.5"/>
+  <rect x="480" y="100" width="100" height="22" fill="#f85149" opacity="0.5"/>
+  <rect x="580" y="100" width="100" height="22" fill="#f85149" opacity="0.5"/>
+  <rect x="680" y="100" width="100" height="22" fill="#f85149" opacity="0.5"/>
+
+  <text x="80" y="145" fill="#8b949e" font-size="11">Split 2:</text>
+  <rect x="180" y="130" width="100" height="22" fill="#3fb950" opacity="0.5"/>
+  <rect x="280" y="130" width="100" height="22" fill="#f85149" opacity="0.5"/>
+  <rect x="380" y="130" width="100" height="22" fill="#3fb950" opacity="0.5"/>
+  <rect x="480" y="130" width="100" height="22" fill="#3fb950" opacity="0.5"/>
+  <rect x="580" y="130" width="100" height="22" fill="#f85149" opacity="0.5"/>
+  <rect x="680" y="130" width="100" height="22" fill="#f85149" opacity="0.5"/>
+
+  <text x="80" y="175" fill="#8b949e" font-size="11">Split 3:</text>
+  <rect x="180" y="160" width="100" height="22" fill="#f85149" opacity="0.5"/>
+  <rect x="280" y="160" width="100" height="22" fill="#3fb950" opacity="0.5"/>
+  <rect x="380" y="160" width="100" height="22" fill="#f85149" opacity="0.5"/>
+  <rect x="480" y="160" width="100" height="22" fill="#3fb950" opacity="0.5"/>
+  <rect x="580" y="160" width="100" height="22" fill="#3fb950" opacity="0.5"/>
+  <rect x="680" y="160" width="100" height="22" fill="#f85149" opacity="0.5"/>
+
+  <text x="80" y="205" fill="#8b949e" font-size="11">... and so on for all C(6,3) = 20 combinations</text>
+
+  <rect x="180" y="235" width="14" height="14" fill="#3fb950" opacity="0.5"/>
+  <text x="200" y="247" fill="#e6edf3" font-size="11">Train (IS)</text>
+  <rect x="280" y="235" width="14" height="14" fill="#f85149" opacity="0.5"/>
+  <text x="300" y="247" fill="#e6edf3" font-size="11">Test (OOS)</text>
+  <text x="400" y="247" fill="#8b949e" font-size="11">Each split gives an independent estimate of OOS rank — PBO measures how often "best IS" falls below median OOS</text>
+</svg>
+<div class="viz-caption">CSCV generates many synthetic OOS evaluations from limited data. PBO is the fraction of splits where the in-sample winner under-performs out-of-sample.</div>
+</div>
+
+<div class="papers">
+<div class="paper">
+<div class="paper-title">Bailey, D. H. &amp; López de Prado, M. (2014). The Deflated Sharpe Ratio.</div>
+<div class="paper-meta">Journal of Portfolio Management, 40(5)</div>
+<div class="paper-use">→ Adjusts SR for selection bias from multiple trials. Use as primary statistical gate.</div>
+</div>
+<div class="paper">
+<div class="paper-title">Bailey, D. H., Borwein, J., López de Prado, M. &amp; Zhu, Q. J. (2014). The Probability of Backtest Overfitting.</div>
+<div class="paper-meta">Journal of Computational Finance</div>
+<div class="paper-use">→ Defines PBO via CSCV. Tells you the probability your "best" config will fail OOS.</div>
+</div>
+<div class="paper">
+<div class="paper-title">Harvey, C. R., Liu, Y. &amp; Zhu, H. (2016). …and the Cross-Section of Expected Returns.</div>
+<div class="paper-meta">Review of Financial Studies, 29(1)</div>
+<div class="paper-use">→ Multiple-testing correction for the factor zoo. BHY threshold instead of naive p &lt; 0.05.</div>
+</div>
+<div class="paper">
+<div class="paper-title">López de Prado, M. (2018). Advances in Financial Machine Learning.</div>
+<div class="paper-meta">Wiley. Chapters 11–14 cover backtesting and deflation.</div>
+<div class="paper-use">→ The textbook. Buy this. Cross-reference everything.</div>
+</div>
+</div>
+
+<!-- ====================================================== -->
+<h2 id="clustering">3. Conditional clustering</h2>
+
+<p>The insight: <strong>"trade these tokens" is the wrong unit of analysis. "Trade assets in this behavioral cluster" is the right one.</strong> Two tokens in the same market cap tier can behave completely differently. Two assets in different markets can behave identically. The cluster — defined by statistical properties like volatility, correlation, liquidity — is what determines whether your strategy works on an asset, not the asset's identity or category.</p>
+
+<h3>Static labels vs. behavioral clusters</h3>
+
+<div class="viz">
+<svg viewBox="0 0 920 360" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto">
+  <text x="460" y="24" text-anchor="middle" fill="#e6edf3" font-size="14" font-weight="700">Two ways to slice your universe</text>
+
+  <text x="220" y="58" text-anchor="middle" fill="#f85149" font-size="13" font-weight="700">Static labels (market cap tier)</text>
+  <text x="220" y="76" text-anchor="middle" fill="#8b949e" font-size="11">arbitrary grouping; tokens differ wildly within tier</text>
+
+  <rect x="80" y="100" width="280" height="50" fill="#1c2128" stroke="#30363d"/>
+  <text x="100" y="130" fill="#bc8cff" font-size="11" font-weight="600">NANO</text>
+  <circle cx="160" cy="125" r="6" fill="#3fb950"/>
+  <circle cx="180" cy="125" r="6" fill="#f85149"/>
+  <circle cx="200" cy="125" r="6" fill="#3fb950"/>
+  <circle cx="220" cy="125" r="6" fill="#d29922"/>
+  <circle cx="240" cy="125" r="6" fill="#f85149"/>
+  <circle cx="260" cy="125" r="6" fill="#3fb950"/>
+  <circle cx="280" cy="125" r="6" fill="#d29922"/>
+  <circle cx="300" cy="125" r="6" fill="#f85149"/>
+  <circle cx="320" cy="125" r="6" fill="#3fb950"/>
+
+  <rect x="80" y="160" width="280" height="50" fill="#1c2128" stroke="#30363d"/>
+  <text x="100" y="190" fill="#bc8cff" font-size="11" font-weight="600">MICRO</text>
+  <circle cx="160" cy="185" r="6" fill="#f85149"/>
+  <circle cx="180" cy="185" r="6" fill="#3fb950"/>
+  <circle cx="200" cy="185" r="6" fill="#d29922"/>
+  <circle cx="220" cy="185" r="6" fill="#f85149"/>
+  <circle cx="240" cy="185" r="6" fill="#3fb950"/>
+  <circle cx="260" cy="185" r="6" fill="#f85149"/>
+  <circle cx="280" cy="185" r="6" fill="#3fb950"/>
+  <circle cx="300" cy="185" r="6" fill="#d29922"/>
+  <circle cx="320" cy="185" r="6" fill="#f85149"/>
+
+  <rect x="80" y="220" width="280" height="50" fill="#1c2128" stroke="#30363d"/>
+  <text x="100" y="250" fill="#bc8cff" font-size="11" font-weight="600">SMALL</text>
+  <circle cx="160" cy="245" r="6" fill="#d29922"/>
+  <circle cx="180" cy="245" r="6" fill="#3fb950"/>
+  <circle cx="200" cy="245" r="6" fill="#f85149"/>
+  <circle cx="220" cy="245" r="6" fill="#3fb950"/>
+  <circle cx="240" cy="245" r="6" fill="#d29922"/>
+  <circle cx="260" cy="245" r="6" fill="#f85149"/>
+  <circle cx="280" cy="245" r="6" fill="#3fb950"/>
+  <circle cx="300" cy="245" r="6" fill="#3fb950"/>
+  <circle cx="320" cy="245" r="6" fill="#d29922"/>
+
+  <text x="220" y="305" text-anchor="middle" fill="#f85149" font-size="11">→ winners and losers mixed in every group</text>
+  <text x="220" y="322" text-anchor="middle" fill="#f85149" font-size="11">→ category doesn't predict behavior</text>
+
+  <text x="700" y="58" text-anchor="middle" fill="#3fb950" font-size="13" font-weight="700">Behavioral clusters (vol × correlation)</text>
+  <text x="700" y="76" text-anchor="middle" fill="#8b949e" font-size="11">tokens grouped by how they actually behave</text>
+
+  <rect x="560" y="100" width="280" height="50" fill="#1c2128" stroke="#30363d"/>
+  <text x="572" y="130" fill="#56d4dd" font-size="10" font-weight="600">HI-VOL  LO-β</text>
+  <circle cx="668" cy="125" r="6" fill="#3fb950"/>
+  <circle cx="688" cy="125" r="6" fill="#3fb950"/>
+  <circle cx="708" cy="125" r="6" fill="#3fb950"/>
+  <circle cx="728" cy="125" r="6" fill="#3fb950"/>
+  <circle cx="748" cy="125" r="6" fill="#3fb950"/>
+  <circle cx="768" cy="125" r="6" fill="#3fb950"/>
+  <circle cx="788" cy="125" r="6" fill="#3fb950"/>
+  <circle cx="808" cy="125" r="6" fill="#d29922"/>
+  <circle cx="828" cy="125" r="6" fill="#3fb950"/>
+
+  <rect x="560" y="160" width="280" height="50" fill="#1c2128" stroke="#30363d"/>
+  <text x="572" y="190" fill="#56d4dd" font-size="10" font-weight="600">HI-VOL  HI-β</text>
+  <circle cx="668" cy="185" r="6" fill="#d29922"/>
+  <circle cx="688" cy="185" r="6" fill="#d29922"/>
+  <circle cx="708" cy="185" r="6" fill="#3fb950"/>
+  <circle cx="728" cy="185" r="6" fill="#d29922"/>
+  <circle cx="748" cy="185" r="6" fill="#d29922"/>
+  <circle cx="768" cy="185" r="6" fill="#d29922"/>
+  <circle cx="788" cy="185" r="6" fill="#3fb950"/>
+  <circle cx="808" cy="185" r="6" fill="#d29922"/>
+  <circle cx="828" cy="185" r="6" fill="#d29922"/>
+
+  <rect x="560" y="220" width="280" height="50" fill="#1c2128" stroke="#30363d"/>
+  <text x="572" y="250" fill="#56d4dd" font-size="10" font-weight="600">LO-VOL  ANY</text>
+  <circle cx="668" cy="245" r="6" fill="#f85149"/>
+  <circle cx="688" cy="245" r="6" fill="#f85149"/>
+  <circle cx="708" cy="245" r="6" fill="#f85149"/>
+  <circle cx="728" cy="245" r="6" fill="#f85149"/>
+  <circle cx="748" cy="245" r="6" fill="#f85149"/>
+  <circle cx="768" cy="245" r="6" fill="#f85149"/>
+  <circle cx="788" cy="245" r="6" fill="#f85149"/>
+  <circle cx="808" cy="245" r="6" fill="#f85149"/>
+  <circle cx="828" cy="245" r="6" fill="#f85149"/>
+
+  <text x="700" y="305" text-anchor="middle" fill="#3fb950" font-size="11">→ winners concentrate in HI-VOL LO-β</text>
+  <text x="700" y="322" text-anchor="middle" fill="#3fb950" font-size="11">→ trade only that cluster, exclude the rest</text>
+
+  <g transform="translate(80,340)">
+    <circle cx="6" cy="0" r="6" fill="#3fb950"/>
+    <text x="20" y="4" fill="#e6edf3" font-size="11">profitable</text>
+    <circle cx="106" cy="0" r="6" fill="#d29922"/>
+    <text x="120" y="4" fill="#e6edf3" font-size="11">flat</text>
+    <circle cx="186" cy="0" r="6" fill="#f85149"/>
+    <text x="200" y="4" fill="#e6edf3" font-size="11">losing</text>
+  </g>
+</svg>
+<div class="viz-caption">Same universe, two ways of grouping. Market cap mixes winners and losers in every tier. Behavioral clusters separate them cleanly — that's where the actionable filter lives.</div>
+</div>
+
+<h3>Static vs dynamic cluster membership</h3>
+
+<div class="callout warn">
+<div class="callout-title">Important nuance</div>
+Cluster <em>statistics</em> are stable — "high-vol low-beta" means the same thing this month and next. But cluster <em>membership</em> is not — a specific token can move between clusters as its behavior changes. Professional approach: continuously recompute cluster membership and trade whatever currently sits in your target cluster. This is what makes factor investing different from sector investing.
+</div>
+
+<h3>The multiple-testing trap with clusters</h3>
+
+<p>Beware: if you create 4 cap tiers × 3 vol regimes × 3 beta regimes = 36 sub-clusters, then run independent parameter sweeps in each, you've inflated the multiple-testing problem by 36×. Two correct approaches:</p>
+
+<ol>
+  <li><strong>Filter approach (low risk).</strong> Don't optimize per cluster. Look at where your existing winners cluster and use it as a binary filter (trade-eligible vs. excluded). One decision, not 36 optimizations.</li>
+  <li><strong>Continuous function approach (advanced).</strong> Replace per-cluster lookup tables with smooth parameter functions of cluster characteristics. <code>breakout_bars = f(vol_percentile)</code> with 2-3 free parameters generalizes far better than 36 independent configs.</li>
+</ol>
+
+<div class="papers">
+<div class="paper">
+<div class="paper-title">Ang, A. &amp; Chen, J. (2002). Asymmetric Correlations of Equity Portfolios.</div>
+<div class="paper-meta">Journal of Financial Economics, 63(3)</div>
+<div class="paper-use">→ Foundation for regime-aware correlation analysis. Correlations rise during downturns (the "all correlations go to 1" effect).</div>
+</div>
+<div class="paper">
+<div class="paper-title">Hamilton, J. D. (1989). A New Approach to the Economic Analysis of Nonstationary Time Series.</div>
+<div class="paper-meta">Econometrica, 57(2)</div>
+<div class="paper-use">→ Regime-switching models. Foundation for "stop trading when regime is wrong."</div>
+</div>
+<div class="paper">
+<div class="paper-title">López de Prado, M. (2018). AFML, Chapter 4: Sample Weights / Chapter 8: Feature Importance.</div>
+<div class="paper-meta">Wiley</div>
+<div class="paper-use">→ How to weight observations within clusters and rank features that drive cluster differences.</div>
+</div>
+</div>
+
+<!-- ====================================================== -->
+<h2 id="crossmarket">4. Cross-market validation</h2>
+
+<p>The single most powerful robustness check. <strong>If a pattern works on Market A, re-calibrate it on Market B and run the full deflation pipeline. Survival across markets means the pattern is a behavioral truth, not a quirk.</strong></p>
+
+<h3>The transfer protocol</h3>
+
+<div class="viz">
+<svg viewBox="0 0 920 360" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto">
+  <defs>
+    <marker id="arrow2" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#58a6ff"/>
+    </marker>
+  </defs>
+  <text x="460" y="24" text-anchor="middle" fill="#e6edf3" font-size="14" font-weight="700">Transfer the hypothesis, not the parameters</text>
+
+  <rect x="60" y="60" width="380" height="120" rx="6" fill="#1c2128" stroke="#f85149" stroke-width="2"/>
+  <text x="250" y="86" text-anchor="middle" fill="#f85149" font-size="13" font-weight="700">✗ NAIVE: copy parameters across markets</text>
+  <text x="250" y="115" text-anchor="middle" fill="#e6edf3" font-size="11">"Strategy works on Solana with 30-bar breakout"</text>
+  <text x="250" y="134" text-anchor="middle" fill="#e6edf3" font-size="11">→ apply same 30-bar breakout to small-cap stocks</text>
+  <text x="250" y="158" text-anchor="middle" fill="#f85149" font-size="11" font-weight="600">Fails: different microstructure → wrong calibration</text>
+
+  <rect x="480" y="60" width="380" height="120" rx="6" fill="#1c2128" stroke="#3fb950" stroke-width="2"/>
+  <text x="670" y="86" text-anchor="middle" fill="#3fb950" font-size="13" font-weight="700">✓ CORRECT: transfer hypothesis, recalibrate</text>
+  <text x="670" y="115" text-anchor="middle" fill="#e6edf3" font-size="11">"Strategy idea: vol-confirmed momentum on hi-vol lo-β"</text>
+  <text x="670" y="134" text-anchor="middle" fill="#e6edf3" font-size="11">→ identify hi-vol lo-β stocks; recalibrate parameters</text>
+  <text x="670" y="158" text-anchor="middle" fill="#3fb950" font-size="11" font-weight="600">Survives: pattern is real, parameters fit the venue</text>
+
+  <text x="460" y="220" text-anchor="middle" fill="#e6edf3" font-size="13" font-weight="700">Cross-market protocol</text>
+
+  <g transform="translate(60,240)">
+    <rect x="0" y="0" width="155" height="80" rx="6" fill="#161b22" stroke="#30363d"/>
+    <text x="77" y="22" text-anchor="middle" fill="#56d4dd" font-size="11" font-weight="700">1. EXTRACT</text>
+    <text x="77" y="44" text-anchor="middle" fill="#e6edf3" font-size="10">cluster characteristics</text>
+    <text x="77" y="58" text-anchor="middle" fill="#e6edf3" font-size="10">from Market A winners</text>
+    <text x="77" y="72" text-anchor="middle" fill="#8b949e" font-size="9">(vol, β, liquidity, etc.)</text>
+  </g>
+
+  <g transform="translate(232,240)">
+    <rect x="0" y="0" width="155" height="80" rx="6" fill="#161b22" stroke="#30363d"/>
+    <text x="77" y="22" text-anchor="middle" fill="#56d4dd" font-size="11" font-weight="700">2. RE-COMPUTE</text>
+    <text x="77" y="44" text-anchor="middle" fill="#e6edf3" font-size="10">same characteristics on</text>
+    <text x="77" y="58" text-anchor="middle" fill="#e6edf3" font-size="10">Market B's distribution</text>
+    <text x="77" y="72" text-anchor="middle" fill="#8b949e" font-size="9">"hi-vol" is venue-specific</text>
+  </g>
+
+  <g transform="translate(404,240)">
+    <rect x="0" y="0" width="155" height="80" rx="6" fill="#161b22" stroke="#30363d"/>
+    <text x="77" y="22" text-anchor="middle" fill="#56d4dd" font-size="11" font-weight="700">3. RE-CALIBRATE</text>
+    <text x="77" y="44" text-anchor="middle" fill="#e6edf3" font-size="10">strategy parameters on</text>
+    <text x="77" y="58" text-anchor="middle" fill="#e6edf3" font-size="10">Market B independently</text>
+    <text x="77" y="72" text-anchor="middle" fill="#8b949e" font-size="9">walk-forward, fee-adj</text>
+  </g>
+
+  <g transform="translate(576,240)">
+    <rect x="0" y="0" width="155" height="80" rx="6" fill="#161b22" stroke="#30363d"/>
+    <text x="77" y="22" text-anchor="middle" fill="#56d4dd" font-size="11" font-weight="700">4. DEFLATE</text>
+    <text x="77" y="44" text-anchor="middle" fill="#e6edf3" font-size="10">DSR, PBO, HLZ on</text>
+    <text x="77" y="58" text-anchor="middle" fill="#e6edf3" font-size="10">Market B results</text>
+    <text x="77" y="72" text-anchor="middle" fill="#8b949e" font-size="9">independent gates</text>
+  </g>
+
+  <g transform="translate(748,240)">
+    <rect x="0" y="0" width="115" height="80" rx="6" fill="#161b22" stroke="#3fb950" stroke-width="2"/>
+    <text x="57" y="22" text-anchor="middle" fill="#3fb950" font-size="11" font-weight="700">5. COMPARE</text>
+    <text x="57" y="44" text-anchor="middle" fill="#e6edf3" font-size="10">does pattern</text>
+    <text x="57" y="58" text-anchor="middle" fill="#e6edf3" font-size="10">survive both?</text>
+    <text x="57" y="72" text-anchor="middle" fill="#8b949e" font-size="9">if yes → robust</text>
+  </g>
+
+  <line x1="216" y1="280" x2="231" y2="280" stroke="#58a6ff" stroke-width="2" marker-end="url(#arrow2)"/>
+  <line x1="388" y1="280" x2="403" y2="280" stroke="#58a6ff" stroke-width="2" marker-end="url(#arrow2)"/>
+  <line x1="560" y1="280" x2="575" y2="280" stroke="#58a6ff" stroke-width="2" marker-end="url(#arrow2)"/>
+  <line x1="732" y1="280" x2="747" y2="280" stroke="#58a6ff" stroke-width="2" marker-end="url(#arrow2)"/>
+</svg>
+<div class="viz-caption">The protocol that distinguishes a real behavioral pattern from a single-market overfit. Different venues need different parameters even when the underlying behavior is the same.</div>
+</div>
+
+<div class="callout success">
+<div class="callout-title">The robustness multiplier</div>
+A strategy that produces a deflated Sharpe of 0.8 on Solana <em>and</em> on US small-cap equities <em>and</em> on liquid altcoin majors is dramatically more trustworthy than one with a deflated Sharpe of 1.5 on Solana alone. Independent confirmation across markets controls for the kind of quirky single-venue overfit that even deflation can miss.
+</div>
+
+<h3>Markets are all "the same cluster"</h3>
+
+<p>The deeper insight: an asset's market label (stock, crypto, future, FX) doesn't determine its behavior. Statistical properties do. A high-vol low-beta Solana token and a high-vol low-beta small-cap biotech can sit in the same behavioral cluster and respond to the same strategy, even though one trades 24/7 on a DEX and the other trades 9:30–4:00 on Nasdaq.</p>
+
+<div class="papers">
+<div class="paper">
+<div class="paper-title">Asness, C., Moskowitz, T. &amp; Pedersen, L. (2013). Value and Momentum Everywhere.</div>
+<div class="paper-meta">Journal of Finance, 68(3)</div>
+<div class="paper-use">→ The canonical cross-market study. Value and momentum work across 8 markets and 4 asset classes. Robustness comes from cross-market consistency.</div>
+</div>
+<div class="paper">
+<div class="paper-title">Moskowitz, T., Ooi, Y. &amp; Pedersen, L. (2012). Time Series Momentum.</div>
+<div class="paper-meta">Journal of Financial Economics, 104(2)</div>
+<div class="paper-use">→ Time-series momentum on 58 instruments across 4 asset classes. Demonstrates the cross-market protocol in practice.</div>
+</div>
+<div class="paper">
+<div class="paper-title">Erb, C. &amp; Harvey, C. (2006). The Strategic and Tactical Value of Commodity Futures.</div>
+<div class="paper-meta">Financial Analysts Journal, 62(2)</div>
+<div class="paper-use">→ Momentum and basis trades transferred to commodities. Same hypothesis, different venue, independent calibration.</div>
+</div>
+<div class="paper">
+<div class="paper-title">Liu, Y. &amp; Tsyvinski, A. (2021). Risks and Returns of Cryptocurrency.</div>
+<div class="paper-meta">Review of Financial Studies, 34(6)</div>
+<div class="paper-use">→ Equity factor models applied to crypto. Demonstrates which equity-based hypotheses transfer and which don't.</div>
+</div>
+</div>
+
+<!-- ====================================================== -->
+<h2 id="ml">5. Machine learning — where it actually works in quant</h2>
+
+<p>Most retail uses of ML in trading fail. There's one specific use case where it genuinely earns its place: <strong>using ML to discover behavioral clusters and to filter signals from a primary strategy that already has edge.</strong> Not to generate strategies. Not to predict prices. Not to replace human judgment.</p>
+
+<h3>The good vs. bad uses of ML in quant</h3>
+
+<div class="viz">
+<svg viewBox="0 0 920 380" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto">
+  <text x="460" y="24" text-anchor="middle" fill="#e6edf3" font-size="14" font-weight="700">When ML helps in trading and when it makes things worse</text>
+
+  <rect x="60" y="50" width="400" height="280" rx="8" fill="#1c2128" stroke="#f85149" stroke-width="2"/>
+  <text x="260" y="78" text-anchor="middle" fill="#f85149" font-size="14" font-weight="700">✗ Where ML fails</text>
+
+  <text x="80" y="110" fill="#e6edf3" font-size="12" font-weight="600">Predicting next-period returns</text>
+  <text x="80" y="128" fill="#8b949e" font-size="11">Signal-to-noise too low; overfit guaranteed</text>
+
+  <text x="80" y="158" fill="#e6edf3" font-size="12" font-weight="600">"Let the model find strategies"</text>
+  <text x="80" y="176" fill="#8b949e" font-size="11">No human knowledge anchoring; meaningless results</text>
+
+  <text x="80" y="206" fill="#e6edf3" font-size="12" font-weight="600">Reinforcement learning on backtests</text>
+  <text x="80" y="224" fill="#8b949e" font-size="11">Backtest is fixed history, not interactive environment</text>
+
+  <text x="80" y="254" fill="#e6edf3" font-size="12" font-weight="600">Deep nets on small data</text>
+  <text x="80" y="272" fill="#8b949e" font-size="11">Need millions of samples; you have thousands</text>
+
+  <text x="80" y="302" fill="#e6edf3" font-size="12" font-weight="600">"Black box" models you can't audit</text>
+  <text x="80" y="320" fill="#8b949e" font-size="11">No way to debug when (not if) it fails live</text>
+
+  <rect x="480" y="50" width="380" height="280" rx="8" fill="#1c2128" stroke="#3fb950" stroke-width="2"/>
+  <text x="670" y="78" text-anchor="middle" fill="#3fb950" font-size="14" font-weight="700">✓ Where ML genuinely helps</text>
+
+  <text x="500" y="110" fill="#e6edf3" font-size="12" font-weight="600">Unsupervised clustering of assets</text>
+  <text x="500" y="128" fill="#8b949e" font-size="11">Pattern recognition in feature space; auditable output</text>
+
+  <text x="500" y="158" fill="#e6edf3" font-size="12" font-weight="600">Meta-labeling (LdP, AFML ch. 3)</text>
+  <text x="500" y="176" fill="#8b949e" font-size="11">"Will THIS signal work, given current conditions?"</text>
+
+  <text x="500" y="206" fill="#e6edf3" font-size="12" font-weight="600">Volatility regime classification</text>
+  <text x="500" y="224" fill="#8b949e" font-size="11">Multi-feature regime detection</text>
+
+  <text x="500" y="254" fill="#e6edf3" font-size="12" font-weight="600">Feature importance ranking</text>
+  <text x="500" y="272" fill="#8b949e" font-size="11">Which inputs actually drive returns?</text>
+
+  <text x="500" y="302" fill="#e6edf3" font-size="12" font-weight="600">NLP on news / earnings calls</text>
+  <text x="500" y="320" fill="#8b949e" font-size="11">Information extraction from unstructured text</text>
+
+  <text x="460" y="365" text-anchor="middle" fill="#56d4dd" font-size="12" font-style="italic">Common pattern in good uses: ML does pattern recognition; human does strategy design</text>
+</svg>
+<div class="viz-caption">The discriminator: does the ML output preserve human judgment downstream, or replace it? The good uses augment; the bad uses substitute.</div>
+</div>
+
+<h3>Meta-labeling: the right way to use ML in your stack</h3>
+
+<p>Meta-labeling (López de Prado, AFML chapter 3) is the cleanest legitimate ML application for what you're building. It works like this:</p>
+
+<ol>
+  <li><strong>Primary model</strong> generates signals using your existing rules-based strategy. This already has some edge — that's the prerequisite.</li>
+  <li><strong>Secondary ML model</strong> takes (signal fired, current asset features, current market regime) as input and predicts the probability that this specific signal will work.</li>
+  <li><strong>Filter</strong>: only execute primary signals that the meta-model rates above a threshold.</li>
+</ol>
+
+<div class="callout">
+<div class="callout-title">Why this works when other ML doesn't</div>
+The training data is structured around an event that already has positive expectancy. You're not asking ML to find alpha from scratch — you're asking it to identify which of many trades from a working strategy are most likely to succeed. Vastly easier problem, vastly more tractable data.
+</div>
+
+<div class="papers">
+<div class="paper">
+<div class="paper-title">López de Prado, M. (2018). AFML, Chapter 3: Labeling, Chapter 7: Cross-Validation in Finance, Chapter 18: Entropy Features.</div>
+<div class="paper-use">→ Meta-labeling, purged k-fold CV (the right CV for time series), informational features. Core ML methodology.</div>
+</div>
+<div class="paper">
+<div class="paper-title">Bergstra, J. &amp; Bengio, Y. (2012). Random Search for Hyper-Parameter Optimization.</div>
+<div class="paper-meta">Journal of Machine Learning Research, 13</div>
+<div class="paper-use">→ Why grid search wastes resources; random search dominates in high dimensions.</div>
+</div>
+<div class="paper">
+<div class="paper-title">López de Prado, M. (2020). Machine Learning for Asset Managers.</div>
+<div class="paper-meta">Cambridge University Press</div>
+<div class="paper-use">→ Shorter, more applied companion to AFML. Covers clustering, denoising, and detection of false discoveries.</div>
+</div>
+</div>
+
+<!-- ====================================================== -->
+<h2 id="workflow">6. The unified research workflow</h2>
+
+<p>Putting it all together. The order matters. Each step gates the next.</p>
+
+<div class="viz">
+<svg viewBox="0 0 920 540" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto">
+  <text x="460" y="24" text-anchor="middle" fill="#e6edf3" font-size="14" font-weight="700">Full research-to-deployment workflow</text>
+
+  <rect x="40" y="60" width="180" height="450" rx="8" fill="#161b22" stroke="#30363d"/>
+  <text x="130" y="86" text-anchor="middle" fill="#bc8cff" font-size="12" font-weight="700">DISCOVERY</text>
+  <text x="130" y="103" text-anchor="middle" fill="#8b949e" font-size="10">unsupervised, exploratory</text>
+  <rect x="56" y="125" width="148" height="55" rx="4" fill="#1c2128" stroke="#bc8cff" stroke-width="1"/>
+  <text x="130" y="145" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">ML clustering</text>
+  <text x="130" y="161" text-anchor="middle" fill="#8b949e" font-size="10">vol, β, liquidity,</text>
+  <text x="130" y="173" text-anchor="middle" fill="#8b949e" font-size="10">autocorrelation features</text>
+  <rect x="56" y="195" width="148" height="55" rx="4" fill="#1c2128" stroke="#bc8cff" stroke-width="1"/>
+  <text x="130" y="215" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">Cluster inspection</text>
+  <text x="130" y="231" text-anchor="middle" fill="#8b949e" font-size="10">human-readable</text>
+  <text x="130" y="243" text-anchor="middle" fill="#8b949e" font-size="10">labels per cluster</text>
+  <rect x="56" y="265" width="148" height="55" rx="4" fill="#1c2128" stroke="#bc8cff" stroke-width="1"/>
+  <text x="130" y="285" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">Hypothesis</text>
+  <text x="130" y="301" text-anchor="middle" fill="#8b949e" font-size="10">"strategy X works on</text>
+  <text x="130" y="313" text-anchor="middle" fill="#8b949e" font-size="10">cluster Y"</text>
+
+  <rect x="240" y="60" width="180" height="450" rx="8" fill="#161b22" stroke="#30363d"/>
+  <text x="330" y="86" text-anchor="middle" fill="#56d4dd" font-size="12" font-weight="700">DESIGN &amp; TEST</text>
+  <text x="330" y="103" text-anchor="middle" fill="#8b949e" font-size="10">supervised, hypothesis-driven</text>
+  <rect x="256" y="125" width="148" height="55" rx="4" fill="#1c2128" stroke="#56d4dd" stroke-width="1"/>
+  <text x="330" y="145" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">Strategy spec</text>
+  <text x="330" y="161" text-anchor="middle" fill="#8b949e" font-size="10">simple, grounded in</text>
+  <text x="330" y="173" text-anchor="middle" fill="#8b949e" font-size="10">canon, &lt;5 parameters</text>
+  <rect x="256" y="195" width="148" height="55" rx="4" fill="#1c2128" stroke="#56d4dd" stroke-width="1"/>
+  <text x="330" y="215" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">Backtest on cluster</text>
+  <text x="330" y="231" text-anchor="middle" fill="#8b949e" font-size="10">walk-forward,</text>
+  <text x="330" y="243" text-anchor="middle" fill="#8b949e" font-size="10">fee-adjusted</text>
+  <rect x="256" y="265" width="148" height="55" rx="4" fill="#1c2128" stroke="#56d4dd" stroke-width="1"/>
+  <text x="330" y="285" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">Deflation gates</text>
+  <text x="330" y="301" text-anchor="middle" fill="#8b949e" font-size="10">DSR &gt; 0.95</text>
+  <text x="330" y="313" text-anchor="middle" fill="#8b949e" font-size="10">PBO &lt; 0.5  HLZ pass</text>
+
+  <rect x="440" y="60" width="180" height="450" rx="8" fill="#161b22" stroke="#30363d"/>
+  <text x="530" y="86" text-anchor="middle" fill="#ff8c42" font-size="12" font-weight="700">VALIDATE</text>
+  <text x="530" y="103" text-anchor="middle" fill="#8b949e" font-size="10">cross-market check</text>
+  <rect x="456" y="125" width="148" height="55" rx="4" fill="#1c2128" stroke="#ff8c42" stroke-width="1"/>
+  <text x="530" y="145" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">Pick second market</text>
+  <text x="530" y="161" text-anchor="middle" fill="#8b949e" font-size="10">e.g. equities or</text>
+  <text x="530" y="173" text-anchor="middle" fill="#8b949e" font-size="10">liquid majors</text>
+  <rect x="456" y="195" width="148" height="55" rx="4" fill="#1c2128" stroke="#ff8c42" stroke-width="1"/>
+  <text x="530" y="215" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">Recalibrate cluster</text>
+  <text x="530" y="231" text-anchor="middle" fill="#8b949e" font-size="10">same characteristics,</text>
+  <text x="530" y="243" text-anchor="middle" fill="#8b949e" font-size="10">market B's distribution</text>
+  <rect x="456" y="265" width="148" height="55" rx="4" fill="#1c2128" stroke="#ff8c42" stroke-width="1"/>
+  <text x="530" y="285" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">Independent backtest</text>
+  <text x="530" y="301" text-anchor="middle" fill="#8b949e" font-size="10">re-run gates from</text>
+  <text x="530" y="313" text-anchor="middle" fill="#8b949e" font-size="10">scratch on market B</text>
+  <rect x="456" y="335" width="148" height="55" rx="4" fill="#1c2128" stroke="#ff8c42" stroke-width="1"/>
+  <text x="530" y="355" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">Compare</text>
+  <text x="530" y="371" text-anchor="middle" fill="#8b949e" font-size="10">survives both → robust</text>
+  <text x="530" y="383" text-anchor="middle" fill="#8b949e" font-size="10">fails one → suspect</text>
+
+  <rect x="640" y="60" width="240" height="450" rx="8" fill="#161b22" stroke="#30363d"/>
+  <text x="760" y="86" text-anchor="middle" fill="#3fb950" font-size="12" font-weight="700">DEPLOY &amp; ITERATE</text>
+  <text x="760" y="103" text-anchor="middle" fill="#8b949e" font-size="10">cautious live deployment</text>
+  <rect x="656" y="125" width="208" height="55" rx="4" fill="#1c2128" stroke="#3fb950" stroke-width="1"/>
+  <text x="760" y="145" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">Paper trade</text>
+  <text x="760" y="161" text-anchor="middle" fill="#8b949e" font-size="10">verify live performance</text>
+  <text x="760" y="173" text-anchor="middle" fill="#8b949e" font-size="10">matches backtest</text>
+  <rect x="656" y="195" width="208" height="55" rx="4" fill="#1c2128" stroke="#3fb950" stroke-width="1"/>
+  <text x="760" y="215" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">Small real capital</text>
+  <text x="760" y="231" text-anchor="middle" fill="#8b949e" font-size="10">$1k–5k initial</text>
+  <text x="760" y="243" text-anchor="middle" fill="#8b949e" font-size="10">monitor execution</text>
+  <rect x="656" y="265" width="208" height="55" rx="4" fill="#1c2128" stroke="#3fb950" stroke-width="1"/>
+  <text x="760" y="285" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">Meta-labeling layer</text>
+  <text x="760" y="301" text-anchor="middle" fill="#8b949e" font-size="10">ML filter on top of</text>
+  <text x="760" y="313" text-anchor="middle" fill="#8b949e" font-size="10">deployed primary</text>
+  <rect x="656" y="335" width="208" height="55" rx="4" fill="#1c2128" stroke="#3fb950" stroke-width="1"/>
+  <text x="760" y="355" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">Scale gradually</text>
+  <text x="760" y="371" text-anchor="middle" fill="#8b949e" font-size="10">as track record builds</text>
+  <text x="760" y="383" text-anchor="middle" fill="#8b949e" font-size="10">re-validate quarterly</text>
+  <rect x="656" y="405" width="208" height="55" rx="4" fill="#1c2128" stroke="#3fb950" stroke-width="1"/>
+  <text x="760" y="425" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">Find next strategy</text>
+  <text x="760" y="441" text-anchor="middle" fill="#8b949e" font-size="10">portfolio of small</text>
+  <text x="760" y="453" text-anchor="middle" fill="#8b949e" font-size="10">uncorrelated edges</text>
+
+  <line x1="220" y1="222" x2="238" y2="222" stroke="#58a6ff" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="420" y1="222" x2="438" y2="222" stroke="#58a6ff" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="620" y1="222" x2="654" y2="222" stroke="#58a6ff" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <path d="M 760,475 Q 130,540 130,335" fill="none" stroke="#8b949e" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+  <text x="450" y="535" text-anchor="middle" fill="#8b949e" font-size="10" font-style="italic">edges decay → loop back to discover new ones</text>
+</svg>
+<div class="viz-caption">The complete pipeline. Each lane is a different mode of work and uses different tools. The dashed loop at the bottom is critical — edges decay over time, so the discovery process must be ongoing.</div>
+</div>
+
+<!-- ====================================================== -->
+<h2 id="papers">7. Master citation list</h2>
+
+<p>The full canon for the four concepts above. The starred items (★) are foundational — prioritize them over Tier 2 sources.</p>
+
+<div class="papers">
+<div class="paper">
+<div class="paper-title">★ López de Prado, M. (2018). Advances in Financial Machine Learning.</div>
+<div class="paper-meta">Wiley</div>
+<div class="paper-use">→ The single most useful book for what you are building. Covers backtesting, deflation, meta-labeling, sample weighting, feature importance, CSCV. Reference weekly.</div>
+</div>
+<div class="paper">
+<div class="paper-title">★ Bailey, D. H. &amp; López de Prado, M. (2014). The Deflated Sharpe Ratio.</div>
+<div class="paper-meta">Journal of Portfolio Management, 40(5), 94–107</div>
+<div class="paper-use">→ Foundation for DSR. The closed-form correction for selection bias.</div>
+</div>
+<div class="paper">
+<div class="paper-title">★ Bailey, D. H., Borwein, J., López de Prado, M. &amp; Zhu, Q. J. (2014). The Probability of Backtest Overfitting.</div>
+<div class="paper-meta">Journal of Computational Finance</div>
+<div class="paper-use">→ Defines PBO via CSCV. Companion to AFML chapter 11.</div>
+</div>
+<div class="paper">
+<div class="paper-title">★ Harvey, C. R., Liu, Y. &amp; Zhu, H. (2016). …and the Cross-Section of Expected Returns.</div>
+<div class="paper-meta">Review of Financial Studies, 29(1), 5–68</div>
+<div class="paper-use">→ Multiple-testing methodology for the factor zoo. BHY threshold over Bonferroni.</div>
+</div>
+<div class="paper">
+<div class="paper-title">★ Jegadeesh, N. &amp; Titman, S. (1993). Returns to Buying Winners and Selling Losers.</div>
+<div class="paper-meta">Journal of Finance, 48(1), 65–91</div>
+<div class="paper-use">→ Founding paper of cross-sectional momentum.</div>
+</div>
+<div class="paper">
+<div class="paper-title">Asness, C., Moskowitz, T. &amp; Pedersen, L. (2013). Value and Momentum Everywhere.</div>
+<div class="paper-meta">Journal of Finance, 68(3), 929–985</div>
+<div class="paper-use">→ Cross-market validation done right. 8 markets, 4 asset classes, consistent factor exposures.</div>
+</div>
+<div class="paper">
+<div class="paper-title">Moskowitz, T., Ooi, Y. H. &amp; Pedersen, L. (2012). Time Series Momentum.</div>
+<div class="paper-meta">Journal of Financial Economics, 104(2), 228–250</div>
+<div class="paper-use">→ Time-series momentum across 58 instruments. Template for cross-market protocol.</div>
+</div>
+<div class="paper">
+<div class="paper-title">Liu, Y. &amp; Tsyvinski, A. (2021). Risks and Returns of Cryptocurrency.</div>
+<div class="paper-meta">Review of Financial Studies, 34(6), 2689–2727</div>
+<div class="paper-use">→ Crypto factor model. Direct relevance to your existing universe.</div>
+</div>
+<div class="paper">
+<div class="paper-title">Pardo, R. (2008). The Evaluation and Optimization of Trading Strategies (2nd ed.).</div>
+<div class="paper-meta">Wiley</div>
+<div class="paper-use">→ Walk-forward methodology, parameter robustness, out-of-sample design. Practical companion to López de Prado's theory.</div>
+</div>
+<div class="paper">
+<div class="paper-title">Hamilton, J. D. (1989). A New Approach to the Economic Analysis of Nonstationary Time Series.</div>
+<div class="paper-meta">Econometrica, 57(2), 357–384</div>
+<div class="paper-use">→ Regime-switching models. Foundation for behavioral clustering with regime gates.</div>
+</div>
+<div class="paper">
+<div class="paper-title">Ang, A. &amp; Chen, J. (2002). Asymmetric Correlations of Equity Portfolios.</div>
+<div class="paper-meta">Journal of Financial Economics, 63(3), 443–494</div>
+<div class="paper-use">→ Why correlations rise during downturns. Critical for understanding when clustering breaks.</div>
+</div>
+<div class="paper">
+<div class="paper-title">Blume, L., Easley, D. &amp; O'Hara, M. (1994). Market Statistics and Technical Analysis: The Role of Volume.</div>
+<div class="paper-meta">Journal of Finance, 49(1), 153–181</div>
+<div class="paper-use">→ Volume as informational signal.</div>
+</div>
+<div class="paper">
+<div class="paper-title">Bergstra, J. &amp; Bengio, Y. (2012). Random Search for Hyper-Parameter Optimization.</div>
+<div class="paper-meta">JMLR, 13, 281–305</div>
+<div class="paper-use">→ Why grid search wastes resources. Use random search for parameter sweeps.</div>
+</div>
+<div class="paper">
+<div class="paper-title">Aronson, D. (2006). Evidence-Based Technical Analysis.</div>
+<div class="paper-meta">Wiley</div>
+<div class="paper-use">→ Hypothesis testing on technical rules. Data-mining bias in backtests.</div>
+</div>
+<div class="paper">
+<div class="paper-title">López de Prado, M. (2020). Machine Learning for Asset Managers.</div>
+<div class="paper-meta">Cambridge University Press</div>
+<div class="paper-use">→ Shorter, more applied companion to AFML. Particularly good on clustering and false discovery.</div>
+</div>
+</div>
+
+<!-- ====================================================== -->
+<h2 id="glossary">8. Quick glossary</h2>
+
+<table>
+  <thead><tr><th>Term</th><th>Meaning</th></tr></thead>
+  <tbody>
+    <tr><td><strong>DSR</strong></td><td>Deflated Sharpe Ratio. Probability the true Sharpe is positive, after correcting for the number of trials.</td></tr>
+    <tr><td><strong>PBO</strong></td><td>Probability of Backtest Overfitting. The probability that your in-sample winner ranks below median out-of-sample.</td></tr>
+    <tr><td><strong>HLZ haircut</strong></td><td>Harvey-Liu-Zhu t-stat correction for multiple testing. BHY threshold instead of naive p&lt;0.05.</td></tr>
+    <tr><td><strong>CSCV</strong></td><td>Combinatorially Symmetric Cross-Validation. Generates many synthetic OOS evaluations from limited data.</td></tr>
+    <tr><td><strong>Behavioral cluster</strong></td><td>Group of assets that share statistical properties (vol, β, liquidity) regardless of asset class label.</td></tr>
+    <tr><td><strong>Cross-market validation</strong></td><td>Re-running the full deflation pipeline on a different market to confirm the pattern is real.</td></tr>
+    <tr><td><strong>Meta-labeling</strong></td><td>ML filter on top of a primary strategy that already has edge. Predicts "will this signal work?"</td></tr>
+    <tr><td><strong>Walk-forward</strong></td><td>Train on early data, test on later data, slide the window forward. Prevents lookahead bias.</td></tr>
+    <tr><td><strong>Selection bias</strong></td><td>The inflation of apparent performance that comes from picking the best of many tested configurations.</td></tr>
+    <tr><td><strong>Edge decay</strong></td><td>The tendency of profitable patterns to weaken as more capital arbitrages them away.</td></tr>
+  </tbody>
+</table>
+
+<hr>
+
+<div class="callout success">
+<div class="callout-title">How to use this document</div>
+Read once end-to-end to refresh the model. Then use as reference: open the relevant section before each new experiment so the methodology is fresh. The diagrams are designed to be the fastest way to re-anchor — glance at them, recall the concept, then dive into specifics. Re-read the glossary periodically; vocabulary is one of the things that solidifies fastest with repeated exposure.
+</div>
+
+</div>
+</body>
+</html>

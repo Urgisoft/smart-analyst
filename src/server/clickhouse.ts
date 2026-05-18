@@ -1,5 +1,8 @@
 import { createClient, ClickHouseClient } from '@clickhouse/client';
 import type { Candle } from '../lib/indicators.js';
+import { buildBtRunsFilter, RUNS_MAGNITUDE_HYGIENE_SQL } from './btRunsFilter.js';
+// Type-only import — no runtime cycle (RunRow/SliceRow are erased at compile time).
+import type { RunRow, SliceRow } from '../../scripts/score_strategies.js';
 
 let _client: ClickHouseClient | null = null;
 
@@ -160,21 +163,101 @@ export async function ensureBacktestTables(): Promise<void> {
     `,
   });
 
-  // Seed the three built-in bundles on first install. Idempotent — ReplacingMergeTree collapses
-  // by bundle_id so re-running this on top of existing data is harmless.
-  const seedQ = await ch.query({
-    query: `SELECT count() AS n FROM quantlab.strategies FINAL`,
+  // Seed the built-in bundles. Idempotent at the BUNDLE level — we query existing
+  // bundle_ids and only insert the missing ones. This lets the seed list grow over time
+  // (e.g. when a new family lands) without overwriting any user customizations to existing
+  // rows. ReplacingMergeTree(updated_at) would also collapse on bundle_id, but inserting
+  // with a fresh updated_at would *replace* the user's row — not what we want.
+  const SEED_BUNDLES = [
+    { bundle_id: 'momentum_v1',       name: 'Momentum Breakout v1',  family: 'momentum',        entry_logic: 'rsi > 50 && roc > 0', exit_logic: 'rsi < 45 || roc < 0', notes: 'Built-in seed.' },
+    { bundle_id: 'mean_reversion_v1', name: 'Mean Reversion v1',     family: 'mean_reversion',  entry_logic: 'rsi < 30',            exit_logic: 'rsi > 60',            notes: 'Built-in seed.' },
+    { bundle_id: 'trend_v1',          name: 'Trend Crossover v1',    family: 'trend_following', entry_logic: 'ema_fast > ema_slow', exit_logic: 'ema_fast < ema_slow', notes: 'Built-in seed.' },
+    // Volume-Breakout — first non-RSI/EMA family. Microstructure-orthogonal to the three
+    // above (volume + price-level signal vs. moving-average crossovers on close-only data).
+    // Canon: Karpoff (1987) volume-information; Blume-Easley-O'Hara (1994) volume-as-signal;
+    // Donchian (1960s) channel breakout; Turtle Traders (Dennis 1983) for the rule format.
+    // `param` controls BOTH the volume-SMA window and the Donchian lookback.
+    {
+      bundle_id: 'volume_breakout_v1',
+      name: 'Volume Breakout v1',
+      family: 'custom',
+      entry_logic: 'vol_ratio > 1.5 && close > donchian_high',
+      exit_logic: '(vol_ratio < 1 && position_pnl_pct > 0) || position_pnl_pct < -3 || bars_in_position > 48',
+      notes: 'Volume-spike + N-bar Donchian breakout. Karpoff 1987 + Donchian/Turtles. param = vol-SMA + breakout lookback.',
+    },
+    // Volume-Breakout + Self-Momentum — port of the live solana-smart-money-bot's deployed
+    // VB+XMOM config (VM=1.5, BB=5, top-5%-XMOM gate), with cross-sectional momentum
+    // degraded to a per-token N-bar ROC > 0 filter (the SignalForge engine is per-token;
+    // a true cross-sectional gate is a separate engineering project). Purpose: subject the
+    // live strategy to SignalForge's full DSR + PSR + PBO + HLZ + Pardo WFE pipeline, which
+    // the live project skipped — its 1,296-config sweep was reported under a single 70/30
+    // split with no multiple-comparisons correction. Live paper-trading delivered PF 0.89
+    // on n=66 vs the doc's claimed OOS PF 1.68; this bundle tests whether the deployed
+    // entry+exit shape survives proper statistical correction in our framework.
+    // param controls vol-SMA window, Donchian lookback, AND ROC horizon (one knob).
+    {
+      bundle_id: 'volume_breakout_xmom_v1',
+      name: 'Volume Breakout + Self-Momentum v1',
+      family: 'custom',
+      entry_logic: 'vol_ratio > 1.5 && close > donchian_high && roc_param > 0',
+      exit_logic: '(vol_ratio < 1 && position_pnl_pct > 0) || position_pnl_pct < -3 || bars_in_position > 48',
+      notes: 'VB + per-token N-bar ROC > 0 (XMOM substitute). Karpoff 1987 + Donchian + Jegadeesh-Titman 1993 (per-token degradation). Port of live solana-smart-money-bot deployed config.',
+    },
+    // Time-Series Momentum (single-asset, long-only) per Moskowitz-Ooi-Pedersen 2012 §III.A
+    // ("Time series momentum", JFE 104:228-250) and replicated for crypto by Liu-Tsyvinski
+    // 2021 §V.A (RFS 34:2689). Signal: sign of trailing N-bar ROC predicts next bar's
+    // direction — long when roc_param > 0, cash otherwise. Per TSMOM v1.2 SPEC §4.
+    //
+    // fee_pct_per_side = 0.20 reflects realistic Kraken retail/Pro tier (16-26 bps); v1.2
+    // SPEC §9 includes a 0.10 / 0.30 sensitivity sweep. walk_forward=1 + split_pct=70 are
+    // load-bearing — TSMOM survives canonically only with proper IS/OOS separation
+    // (Pardo §3.4). param range 21-2160 covers all v1 grid intervals (1d × 21..252,
+    // 4h × 42..1008, 1h × 168..2160); the actual per-interval values come from a
+    // --params CLI flag in batch_backtest, not param_step.
+    {
+      bundle_id: 'tsmom_v1',
+      name: 'Time-Series Momentum v1',
+      family: 'custom',
+      entry_logic: 'roc_param > 0',
+      exit_logic: 'roc_param <= 0',
+      param_min: 21,
+      param_max: 2160,
+      param_step: 21,
+      fee_pct_per_side: 0.20,
+      walk_forward: 1,
+      split_pct: 70,
+      notes: 'Single-asset long-only TSMOM (M-O-P 2012 §III.A; Liu-Tsyvinski 2021 §V.A). Long when sign(roc_param)>0, cash otherwise. Universe: cex_major (BTC/ETH/SOL via Kraken). Realistic Kraken fee 0.20%/side.',
+    },
+    // tsmom_vol_v1: same signal gated by above-median volume. Aronson 2006 §6 — adds a
+    // discrete robustness test (does volume confirmation reduce false signals?) without
+    // double-counting in the HLZ haircut, since the haircut already corrects for the
+    // multiple-bundles cross-section. Per TSMOM v1.2 SPEC §4 — two-bundle count is
+    // intentional: enough for HLZ to bite, not so many that we're data-mining.
+    {
+      bundle_id: 'tsmom_vol_v1',
+      name: 'Time-Series Momentum (vol-confirmed) v1',
+      family: 'custom',
+      entry_logic: 'roc_param > 0 && vol_ratio > 1.0',
+      exit_logic: 'roc_param <= 0',
+      param_min: 21,
+      param_max: 2160,
+      param_step: 21,
+      fee_pct_per_side: 0.20,
+      walk_forward: 1,
+      split_pct: 70,
+      notes: 'TSMOM with above-median-volume confirmation. Robustness sibling to tsmom_v1 — tests whether volume gating reduces false signals (Aronson 2006 §6). Same fee/walk-forward as tsmom_v1.',
+    },
+  ];
+  const existingBundlesQ = await ch.query({
+    query: `SELECT bundle_id FROM quantlab.strategies FINAL`,
     format: 'JSONEachRow',
   });
-  const [{ n }] = await seedQ.json<{ n: string | number }>();
-  if (Number(n) === 0) {
+  const existingBundles = new Set((await existingBundlesQ.json<{ bundle_id: string }>()).map(r => r.bundle_id));
+  const toInsert = SEED_BUNDLES.filter(s => !existingBundles.has(s.bundle_id));
+  if (toInsert.length > 0) {
     await ch.insert({
       table: 'quantlab.strategies',
-      values: [
-        { bundle_id: 'momentum_v1',       name: 'Momentum Breakout v1',  family: 'momentum',        entry_logic: 'rsi > 50 && roc > 0', exit_logic: 'rsi < 45 || roc < 0', notes: 'Built-in seed.' },
-        { bundle_id: 'mean_reversion_v1', name: 'Mean Reversion v1',     family: 'mean_reversion',  entry_logic: 'rsi < 30',            exit_logic: 'rsi > 60',            notes: 'Built-in seed.' },
-        { bundle_id: 'trend_v1',          name: 'Trend Crossover v1',    family: 'trend_following', entry_logic: 'ema_fast > ema_slow', exit_logic: 'ema_fast < ema_slow', notes: 'Built-in seed.' },
-      ],
+      values: toInsert,
       format: 'JSONEachRow',
     });
   }
@@ -266,10 +349,460 @@ export async function ensureBacktestTables(): Promise<void> {
       )
     `,
   });
+
+  // Phase 2 — token_cluster_membership table. The Python clustering job
+  // (scripts/cluster_tokens_weekly.py) creates this same table with an idempotent
+  // IF NOT EXISTS, but we replicate the DDL here so the view below can be created
+  // at server boot even before the first weekly clustering run. The two DDLs MUST
+  // stay in lockstep — drift would let one writer create a schema the other doesn't
+  // recognize. Per Phase 2 SPEC §4.2.
+  await ch.command({
+    query: `
+      CREATE TABLE IF NOT EXISTS quantlab.token_cluster_membership (
+        token_address      LowCardinality(String),
+        cluster_id         Int32,
+        valid_from         Date,
+        valid_until        Date,
+        method             LowCardinality(String),
+        admitted           Bool,
+        fit_id             UUID,
+        written_at         DateTime DEFAULT now()
+      )
+      ENGINE = ReplacingMergeTree(written_at)
+      ORDER BY (token_address, valid_from, method)
+    `,
+  });
+
+  // Phase 2 — v_bt_runs_by_cluster. Per-(token, param) bt_runs ASOF-joined to the
+  // admitted HDBSCAN membership at run time. The cluster-axis scorer aggregates this
+  // by (strategy_type, cluster_id, interval) instead of (strategy_type, tier, interval).
+  //
+  // **SPEC divergence note.** Phase 2 SPEC §4.4 originally defined this view over
+  // `bt_trades` ASOF-joined by `entry_ts`. The actual `bt_trades` schema (above) is a
+  // per-event log without `entry_ts` / `exit_ts` / `interval` / per-trade `pnl` — and
+  // the existing tier-axis scorer `scripts/score_strategies.ts` operates on `bt_runs`
+  // (per-(token, param) aggregate Sharpes / OOS / etc.), not on raw trades. To preserve
+  // the schema-parity rule (§4.5: cluster-scorer columns mirror `strategy_scores`) and
+  // the "no copies of the gate machinery" rule (§5.3: reuse psr/cscv/hlzHaircut), the
+  // pivot is to a `bt_runs`-based view. The semantic shifts from "trade-time attribution"
+  // to "run-time attribution" — every trade in a backtest is attributed to whichever
+  // cluster the token was in at `bt_runs.started_at`. The 3-week admission rule (§5.2)
+  // already ensures admitted tokens' cluster_id is stable for ≥ 3 weeks, so for typical
+  // multi-week backtests the difference vs. trade-time attribution is small. Documented
+  // in HANDOFF; revisit if real data shows admission churn within a backtest window.
+  //
+  // ASOF LEFT JOIN picks the latest membership row whose valid_from ≤ toDate(started_at).
+  // Membership table is filtered to method='hdbscan' AND admitted=true so the view
+  // surfaces only tokens that cleared the 3-week stability rule. The trailing
+  // `WHERE m.cluster_id IS NOT NULL` drops runs whose token had no admitted membership
+  // at run time (rare but possible for newly admitted tokens or noise tokens).
+  //
+  // **`valid_until > started_at` filter — divergence from SPEC §4.4.** SPEC §4.4's
+  // example DDL had only `WHERE m.cluster_id IS NOT NULL` (no valid_until check).
+  // That works correctly when admissions are continuous, but produces a silent
+  // mis-attribution when a token's admission CLOSED OUT and the token entered a
+  // multi-week probation gap before re-admission. Concrete trace:
+  //     W1..W3: admitted to cluster A → row (valid_from=W1, valid_until=W4, A)
+  //     W4..W6: not admitted (in noise or fresh probation)
+  //     W7..W∞: admitted to cluster B → row (valid_from=W7, valid_until=∞, B)
+  //   For a backtest started at W5, ASOF picks the W1 row (latest valid_from ≤ W5),
+  //   and the SPEC's WHERE returns cluster A — but at W5 the token wasn't admitted
+  //   to anything. The added `toDate(started_at) < valid_until` filter correctly
+  //   drops the row in the gap. The 3-week admission rule means probation gaps last
+  //   AT LEAST 3 weeks, so this is a real (not theoretical) case.
+  await ch.command({
+    query: `
+      CREATE OR REPLACE VIEW quantlab.v_bt_runs_by_cluster AS
+      SELECT
+        r.sweep_id,
+        toString(r.run_id)        AS run_id,
+        r.started_at,
+        r.symbol,
+        r.token_address,
+        r.tier,
+        r.strategy_type,
+        r.entry_logic,
+        r.exit_logic,
+        r.param,
+        r.interval,
+        r.net_profit_pct,
+        r.profit_factor,
+        r.win_rate,
+        r.trades,
+        r.sharpe_ratio,
+        r.gross_profit,
+        r.gross_loss,
+        r.split_pct,
+        r.oos_net_profit_pct,
+        r.oos_profit_factor,
+        r.oos_trades,
+        r.oos_sharpe_ratio,
+        r.data_span_days,
+        r.skewness,
+        r.kurtosis,
+        r.n_slices,
+        m.cluster_id,
+        toString(m.fit_id)        AS fit_id
+      FROM quantlab.bt_runs AS r FINAL
+      ASOF LEFT JOIN (
+        SELECT token_address, valid_from, valid_until, cluster_id, fit_id
+        FROM quantlab.token_cluster_membership FINAL
+        WHERE method = 'hdbscan' AND admitted = true
+      ) AS m
+        ON r.token_address = m.token_address
+       AND toDate(r.started_at) >= m.valid_from
+      WHERE m.cluster_id IS NOT NULL
+        AND m.cluster_id >= 0
+        AND toDate(r.started_at) < m.valid_until
+    `,
+  });
+
+  // ADR-017 — meta-labeling pipeline storage. Two tables, both additive; do not affect
+  // any existing scoring/run path. `meta_train_trades` holds one row per primary signal
+  // with its triple-barrier label + features + slice tag (m2_train / m2_tune / oos).
+  // `meta_models` holds one row per trained M2 artifact (one per (cell, training run)).
+  // See docs/specs/adr-017-meta-labeling.md §10.
+  await ch.command({
+    query: `
+      CREATE TABLE IF NOT EXISTS quantlab.meta_train_trades (
+        cell_key             String,
+        m1_run_sig           String,
+        token_address        LowCardinality(String),
+        symbol               LowCardinality(String),
+        signal_ts            DateTime64(3, 'UTC'),
+        exit_ts              DateTime64(3, 'UTC'),
+        slice                Enum8('m2_train' = 1, 'm2_tune' = 2, 'oos' = 3),
+        label                UInt8,
+        pt_pct               Float64,
+        sl_pct               Float64,
+        vertical_bars        UInt32,
+        barrier_hit          Enum8('pt' = 1, 'sl' = 2, 'vertical' = 3),
+        bars_to_exit         UInt32,
+        pnl_pct_realized     Float64,
+        features             String,
+        m1_pnl_pct_actual    Float64,
+        created_at           DateTime DEFAULT now()
+      )
+      ENGINE = ReplacingMergeTree(created_at)
+      ORDER BY (cell_key, m1_run_sig, token_address, signal_ts)
+    `,
+  });
+  await ch.command({
+    query: `
+      CREATE TABLE IF NOT EXISTS quantlab.meta_models (
+        cell_key             String,
+        m1_run_sig           String,
+        trained_at           DateTime64(3, 'UTC') DEFAULT now64(3),
+        model_family         LowCardinality(String),
+        hyperparams_json     String,
+        features_used        Array(String),
+        n_train              UInt32,
+        n_tune               UInt32,
+        n_oos                UInt32,
+        auc_train            Float64,
+        auc_tune             Float64,
+        auc_oos              Float64,
+        threshold_chosen     Float64,
+        n_meta_trials        UInt32,
+        oos_kept_trades      UInt32,
+        oos_kept_net_pct     Float64,
+        m1_oos_net_pct       Float64,
+        lift_pct             Float64,
+        model_blob           String
+      )
+      ENGINE = ReplacingMergeTree(trained_at)
+      ORDER BY (cell_key, m1_run_sig)
+    `,
+  });
+
+  // Track C / Component 5 — sidecar regime attribution for bt_runs.
+  // SPEC: docs/specs/regime-backtest-attribution-component5.md §3.1.
+  //
+  // Sidecar (NOT ALTER bt_runs) because classifier_version is dimensional
+  // under ADR-037 bias-quarantine: the same run_id should attribute under
+  // both phase1_v2 (today, biased) and phase1_v3 (post-Sharadar) without
+  // one clobbering the other. Mirrors macro_regimes itself, which is keyed
+  // by (trade_date, classifier_version).
+  //
+  // Attribution is over the run's data window (started_at - data_span_days
+  // .. started_at), NOT at started_at alone. Deliberate divergence from
+  // v_bt_runs_by_cluster — that ASOF-join works for clusters because admitted
+  // membership is stable for ≥3 weeks (§4.4 divergence note above), but
+  // regime shifts daily, so attributing today's regime to a 2014 backtest
+  // would be actively wrong. See SPEC §2.2.
+  //
+  // attribution_source disambiguates which derivation path produced the row
+  // (engine-known data_span_days vs. bt_trades fallback vs. zero-trade
+  // sentinel) — load-bearing for triage but not for queries.
+  await ch.command({
+    query: `
+      CREATE TABLE IF NOT EXISTS quantlab.bt_runs_regime (
+        run_id                UUID,
+        classifier_version    LowCardinality(String),
+        data_start_date       Date,
+        data_end_date         Date,
+        total_days            UInt32,
+        dominant_regime       LowCardinality(String),
+        dominant_regime_share Float32,
+        regime_distribution   Map(LowCardinality(String), Float32),
+        attribution_source    LowCardinality(String),
+        attributed_at         DateTime64(3, 'UTC') DEFAULT now64(3)
+      )
+      ENGINE = ReplacingMergeTree(attributed_at)
+      ORDER BY (run_id, classifier_version)
+    `,
+  });
+
+  // Track C / Component 4 — daemon-runs sidecar for the operator morning brief.
+  // SPEC: docs/specs/operator-morning-brief-component4.md §2.3.
+  //
+  // One row per daily-signal daemon invocation, written at end of main(). The
+  // brief reads the most recent row to surface anomalies and stale-run signals.
+  // anomalies_json is a String (not Map) by deliberate choice — anomaly shape
+  // will evolve and a typed schema would force coordinated daemon+reader updates
+  // for every new anomaly category.
+  await ch.command({
+    query: `
+      CREATE TABLE IF NOT EXISTS quantlab.daemon_runs (
+        run_id            UUID,
+        started_at        DateTime64(3, 'UTC'),
+        finished_at       DateTime64(3, 'UTC'),
+        status            LowCardinality(String),
+        fetch_summary     String,
+        cells_evaluated   UInt32,
+        cells_with_diff   UInt32,
+        telegram_status   LowCardinality(String),
+        anomalies_json    String,
+        ingested_at       DateTime64(3, 'UTC') DEFAULT now64(3)
+      )
+      ENGINE = ReplacingMergeTree(ingested_at)
+      ORDER BY (run_id)
+    `,
+  });
+
+  // Track C / Component 7A — per-cell allowlist for daemon entry gating.
+  // SPEC: docs/specs/trade-execution-pipeline-architecture.md §4.
+  //
+  // One row per (strategy_type, param, symbol) that passed the active threshold
+  // tier when the populator ran. Daemon reads with FINAL at universe-load time
+  // and intersects with the candidate universe. ReplacingMergeTree on
+  // approved_at means a re-run of the populator overrides prior rows for the
+  // same key.
+  await ch.command({
+    query: `
+      CREATE TABLE IF NOT EXISTS quantlab.cell_allowlist (
+        strategy_type     LowCardinality(String),
+        param             Int32,
+        symbol            LowCardinality(String),
+        oos_pct           Float64,
+        oos_sharpe        Float64,
+        oos_trades        UInt32,
+        is_pct            Float64,
+        profit_factor     Float64,
+        source_sweep_id   String,
+        threshold_tier    LowCardinality(String),
+        approved_at       DateTime64(3, 'UTC') DEFAULT now64(3)
+      )
+      ENGINE = ReplacingMergeTree(approved_at)
+      ORDER BY (strategy_type, param, symbol)
+    `,
+  });
+
+  // Track C / Component 8 — point-in-time S&P 500 membership (fja05680 CSV).
+  // SPEC: docs/specs/trade-execution-pipeline-architecture.md §3 — unblocks
+  // phase1_v3 of the regime classifier by replacing the today-list-projected-
+  // backward universe with the actual historical membership on each date.
+  //
+  // One row per (trade_date, ticker). Sourced from
+  // docs/phase1_breadth_restoration/sp500_history_fja05680_*.csv (community-
+  // maintained Wikipedia/SEC reconstruction; non-authoritative but materially
+  // better than the survivor-only fallback).
+  //
+  // Note: this table tells us WHO was in the index. Whether we have PRICE
+  // data for those tickers is a separate question — yfinance does NOT
+  // reliably preserve delisted-ticker prices, so the bias-fix is partial
+  // until paid data (Sharadar) backfills the missing names.
+  await ch.command({
+    query: `
+      CREATE TABLE IF NOT EXISTS quantlab.sp500_history (
+        trade_date    Date,
+        ticker        LowCardinality(String),
+        source        LowCardinality(String) DEFAULT 'fja05680',
+        ingested_at   DateTime64(3, 'UTC') DEFAULT now64(3)
+      )
+      ENGINE = ReplacingMergeTree(ingested_at)
+      ORDER BY (trade_date, ticker)
+    `,
+  });
+}
+
+/**
+ * Track C / Component 1 / Phase 1 — macro regime classifier storage.
+ *
+ * Two additive tables backing the daily macro regime label
+ * (`green | yellow | orange | red`) defined in
+ * `docs/specs/macro-regime-classifier-phase1.md`. Both use
+ * `ReplacingMergeTree(ingested_at)` so re-running ingestion or
+ * re-classification on the same range is idempotent — the most recent
+ * `ingested_at` wins per sort key.
+ *
+ * - `quantlab.macro_breadth` stores the % of S&P 500 above 50DMA per
+ *   trading day, sourced from Stooq `%a50r` (primary) or computed from
+ *   constituents (fallback). Multiple sources for the same date are
+ *   permitted so historical / current sources can coexist for audit.
+ * - `quantlab.macro_regimes` stores the per-day classification plus all
+ *   intermediate inputs (closes, returns, 252d high) so a future ADR
+ *   can re-derive any historical label without re-fetching upstream data.
+ *   `classifier_version` is part of the sort key so Phase 2+ rows can
+ *   coexist with `phase1_v1` during transitions.
+ * - `quantlab.sp500_constituents` (SPEC rev 2 §6.2) caches the IVV
+ *   holdings list (with Wikipedia fallback) for the constituent-computed
+ *   breadth path. `(effective_date, ticker, source)` ordering leaves
+ *   room for future PIT lists without a schema change.
+ *
+ * Idempotent — safe to re-run at every server startup. SPEC §3 + rev 2 §6.2.
+ */
+export async function ensureMacroRegimeTables(): Promise<void> {
+  const ch = getClickHouse();
+
+  await ch.command({
+    query: `
+      CREATE TABLE IF NOT EXISTS quantlab.macro_breadth (
+        trade_date       Date,
+        source           LowCardinality(String),
+        pct_above_50dma  Float64,
+        ingested_at      DateTime64(3, 'UTC') DEFAULT now64(3)
+      )
+      ENGINE = ReplacingMergeTree(ingested_at)
+      ORDER BY (trade_date, source)
+    `,
+  });
+
+  await ch.command({
+    query: `
+      CREATE TABLE IF NOT EXISTS quantlab.macro_regimes (
+        trade_date              Date,
+        classifier_version      LowCardinality(String),
+
+        vix_close               Nullable(Float64),
+        vix3m_close             Nullable(Float64),
+        hyg_close               Nullable(Float64),
+        spy_close               Nullable(Float64),
+        pct_above_50dma         Nullable(Float64),
+        pct_above_50dma_source  LowCardinality(String) DEFAULT '',
+
+        vix_term_ratio          Nullable(Float64),
+        hyg_20d_return          Nullable(Float64),
+        spy_20d_return          Nullable(Float64),
+        hyg_10d_return          Nullable(Float64),
+        spy_10d_return          Nullable(Float64),
+        spy_252d_high           Nullable(Float64),
+        spy_drawdown_from_1y_high Nullable(Float64),
+
+        vix_term_inverted       UInt8,
+        hyg_spy_divergence      UInt8,
+        hyg_spy_divergence_10d  UInt8,
+        breadth_narrow          UInt8,
+        realized_stress         UInt8 DEFAULT 0,
+
+        -- Bitmask: 1=vix_close, 2=vix3m_close, 4=hyg_close, 8=spy_close,
+        -- 16=pct_above_50dma, 32=spy_252d_warmup. Lets queries distinguish
+        -- "flag=0 because conditions did not hold" from "flag=0 because
+        -- input was missing/warmup" without re-fetching source data.
+        inputs_missing          UInt8 DEFAULT 0,
+
+        signals_firing          UInt8,
+        categories_firing       UInt8,
+        categories_firing_5d    UInt8,
+        regime                  LowCardinality(String),
+
+        ingested_at             DateTime64(3, 'UTC') DEFAULT now64(3)
+      )
+      ENGINE = ReplacingMergeTree(ingested_at)
+      ORDER BY (trade_date, classifier_version)
+    `,
+  });
+
+  // Phase 2 SPEC §4.2 — additive migration for the new realized_stress indicator.
+  // Existing phase1_v1 / phase1_v2 rows get NULL / 0 (sane defaults — these versions
+  // do not compute the new fields). phase2_v1 backfills will populate them.
+  // ADD COLUMN IF NOT EXISTS is idempotent; safe to re-run on every server start.
+  await ch.command({
+    query: `
+      ALTER TABLE quantlab.macro_regimes
+        ADD COLUMN IF NOT EXISTS spy_drawdown_from_1y_high Nullable(Float64) AFTER spy_252d_high,
+        ADD COLUMN IF NOT EXISTS realized_stress           UInt8 DEFAULT 0   AFTER breadth_narrow
+    `,
+  });
+
+  // phase1_v3 SPEC §3 Turn B — additive migration for the new leading-indicator
+  // category fields. phase1_v1 / phase1_v2 / phase2_v1 rows continue to get
+  // NULL / 0 for these columns (those versions do not compute them); phase1_v3
+  // backfill populates them. Idempotent via IF NOT EXISTS.
+  //
+  // Columns:
+  //   - yield_curve_value          : T10Y2Y on this date (FRED, from
+  //                                  quantlab.macro_indicators_fred).
+  //   - hyg_lqd_ratio_20d_return   : 20-trading-day return of HYG_close/LQD_close.
+  //   - spy_minus_tlt_20d_return   : SPY 20d return MINUS TLT 20d return
+  //                                  (risk-on/risk-off rotation gap, in
+  //                                  decimal — −0.10 = SPY trails TLT by 10pp).
+  //   - put_call_value_5d_ma       : CBOE total put/call 5-trading-day moving
+  //                                  average (from quantlab.macro_indicators_cboe).
+  //                                  Null if CBOE ingest absent — the
+  //                                  sentiment_extreme category falls back to
+  //                                  the VIX/VIX3M complacency signal alone.
+  //   - vix_term_complacency       : 1 when vix_term_ratio <= 0.80 (extreme
+  //                                  complacency / steep contango) — companion
+  //                                  flag to vix_term_inverted, mirrors its
+  //                                  semantic on the opposite tail. Floor
+  //                                  re-calibrated 0.85→0.80 in session 40
+  //                                  to land sentiment_extreme at the
+  //                                  ~5% Whaley 2009 §3 prevalence target.
+  //   - yield_curve_inverted       : 1 when T10Y2Y < 0 for >= 3 consecutive days.
+  //   - credit_stress              : 1 when hyg_lqd_ratio_20d_return < -0.03.
+  //   - risk_off_rotation          : 1 when spy_minus_tlt_20d_return < -0.10.
+  //   - sentiment_extreme          : 1 when put_call_value_5d_ma is extreme
+  //                                  (>= 1.15 OR <= 0.65) OR vix_term_complacency.
+  await ch.command({
+    query: `
+      ALTER TABLE quantlab.macro_regimes
+        ADD COLUMN IF NOT EXISTS yield_curve_value         Nullable(Float64) AFTER spy_drawdown_from_1y_high,
+        ADD COLUMN IF NOT EXISTS hyg_lqd_ratio_20d_return  Nullable(Float64) AFTER yield_curve_value,
+        ADD COLUMN IF NOT EXISTS spy_minus_tlt_20d_return  Nullable(Float64) AFTER hyg_lqd_ratio_20d_return,
+        ADD COLUMN IF NOT EXISTS put_call_value_5d_ma      Nullable(Float64) AFTER spy_minus_tlt_20d_return,
+        ADD COLUMN IF NOT EXISTS vix_term_complacency      UInt8 DEFAULT 0   AFTER realized_stress,
+        ADD COLUMN IF NOT EXISTS yield_curve_inverted      UInt8 DEFAULT 0   AFTER vix_term_complacency,
+        ADD COLUMN IF NOT EXISTS credit_stress             UInt8 DEFAULT 0   AFTER yield_curve_inverted,
+        ADD COLUMN IF NOT EXISTS risk_off_rotation         UInt8 DEFAULT 0   AFTER credit_stress,
+        ADD COLUMN IF NOT EXISTS sentiment_extreme         UInt8 DEFAULT 0   AFTER risk_off_rotation
+    `,
+  });
+
+  // SPEC rev 2 §6.2 — constituent-list cache for the IvvConstituentBreadthSource
+  // adapter. DateTime64 + ingested_at-last match the convention of the two tables
+  // above; ms precision matters because ReplacingMergeTree resolves duplicates by
+  // the version column and second-precision would tie on same-second double-writes.
+  await ch.command({
+    query: `
+      CREATE TABLE IF NOT EXISTS quantlab.sp500_constituents (
+        effective_date  Date,
+        ticker          LowCardinality(String),
+        source          LowCardinality(String),
+        weight_pct      Float32 DEFAULT 0.0,
+        ingested_at     DateTime64(3, 'UTC') DEFAULT now64(3)
+      )
+      ENGINE = ReplacingMergeTree(ingested_at)
+      ORDER BY (effective_date, ticker, source)
+    `,
+  });
 }
 
 export interface PersistRunArgs {
   sweepId: string;
+  /** Run UUID generated client-side so bt_runs_slices rows can link back to this run.
+   *  Overrides the CH table's generateUUIDv4() default — caller must always provide. */
+  runId: string;
   symbol: string;
   tokenAddress: string;
   tier: string;
@@ -302,6 +835,24 @@ export interface PersistRunArgs {
   oosSharpeRatio?: number;
   /** Days of candle history this backtest saw — drives statistical-weight filters on the UI. */
   dataSpanDays?: number;
+  /** Sample skewness γ₃ of bar-level returns from the IS equity curve. Feeds full Bailey 2014 PSR. */
+  skewness?: number;
+  /** Raw kurtosis γ₄ (Gaussian = 3) of bar-level returns from the IS equity curve. */
+  kurtosis?: number;
+  /** 0 / 8 / 16 — the slice count used for CSCV on the FULL-window run. 0 means CSCV
+   *  was not feasible (T < 256 bars) and bt_runs_slices has no rows for this run. */
+  nSlices?: number;
+}
+
+export interface PersistSliceArgs {
+  runId: string;
+  sliceIdx: number;
+  sliceReturn: number;
+  sliceSharpe: number;
+  sliceNTrades: number;
+  /** Millisecond unix timestamps; converted to CH DateTime64 below. */
+  sliceStartTs: number;
+  sliceEndTs: number;
 }
 
 export async function insertBacktestRun(args: PersistRunArgs): Promise<void> {
@@ -309,6 +860,7 @@ export async function insertBacktestRun(args: PersistRunArgs): Promise<void> {
     table: 'quantlab.bt_runs',
     values: [{
       sweep_id: args.sweepId,
+      run_id: args.runId,
       symbol: args.symbol,
       token_address: args.tokenAddress,
       tier: args.tier,
@@ -338,7 +890,32 @@ export async function insertBacktestRun(args: PersistRunArgs): Promise<void> {
       oos_trades: args.oosTrades ?? 0,
       oos_sharpe_ratio: args.oosSharpeRatio ?? 0,
       data_span_days: args.dataSpanDays ?? 0,
+      skewness: Number.isFinite(args.skewness ?? 0) ? (args.skewness ?? 0) : 0,
+      kurtosis: Number.isFinite(args.kurtosis ?? 3) ? (args.kurtosis ?? 3) : 3,
+      n_slices: args.nSlices ?? 0,
     }],
+    format: 'JSONEachRow',
+  });
+}
+
+/**
+ * Persist per-slice CSCV metrics for a single bt_runs row. No-op on empty input.
+ * Timestamps come in as ms-since-epoch; converted to the CH DateTime64(3) string format
+ * (space-separated, no Z) — same workaround used in insertBacktestTrades.
+ */
+export async function insertBacktestSlices(rows: PersistSliceArgs[]): Promise<void> {
+  if (rows.length === 0) return;
+  await getClickHouse().insert({
+    table: 'quantlab.bt_runs_slices',
+    values: rows.map(r => ({
+      run_id: r.runId,
+      slice_idx: r.sliceIdx,
+      slice_return: Number.isFinite(r.sliceReturn) ? r.sliceReturn : 0,
+      slice_sharpe: Number.isFinite(r.sliceSharpe) ? r.sliceSharpe : 0,
+      slice_n_trades: r.sliceNTrades,
+      slice_start_ts: new Date(r.sliceStartTs).toISOString().replace('T', ' ').replace('Z', ''),
+      slice_end_ts: new Date(r.sliceEndTs).toISOString().replace('T', ' ').replace('Z', ''),
+    })),
     format: 'JSONEachRow',
   });
 }
@@ -707,6 +1284,382 @@ export async function listSweeps(limit: number = 50): Promise<SweepSummary[]> {
   }));
 }
 
+/**
+ * Strategy scores — composite "is this worth deploying?" rankings written by
+ * `npm run score:strategies`. One row per (strategy_type × tier × interval). The composite
+ * is the multiplicative product of five orthogonal robustness dimensions, each in [0,1] —
+ * see scripts/score_strategies.ts header for the math (DSR, plateau, OOS/IS, coverage, trades).
+ */
+export interface StrategyScoreRow {
+  scored_at: string;
+  strategy_type: string;
+  tier: string;
+  interval: string;
+  best_param: number;
+  n_tokens_total: number;
+  n_tokens_traded: number;
+  n_tokens_winning: number;
+  tier_coverage: number;
+  total_trades: number;
+  wt_net_pct: number;
+  wt_win_rate: number;
+  agg_pf: number;
+  median_sharpe: number;
+  dsr: number;
+  plateau: number;
+  oos_is_ratio: number;
+  oos_norm: number;
+  trades_norm: number;
+  composite: number;
+  n_param_trials: number;
+  /** ADR-015: K actually fed to deflatedSharpeRatio. May be < n_param_trials when
+   *  some params have no token at trades >= 10. */
+  k_dsr_effective: number;
+  /** ADR-015: 'ok' | 'untestable_few_trials' | 'untestable_zero_variance'.
+   *  Non-'ok' rows have `dsr` set to PSR(0) per Bailey-LdP §3 — the K=1 limit. */
+  dsr_status: string;
+}
+
+export async function fetchStrategyScores(limit = 50): Promise<StrategyScoreRow[]> {
+  const ch = getClickHouse();
+  const r = await ch.query({
+    query: `
+      SELECT
+        toString(scored_at) AS scored_at,
+        strategy_type, tier, interval, best_param,
+        n_tokens_total, n_tokens_traded, n_tokens_winning, tier_coverage,
+        total_trades, wt_net_pct, wt_win_rate, agg_pf, median_sharpe,
+        dsr, plateau, oos_is_ratio, oos_norm, trades_norm, composite,
+        n_param_trials,
+        k_dsr_effective, dsr_status
+      FROM quantlab.strategy_scores FINAL
+      ORDER BY composite DESC, wt_net_pct DESC
+      LIMIT {limit:UInt32}
+    `,
+    query_params: { limit: Math.max(1, Math.min(500, limit)) },
+    format: 'JSONEachRow',
+  });
+  const rows = await r.json<any>();
+  return rows.map((r: any): StrategyScoreRow => ({
+    scored_at: r.scored_at,
+    strategy_type: r.strategy_type,
+    tier: r.tier,
+    interval: r.interval,
+    best_param: Number(r.best_param),
+    n_tokens_total: Number(r.n_tokens_total),
+    n_tokens_traded: Number(r.n_tokens_traded),
+    n_tokens_winning: Number(r.n_tokens_winning),
+    tier_coverage: Number(r.tier_coverage),
+    total_trades: Number(r.total_trades),
+    wt_net_pct: Number(r.wt_net_pct),
+    wt_win_rate: Number(r.wt_win_rate),
+    agg_pf: Number(r.agg_pf),
+    median_sharpe: Number(r.median_sharpe),
+    dsr: Number(r.dsr),
+    plateau: Number(r.plateau),
+    oos_is_ratio: Number(r.oos_is_ratio),
+    oos_norm: Number(r.oos_norm),
+    trades_norm: Number(r.trades_norm),
+    composite: Number(r.composite),
+    n_param_trials: Number(r.n_param_trials),
+    k_dsr_effective: Number(r.k_dsr_effective ?? 0),
+    dsr_status: String(r.dsr_status ?? 'ok'),
+  }));
+}
+
+// ───── Validator cell-level data fetchers ─────
+//
+// Powers POST /api/validator/score-cell and GET /api/validator/cells. Uses the
+// canonical bt_runs filter so the validator's N (trial count for DSR/HLZ/PBO)
+// matches score_strategies.scoreCell exactly. See docs/teach/2026-05-02-trial-cardinality.md.
+
+export interface ValidatorCellInfo {
+  strategy: string;
+  tier: string;
+  interval: string;
+  nParams: number;
+  nTokens: number;
+  /** True iff at least one bt_runs row in this cell has n_slices > 0 — i.e. PBO can run. */
+  hasSlices: boolean;
+}
+
+/** List of (strategy, tier, interval) triples available for cell-level validation,
+ *  with cardinalities the UI uses to populate dropdowns / grey out PBO-N/A cells. */
+export async function fetchValidatorCells(): Promise<ValidatorCellInfo[]> {
+  const ch = getClickHouse();
+  const { whereSql, params } = buildBtRunsFilter({});
+  const r = await ch.query({
+    query: `
+      SELECT
+        strategy_type AS strategy,
+        tier,
+        interval,
+        uniqExact(param)         AS nParams,
+        uniqExact(token_address) AS nTokens,
+        max(n_slices) > 0        AS hasSlicesFlag
+      FROM quantlab.bt_runs FINAL
+      ${whereSql}
+      GROUP BY strategy, tier, interval
+      ORDER BY strategy, tier, interval
+    `,
+    query_params: params,
+    format: 'JSONEachRow',
+  });
+  const rows = await r.json<any>();
+  return rows.map((r: any): ValidatorCellInfo => ({
+    strategy: String(r.strategy),
+    tier: String(r.tier),
+    interval: String(r.interval),
+    nParams: Number(r.nParams ?? 0),
+    nTokens: Number(r.nTokens ?? 0),
+    hasSlices: Boolean(r.hasSlicesFlag),
+  }));
+}
+
+/** Pull all bt_runs rows + bt_runs_slices for a single (strategy, tier, interval) cell.
+ *  Output is in the exact shape the cell-builder consumes. */
+export async function fetchValidatorCellData(args: {
+  strategy: string;
+  tier: string;
+  interval: string;
+}): Promise<{ rows: RunRow[]; slicesByRunId: Map<string, SliceRow[]> }> {
+  const ch = getClickHouse();
+  const { whereSql, params } = buildBtRunsFilter({
+    strategy: args.strategy,
+    tier: args.tier,
+    interval: args.interval,
+  });
+
+  // Two queries in parallel — same WHERE applied to bt_runs and to the IN(...)
+  // subquery scoping bt_runs_slices.
+  const [runsResp, slicesResp] = await Promise.all([
+    ch.query({
+      query: `
+        SELECT strategy_type, tier, interval, token_address, symbol, param,
+               toString(run_id) AS run_id,
+               net_profit_pct, profit_factor, win_rate, trades, sharpe_ratio,
+               gross_profit, gross_loss,
+               oos_net_profit_pct, oos_profit_factor, oos_trades, oos_sharpe_ratio,
+               split_pct, data_span_days,
+               skewness, kurtosis, n_slices
+        FROM quantlab.bt_runs FINAL
+        ${whereSql}
+      `,
+      query_params: params,
+      format: 'JSONEachRow',
+    }),
+    ch.query({
+      query: `
+        SELECT toString(run_id) AS run_id, slice_idx, slice_sharpe, slice_n_trades
+        FROM quantlab.bt_runs_slices
+        WHERE run_id IN (
+          SELECT run_id FROM quantlab.bt_runs FINAL
+          ${whereSql}
+        )
+        ORDER BY run_id, slice_idx
+      `,
+      query_params: params,
+      format: 'JSONEachRow',
+    }),
+  ]);
+
+  const runRows = await runsResp.json<any>();
+  const rows: RunRow[] = runRows.map((r: any): RunRow => ({
+    strategy_type: r.strategy_type,
+    tier: r.tier,
+    interval: r.interval,
+    token_address: r.token_address,
+    symbol: r.symbol,
+    param: Number(r.param),
+    run_id: String(r.run_id),
+    net_profit_pct: Number(r.net_profit_pct),
+    profit_factor: Number(r.profit_factor),
+    win_rate: Number(r.win_rate),
+    trades: Number(r.trades),
+    sharpe_ratio: Number(r.sharpe_ratio),
+    gross_profit: Number(r.gross_profit ?? 0),
+    gross_loss: Number(r.gross_loss ?? 0),
+    oos_net_profit_pct: Number(r.oos_net_profit_pct ?? 0),
+    oos_profit_factor: Number(r.oos_profit_factor ?? 0),
+    oos_trades: Number(r.oos_trades ?? 0),
+    oos_sharpe_ratio: Number(r.oos_sharpe_ratio ?? 0),
+    split_pct: Number(r.split_pct ?? 0),
+    data_span_days: Number(r.data_span_days ?? 0),
+    skewness: Number(r.skewness ?? 0),
+    kurtosis: Number(r.kurtosis ?? 3),
+    n_slices: Number(r.n_slices ?? 0),
+  }));
+
+  const sliceRows = await slicesResp.json<any>();
+  const slicesByRunId = new Map<string, SliceRow[]>();
+  for (const s of sliceRows) {
+    const id = String(s.run_id);
+    const list = slicesByRunId.get(id) ?? [];
+    list.push({
+      run_id: id,
+      slice_idx: Number(s.slice_idx),
+      slice_sharpe: Number(s.slice_sharpe),
+      slice_n_trades: Number(s.slice_n_trades),
+    });
+    slicesByRunId.set(id, list);
+  }
+
+  return { rows, slicesByRunId };
+}
+
+// ───── Cluster-axis validator cell-level data fetchers (Phase 2 SPEC §5.4) ─────
+//
+// Sibling to `fetchValidatorCellData` / `fetchValidatorCells`. Powers the cluster path
+// of `POST /api/validator/score-cell?axis=cluster`. Reads from `v_bt_runs_by_cluster`
+// (the ASOF-join view that tags each bt_runs row with its admitted cluster_id at
+// run time — see view DDL in `ensureBacktestTables`). Universal magnitude hygiene
+// matches `score_strategies_by_cluster.buildClusterRunsFilter`; tier-axis policy
+// (mcap_large/mcap_unknown exclusion, 4h-except-cex_major) intentionally does NOT
+// apply here, because clusters are universe-defining and orthogonal to tier.
+
+export interface ValidatorClusterCellInfo {
+  strategy: string;
+  clusterId: number;
+  interval: string;
+  nParams: number;
+  nTokens: number;
+  hasSlices: boolean;
+}
+
+/** List of (strategy, cluster_id, interval) cells available for cluster-axis cell-level
+ *  validation, with cardinalities for the UI dropdowns. */
+export async function fetchValidatorClusterCells(): Promise<ValidatorClusterCellInfo[]> {
+  const ch = getClickHouse();
+  const r = await ch.query({
+    query: `
+      SELECT
+        strategy_type AS strategy,
+        cluster_id    AS clusterId,
+        interval,
+        uniqExact(param)         AS nParams,
+        uniqExact(token_address) AS nTokens,
+        max(n_slices) > 0        AS hasSlicesFlag
+      FROM quantlab.v_bt_runs_by_cluster
+      WHERE ${RUNS_MAGNITUDE_HYGIENE_SQL}
+        AND cluster_id >= 0  -- exclude HDBSCAN noise label (cluster_id = -1); not a cluster, not scoreable
+      GROUP BY strategy, clusterId, interval
+      ORDER BY strategy, clusterId, interval
+    `,
+    format: 'JSONEachRow',
+  });
+  const rows = await r.json<any>();
+  return rows.map((r: any): ValidatorClusterCellInfo => ({
+    strategy: String(r.strategy),
+    clusterId: Number(r.clusterId),
+    interval: String(r.interval),
+    nParams: Number(r.nParams ?? 0),
+    nTokens: Number(r.nTokens ?? 0),
+    hasSlices: Boolean(r.hasSlicesFlag),
+  }));
+}
+
+/** Pull all v_bt_runs_by_cluster rows + bt_runs_slices for one cluster cell. Output is
+ *  in the exact shape `buildClusterValidatorResult` consumes. */
+export async function fetchValidatorClusterCellData(args: {
+  strategy: string;
+  clusterId: number;
+  interval: string;
+}): Promise<{
+  rows: import('../../scripts/score_strategies_by_cluster.js').ClusterRunRow[];
+  slicesByRunId: Map<string, SliceRow[]>;
+}> {
+  const ch = getClickHouse();
+  const params = {
+    strategy: args.strategy,
+    clusterId: args.clusterId,
+    interval: args.interval,
+  };
+  const whereSql = `
+    WHERE strategy_type = {strategy:String}
+      AND cluster_id    = {clusterId:Int32}
+      AND interval      = {interval:String}
+      AND ${RUNS_MAGNITUDE_HYGIENE_SQL}
+  `;
+
+  const [runsResp, slicesResp] = await Promise.all([
+    ch.query({
+      query: `
+        SELECT strategy_type, tier, interval, token_address, symbol, param,
+               toString(run_id) AS run_id,
+               net_profit_pct, profit_factor, win_rate, trades, sharpe_ratio,
+               gross_profit, gross_loss,
+               oos_net_profit_pct, oos_profit_factor, oos_trades, oos_sharpe_ratio,
+               split_pct, data_span_days,
+               skewness, kurtosis, n_slices,
+               cluster_id, fit_id
+        FROM quantlab.v_bt_runs_by_cluster
+        ${whereSql}
+      `,
+      query_params: params,
+      format: 'JSONEachRow',
+    }),
+    ch.query({
+      query: `
+        SELECT toString(run_id) AS run_id, slice_idx, slice_sharpe, slice_n_trades
+        FROM quantlab.bt_runs_slices
+        WHERE run_id IN (
+          SELECT toUUID(run_id) FROM quantlab.v_bt_runs_by_cluster
+          ${whereSql}
+        )
+        ORDER BY run_id, slice_idx
+      `,
+      query_params: params,
+      format: 'JSONEachRow',
+    }),
+  ]);
+
+  const runRows = await runsResp.json<any>();
+  type ClusterRunRowOut = import('../../scripts/score_strategies_by_cluster.js').ClusterRunRow;
+  const rows: ClusterRunRowOut[] = runRows.map((r: any): ClusterRunRowOut => ({
+    strategy_type: r.strategy_type,
+    tier: r.tier,
+    interval: r.interval,
+    token_address: r.token_address,
+    symbol: r.symbol,
+    param: Number(r.param),
+    run_id: String(r.run_id),
+    net_profit_pct: Number(r.net_profit_pct),
+    profit_factor: Number(r.profit_factor),
+    win_rate: Number(r.win_rate),
+    trades: Number(r.trades),
+    sharpe_ratio: Number(r.sharpe_ratio),
+    gross_profit: Number(r.gross_profit ?? 0),
+    gross_loss: Number(r.gross_loss ?? 0),
+    oos_net_profit_pct: Number(r.oos_net_profit_pct ?? 0),
+    oos_profit_factor: Number(r.oos_profit_factor ?? 0),
+    oos_trades: Number(r.oos_trades ?? 0),
+    oos_sharpe_ratio: Number(r.oos_sharpe_ratio ?? 0),
+    split_pct: Number(r.split_pct ?? 0),
+    data_span_days: Number(r.data_span_days ?? 0),
+    skewness: Number(r.skewness ?? 0),
+    kurtosis: Number(r.kurtosis ?? 3),
+    n_slices: Number(r.n_slices ?? 0),
+    cluster_id: Number(r.cluster_id),
+    fit_id: String(r.fit_id ?? ''),
+  }));
+
+  const sliceRows = await slicesResp.json<any>();
+  const slicesByRunId = new Map<string, SliceRow[]>();
+  for (const s of sliceRows) {
+    const id = String(s.run_id);
+    const list = slicesByRunId.get(id) ?? [];
+    list.push({
+      run_id: id,
+      slice_idx: Number(s.slice_idx),
+      slice_sharpe: Number(s.slice_sharpe),
+      slice_n_trades: Number(s.slice_n_trades),
+    });
+    slicesByRunId.set(id, list);
+  }
+
+  return { rows, slicesByRunId };
+}
+
 /** Distinct facet values for filter dropdowns. */
 export interface BacktestFacets {
   strategies: string[];
@@ -799,11 +1752,15 @@ const SOURCE_PRIORITY_SQL = `
   multiIf(
     source IN ('jupiter_v2', 'jupiter_datapi_v2'), 1,
     source = 'jupiter',                            2,
-    source = 'okx',                                3,
-    source = 'kraken',                             4,
-    source = 'live',                               5,
-    source = 'phase_2_ingest',                     6,
-    source = 'geckoterminal',                      7,
+    source = 'coinbase',                           3,
+    source = 'okx',                                4,
+    source = 'kraken',                             5,
+    source = 'live',                               6,
+    source = 'phase_2_ingest',                     7,
+    source = 'geckoterminal',                      8,
+    source = 'yfinance',                           50,
+    source = 'yfinance_regime',                    51,
+    source = 'sharadar_sep',                       60,
     99
   )
 `;

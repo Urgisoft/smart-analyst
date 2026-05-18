@@ -44,9 +44,11 @@ const CATEGORY_INTRO: Record<HelpCategory, string> = {
   'Watcher daemon':   'Long-running process. Detects new candles arriving in CH and re-runs only the affected (bundle × token) cells.',
 };
 
-// Help entries for npm scripts that DON'T point at a scripts/X.ts file (vite, tsc, cloudflared, …).
-// Anything in package.json must either have a help export in its target script OR an entry here;
-// drift check fails otherwise.
+// Help entries for npm scripts that DON'T point at a scripts/X.ts file (Python scripts,
+// vite, tsc, cloudflared, …) OR whose target is `_`-prefixed (operator-only diagnostics,
+// excluded from auto-collection at listScriptFiles:79). Anything in package.json must
+// either have a help export in its target .ts script OR an entry here; drift check
+// fails otherwise.
 const EXTRA_HELP: HelpEntry[] = [
   { npm: 'help',         category: 'Server / build', what: 'Show this cheat-sheet (you are here).' },
   { npm: 'check:help',   category: 'Server / build', what: 'CI gate — exits non-zero if package.json scripts are missing help entries.' },
@@ -56,7 +58,33 @@ const EXTRA_HELP: HelpEntry[] = [
   { npm: 'clean',        category: 'Server / build', what: 'rm -rf dist.' },
   { npm: 'lint',         category: 'Server / build', what: 'TypeScript type-check + help-sync check. Run before commits.' },
   { npm: 'test',         category: 'Server / build', what: 'Run unit tests (node:test via tsx). Tests live in scripts/tests/*.test.ts.' },
+  { npm: 'pytest',       category: 'Server / build', what: 'Run Python test suite (scripts/tests/test_*.py). Uses the project venv.', example: '.venv/Scripts/python.exe -m pytest scripts/tests' },
   { npm: 'tunnel',       category: 'Server / build', what: 'Manual standalone Cloudflare Quick Tunnel. Useful when dev tunnel is suppressed.' },
+  { npm: 'diagnose:retarget-parity', category: 'Backtest engine', what: 'Operator-pre-flip parity sweep for daemon `--retarget-evaluator-capital`. SEGMENTED verdict per SPEC §10.8 (ρ=1.000 EXACT on useRiskConfig=false segment; ρ≥0.95 on =true). Read-only.', example: 'npm run diagnose:retarget-parity -- --stage stage1' },
+
+  // Phase 1 macro-regime ingest (Python — no .ts module to attach help to)
+  { npm: 'macro:ingest',                       category: 'Data ingestion', what: 'Phase 1 macro-regime ingest — pull VIX/VIX3M/HYG/SPY (yfinance) + Stooq A50R breadth into quantlab.candles + macro_breadth. Idempotent.' },
+  { npm: 'macro:ingest:dry',                   category: 'Data ingestion', what: 'Dry-run of `macro:ingest` — fetch + parse without writing to ClickHouse.' },
+  { npm: 'macro:refresh-constituents',         category: 'Data ingestion', what: 'Refresh the cached S&P 500 constituent list (current IVV holdings + Wikipedia fallback) into quantlab.sp500_constituents. SPEC rev 2 §6.2. Survivorship-bias gated behind classifier_version=\'phase1_v2\'.' },
+  { npm: 'macro:refresh-constituents:dry',     category: 'Data ingestion', what: 'Dry-run of `macro:refresh-constituents` — fetch without writing.' },
+  { npm: 'macro:ingest:breadth-only',          category: 'Data ingestion', what: 'Backfill S&P 500 constituent daily close histories for the breadth signal — writes to quantlab.candles under source=\'yfinance_constituents\'. SPEC rev 2 §7.2 step 5. Sequential per critic §13 Q4.' },
+  { npm: 'macro:ingest:breadth-only:dry',      category: 'Data ingestion', what: 'Dry-run of `macro:ingest:breadth-only` — fetch without writing.' },
+  { npm: 'macro:ingest:breadth-only:smoke',    category: 'Data ingestion', what: 'Smoke variant — only the first 5 constituents. Validates the ingest path end-to-end without the full ~504-ticker wall time.' },
+  { npm: 'macro:compute-breadth',              category: 'Data ingestion', what: 'Compute %-above-50DMA breadth from quantlab.candles (source=yfinance_constituents) → quantlab.macro_breadth (source=yfinance_constituents). SPEC rev 2 §7.2 step 6.' },
+  { npm: 'macro:compute-breadth:dry',          category: 'Data ingestion', what: 'Dry-run of `macro:compute-breadth` — compute without writing.' },
+  { npm: 'macro:emit-fixtures',                category: 'Data ingestion', what: 'Emit historical macro-regime fixture CSVs (6 windows: GFC, EU debt, calm, 2018 Q4, COVID, 2017 holdout) from a populated CH → scripts/tests/fixtures/macro_regime/. Run after macro:ingest covers ≥2008-08-01.' },
+  { npm: 'macro:phase2:procedure',             category: 'Backtest engine', what: 'Phase 2 SPEC §3 realized_stress threshold-selection procedure — 7-step end-to-end (CSCV PBO, block-bootstrap permutation, walk-forward stability). Writes 7 artifacts + RESULT.md to docs/phase2_procedure_artifacts/.' },
+  { npm: 'macro:phase2:procedure:dry',         category: 'Backtest engine', what: 'Dry-run of `macro:phase2:procedure` — runs the procedure without file writes.' },
+
+  // phase1_v3 indicator ingests (Python)
+  { npm: 'cboe:ingest',                        category: 'Data ingestion', what: 'CBOE put/call ratio daily ^CPC → quantlab.macro_indicators_cboe. Primary source for the phase1_v3 sentiment_extreme category. Supports --url / --from-file fallback when CBOE\'s URL 404s.' },
+  { npm: 'cboe:ingest:dry',                    category: 'Data ingestion', what: 'Dry-run of `cboe:ingest` — fetch + parse without writing.' },
+  { npm: 'fred:ingest',                        category: 'Data ingestion', what: 'FRED daily series (T10Y2Y yield-curve spread) → quantlab.macro_indicators_fred via pandas_datareader. No API key needed.' },
+  { npm: 'fred:ingest:dry',                    category: 'Data ingestion', what: 'Dry-run of `fred:ingest` — fetch without writing.' },
+
+  // Phase 2 behavioral-clustering pipeline (Python)
+  { npm: 'features:weekly',                    category: 'Data ingestion', what: 'Phase 2 §5.1 — compute 8-feature point-in-time token features → quantlab.token_features_weekly. Idempotent under (token_address, week_start, feature_version).', example: 'python scripts/compute_token_features_weekly.py --week-start 2026-04-27 --feature-version v1' },
+  { npm: 'cluster:weekly',                     category: 'Data ingestion', what: 'Phase 2 §5.2 — weekly HDBSCAN (primary) + GMM-BIC (sanity) clustering on token_features_weekly. Quality / disagreement / degenerate gates + 3-week admission rule. Writes token_cluster_membership + cluster_diagnostics_weekly.' },
 ];
 
 const SCRIPTS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)));

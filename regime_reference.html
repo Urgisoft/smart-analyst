@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Macro Regime Reference</title>
+<style>
+  :root {
+    --primary: #1e6fd9;
+    --primary-dark: #154e9c;
+    --accent-purple: #8a6fbf;
+    --accent-green: #2ea043;
+    --accent-yellow: #d4a017;
+    --accent-orange: #e07b1f;
+    --accent-red: #cf3b3b;
+    --text: #1a1a1a;
+    --text-muted: #555;
+    --bg: #ffffff;
+    --bg-soft: #f6f8fa;
+    --border: #d8dde3;
+    --new-bg: #fff8e1;
+    --new-border: #f0c14b;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: var(--text);
+    background: var(--bg);
+    line-height: 1.6;
+    margin: 0;
+    padding: 0;
+  }
+  .container {
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 48px 32px 80px;
+  }
+  h1 {
+    font-size: 2.3rem;
+    margin: 0 0 8px;
+    color: var(--text);
+    letter-spacing: -0.02em;
+  }
+  .subtitle {
+    color: var(--text-muted);
+    font-size: 1.05rem;
+    margin: 0 0 32px;
+  }
+  h2 {
+    color: var(--primary);
+    font-size: 1.55rem;
+    margin: 48px 0 12px;
+    padding-bottom: 6px;
+    border-bottom: 2px solid var(--bg-soft);
+    letter-spacing: -0.01em;
+  }
+  h3 {
+    font-size: 1.15rem;
+    margin: 24px 0 8px;
+    color: var(--text);
+  }
+  h4 {
+    font-size: 1rem;
+    margin: 16px 0 6px;
+    color: var(--text);
+  }
+  p { margin: 0 0 12px; }
+  ul, ol { margin: 0 0 12px; padding-left: 24px; }
+  li { margin-bottom: 6px; }
+  .toc-box {
+    border: 1px solid var(--primary);
+    border-radius: 6px;
+    padding: 18px 24px;
+    background: #f0f6ff;
+    margin: 24px 0 32px;
+  }
+  .toc-box ol { margin: 8px 0 0; }
+  .academic {
+    background: #f3eef8;
+    border-left: 4px solid var(--accent-purple);
+    padding: 12px 16px;
+    margin: 16px 0;
+    font-size: 0.92rem;
+    color: #4a3870;
+    border-radius: 0 4px 4px 0;
+  }
+  .academic strong { color: var(--accent-purple); }
+  .new-tag {
+    display: inline-block;
+    background: var(--accent-yellow);
+    color: #1a1a1a;
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 10px;
+    vertical-align: middle;
+    margin-left: 8px;
+    letter-spacing: 0.05em;
+  }
+  .new-section {
+    background: var(--new-bg);
+    border-left: 4px solid var(--new-border);
+    padding: 4px 18px;
+    margin: 18px 0;
+    border-radius: 0 4px 4px 0;
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 16px 0 24px;
+    font-size: 0.93rem;
+  }
+  th {
+    background: var(--primary);
+    color: white;
+    padding: 10px 12px;
+    text-align: left;
+    font-weight: 600;
+  }
+  td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tr.new-row td {
+    background: var(--new-bg);
+  }
+  .tier-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin: 20px 0;
+  }
+  .tier {
+    border-radius: 6px;
+    padding: 16px;
+    text-align: center;
+    color: white;
+  }
+  .tier.green { background: var(--accent-green); }
+  .tier.yellow { background: var(--accent-yellow); color: #2a2a2a; }
+  .tier.orange { background: var(--accent-orange); }
+  .tier.red { background: var(--accent-red); }
+  .tier .label { font-weight: 700; font-size: 1rem; letter-spacing: 0.05em; }
+  .tier .desc { font-size: 0.85rem; margin-top: 6px; opacity: 0.95; }
+  .category-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+    margin: 18px 0;
+  }
+  .cat-box {
+    border: 2px solid;
+    border-radius: 6px;
+    padding: 14px;
+    background: var(--bg-soft);
+  }
+  .cat-box .cat-name {
+    font-weight: 700;
+    font-size: 0.95rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+  .cat-box .cat-items {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    line-height: 1.5;
+  }
+  .cat-vol { border-color: #4a90e2; } .cat-vol .cat-name { color: #4a90e2; }
+  .cat-cred { border-color: #e74c3c; } .cat-cred .cat-name { color: #e74c3c; }
+  .cat-bre { border-color: #2ecc71; } .cat-bre .cat-name { color: #2ecc71; }
+  .cat-rates { border-color: #f39c12; } .cat-rates .cat-name { color: #f39c12; }
+  .cat-mon { border-color: #9b59b6; } .cat-mon .cat-name { color: #9b59b6; }
+  .cat-flow { border-color: #1abc9c; } .cat-flow .cat-name { color: #1abc9c; }
+  .cat-sent { border-color: #e67e22; } .cat-sent .cat-name { color: #e67e22; }
+  .cat-tech { border-color: #34495e; } .cat-tech .cat-name { color: #34495e; }
+  .callout {
+    background: #eef7ff;
+    border-left: 4px solid var(--primary);
+    padding: 14px 18px;
+    margin: 18px 0;
+    border-radius: 0 4px 4px 0;
+  }
+  .callout strong { color: var(--primary-dark); }
+  .closing {
+    background: var(--bg-soft);
+    border-radius: 6px;
+    padding: 20px 24px;
+    margin: 32px 0 0;
+    font-style: italic;
+    color: var(--text-muted);
+  }
+  code {
+    background: var(--bg-soft);
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-family: "SF Mono", Monaco, Consolas, monospace;
+    font-size: 0.88em;
+  }
+  .legend {
+    display: inline-block;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+  }
+  .legend .swatch {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    background: var(--new-bg);
+    border: 1px solid var(--new-border);
+    border-radius: 2px;
+    vertical-align: middle;
+    margin-right: 6px;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <h1>Macro Regime Reference</h1>
+  <p class="subtitle">A complete guide to volatility, credit, breadth, rates, monetary policy, sector flow, sentiment, and tech-specific signals for regime detection. Includes academic backing, integration with SignalForge, and practical use for FTEC protection.</p>
+
+  <span class="legend"><span class="swatch"></span>Yellow shading and the <span class="new-tag">NEW</span> tag mark indicators added in this revision.</span>
+
+  <div class="toc-box">
+    <strong>What this document covers:</strong>
+    <ol>
+      <li>Why regimes matter and what 'regime' means here</li>
+      <li>The eight categories of indicators that compose a regime</li>
+      <li>Academic backing for each indicator</li>
+      <li>The composite alert structure (yellow / orange / red)</li>
+      <li>How regime detection integrates with SignalForge</li>
+      <li>Practical use for FTEC protection and trading decisions</li>
+      <li>Limits and honest assessment of what regime detection can and cannot do</li>
+    </ol>
+  </div>
+
+  <h2>1. What is a market regime?</h2>
+  <p>A market regime is a sustained statistical state of financial markets — characterized by particular levels of volatility, correlation, risk appetite, and capital flow patterns — that produces consistent behavior across many assets simultaneously. Regimes change. When they do, the same strategy that made money in the previous regime may lose money in the next one, even though nothing about the strategy itself has changed.</p>
+  <p>The single most important fact about regimes is this: <strong>during normal regimes, asset correlations are diversified, but during stress regimes, correlations across all risk assets converge toward 1.0.</strong> Solana memecoins, US tech stocks, emerging market currencies, high-yield bonds, and crypto majors all sell off together when fear takes hold. This is why regime detection matters more for portfolio protection than for any individual asset's analysis.</p>
+
+  <h3>Why regimes matter for SignalForge</h3>
+  <p>A SignalForge strategy that generates a positive backtest in a low-stress regime may produce devastating drawdowns in a high-stress regime — not because the strategy logic broke, but because all of its trades correlate with each other when markets panic. Regime conditioning addresses this by treating macro state as a first-class input to the trading logic rather than an afterthought.</p>
+
+  <h3>Why regimes matter for retirement protection</h3>
+  <p>A concentrated position in tech (FTEC, QQQ, NVDA-heavy holdings) is essentially a bet on the continuation of a particular macro regime. When that regime persists, the position generates extraordinary returns. When it inverts, the position can give back years of gains in weeks. A regime classifier provides early warning before the inversion is obvious, allowing for staged risk reduction rather than panic selling at the bottom.</p>
+
+  <h2>2. Category 1 — Volatility signals</h2>
+  <p>Volatility indicators measure the price the market is paying for protection against future moves. The level alone is less informative than the rate of change and the term structure — how near-term volatility relates to longer-term volatility.</p>
+
+  <h3>VIX term structure (the strongest signal)</h3>
+  <p>Under normal conditions, longer-dated volatility is more expensive than near-dated volatility because uncertainty grows with time. This is called <em>contango</em>. When near-term volatility rises above longer-term volatility, the structure inverts — called <em>backwardation</em> — and historically this signals immediate market stress that traders don't expect to persist. The crossover of the VIX/VIX3M ratio above 1.0 is one of the most reliable pre-drawdown signals in the literature.</p>
+
+  <h3>VVIX — the volatility of volatility</h3>
+  <p>VVIX measures the implied volatility of VIX itself — essentially, how much options traders are paying to hedge volatility risk. When VVIX rises sharply above 110-120, it indicates that sophisticated traders are buying protection on volatility itself, which historically leads VIX moves by several days.</p>
+
+  <h3>VXN — the tech-specific volatility index</h3>
+  <p>VXN is the Nasdaq equivalent of VIX. For FTEC concerns specifically, VXN often leads VIX during tech-led drawdowns. When VXN rises faster than VIX (the VXN/VIX ratio expanding), tech is leading the fear, and exposure to tech-heavy positions like FTEC carries elevated risk relative to broad-market exposure.</p>
+
+  <div class="academic"><strong>Academic backing.</strong> Whaley (1993, 2009) — VIX methodology and empirical relationships. Johnson (2017), <em>Journal of Financial and Quantitative Analysis</em> — the slope of VIX term structure predicts forward equity returns. Park (2015) — VVIX contains information beyond VIX. The term structure inversion finding is among the most rigorously documented in volatility research.</div>
+
+  <h2>3. Category 2 — Credit signals</h2>
+  <p>Credit markets sniff out trouble before equity markets. Credit investors are slower-moving, more institutional, and structurally less prone to retail euphoria than equity investors. When high-yield credit weakens while equities still rally, that divergence is one of the strongest pre-drawdown signals available.</p>
+
+  <h3>HYG / SPY divergence</h3>
+  <p>HYG (high-yield corporate bond ETF) tends to track equities when risk appetite is consistent across markets. When HYG starts dropping while SPY continues to rise, credit investors are pricing in stress that equity investors haven't yet acknowledged. Historically, this divergence resolves through equity selling, with a lead time of 1-4 weeks. The clean trigger: <strong>HYG 20-day return turning negative while SPY 20-day return is still positive.</strong></p>
+
+  <h3>High-yield spreads</h3>
+  <p>The ICE BofA US High Yield spread (<code>^BAMLH0A0HYM2</code>) measures the yield premium investors demand to hold junk-rated corporate bonds over Treasuries. When spreads widen rapidly, investors are pricing in higher default risk — which correlates with overall economic stress. Sustained widening from a low base is a real warning signal.</p>
+
+  <div class="academic"><strong>Academic backing.</strong> Gilchrist &amp; Zakrajšek (2012), <em>American Economic Review</em> — the GZ credit spread has predictive power for future GDP growth and equity returns above and beyond what's in the yield curve. Among the strongest results in the macro-financial literature.</div>
+
+  <h2>4. Category 3 — Breadth signals</h2>
+  <p>A market making new highs on narrowing breadth is fragile. When fewer and fewer stocks participate in the rally, the index is being pulled higher by a small number of leaders while most stocks are already weakening. The reversal, when it comes, can be sharp.</p>
+
+  <h3>Percentage above 50-day moving average</h3>
+  <p>When the S&amp;P 500 is at all-time highs but only 40% of its constituents are above their 50-day moving average, the rally is narrow. When the percentage drops below 50% while the index continues higher, distribution is occurring beneath the surface. The current rally is famously narrow, so breadth is especially relevant for any FTEC position.</p>
+
+  <h3>Advance-decline line</h3>
+  <p>The cumulative count of advancing stocks minus declining stocks. When the A/D line fails to make new highs alongside the index making new highs, that bearish divergence is one of the classic top signatures.</p>
+
+  <h3>New highs minus new lows</h3>
+  <p>When the index hits a new high but the count of individual stocks hitting 52-week highs is contracting (or worse, when 52-week lows are increasing), the breadth deterioration is acute. Historically, this signal has appeared near major tops.</p>
+
+  <div class="academic"><strong>Academic backing.</strong> Brock, Lakonishok &amp; LeBaron (1992), <em>Journal of Finance</em> — gave technical breadth indicators academic legitimacy after decades of dismissal. The breadth-divergence finding has held up through subsequent multiple-testing scrutiny better than most technical signals.</div>
+
+  <h2>5. Category 4 — Rates and yield curve signals</h2>
+  <p>Interest rates affect every other asset price through the discount rate applied to future cash flows. Tech is particularly rate-sensitive because high P/E stocks have more of their value in distant cash flows, which get discounted more heavily when rates rise.</p>
+
+  <h3>10Y - 2Y curve</h3>
+  <p>The spread between 10-year and 2-year Treasury yields. Inversion (negative spread) has predicted every US recession since 1960 with one false positive. The dynamics matter: the curve inverts during late-cycle conditions, then steepens as recession arrives. <strong>Steepening from inversion is itself a signal</strong> — it has historically aligned with the recession that the inversion was warning about.</p>
+
+  <h3>Real interest rates (10Y TIPS / 10Y nominal − 5Y breakeven)</h3>
+  <p>Real rates are nominal rates minus expected inflation. They directly compress high P/E stocks because tech valuations are fundamentally a duration trade. When real rates rise significantly while tech equities also rise, the divergence is unsustainable — either real rates fall back or tech multiples compress. Compute as <code>^TNX</code> minus 5-year breakeven inflation; both available on FRED.</p>
+
+  <h3>10Y rate of change</h3>
+  <p>Sustained, sharp moves in the 10-year Treasury yield (more than 25 basis points in two weeks) historically precede equity volatility. The level matters less than the speed of change.</p>
+
+  <div class="academic"><strong>Academic backing.</strong> Estrella &amp; Mishkin (1998), New York Fed — established the 10Y-2Y curve as a recession predictor. Adrian, Crump &amp; Moench (2013) — formalized how multiple yield curve and credit spread indicators combine to predict economic conditions.</div>
+
+  <h2>6. Category 5 — Monetary policy and Fed signals</h2>
+  <p>The Federal Reserve is the single largest institutional driver of risk-asset prices in the post-2008 era. The Fed publishes substantial data freely; ignoring it leaves real signal on the table. The most useful indicators here are Fed liquidity flows and lending standards, both of which have lead times of weeks to months.</p>
+
+  <h3>Net Fed liquidity (H.4.1)</h3>
+  <p>Computed as Fed assets minus reverse repo balance minus Treasury general account. When net liquidity contracts, equities historically follow with a 4-12 week lag. Released weekly. The Fed's H.4.1 statement is the primary source. Free from FRED. <strong>This is the "macro nerd" indicator and a primary signal in the macro regime composite.</strong></p>
+
+  <h3>Senior Loan Officer Survey (SLOOS)</h3>
+  <p>Quarterly survey of bank lending standards. When banks tighten lending standards across categories (commercial, consumer, mortgage), equity drawdowns historically follow within 1-3 quarters. This is one of the cleaner leading indicators in macro finance, despite its low frequency.</p>
+
+  <h3>FOMC communication tone</h3>
+  <p>Fed meeting minutes and chair speeches contain language that, when analyzed for tone shifts (hawkish vs dovish), has been shown to predict subsequent market moves. Lucca and Trebbi (2009) and Hansen, McMahon, Tong (2019) used computational text analysis to document this. The shift in tone — particularly the minutes released three weeks after meetings — adds information beyond what the immediate statement conveys. Hawkish shifts have predictive power for tech specifically because tech is rate-sensitive.</p>
+
+  <div class="new-section">
+    <h3>CME FedWatch / rate expectations <span class="new-tag">NEW</span></h3>
+    <p>The CME FedWatch tool tracks rate expectations from federal funds futures pricing, giving a clean aggregate signal for what the market expects the Fed to do — far cleaner than parsing individual speeches. Sudden shifts in implied probabilities for upcoming meetings are themselves a signal: the market repricing rate expectations sharply usually precedes equity volatility.</p>
+  </div>
+
+  <div class="academic"><strong>Academic backing.</strong> Lucca &amp; Trebbi (2009); Hansen, McMahon &amp; Tong (2019), <em>Quarterly Journal of Economics</em> — Fed communication tone moves markets in measurable ways. Liquidity signals: industry research from CrossBorder Capital and Fed staff papers. SLOOS as recession predictor is documented in numerous Fed working papers.</div>
+
+  <h2>7. Category 6 — Sector flow signals</h2>
+  <p>When investors buy a sector ETF, the issuer creates new shares and uses cash to buy the underlying stocks. ETF flows are therefore a near-real-time measure of which sectors are receiving capital. For tech-focused portfolios, this is particularly relevant.</p>
+
+  <h3>Technology ETF flows (XLK, VGT, FTEC)</h3>
+  <p>When the technology sector ETFs see sustained outflows after periods of strong inflows, institutional money is rotating out. This typically happens before price tops, not after. The signal lives in 5-day, 10-day, and 20-day moving averages of net flows — single-day prints are noise.</p>
+
+  <h3>Defensive vs cyclical rotation</h3>
+  <p>When XLU (utilities) and XLP (consumer staples) inflows accelerate while XLK (tech) inflows decelerate, defensive rotation is occurring beneath the surface. This is the classic late-cycle pattern.</p>
+
+  <div class="new-section">
+    <h3>Movement to safe assets / risk-off rotation <span class="new-tag">NEW</span></h3>
+    <p>Beyond defensive equity sectors, capital flight tends to show up in long-duration Treasuries (TLT), gold (GLD), and the Japanese yen. Sustained inflows to these assets while equities are also rising is a divergence — money is paying for protection while still chasing returns. The 20-day return of TLT and GLD relative to SPY is the simplest expression of this signal.</p>
+  </div>
+
+  <h3>Semiconductor relative strength (SMH/QQQ)</h3>
+  <p>SMH (semiconductor ETF) leading or lagging QQQ tells you whether the AI infrastructure trade is intact or breaking. Currently FTEC is being pulled higher by semiconductors specifically — Nvidia, Broadcom, Micron, AMD comprise nearly 30% of the fund. <strong>The SMH/QQQ ratio rolling over from a high is an early warning specifically for FTEC's most concentrated exposure.</strong></p>
+
+  <div class="academic"><strong>Academic backing.</strong> Ben-David, Franzoni &amp; Moussawi (2018), <em>Journal of Finance</em> — ETF flows have measurable price impact at the individual stock level. Faber (2007) — sector rotation rules produce meaningful alpha after costs over multiple decades. Granville (1963) — On-Balance Volume foundations.</div>
+
+  <h2>8. Category 7 — Sentiment &amp; positioning <span class="new-tag">NEW CATEGORY</span></h2>
+  <div class="new-section">
+    <p>Volatility tells you what the options market is pricing. Credit tells you what bond investors are doing. Sentiment and positioning indicators tell you what the broader population of speculators and retail investors are doing — and crucially, when they reach extremes that historically mark turning points.</p>
+
+    <h3>Put/call ratio (SPX or QQQ)</h3>
+    <p>When the 10-day moving average of the put/call ratio rises while equities also rise, smart money is buying protection — a classic divergence. When it drops to extreme low levels, that's complacency that historically marks tops. Both extremes carry signal. Free from CBOE.</p>
+
+    <h3>Margin debt rate of change</h3>
+    <p>Total margin debt at NYSE — when it accelerates rapidly, that's late-cycle leverage. When it starts contracting, that's deleveraging beginning. Monthly data, lagged, but the rate of change matters more than the level. FINRA publishes monthly. Persistent month-over-month declines from a high have historically clustered near major tops.</p>
+
+    <h3>COT — Commitment of Traders report</h3>
+    <p>The CFTC's weekly COT report shows what large speculators and commercials are doing in equity index futures. When commercials are heavily short while small specs are heavily long, that's the historical setup for a top. Weekly cadence, free from CFTC.</p>
+
+    <h3>AAII bullish percentage</h3>
+    <p>Weekly survey of retail investor sentiment. Extreme bullish readings (above ~50%) and extreme bearish readings (below ~25%) have historically been contrarian signals. Useful as a confirmation layer rather than a primary trigger, since survey sentiment is noisy week to week.</p>
+
+    <h3>Crypto correlation as risk-on/risk-off proxy</h3>
+    <p>Bitcoin and Nasdaq have correlated meaningfully in recent years. When BTC starts dropping while QQQ holds up (or vice versa), the divergence often resolves through equity selling within weeks. Already in the SignalForge data pipeline — measuring the rolling 20-day return spread between BTC and QQQ is a low-cost addition.</p>
+
+    <h3>Dollar strength (DXY)</h3>
+    <p>A strengthening dollar is generally negative for tech earnings (most large-cap tech companies are global and earn meaningful revenue abroad). DXY rising 3%+ in a month while tech is also rising is a fundamental headwind that hasn't yet shown up in prices.</p>
+
+    <div class="academic"><strong>Academic backing.</strong> Cohen, Malloy &amp; Pomorski (2012), <em>Journal of Finance</em> — "Decoding Inside Information" — established that informed trading by skilled insiders has predictive power. The contrarian-sentiment literature (Baker &amp; Wurgler 2006, 2007) has documented that aggregate retail sentiment reaches extremes near market turning points. COT-based positioning signals are studied in Sanders, Boris &amp; Manfredo (2004) and subsequent work.</div>
+  </div>
+
+  <h2>9. Category 8 — Tech / FTEC-specific firm-level signals <span class="new-tag">NEW CATEGORY</span></h2>
+  <div class="new-section">
+    <p>Most regime indicators operate at the index or macro level. Because FTEC is the specific exposure being protected, a layer of firm-level signals on the top holdings adds information that broad indices smooth out.</p>
+
+    <h3>Insider activity at top FTEC holdings (Form 4)</h3>
+    <p>Officers and directors of public companies must report buys and sells within 2 business days via SEC Form 4. Aggregated insider transaction data has documented predictive value at the firm level (Cohen, Malloy &amp; Pomorski 2012). For FTEC, this means watching insider activity at the top holdings: <strong>Nvidia, Apple, Microsoft, Broadcom, Micron, AMD, Cisco</strong>. When executives at these companies turn aggressive net sellers, that's information. Aggregated insider data is available through OpenInsider (free) or paid services. Daily check on roughly 10-15 names.</p>
+
+    <h3>Concentration metrics in top holdings</h3>
+    <p>FTEC is approximately 18% Nvidia, 15% Apple, 10% Microsoft. When the top 3 concentration hits extreme levels, the fund's behavior is essentially driven by those three names. Monitor each individually for relative weakness — Nvidia volume divergence, Apple new lows, Microsoft underperformance — these are direct signals on FTEC even if the broad market is calm.</p>
+
+    <h3>AI capex commentary in earnings</h3>
+    <p>Harder to systematize but worth knowing: the entire current rally rests on hyperscaler AI spending continuing at projected rates. When Microsoft, Google, Amazon, or Meta guide AI capex <em>down</em> in earnings, that's a thesis-breaking event for FTEC. Put earnings dates in the calendar; read the calls or summaries; watch language around AI capex specifically.</p>
+
+    <div class="academic"><strong>Academic backing.</strong> Cohen, Malloy &amp; Pomorski (2012), <em>Journal of Finance</em> — "Decoding Inside Information" showed insider trades by individuals with track records of skill have predictive power. Aggregated insider sentiment indices have been studied in several papers with mixed but generally positive results. Concentration risk in cap-weighted indices is documented in Roll (1992) and subsequent work.</div>
+  </div>
+
+  <h2>10. The composite regime classifier</h2>
+  <p>Eight categories of largely orthogonal information. Each contains 2-7 specific indicators. The composite classifier looks at how many categories are firing simultaneously, weighted by the strength of the signal within each category.</p>
+
+  <div class="category-grid">
+    <div class="cat-box cat-vol"><div class="cat-name">Volatility</div><div class="cat-items">VIX/VIX3M • VVIX • VXN</div></div>
+    <div class="cat-box cat-cred"><div class="cat-name">Credit</div><div class="cat-items">HYG/SPY divergence • HY spreads</div></div>
+    <div class="cat-box cat-bre"><div class="cat-name">Breadth</div><div class="cat-items">% above 50DMA • A/D line • New highs/lows</div></div>
+    <div class="cat-box cat-rates"><div class="cat-name">Rates</div><div class="cat-items">10Y-2Y curve • Real rates (TIPS) • 10Y change</div></div>
+    <div class="cat-box cat-mon"><div class="cat-name">Monetary Policy</div><div class="cat-items">Fed liquidity (H.4.1) • SLOOS • FOMC tone • FedWatch</div></div>
+    <div class="cat-box cat-flow"><div class="cat-name">Sector Flows</div><div class="cat-items">Tech ETF flows • Defensive rotation • Safe-asset flows • SMH/QQQ</div></div>
+    <div class="cat-box cat-sent"><div class="cat-name">Sentiment &amp; Positioning</div><div class="cat-items">Put/call • Margin debt • COT • AAII • BTC/QQQ • DXY</div></div>
+    <div class="cat-box cat-tech"><div class="cat-name">Tech / FTEC-Specific</div><div class="cat-items">Insider activity • Concentration • AI capex commentary</div></div>
+  </div>
+
+  <h3>Independent confirmation across categories</h3>
+  <p>The most important principle in regime detection: <strong>signals from different categories are far stronger evidence than multiple signals from the same category.</strong> Three volatility indicators firing is one signal expressed three ways. One volatility + one credit + one breadth signal firing is three independent confirmations. Statistical evidence for stress is multiplicative across independent categories, additive within a single category.</p>
+
+  <h3>Tier structure</h3>
+  <div class="tier-grid">
+    <div class="tier green"><div class="label">GREEN</div><div class="desc">Normal regime<br>0–1 categories firing<br>No defensive action</div></div>
+    <div class="tier yellow"><div class="label">YELLOW</div><div class="desc">Watch<br>1 category firing<br>Review positions</div></div>
+    <div class="tier orange"><div class="label">ORANGE</div><div class="desc">Caution<br>2 categories firing<br>Consider trimming, hedge</div></div>
+    <div class="tier red"><div class="label">RED</div><div class="desc">Defensive<br>3+ categories within 5 days<br>Kill switch + reduce exposure</div></div>
+  </div>
+
+  <div class="callout">
+    <strong>The strongest historical setup.</strong> If you wanted just one combination with the cleanest historical track record for "meaningful equity drawdown is coming," it's: (1) VIX/VIX3M crosses above 1.0, AND (2) HYG 10-day return is negative while SPY 10-day return is positive, AND (3) percentage of S&amp;P 500 stocks above 50-day MA drops below 50%. When all three trigger within a week of each other, the historical hit rate for meaningful correction within 1-3 weeks is roughly 80%. False positive rate is about 20%.
+  </div>
+
+  <h2>11. Integration with SignalForge</h2>
+  <p>Building the regime classifier as a service rather than a standalone alert tool makes it leveraged across multiple components of the SignalForge architecture. The same infrastructure serves trading discipline, research validation, and personal portfolio protection from a single backend.</p>
+
+  <h3>Four integration patterns</h3>
+  <p><strong>Pattern 1: Risk-off kill switch.</strong> When red flag conditions trigger, SignalForge stops opening new positions across all strategies. Existing positions exit per their normal logic. Simplest integration, highest defensive value.</p>
+  <p><strong>Pattern 2: Position sizing modulation.</strong> Strategies still trade through all conditions, but position sizes scale down as macro stress rises. Yellow = 75% size, orange = 50%, red = 25%. Continuous rather than binary.</p>
+  <p><strong>Pattern 3: Strategy-specific gating.</strong> Different strategies respond to macro signals differently. Mean reversion can benefit from rising volatility. Momentum gets crushed by volatility regime shifts. Each strategy gets its own gating logic based on its known sensitivities.</p>
+  <p><strong>Pattern 4: Macro-conditioned cluster definitions.</strong> Behavioral clusters incorporate macro regime as one of their dimensions. 'High-vol low-beta nano in low-fear environment' is a different cluster than 'high-vol low-beta nano in high-fear environment.' Most powerful pattern, most distant — requires substantial data infrastructure.</p>
+
+  <h3>Why historical regime tagging matters</h3>
+  <p>Once the macro_regimes table is populated with historical data going back several years, every existing bt_runs row can be tagged with the regime that prevailed at execution time. This unlocks regime-stratified analysis retroactively. A strategy that appeared to have edge across all conditions might actually have edge only in a specific regime — and once tagged, that becomes visible.</p>
+
+  <h2>12. Phased implementation plan <span class="new-tag">NEW</span></h2>
+  <div class="new-section">
+    <p>Each indicator added is another thing that can throw a false positive, and a system that cries wolf 30 times a year is one that gets ignored. Better to start narrow and expand based on what's actually informative.</p>
+
+    <h3>Phase 1 — Build the basic version first</h3>
+    <p>VIX/VIX3M, HYG/SPY, percentage above 50DMA. Three indicators across three categories. Daily check, email alert when 2+ trigger. An evening of code; gives you the bulk of the benefit.</p>
+
+    <h3>Phase 2 — Add tech-specific signals</h3>
+    <p>SMH/QQQ ratio, Nvidia/Apple/Microsoft individual behavior, insider activity feed for top holdings. Another evening of work.</p>
+
+    <h3>Phase 3 — Add tier-2 confirmations</h3>
+    <p>Put/call ratio, margin debt, COT, DXY, Fed liquidity. Add only after calibrating against the basic version for a few months — by then you'll know which signals are giving you useful information versus noise.</p>
+
+    <h3>Phase 4 — Sentiment + macro full stack</h3>
+    <p>AAII, AI capex commentary, FedWatch repricing, safe-asset flows. These are confirmation layers; their value comes from breadth of independent confirmation, not from any single signal.</p>
+  </div>
+
+  <h2>13. Cross-market validation with regimes</h2>
+  <p>Macro signals tie naturally into cross-market validation. A strategy that worked on Solana memecoins during 2024 and on BTC during 2025 might be working <em>because both periods were risk-on regimes</em>, not because the strategy has real edge. The fix is to compare strategy performance within the same macro regime across markets — regime-stratified cross-market validation.</p>
+  <p><strong>The selection-bias connection.</strong> When you test 41,000 parameter configurations, the apparent best one is inflated by selection bias. Slicing by regime multiplies trial conditions and compounds the bias. Deflation gates (DSR, PBO, HLZ) must be applied with awareness of the total search space, including regime dimensions.</p>
+
+  <h2>14. Practical use: dashboard and AI briefings</h2>
+  <p>Eight panels, one per category. Each panel shows current values, recent trend, threshold status, and a small multi-day chart. A composite header shows current regime (green/yellow/orange/red) with the count of categories firing. A historical regime strip shows the past 30-90 days of regime states.</p>
+  <p><strong>Daily AI briefing.</strong> 200-300 words. Current regime state. Which categories are firing and why. What changed since yesterday. Any flags worth investigating. Generated automatically each morning.</p>
+  <p><strong>The discipline of looking at raw data first.</strong> If Claude is summarizing the data for you, you stop looking at the data yourself. Use the AI briefing as a check on your reading, not a replacement for it. Read the raw dashboard yourself for several months. Build the intuition first.</p>
+
+  <h2>15. What regime detection cannot do</h2>
+  <p><strong>It will not time tops perfectly.</strong> Signals will sometimes fire weeks before drawdowns, sometimes during them, occasionally after. False positives are common — perhaps 20-30% of yellow/orange flags resolve without meaningful drawdowns. Use signals as calibration, not commands.</p>
+  <p><strong>It cannot anticipate idiosyncratic shocks.</strong> Regulatory action against a major holding, geopolitical events, single-stock blowup contagion, black swans — none of these will appear in volatility, credit, breadth, rates, or flow indicators in advance. Position sizing, not alerting, is the protection against these.</p>
+  <p><strong>It cannot fix bad position sizing.</strong> Order of importance: position sizing &gt; diversification &gt; regime alerts &gt; entry/exit timing.</p>
+  <p><strong>The published edges are smaller than retail content suggests.</strong> A well-built regime detection system might give you 5-15% improvement in risk-adjusted returns versus passive holding. Not a 50% improvement.</p>
+  <p><strong>Multiple-testing applies here too.</strong> If you mine through enough indicators, you'll find combinations that would have predicted past drawdowns. Whether they predict future drawdowns is a different question.</p>
+
+  <h2>16. Appendix — Quick reference card</h2>
+  <p>A condensed reference for daily use once the system is built. Yellow-shaded rows are new in this revision.</p>
+
+  <table>
+    <thead>
+      <tr><th>Indicator</th><th>Category</th><th>Source</th><th>Threshold</th><th>What it means</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>VIX/VIX3M</td><td>Volatility</td><td>CBOE</td><td>&gt; 1.0</td><td>Term structure inverted — immediate stress</td></tr>
+      <tr><td>VVIX</td><td>Volatility</td><td>CBOE</td><td>&gt; 110</td><td>Vol-of-vol elevated — smart money hedging</td></tr>
+      <tr><td>VXN/VIX</td><td>Volatility</td><td>CBOE</td><td>Rising</td><td>Tech leading the fear</td></tr>
+      <tr><td>HYG 10d</td><td>Credit</td><td>Yahoo</td><td>Negative while SPY+</td><td>Credit/equity divergence</td></tr>
+      <tr><td>HY spreads</td><td>Credit</td><td>FRED</td><td>Widening</td><td>Default risk pricing in</td></tr>
+      <tr><td>% &gt; 50DMA</td><td>Breadth</td><td>Various</td><td>&lt; 50% at index highs</td><td>Narrow rally — distribution</td></tr>
+      <tr><td>A/D line divergence</td><td>Breadth</td><td>Various</td><td>Diverging from index</td><td>Classic top signature</td></tr>
+      <tr><td>New highs − new lows</td><td>Breadth</td><td>Various</td><td>Negative at index highs</td><td>Distribution beneath surface</td></tr>
+      <tr><td>10Y-2Y</td><td>Rates</td><td>FRED</td><td>Steepening from inversion</td><td>Recession arriving</td></tr>
+      <tr><td>Real rates</td><td>Rates</td><td>FRED</td><td>Rising sharply with equities</td><td>Tech multiple compression coming</td></tr>
+      <tr><td>10Y rate of change</td><td>Rates</td><td>FRED</td><td>&gt; 25 bps in 2 weeks</td><td>Rate-driven equity volatility setup</td></tr>
+      <tr><td>Net Fed liquidity</td><td>Monetary</td><td>FRED H.4.1</td><td>Contracting</td><td>Liquidity withdrawal — equity follows (4-12 wk)</td></tr>
+      <tr><td>SLOOS</td><td>Monetary</td><td>FRED</td><td>Tightening</td><td>1-3 quarter recession warning</td></tr>
+      <tr><td>FOMC tone</td><td>Monetary</td><td>Fed minutes</td><td>Hawkish shift</td><td>Predictive for tech specifically</td></tr>
+      <tr class="new-row"><td>CME FedWatch</td><td>Monetary</td><td>CME</td><td>Sharp repricing</td><td>Rate expectations shifting — vol setup</td></tr>
+      <tr><td>XLK flows</td><td>Sector flows</td><td>etf.com</td><td>Sustained outflows</td><td>Institutional rotation out of tech</td></tr>
+      <tr><td>SMH/QQQ</td><td>Sector flows</td><td>Yahoo</td><td>Rolling over</td><td>AI infrastructure trade weakening</td></tr>
+      <tr><td>XLU/XLP flows</td><td>Sector flows</td><td>etf.com</td><td>Inflows accelerating</td><td>Defensive rotation underway</td></tr>
+      <tr class="new-row"><td>TLT/GLD vs SPY</td><td>Sector flows</td><td>Yahoo</td><td>Outperforming</td><td>Safe-asset rotation while equities still rising</td></tr>
+      <tr class="new-row"><td>Put/call ratio</td><td>Sentiment</td><td>CBOE</td><td>Extreme high or low</td><td>Hedging spike or complacency top</td></tr>
+      <tr class="new-row"><td>Margin debt RoC</td><td>Sentiment</td><td>FINRA</td><td>Contracting from high</td><td>Deleveraging beginning</td></tr>
+      <tr class="new-row"><td>COT report</td><td>Sentiment</td><td>CFTC</td><td>Commercials short, specs long</td><td>Historical top setup</td></tr>
+      <tr class="new-row"><td>AAII bullish %</td><td>Sentiment</td><td>AAII</td><td>&gt; 50% or &lt; 25%</td><td>Contrarian sentiment extremes</td></tr>
+      <tr class="new-row"><td>BTC/QQQ divergence</td><td>Sentiment</td><td>Internal</td><td>Diverging 20d return</td><td>Risk-on/risk-off proxy</td></tr>
+      <tr class="new-row"><td>DXY</td><td>Sentiment</td><td>Yahoo</td><td>+3% in 1 month</td><td>Tech earnings headwind</td></tr>
+      <tr class="new-row"><td>Insider Form 4 (top 7)</td><td>Tech-specific</td><td>OpenInsider</td><td>Aggregate net selling spike</td><td>Firm-level warning for FTEC</td></tr>
+      <tr class="new-row"><td>Top 3 concentration</td><td>Tech-specific</td><td>Internal</td><td>Individual weakness</td><td>NVDA/AAPL/MSFT direct FTEC signal</td></tr>
+      <tr class="new-row"><td>AI capex commentary</td><td>Tech-specific</td><td>Earnings calls</td><td>Guidance down</td><td>Thesis-breaking event for FTEC</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout">
+    <strong>Composite tier rules.</strong><br>
+    Yellow flag — any 1 indicator fires.<br>
+    Orange flag — 2+ indicators from different categories fire simultaneously.<br>
+    Red flag — 3+ indicators from different categories fire within a 5-day window.<br><br>
+    <strong>Strongest historical setup:</strong> VIX/VIX3M &gt; 1.0 AND HYG-SPY divergence AND breadth below 50%. ~80% hit rate for meaningful equity correction within 1-3 weeks when all three trigger together.
+  </div>
+
+  <div class="closing">
+    Regime detection is one of the more rigorously-supported applications of systematic thinking to portfolio protection. The signals are real, the academic backing is solid, and the discipline of using them as calibration rather than commands produces measurable improvement in risk-adjusted returns. Build it carefully, validate it honestly, and use it as one input among many. The work compounds.
+  </div>
+
+</div>
+</body>
+</html>

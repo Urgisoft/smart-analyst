@@ -1,0 +1,244 @@
+{
+  "main": {
+    "id": "9683227a6eafef32",
+    "type": "split",
+    "children": [
+      {
+        "id": "366202104f3e5074",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "8a005613ec4879f4",
+            "type": "leaf",
+            "state": {
+              "type": "canvas",
+              "state": {
+                "file": "Architecture.canvas",
+                "viewState": {
+                  "x": 185,
+                  "y": 0,
+                  "zoom": -0.3819082481352437
+                }
+              },
+              "icon": "lucide-layout-dashboard",
+              "title": "Architecture"
+            }
+          },
+          {
+            "id": "71f1ca9762d92b90",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "01 - Data Ingestion.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "01 - Data Ingestion"
+            }
+          }
+        ],
+        "currentTab": 1
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "d42129e967a36564",
+    "type": "split",
+    "children": [
+      {
+        "id": "a8619652978496ff",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "da69e8c361ee945a",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "0d1c363da9aaf285",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "3398b0f0a97c0782",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "c329b4fdd3dd1c49",
+    "type": "split",
+    "children": [
+      {
+        "id": "7fcd8b0e95ccd7cc",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "8624c4f70ace861d",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "01 - Data Ingestion.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks for 01 - Data Ingestion"
+            }
+          },
+          {
+            "id": "c8b470a16f6fdbd8",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "01 - Data Ingestion.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links from 01 - Data Ingestion"
+            }
+          },
+          {
+            "id": "a1f71b6b5b25efc6",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "734e88158c4723b7",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "All properties"
+            }
+          },
+          {
+            "id": "381547c47da42612",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "01 - Data Ingestion.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Outline of 01 - Data Ingestion"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false,
+      "bases:Create new base": false
+    }
+  },
+  "active": "71f1ca9762d92b90",
+  "lastOpenFiles": [
+    "symbol-analysis/worksheet-template.md",
+    "symbol-analysis/README.md",
+    "symbol-analysis/quick-screen.md",
+    "symbol-analysis/data-sources.md",
+    "symbol-analysis/08-decision-framework.md",
+    "symbol-analysis/07-macro-fit.md",
+    "symbol-analysis/06-structure.md",
+    "symbol-analysis/05-sentiment-options.md",
+    "symbol-analysis/04-technicals.md",
+    "symbol-analysis/03-valuation.md",
+    "symbol-analysis/02-fundamentals.md",
+    "symbol-analysis/01-what-is-it.md",
+    "gaps/drawdown-response-framework.md.tmp.101180.ee7a48940c21",
+    "gaps/README.md.tmp.101180.6a436ed15849",
+    "gaps/market-cycle-position.md",
+    "gaps/expanded-vol-structure.md",
+    "gaps/sector-rotation-monitoring.md",
+    "gaps/sector-rotation-monitoring.md.tmp.101180.6e17b90c668b",
+    "gaps/short-interest-tracking.md",
+    "gaps/etf-flow-monitoring.md",
+    "gaps/etf-flow-monitoring.md.tmp.101180.35a6bb6f2525",
+    "gaps/strategy-demotion.md",
+    "README.md.tmp.104904.d07216351121",
+    "gaps/README.md",
+    "gaps/executive-departure-signal.md",
+    "gaps/event-driven-filings-processor.md",
+    "gaps/earnings-calendar-integration.md",
+    "gaps/drawdown-response-framework.md",
+    "gaps/cross-strategy-correlation.md",
+    "gaps/cross-asset-signals.md",
+    "gaps/capital-deployment-ramp.md",
+    "Architecture.canvas",
+    "symbol-analysis",
+    "gaps",
+    "_staging/obsidian_package/symbol-analysis",
+    "_staging/obsidian_package/gaps",
+    "_staging/obsidian_package"
+  ]
+}

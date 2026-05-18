@@ -4,6 +4,7 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
 import { existsSync } from "node:fs";
+import * as fs from "node:fs/promises";
 import { Tunnel as CloudflareTunnel, bin as cloudflaredBin } from "cloudflared";
 import {
   fetchCandles,
@@ -12,15 +13,63 @@ import {
   fetchSolRegime,
   pingClickHouse,
   ensureBacktestTables,
+  ensureMacroRegimeTables,
   fetchStrategies,
   upsertStrategy,
   archiveStrategy,
   searchBacktestRuns,
   listSweeps,
   fetchBacktestFacets,
+  fetchStrategyScores,
+  fetchValidatorCells,
+  fetchValidatorCellData,
+  fetchValidatorClusterCells,
+  fetchValidatorClusterCellData,
   type StrategyBundle,
   type BacktestSearchFilters,
 } from "./src/server/clickhouse.js";
+import { parseValidatorRequest, isParseFailure } from "./src/lib/validator_request.js";
+import { validatorScore } from "./src/lib/validator.js";
+import { parseScoreCellRequest, isCellParseFailure } from "./src/lib/validator_cell_request.js";
+import {
+  buildCellValidatorResult,
+  CellEmptyError,
+  CellTooFewParamsError,
+  ChosenParamNotInCellError,
+} from "./src/lib/validator_cell.js";
+import {
+  parseScoreClusterRequest,
+  isClusterParseFailure,
+} from "./src/lib/validator_cluster_request.js";
+import {
+  buildClusterValidatorResult,
+  ClusterMixedError,
+} from "./src/lib/validator_cluster.js";
+import {
+  parseDiagnosticsQuery,
+  isDiagnosticsQueryFailure,
+  fetchClusterDiagnostics,
+  parseScoresQuery,
+  isScoresQueryFailure,
+  fetchClusterScores,
+  NoPublishedFitError,
+} from "./src/server/cluster_dashboard.js";
+import {
+  parseCellsQuery as parseMetaLabelingCellsQuery,
+  isCellsQueryFailure as isMetaLabelingCellsQueryFailure,
+  fetchMetaLabelingCells,
+} from "./src/server/meta_labeling_dashboard.js";
+import {
+  parseQuery as parsePaperTradingQuery,
+  isQueryFailure as isPaperTradingQueryFailure,
+  fetchPaperTradingState,
+} from "./src/server/paper_trading_dashboard.js";
+import {
+  parseQuery as parseRegimeQuery,
+  isQueryFailure as isRegimeQueryFailure,
+  fetchRegimeState,
+  RegimeDashboardError,
+} from "./src/server/regime_dashboard.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -54,7 +103,14 @@ const TIERS: TierDef[] = [
 async function startServer() {
   const app = express();
   const PORT = 3000;
-  app.use(express.json());
+  // Global JSON parser at the default 100kb cap — but skip the validator route, which
+  // installs its own 50mb parser at the route-level (see /api/validator/score below).
+  // Without this skip, the global cap fires first and rejects multi-MB payloads with 413.
+  const globalJson = express.json();
+  app.use((req, res, next) => {
+    if (req.path.startsWith('/api/validator/')) return next();
+    return globalJson(req, res, next);
+  });
 
   // Force fresh data on every request — when ClickHouse is updated (new candles, new tokens),
   // the dashboard should reflect it without a hard refresh.
@@ -155,6 +211,17 @@ async function startServer() {
     const limit = Math.min(200, Math.max(1, Number(req.query.limit ?? 50)));
     try {
       res.json(await listSweeps(limit));
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  // Top strategies — composite "is this worth deploying?" rankings derived offline by
+  // `npm run score:strategies`. Powers the dashboard's Top Strategies panel.
+  app.get("/api/strategies/scores", async (req, res) => {
+    const limit = Math.min(500, Math.max(1, Number(req.query.limit || 50)));
+    try {
+      res.json(await fetchStrategyScores(limit));
     } catch (e) {
       res.status(500).json({ error: (e as Error).message });
     }
@@ -264,6 +331,292 @@ async function startServer() {
     }
   });
 
+  // Path 2 validator — runs the four-gate stack (DSR/PBO/HLZ-BHY/OOS-IS) on user-supplied
+  // sweep returns. Per-route 50MB body limit overrides the global 100kb default for this
+  // endpoint only — other endpoints still enforce the small default.
+  const validatorBody = express.json({ limit: '50mb' });
+  app.post("/api/validator/score", validatorBody, async (req, res) => {
+    try {
+      const parsed = parseValidatorRequest(req.body);
+      if (isParseFailure(parsed)) {
+        return res.status(parsed.status).json({ error: parsed.error, detail: parsed.detail });
+      }
+      res.json(validatorScore(parsed.value));
+    } catch (e) {
+      console.error('validator error', e);
+      res.status(500).json({ error: 'internal', detail: (e as Error).message });
+    }
+  });
+
+  // Path β cell-level validator — runs the same four-gate stack as /score, but on
+  // a (strategy, tier, interval) cell pulled from bt_runs + bt_runs_slices. Same
+  // 50mb body cap (the request itself is tiny, but verdict response payload can
+  // approach that for cells with many params).
+  app.post("/api/validator/score-cell", validatorBody, async (req, res) => {
+    // Per Phase 2 SPEC §5.4: `?axis=cluster` dispatches to the cluster-axis validator
+    // (reads v_bt_runs_by_cluster, expects {strategy, clusterId, interval} in the body).
+    // Default / `?axis=tier` is the existing tier-axis path. Both axes share the same
+    // gate stack via `validator_cluster.ts → validator_cell.ts` delegation, so a verdict
+    // shape is identical across axes — only the `cell` metadata block differs.
+    const axis = req.query.axis === 'cluster' ? 'cluster' : 'tier';
+    try {
+      if (axis === 'cluster') {
+        const parsed = parseScoreClusterRequest(req.body);
+        if (isClusterParseFailure(parsed)) {
+          return res.status(parsed.status).json({ error: parsed.error, detail: parsed.detail });
+        }
+        const { strategy, clusterId, interval, chosenParam, thresholds } = parsed.value;
+        let cellData;
+        try {
+          cellData = await fetchValidatorClusterCellData({ strategy, clusterId, interval });
+        } catch (e) {
+          return res.status(503).json({ error: 'clickhouse_unavailable', detail: (e as Error).message });
+        }
+        if (cellData.rows.length === 0) {
+          return res.status(404).json({
+            error: 'cluster_cell_not_found',
+            detail: `No v_bt_runs_by_cluster rows for (strategy=${strategy}, ` +
+              `cluster_id=${clusterId}, interval=${interval}). The cluster may have no admitted ` +
+              `tokens at the time of these runs, or no runs exist for this cell.`,
+          });
+        }
+
+        try {
+          const built = buildClusterValidatorResult({
+            rows: cellData.rows,
+            slicesByRunId: cellData.slicesByRunId,
+            chosenParam,
+            thresholds,
+          });
+          const response = {
+            ...built.result,
+            context: {
+              ...built.result.context,
+              cell: { strategy, clusterId, interval, ...built.cell },
+            },
+          };
+          return res.json(response);
+        } catch (e) {
+          if (e instanceof CellEmptyError) {
+            return res.status(404).json({ error: 'cluster_cell_not_found',
+              detail: 'Cluster cell is empty after qualification.' });
+          }
+          if (e instanceof CellTooFewParamsError) {
+            return res.status(422).json({ error: 'cell_too_few_params',
+              detail: `Cluster cell has only ${e.paramsInCell} qualifying param(s); DSR/HLZ/PBO need ≥ 2.` });
+          }
+          if (e instanceof ChosenParamNotInCellError) {
+            return res.status(422).json({ error: 'chosen_param_not_in_cell',
+              detail: `chosenParam=${e.chosenParam} not in qualifying set [${e.availableParams.join(', ')}].` });
+          }
+          if (e instanceof ClusterMixedError) {
+            // The route's WHERE clause pins `cluster_id = {clusterId:Int32}`, so this
+            // branch is by-construction unreachable. If it ever fires, the view DDL
+            // is broken — not a user error. Surface as a generic internal failure
+            // with diagnostic detail in the server log.
+            console.error('cluster_mixed_rows from view despite pinned WHERE — view DDL bug?',
+              { seenClusterIds: e.seenClusterIds, strategy, clusterId, interval });
+            return res.status(500).json({ error: 'internal',
+              detail: 'Cluster invariant violated; this is a server-side bug.' });
+          }
+          throw e;
+        }
+      }
+
+      // ── Tier-axis path (default; matches pre-§5.4 behavior byte-for-byte) ──
+      const parsed = parseScoreCellRequest(req.body);
+      if (isCellParseFailure(parsed)) {
+        return res.status(parsed.status).json({ error: parsed.error, detail: parsed.detail });
+      }
+      const { strategy, tier, interval, chosenParam, thresholds } = parsed.value;
+      let cellData;
+      try {
+        cellData = await fetchValidatorCellData({ strategy, tier, interval });
+      } catch (e) {
+        return res.status(503).json({ error: 'clickhouse_unavailable', detail: (e as Error).message });
+      }
+      if (cellData.rows.length === 0) {
+        return res.status(404).json({
+          error: 'cell_not_found',
+          detail: `No bt_runs rows for (strategy=${strategy}, tier=${tier}, interval=${interval}) ` +
+            `after the canonical filter.`,
+        });
+      }
+
+      try {
+        const built = buildCellValidatorResult({
+          rows: cellData.rows,
+          slicesByRunId: cellData.slicesByRunId,
+          chosenParam,
+          thresholds,
+        });
+        // Extend context with the cell metadata block (SPEC §1.1 response shape).
+        const response = {
+          ...built.result,
+          context: { ...built.result.context, cell: { strategy, tier, interval, ...built.cell } },
+        };
+        return res.json(response);
+      } catch (e) {
+        if (e instanceof CellEmptyError) {
+          return res.status(404).json({ error: 'cell_not_found', detail: 'Cell is empty after qualification.' });
+        }
+        if (e instanceof CellTooFewParamsError) {
+          return res.status(422).json({ error: 'cell_too_few_params',
+            detail: `Cell has only ${e.paramsInCell} qualifying param(s); DSR/HLZ/PBO need ≥ 2.` });
+        }
+        if (e instanceof ChosenParamNotInCellError) {
+          return res.status(422).json({ error: 'chosen_param_not_in_cell',
+            detail: `chosenParam=${e.chosenParam} not in qualifying set [${e.availableParams.join(', ')}].` });
+        }
+        throw e;
+      }
+    } catch (e) {
+      console.error(`validator score-cell error (axis=${axis})`, e);
+      res.status(500).json({ error: 'internal', detail: (e as Error).message });
+    }
+  });
+
+  // List the (strategy, tier, interval) cells available for cell-level validation,
+  // with cardinalities for the UI dropdowns. Cheap GROUP BY on bt_runs.
+  // `?axis=cluster` returns the cluster-axis sibling list from `v_bt_runs_by_cluster`.
+  app.get("/api/validator/cells", async (req, res) => {
+    const axis = req.query.axis === 'cluster' ? 'cluster' : 'tier';
+    try {
+      if (axis === 'cluster') {
+        const cells = await fetchValidatorClusterCells();
+        return res.json({ cells, axis });
+      }
+      const cells = await fetchValidatorCells();
+      res.json({ cells, axis });
+    } catch (e) {
+      console.error(`validator cells error (axis=${axis})`, e);
+      res.status(503).json({ error: 'clickhouse_unavailable', detail: (e as Error).message });
+    }
+  });
+
+  // ───── Cluster-axis dashboard (Phase 2 §5.5) ─────
+  // Powers Panel A on /#/cluster — universe-stability tile strip + cohort detail.
+  // Read-only (no schema changes). All thresholds are echoed back in the response so
+  // the front-end has a single source of truth; see DASHBOARD_THRESHOLDS in
+  // src/server/cluster_dashboard.ts.
+  app.get("/api/cluster/diagnostics", async (req, res) => {
+    const parsed = parseDiagnosticsQuery({ weeks: req.query.weeks, method: req.query.method });
+    if (isDiagnosticsQueryFailure(parsed)) {
+      return res.status(parsed.status).json({ error: parsed.error, detail: parsed.detail });
+    }
+    try {
+      const response = await fetchClusterDiagnostics({ weeks: parsed.weeks, method: parsed.method });
+      return res.json(response);
+    } catch (e) {
+      console.error('cluster diagnostics error', e);
+      // ClickHouse driver throws on connection / parse errors; can't reliably
+      // distinguish "CH down" from "internal bug" without sniffing error
+      // messages. Default to 503 since the most likely cause is CH unreachable
+      // (the orchestrator's pure-function seam catches programmer errors at
+      // test time, not runtime).
+      return res.status(503).json({ error: 'clickhouse_unavailable', detail: (e as Error).message });
+    }
+  });
+
+  // Powers Panel B on /#/cluster — cluster-axis four-gate scores with tier-axis
+  // comparator. fitId is optional (server resolves the latest published/single_cohort
+  // fit when omitted); 404 surfaces when no fit has yet been published.
+  app.get("/api/cluster/scores", async (req, res) => {
+    const parsed = parseScoresQuery({ fitId: req.query.fitId, limit: req.query.limit });
+    if (isScoresQueryFailure(parsed)) {
+      return res.status(parsed.status).json({ error: parsed.error, detail: parsed.detail });
+    }
+    try {
+      const response = await fetchClusterScores({ fitId: parsed.fitId, limit: parsed.limit });
+      return res.json(response);
+    } catch (e) {
+      if (e instanceof NoPublishedFitError) {
+        return res.status(404).json({
+          error: 'no_published_fit',
+          detail: 'No published HDBSCAN fit yet. Run `npm run cluster:weekly` for a recent week.',
+        });
+      }
+      console.error('cluster scores error', e);
+      return res.status(503).json({ error: 'clickhouse_unavailable', detail: (e as Error).message });
+    }
+  });
+
+  // Powers /#/meta-labeling — research-log view of every meta-labeling cell-training
+  // persisted in `quantlab.meta_models`. Read-only; derives partial-verdict pills (C1,
+  // C2, C4) from the columns we persist. Full 7-criterion verdict requires the trainer
+  // log (see ADR-024); the panel surfaces this honestly.
+  app.get("/api/meta-labeling/cells", async (req, res) => {
+    const parsed = parseMetaLabelingCellsQuery({ limit: req.query.limit });
+    if (isMetaLabelingCellsQueryFailure(parsed)) {
+      return res.status(parsed.status).json({ error: parsed.error, detail: parsed.detail });
+    }
+    try {
+      const response = await fetchMetaLabelingCells({ limit: parsed.limit });
+      return res.json(response);
+    } catch (e) {
+      console.error('meta-labeling cells error', e);
+      return res.status(503).json({ error: 'clickhouse_unavailable', detail: (e as Error).message });
+    }
+  });
+
+  // Powers /#/paper-trading — read-only view of `quantlab.live_signals` for the daily
+  // signal daemon's state (current open positions per deployed cell + recent run
+  // history). UI alternative to tailing the daemon's Telegram messages.
+  app.get("/api/paper-trading/state", async (req, res) => {
+    const parsed = parsePaperTradingQuery({ runHistoryLimit: req.query.runHistoryLimit });
+    if (isPaperTradingQueryFailure(parsed)) {
+      return res.status(parsed.status).json({ error: parsed.error, detail: parsed.detail });
+    }
+    try {
+      const response = await fetchPaperTradingState({ runHistoryLimit: parsed.runHistoryLimit });
+      return res.json(response);
+    } catch (e) {
+      console.error('paper-trading state error', e);
+      return res.status(503).json({ error: 'clickhouse_unavailable', detail: (e as Error).message });
+    }
+  });
+
+  // Powers /#/regime — Track C / Component 3. Read-only view of
+  // `quantlab.macro_regimes` under classifier_version='phase1_v2', with the
+  // ADR-037 bias-quarantine banner first-class in the response so the
+  // operator never sees a regime label without the survivorship caveat.
+  // SPEC: docs/specs/regime-dashboard-component3.md.
+  app.get("/api/regime/state", async (req, res) => {
+    const parsed = parseRegimeQuery({ asOf: req.query.asOf, lookbackDays: req.query.lookbackDays });
+    if (isRegimeQueryFailure(parsed)) {
+      return res.status(parsed.status).json({ error: parsed.error, detail: parsed.detail });
+    }
+    try {
+      const response = await fetchRegimeState({ asOf: parsed.asOf, lookbackDays: parsed.lookbackDays });
+      return res.json(response);
+    } catch (e) {
+      if (e instanceof RegimeDashboardError) {
+        return res.status(e.status).json({ error: e.error, detail: e.detail });
+      }
+      console.error('regime state error', e);
+      return res.status(503).json({ error: 'clickhouse_unavailable', detail: (e as Error).message });
+    }
+  });
+
+  // Demo CSV fixtures — served from docs/fixtures so the canonical files stay version-
+  // controlled in docs/ rather than duplicated into public/. Allow-listed filenames only;
+  // no path traversal possible. Used by the InputPanel "Load demo" button.
+  const VALIDATOR_DEMO_FILES: Record<string, string> = {
+    pass: 'docs/fixtures/validator_demo_pass.csv',
+    fail: 'docs/fixtures/validator_demo_fail.csv',
+    'per-asset': 'docs/fixtures/validator_demo_per_asset.csv',
+  };
+  app.get("/api/validator/demo/:name", async (req, res) => {
+    const rel = VALIDATOR_DEMO_FILES[req.params.name];
+    if (!rel) return res.status(404).json({ error: 'unknown demo fixture', detail: `valid names: ${Object.keys(VALIDATOR_DEMO_FILES).join(', ')}` });
+    try {
+      const text = await fs.readFile(path.resolve(__dirname, rel), 'utf8');
+      res.type('text/csv').send(text);
+    } catch (e) {
+      res.status(500).json({ error: 'fixture read failed', detail: (e as Error).message });
+    }
+  });
+
   // Vite middleware
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({ server: { middlewareMode: true }, appType: "spa" });
@@ -282,12 +635,66 @@ async function startServer() {
     } catch (e) {
       console.warn('⚠ Failed to ensure bt_runs/bt_trades tables:', (e as Error).message);
     }
+    try {
+      await ensureMacroRegimeTables();
+      console.log('✓ Macro regime tables ready (quantlab.macro_breadth, quantlab.macro_regimes, quantlab.sp500_constituents)');
+    } catch (e) {
+      console.warn('⚠ Failed to ensure macro_breadth/macro_regimes/sp500_constituents tables:', (e as Error).message);
+    }
   }
-  app.listen(PORT, "0.0.0.0", () => {
+  const httpServer = app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
     console.log(ok ? '✓ ClickHouse (quantlab) connection OK' : '⚠ ClickHouse unreachable — check .env and that quantlab-clickhouse is running');
-    startCloudflareTunnel(PORT);
+    const stopTunnel = startCloudflareTunnel(PORT);
+    installShutdown(httpServer, stopTunnel);
   });
+}
+
+/**
+ * Centralized graceful shutdown — wires SIGINT (Ctrl-C) and SIGTERM to:
+ *   1. Stop accepting new HTTP connections (httpServer.close)
+ *   2. Force-close existing keep-alive sockets so the close callback actually fires
+ *      (default httpServer.close hangs until every keep-alive client disconnects)
+ *   3. Stop the Cloudflare tunnel child process
+ *   4. process.exit(0) when both done
+ *   5. Hard-kill timer (3s) as a backstop if anything's still holding the loop open —
+ *      typical culprits on Windows are winpty + tsx not propagating signals cleanly to
+ *      cloudflared, leaving the parent waiting on a child that's already dead.
+ *
+ * Without this, custom SIGINT handlers REPLACE Node's default exit-on-SIGINT, so the
+ * process hangs, the bound port stays held, and the next `npm run dev` hits EADDRINUSE.
+ */
+function installShutdown(httpServer: import('node:http').Server, stopTunnel: () => void) {
+  let shuttingDown = false;
+  const shutdown = (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`\n• ${signal} received — shutting down...`);
+    // Hard-kill backstop: if anything's still hanging after 3s, force exit. Better to
+    // kill a stuck cloudflared than leave the user with a held port.
+    const hardKill = setTimeout(() => {
+      console.warn('• Graceful shutdown timed out, forcing exit.');
+      process.exit(0);
+    }, 3000);
+    hardKill.unref(); // don't let the timer itself keep the loop alive
+
+    try { stopTunnel(); } catch { /* already gone */ }
+
+    // Force-close idle keep-alive sockets so server.close()'s callback actually fires.
+    // Node 18.2+ added closeAllConnections; older Nodes will skip this branch silently.
+    const anyServer = httpServer as unknown as { closeAllConnections?: () => void };
+    if (typeof anyServer.closeAllConnections === 'function') {
+      anyServer.closeAllConnections();
+    }
+    httpServer.close(err => {
+      if (err) console.warn(`• httpServer.close error: ${err.message}`);
+      else console.log('✓ Port released cleanly.');
+      clearTimeout(hardKill);
+      process.exit(0);
+    });
+  };
+  process.on('SIGINT',  () => shutdown('SIGINT'));
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
 }
 
 /**
@@ -296,23 +703,40 @@ async function startServer() {
  * `*.trycloudflare.com` — printed once the tunnel is connected.
  *
  * Skipped when NO_TUNNEL=1. Auto-restarts on unexpected exit (network blips, etc.).
- * Cleanly stopped on SIGINT/SIGTERM.
+ *
+ * Returns a stop() function that the central shutdown handler calls — the tunnel no
+ * longer registers its own SIGINT/SIGTERM handlers, because two separate handlers fighting
+ * for the same signal was part of why Ctrl-C didn't release the port (one would call stop()
+ * but neither called process.exit(), so the loop just stayed alive).
  */
-function startCloudflareTunnel(port: number): void {
-  if (process.env.NO_TUNNEL === '1') {
-    console.log('• Cloudflare tunnel skipped (NO_TUNNEL=1). Run `npm run tunnel` manually if you need it.');
-    return;
+function startCloudflareTunnel(port: number): () => void {
+  // Opt-in by default. The auto-spawning quick tunnel was crashing the dev server in
+  // multiple sessions (post-mortem unhandledRejection from the cloudflared package),
+  // and the user runs cloudflared separately for other purposes — having `npm run dev`
+  // also try to claim it caused conflicts. Standalone `npm run tunnel` is still the
+  // way to run a tunnel when you actually want one.
+  if (process.env.WITH_TUNNEL !== '1') {
+    if (process.env.NO_TUNNEL !== '1') {
+      // Quiet hint on the default (skipped) path so it's discoverable. NO_TUNNEL=1 callers
+      // get the explicit acknowledgement they expect.
+      console.log('• Cloudflare tunnel disabled by default. Set WITH_TUNNEL=1 or run `npm run tunnel` separately to enable.');
+    } else {
+      console.log('• Cloudflare tunnel skipped (NO_TUNNEL=1).');
+    }
+    return () => {};
   }
   if (!cloudflaredBin || !existsSync(cloudflaredBin)) {
     console.warn(`⚠ Cloudflare tunnel binary not found at ${cloudflaredBin}. Skipping. Run \`npx cloudflared --version\` to trigger install.`);
-    return;
+    return () => {};
   }
 
   let restartCount = 0;
   const RESTART_CAP = 5;
   let activeTunnel: ReturnType<typeof CloudflareTunnel.quick> | null = null;
+  let stopping = false;
 
   const spawnOnce = () => {
+    if (stopping) return;
     console.log('• Starting Cloudflare tunnel (URL appears in a few seconds)...');
     const t = CloudflareTunnel.quick(`http://localhost:${port}`);
     activeTunnel = t;
@@ -326,9 +750,14 @@ function startCloudflareTunnel(port: number): void {
       console.warn(`⚠ Cloudflare tunnel error: ${err.message}`);
     });
     t.on('exit', (code: number | null) => {
-      if (code === 0 || code === null) return;
+      if (stopping || code === 0 || code === null) return;
       if (restartCount >= RESTART_CAP) {
-        console.warn(`⚠ Cloudflare tunnel exited (${code}) — giving up after ${RESTART_CAP} restarts.`);
+        console.warn(`⚠ Cloudflare tunnel exited (${code}) — giving up after ${RESTART_CAP} restarts. Local dev server keeps running; set NO_TUNNEL=1 next time to skip the tunnel entirely.`);
+        // Latch stopping=true so any post-mortem events from the dead tunnel object are
+        // ignored (otherwise a late 'error' emit can escape as unhandledRejection and
+        // Node 18+ treats that as fatal — the dev server has died from this 3 sessions
+        // running until 2026-05-02).
+        stopping = true;
         return;
       }
       restartCount++;
@@ -338,12 +767,11 @@ function startCloudflareTunnel(port: number): void {
   };
   spawnOnce();
 
-  const shutdown = () => {
+  return () => {
+    // Setting `stopping` first prevents the auto-restart from re-spawning during shutdown.
+    stopping = true;
     try { activeTunnel?.stop(); } catch { /* already gone */ }
   };
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
-  process.on('exit', shutdown);
 }
 
 startServer();

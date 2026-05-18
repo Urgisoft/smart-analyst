@@ -1,0 +1,179 @@
+<h1
+id="mr_v1p14-what-the-deployed-mean-reversion-strategy-actually-is"><code>mr_v1/p=14</code>
+— what the deployed mean-reversion strategy actually is</h1>
+<p><strong>Source:</strong> J. Welles Wilder Jr., <em>New Concepts in
+Technical Trading Systems</em> (1978), Ch. 6 (the Relative Strength
+Index). Project ADR-027 through ADR-031 (equity arc validation).
+Bergstra &amp; Bengio, <em>Random Search for Hyper-Parameter
+Optimization</em> (2012) §3 (why ex-ante canonical parameters &gt; swept
+parameters). Implementation: <a
+href="../../src/lib/indicators.ts#L214">src/lib/indicators.ts:214 —
+runMeanReversionBacktest</a>.</p>
+<hr />
+<h2 id="intuition">Intuition</h2>
+<p><code>mr_v1/p=14</code> is the <strong>canonical Wilder RSI
+mean-reversion strategy</strong>, almost verbatim from a 1978 book. Not
+ML. Not custom. Not exotic.</p>
+<p>The bet is simple: when a stock has dropped enough that RSI(14)
+crosses below 30 (“oversold” by Wilder’s convention), the panic selling
+has typically overshot, and the price tends to recover toward its recent
+average. You buy at that oversold extreme and hold until the price has
+recovered enough to push RSI back above 60. Repeat. Over many trades,
+you collect the spread between “fear” pricing and “calm” pricing.</p>
+<p>The reason it works (when it works) is <strong>liquidity
+provision</strong>, not prediction. You’re stepping in to buy from panic
+sellers and stepping out to sell to recovered buyers. You’re getting
+paid for tolerating short-term holding risk during the recovery window.
+You are not forecasting the company’s fundamentals.</p>
+<h2 id="mechanism">Mechanism</h2>
+<h3 id="the-rsi14-calculation">The RSI(14) calculation</h3>
+<p>For each bar <code>t</code>, compute the period-<code>p</code> RSI
+using Wilder’s smoothing:</p>
+<pre><code>gain_t = max(close_t - close_{t-1}, 0)
+loss_t = max(close_{t-1} - close_t, 0)
+
+# First p bars: simple mean
+avg_gain_p = mean(gain_1, ..., gain_p)
+avg_loss_p = mean(loss_1, ..., loss_p)
+
+# After bar p: Wilder&#39;s exponential smoothing
+avg_gain_t = ((p-1) * avg_gain_{t-1} + gain_t) / p
+avg_loss_t = ((p-1) * avg_loss_{t-1} + loss_t) / p
+
+RS_t  = avg_gain_t / avg_loss_t
+RSI_t = 100 - 100 / (1 + RS_t)</code></pre>
+<p>For <code>p = 14</code>, after the first 14 bars you have a smoothed
+measure of “how much of the recent move has been up vs down.” RSI is
+bounded in <code>[0, 100]</code>.</p>
+<h3 id="the-trading-rules">The trading rules</h3>
+<pre><code>state = flat
+
+for each bar t (after warmup):
+    if state == flat:
+        if RSI(14)_t &lt; 30:
+            buy at close_t with full capital
+            state = long
+
+    elif state == long:
+        if RSI(14)_t &gt; 60 OR t is the final bar:
+            sell at close_t
+            state = flat</code></pre>
+<p>Position sizing: <code>size = capital / close_t</code> — i.e. all-in,
+single-position. No stop loss. No take profit beyond the RSI &gt; 60
+rule. No regime filter.</p>
+<h3 id="notes-on-the-thresholds">Notes on the thresholds</h3>
+<p>Wilder’s original (1978) thresholds are <strong>symmetric
+30/70</strong>. This project uses <strong>asymmetric 30/60</strong> —
+exit earlier on the up-leg. Empirical effect from the equity arc OOS
+testing: more trades, smaller per-trade wins, higher win rate,
+comparable total P&amp;L. The deviation was a deliberate ex-ante design
+choice, documented in the strategy bundle, not the result of post-hoc
+tuning.</p>
+<h3 id="why-p14-specifically">Why <code>p=14</code> specifically</h3>
+<p>From the ADR archive:</p>
+<blockquote>
+<p><code>mean_reversion_v1 / p=14</code>: Wilder’s canonical RSI period
+from his original 1978 work; ex-ante canonical, no fit to the
+universe.</p>
+</blockquote>
+<p>This matters statistically. Bergstra &amp; Bengio §3 + Harvey-Liu-Zhu
+(2016) multiple-testing argument: every parameter swept over inflates
+your false- positive rate. By committing to <strong>the textbook
+value</strong> before running the OOS test, you avoid that inflation.
+<code>14</code> had no opportunity to be cherry- picked. If
+<code>p=14</code> survives a clean OOS test, that survival means more
+than if <code>p=14</code> were the winner of a sweep over
+<code>p ∈ {7, 10, 14, 21, 28}</code>.</p>
+<p>The project does also test <code>p=5</code> (faster reversion, used
+for crypto cells) and <code>p=20</code> (slower, briefly used and
+shelved for trend variants), but the <strong>deployed</strong> equity
+cell is <code>p=14</code> precisely because it’s the canonical ex-ante
+value.</p>
+<h2 id="empirical-record-on-the-deployed-universe">Empirical record on
+the deployed universe</h2>
+<p><code>equity_midcap</code> = 60 US large/mid-cap equities, daily bars
+(yfinance source). The strategy was validated through:</p>
+<ul>
+<li><strong>ADR-027</strong>: cross-asset-class smoke test on yfinance
+equities → PASSED</li>
+<li><strong>ADR-028</strong>: cross-strategy + beta-regime +
+parameter-stability robustness → PASSED</li>
+<li><strong>ADR-030</strong>: transaction-cost-adjusted OOS on 2014-2016
+→ PASSED at deployable threshold</li>
+<li><strong>ADR-031</strong>: SPY-200d regime-gating attempt → REJECTED
+(gating <em>hurts</em>; ungated is deployable)</li>
+</ul>
+<p>Headline OOS metric (per the ADR archive):</p>
+<blockquote>
+<p>M1 native: ~+3.12 %/trade with ~70 % win rate</p>
+</blockquote>
+<p>That’s a real edge for a 47-year-old strategy on a vanilla universe.
+The meta-labeling layer (M2) was tested on top and <strong>did not add
+value</strong> — M2 lift over M1 ranged from -935pp (over-filtered) to
+-1pp (no-op) across 7 equity cells. From ADR-029: <em>“For deployment,
+the M1 primary IS the strategy; the meta-labeling stack is verification,
+not a value-add layer for this universe.”</em></p>
+<p>The asset-class fit matters: the same
+<code>mean_reversion_v1/p=14</code> was attempted on memecoin/microcap
+crypto universes (ADR-022 etc.) and was <strong>rejected</strong> there.
+RSI mean-reversion fits assets that mean-revert; it does not fit assets
+that one-way-pump-and-die.</p>
+<h2 id="failure-modes">Failure modes</h2>
+<h3 id="sustained-directional-trends">1. Sustained directional
+trends</h3>
+<p>Mean reversion assumes the price oscillates around a stable mean. In
+a sustained downtrend, RSI can stay below 30 for <em>weeks</em> while
+the price keeps dropping — you keep entering, keep losing, keep entering
+again at worse prices. This is the canonical “catching falling knives”
+failure. The deployed companion strategy <code>trend_v1/p=30</code> is
+supposed to cover the opposite regime — long-only trend follower that
+survives sustained moves. Together, mr_v1 + trend_v1 form a
+complementary pair, but neither has a regime filter, so on any given
+week one is wrong.</p>
+<h3 id="liquidity-news-events">2. Liquidity / news events</h3>
+<p>When RSI drops below 30 because of a true fundamental reset (fraud,
+earnings collapse, halt, exchange delisting), buying the dip is buying
+into a permanent value loss, not an overshoot. The strategy can’t tell
+the difference between “panic” and “rational repricing.” Survivorship is
+the implicit assumption.</p>
+<h3 id="volatility-regime-shifts">3. Volatility regime shifts</h3>
+<p>The 30/60 thresholds were calibrated against a particular
+distribution of RSI values. In ultra-low-vol regimes (e.g. SPX 2017),
+RSI rarely reaches 30 → fewer signals → opportunity cost. In
+ultra-high-vol regimes (March 2020, 2022 crypto), RSI dips below 30
+constantly → many positions, many losers. The strategy doesn’t adjust
+thresholds to vol; the operator would have to monitor and re-tune.</p>
+<h3 id="concentration-risk">4. Concentration risk</h3>
+<p>100% of capital into each entry. A single bad trade is a meaningful
+drawdown. Real-money deployment would want vol-scaled position sizing
+(Kelly fractional or risk-parity weighting) or cross-name
+diversification (multiple tickers held simultaneously). Neither is in
+the deployed rule set. The MVP daemon therefore models <em>one trader
+running this on one ticker at a time</em> — not a portfolio.</p>
+<h3 id="the-rsi-doesnt-work-in-modern-markets-critique">5. The “RSI
+doesn’t work in modern markets” critique</h3>
+<p>There is a real and well-documented empirical literature showing that
+simple RSI strategies have decayed in major equity indices since 2000 as
+markets became more efficient and HFT compressed the obvious
+mean-reversion signal on liquid names. The fact that the project’s OOS
+test on <code>equity_midcap</code> shows +3.12 %/trade is interesting
+<em>and</em> should be held with calibrated skepticism — the OOS slice
+is finite, the universe is specific, and the “this strategy still works”
+claim is one ADR-030’s t-stat away from becoming “this strategy doesn’t
+work anymore.” The shakedown over 4-6 weeks of live paper is what
+stress-tests that.</p>
+<h2 id="whats-running-right-now-as-of-2026-05-06">What’s running right
+now (as of 2026-05-06)</h2>
+<p>The daemon’s first run reported 13 tickers currently in
+<code>mr_v1/p=14</code>’s long state: <strong>ABBV, ADBE, CRM, GE, GILD,
+HD, JNJ, LMT, MCD, MMM, NKE, PG, RTX</strong>.</p>
+<p>Operationally, this means: each of those tickers had a closing
+RSI(14) read below 30 at some recent date (entry signal fired), and has
+not yet posted a close with RSI(14) above 60 (exit signal not fired).
+The strategy is holding each of them, paper-only, waiting for the
+recovery to push RSI above 60. The next exit event will fire on the
+first one of those tickers to print such a close.</p>
+<p>If a new ticker today closed with RSI(14) below 30, tomorrow’s run
+reports a <code>NEW ENTRY</code>. If one of the 13 currently-long
+tickers closes today with RSI(14) above 60, tomorrow’s run reports a
+<code>NEW EXIT</code>. That’s the entire operational state machine.</p>

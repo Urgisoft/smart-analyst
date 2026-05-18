@@ -1,0 +1,21 @@
+{
+  "description": "Deterministic fixture for Phase 2 §5.1 T-3 TS-Python feature parity test.",
+  "generation": {
+    "generator": "scripts/_emit_feature_parity_fixture.ts",
+    "n_candles": 800,
+    "base_time_ms": 1740096000000,
+    "hour_ms": 3600000,
+    "token_close_formula": "100 * exp(0.001*i + 0.05*sin(i*0.1))",
+    "token_volume_formula": "1.0 + 0.5*cos(i*0.05)",
+    "sol_close_formula": "50 * exp(-0.0005*i + 0.03*cos(i*0.07))",
+    "note": "The Python test reproduces these formulas EXACTLY. Do not change without regenerating the fixture."
+  },
+  "expected": {
+    "ageDays": 33.291666666666664,
+    "vol30dAnn": 0.331555042704527,
+    "ret7d": 0.10529303751399999,
+    "ret30d": 0.8601124389201311,
+    "logMedianVolUsd30d": 2.1910007458908463,
+    "betaToSol": -0.14948262933442896
+  }
+}

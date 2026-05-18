@@ -2,7 +2,13 @@
 One-shot import: bot.db.ohlcv_candles -> quantlab.candles (ClickHouse).
 Stdlib only (sqlite3 + urllib). Read-only against bot.db.
 
-Usage:
+FROZEN as of 2026-05-03 per ADR-005 (see MASTER.html §6).
+Existing bot.db rows in quantlab.candles are grandfathered. No new imports.
+The runtime guard in main() will refuse to run unless ADR005_OVERRIDE=1
+is set in the environment. The override exists for explicit, documented
+recovery scenarios only — not for "I forgot the rule."
+
+Usage (BLOCKED — script will refuse without override):
     python scripts/import_botdb_candles.py --interval 1h           # ingest one
     python scripts/import_botdb_candles.py --interval 1h --limit 10000   # dry run
     python scripts/import_botdb_candles.py --all                   # 5m + 15m + 1h
@@ -10,7 +16,7 @@ Usage:
 ReplacingMergeTree(token_address, interval, timestamp) handles dedup on merge —
 bot.db rows that share a key with existing quantlab rows will collapse to one.
 """
-import sqlite3, json, time, sys, argparse, datetime as dt
+import os, sqlite3, json, time, sys, argparse, datetime as dt
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 from base64 import b64encode
@@ -106,6 +112,14 @@ def import_interval(src_cur, interval: str, limit: int | None = None) -> tuple[i
     return sent, skipped
 
 def main():
+    if not os.environ.get("ADR005_OVERRIDE"):
+        raise SystemExit(
+            "ADR-005: bot.db imports are FROZEN. See MASTER.html §6 ADR-005.\n"
+            "Existing bot.db rows in quantlab.candles are grandfathered; no new\n"
+            "imports allowed because the source-project cost model and OOS\n"
+            "methodology differ from SignalForge's and would contaminate validation.\n"
+            "If you have a documented recovery reason, set ADR005_OVERRIDE=1 and re-run."
+        )
     ap = argparse.ArgumentParser()
     ap.add_argument("--interval", choices=["5m","15m","1h","4h","1d"])
     ap.add_argument("--all", action="store_true")

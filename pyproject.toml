@@ -1,0 +1,13 @@
+# pyproject.toml — Python tooling config for SignalForge.
+#
+# This project is primarily Node/TypeScript (see package.json). Python is the
+# escape hatch (ADR-003) for stats / ML work; this file configures pytest and
+# nothing else. Dependencies live in requirements.txt for explicitness.
+
+[tool.pytest.ini_options]
+testpaths = ["scripts/tests"]
+python_files = ["test_*.py"]
+# Make `scripts/` importable from tests so they can `import compute_token_features_weekly`.
+# (pytest 7+: `pythonpath` is added to sys.path before collection.)
+pythonpath = ["scripts"]
+addopts = "-ra --strict-markers"

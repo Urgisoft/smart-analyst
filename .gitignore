@@ -9,4 +9,34 @@ coverage/
 data/
 # Claude Code per-user config — bash/MCP allowlists, env vars, and other developer-local
 # preferences. Stays out of the repo so each user's permissions are their own.
-.claude/
+# EXCEPT the project-canonical files (HANDOFF brief + Vector Core system prompt),
+# which are referenced by the project CLAUDE.md and MUST be checked in for any
+# session to bootstrap correctly.
+.claude/*
+!.claude/HANDOFF.md
+!.claude/vector_core_system_prompt.md
+
+# Python — Phase 2 onward (per ADR-003 escape hatch). Project-local venv +
+# pytest cache stay out of the repo.
+.venv/
+.pytest_cache/
+__pycache__/
+*.pyc
+
+# Phase 2 feature-pipeline JSONL failure logs.
+logs/
+
+# Local data dumps (FRED BAML HY OAS series snapshots downloaded for
+# investigation; not project-canonical inputs — `fred_ingest.py` is).
+alfred/
+
+# Stooq / yfinance / external-data CSV snapshots committed to docs/ for
+# audit reference but too large for git history. The canonical ingest paths
+# rewrite these on demand via `macro:refresh-constituents:apply` etc.
+docs/phase1_breadth_restoration/*.csv
+
+# Accidental files from botched npm commands (e.g. `npm run x > foo@0.0.0`
+# captures the package name as a literal file). Anything matching this glob
+# should be deleted, not committed.
+*@*.*
+react-example@0.0.0

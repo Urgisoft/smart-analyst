@@ -117,6 +117,121 @@ describe('runStrategy — structural invariants', () => {
     }
   });
 
+  // ── roc_param primitive — per-token N-bar momentum filter ──
+  // Pins the behavior the new volume_breakout_xmom_v1 bundle relies on. roc_param is
+  // computed in runCustomBacktest as (close[i] / close[i - param] - 1) * 100, exposed
+  // alongside vol_ratio + donchian_high. Tests gate on whether the engine fires entries
+  // when the rule depends on roc_param.
+
+  it('roc_param > 0 fires on a monotonic uptrend (positive ROC)', () => {
+    // Linear ramp 100 → 200 over 200 bars. After warmup (param * 3 = 42), every bar has
+    // close[i] > close[i - 14], so roc_param > 0 always. Entry should fire repeatedly.
+    const candles = rampUp(200, 100, 200);
+    const r = runStrategy(
+      'custom', candles, 10000, 'TEST', 14,
+      'roc_param > 0', 'roc_param < -999',  // exit only via end-of-data; rule never trips on uptrend
+      0, undefined,
+    );
+    assert.ok(r.totalTrades >= 1, `expected at least 1 trade on monotone uptrend, got ${r.totalTrades}`);
+    assert.ok(r.netProfit > 0, `expected positive net profit on uptrend, got ${r.netProfit}`);
+  });
+
+  it('roc_param > 0 NEVER fires on a monotonic downtrend (negative ROC)', () => {
+    // Reverse ramp 200 → 100. close[i] < close[i - 14] always, so roc_param < 0 always.
+    // Entry rule "roc_param > 0" must never trip.
+    const closes: number[] = [];
+    for (let i = 0; i < 200; i++) closes.push(200 - 100 * (i / 199));
+    const candles = makeFlatCandles(closes);
+    const r = runStrategy(
+      'custom', candles, 10000, 'TEST', 14,
+      'roc_param > 0', 'true',
+      0, undefined,
+    );
+    assert.equal(r.totalTrades, 0, `expected 0 trades on downtrend with roc_param > 0 entry, got ${r.totalTrades}`);
+  });
+
+  it('roc_param > 0 NEVER fires on a flat series (ROC = 0)', () => {
+    // Flat: close[i] === close[i - 14] always, so roc_param === 0. The rule is strict >,
+    // so it must NOT trip. Pins that the primitive returns exactly 0 (not eps-positive)
+    // and that the engine respects strict comparisons.
+    const candles = makeFlatCandles(Array(200).fill(100));
+    const r = runStrategy(
+      'custom', candles, 10000, 'TEST', 14,
+      'roc_param > 0', 'true',
+      0, undefined,
+    );
+    assert.equal(r.totalTrades, 0, `flat series should give 0 trades, got ${r.totalTrades}`);
+  });
+
+  it('roc_param respects the param window (high threshold needs sustained gain)', () => {
+    // Over 200 bars going 100 → 200, the param=14 ROC is roughly +7% per 14-bar window
+    // for the linear ramp. A threshold of roc_param > 50 should NEVER trip — gain over any
+    // 14-bar window in a 100→200 linear ramp is ~7%, far below 50%. Pins that the magnitude
+    // of roc_param is correct, not just the sign.
+    const candles = rampUp(200, 100, 200);
+    const r = runStrategy(
+      'custom', candles, 10000, 'TEST', 14,
+      'roc_param > 50', 'true',
+      0, undefined,
+    );
+    assert.equal(r.totalTrades, 0, `roc_param > 50 should not fire on a 100→200 linear ramp at param=14, got ${r.totalTrades}`);
+  });
+
+  // ── entryGate (StrategyAdvancedCfg.entryGate) — external entry-blocking callback ──
+  // Used by validators that need to layer an external signal (e.g. macro regime gate)
+  // onto a strategy without modifying its entry-string rule. Pin: the callback is
+  // consulted BEFORE the entry rule, returning false skips the entry rule entirely,
+  // and exits/mark-to-market are unaffected.
+
+  it('entryGate that always returns false produces zero trades on a normally-firing strategy', () => {
+    // rampUp + momentum entry would normally fire; a closed gate must produce 0 trades.
+    const candles = rampUp(200, 100, 200);
+    const r = runStrategy(
+      'momentum', candles, 10000, 'TEST', 14,
+      'rsi > 50', 'rsi < 50',
+      0, { entryGate: () => false },
+    );
+    assert.equal(r.totalTrades, 0, `gate=false must block all entries, got ${r.totalTrades}`);
+  });
+
+  it('entryGate that always returns true is a no-op vs no gate', () => {
+    const candles = rampUp(200, 100, 200);
+    const ungated = runStrategy(
+      'momentum', candles, 10000, 'TEST', 14,
+      'rsi > 50', 'rsi < 50',
+      0, undefined,
+    );
+    const openGate = runStrategy(
+      'momentum', candles, 10000, 'TEST', 14,
+      'rsi > 50', 'rsi < 50',
+      0, { entryGate: () => true },
+    );
+    assert.equal(openGate.totalTrades, ungated.totalTrades);
+    assert.ok(Math.abs(openGate.netProfit - ungated.netProfit) < 1e-6);
+  });
+
+  it('entryGate is called with (barIdx, barTime) — both parameters surface', () => {
+    const candles = rampUp(60, 100, 200);
+    const calls: Array<{ idx: number; time: number }> = [];
+    runStrategy(
+      'momentum', candles, 10000, 'TEST', 14,
+      'rsi > 50', 'rsi < 50',
+      0,
+      {
+        entryGate: (idx, time) => {
+          calls.push({ idx, time });
+          return true;
+        },
+      },
+    );
+    // Gate is only called when there's no position. So calls happen at warmup-onset
+    // and after each exit. At minimum we expect one call (the first entry decision).
+    assert.ok(calls.length >= 1, `expected at least 1 gate call, got ${calls.length}`);
+    // The first call's barTime must match the candle at that idx.
+    const first = calls[0];
+    assert.equal(first.time, candles[first.idx].time, 'barTime should match candles[barIdx].time');
+  });
+
   it('netProfit equals the difference between final equity and initial balance', () => {
     // Pin: this is the invariant that anchors every percentage computation in the dashboard.
     // If runCustomBacktest ever drifts (e.g. forgets to mark-to-market on the last bar),

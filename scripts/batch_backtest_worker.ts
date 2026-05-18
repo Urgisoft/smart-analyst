@@ -12,13 +12,22 @@
  * so 16-32 workers are fine.
  */
 import { parentPort } from 'node:worker_threads';
+import { randomUUID } from 'node:crypto';
 import {
   fetchCandles,
   insertBacktestRun,
   insertBacktestTrades,
+  insertBacktestSlices,
+  type PersistSliceArgs,
 } from '../src/server/clickhouse.js';
 import { runStrategy, StrategyType, StrategyAdvancedCfg } from '../src/lib/indicators.js';
+import { computeSliceMetrics } from '../src/lib/sliceMetrics.js';
 import { isNoiseZoneTrade, computeDataSpanDays } from './_data_quality.js';
+
+/** Below this bar count, computeSliceMetrics returns nSlices = 0 (CSCV not feasible),
+ *  so the third full-window backtest pass would just be wasted CPU. Mirrors the threshold
+ *  in src/lib/sliceMetrics.ts so this stays in lockstep with the slicer's own decision. */
+const MIN_BARS_FOR_CSCV = 256;
 
 export interface BatchCell {
   bundleId: string;             // 'momentum_v1', 'mean_reversion_v1', etc.
@@ -118,6 +127,8 @@ async function runOneCell(cell: BatchCell, cellIndex: number): Promise<BatchCell
     // Try every param. We persist ONE bt_runs row per param so the table can be queried as
     // "best param per (bundle × token)" — and now also "best OOS param per token".
     const runs: Parameters<typeof insertBacktestRun>[0][] = [];
+    const sliceRows: PersistSliceArgs[] = [];
+    const cscvFeasible = candles.length >= MIN_BARS_FOR_CSCV;
     for (const param of cell.paramGrid) {
       // IS run — on train slice when WF is enabled, otherwise on the full window.
       const bt = runStrategy(
@@ -153,8 +164,33 @@ async function runOneCell(cell: BatchCell, cellIndex: number): Promise<BatchCell
         continue;
       }
 
+      // Third pass: full-window backtest produces the equity curve we slice for CSCV.
+      // Skipped when T < 256 (slicer would return nSlices=0 with no rows persisted anyway).
+      const runId = randomUUID();
+      let nSlices = 0;
+      if (cscvFeasible) {
+        const btFull = runStrategy(
+          cell.strategyType, candles, cell.initialCapital, cell.symbol, param,
+          cell.entry, cell.exit, cell.feePctPerSide, cell.advanced
+        );
+        const sliceMetrics = computeSliceMetrics(candles, btFull.equity, btFull.trades);
+        nSlices = sliceMetrics.nSlices;
+        for (let s = 0; s < nSlices; s++) {
+          sliceRows.push({
+            runId,
+            sliceIdx: s,
+            sliceReturn: sliceMetrics.perSliceReturns[s],
+            sliceSharpe: sliceMetrics.perSliceSharpes[s],
+            sliceNTrades: sliceMetrics.perSliceTradeCounts[s],
+            sliceStartTs: sliceMetrics.perSliceStartTs[s],
+            sliceEndTs: sliceMetrics.perSliceEndTs[s],
+          });
+        }
+      }
+
       runs.push({
         sweepId: cell.sweepId,
+        runId,
         symbol: cell.symbol,
         tokenAddress: cell.tokenAddress,
         tier: cell.tier,
@@ -184,6 +220,9 @@ async function runOneCell(cell: BatchCell, cellIndex: number): Promise<BatchCell
         oosTrades,
         oosSharpeRatio: oosSharpe,
         dataSpanDays,
+        skewness: bt.skewness,
+        kurtosis: bt.kurtosis,
+        nSlices,
       });
 
       // Best-tracking only over PERSISTED results — the orchestrator logs the bestNetProfit
@@ -211,6 +250,21 @@ async function runOneCell(cell: BatchCell, cellIndex: number): Promise<BatchCell
           bestProfitFactor: bestPF, bestTrades: bestTradeCount,
           candlesFetched: candles.length, ms: Date.now() - t0,
           error: `bt_runs insert: ${(e as Error).message}`,
+        };
+      }
+    }
+
+    // Slices land in one batched insert per cell — typically 16 slices × N persisted params,
+    // so a few hundred rows. Failure here is non-fatal for the bt_runs row that's already in;
+    // CSCV is just degraded for that run (it'll be NULL pbo at scoring time).
+    if (sliceRows.length > 0) {
+      try { await insertBacktestSlices(sliceRows); } catch (e) {
+        return {
+          cellIndex, symbol: cell.symbol, bundleId: cell.bundleId, interval: cell.interval,
+          paramsTried: cell.paramGrid.length, paramsSkippedThin, bestParam, bestNetProfit: bestNet,
+          bestProfitFactor: bestPF, bestTrades: bestTradeCount,
+          candlesFetched: candles.length, ms: Date.now() - t0,
+          error: `bt_runs_slices insert: ${(e as Error).message}`,
         };
       }
     }

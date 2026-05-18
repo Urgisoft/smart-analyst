@@ -1,0 +1,70 @@
+train_meta_label — cell momentum_v1|mcap_nano|1d|3  m1_run_sig 36dd8391956cb6cb  regime=none
+
+Loaded 4526 rows  ({'m2_train': 1853, 'oos': 1437, 'm2_tune': 1236})
+Features: ['vol_pct_30', 'vol_pct_90', 'btc_mom_30', 'btc_vol_pct_90', 'bars_since_first_seen', 'tok_volume_pct_90', 'm1_hit_rate_20', 'm1_pnl_mean_20', 'm1_signal_strength']
+
+Slice rows: m2_train=1853  m2_tune=1236  oos=1437
+Embargo: 3 bars  (259200000 ms)
+
+Hyperparam sweep (16 configs × 5 folds)…
+  done in 2.6s
+  best AUC (m2_train CV) = 0.6097 ± 0.0505  params={'n_estimators': 200, 'max_depth': 5, 'learning_rate': 0.1, 'num_leaves': 31, 'min_child_samples': 20}
+
+Refitting on full m2_train…
+Threshold tuning on m2_tune… (ADR-018 + ADR-020: objective = trimmed-mean × n_kept native PnL)
+  AUC on m2_tune = 0.6115
+  threshold  n_kept  sum_tb%        sum_native%      trim_mean%      robust_score  ← objective
+    0.10       496      +238.00%       +7428.59%        -5.0315%        -2495.64
+    0.15       404      +545.90%       +6987.58%        -4.7750%        -1929.09
+    0.20       327      +447.95%       +7271.97%        -4.2708%        -1396.54
+    0.25       258      +439.69%       +7166.84%        -4.3166%        -1113.68
+    0.30       209      +532.46%       +7322.18%        -2.7182%         -568.10
+    0.35       172      +470.33%       +4340.24%        -2.8389%         -488.29
+    0.40       141      +485.71%       +3109.13%        -0.7461%         -105.20
+    0.45       118      +461.35%       +2483.72%        -1.0793%         -127.35
+    0.50        92      +330.12%       +2027.06%        -3.3389%         -307.18
+    0.55        79      +383.87%       +2165.19%        -0.0830%           -6.56
+    0.60        60      +284.81%       +1151.62%        -2.1127%         -126.76
+    0.65        51      +357.60%        +465.18%        -3.8406%         -195.87
+    0.70        35      +348.09%        +513.43%        -0.0817%           -2.86
+    0.75        27      +244.69%        +519.22%        +5.2097%         +140.66
+    0.80        16      +200.18%        +123.23%        -0.2684%           -4.29
+  → chosen threshold p* = 0.75  (robust_score = trim_mean(+5.2097%) × n_kept(27) = +140.66; raw native sum = +519.22%)
+
+Evaluating on OOS slice (untouched by training or threshold tuning)…
+  AUC on OOS                          : 0.6122  (moderate signal)
+  M1 / native exits (all OOS)         : 1437 trades, sum   +408.36%, mean/trade  +0.284%
+  M1 / triple-barrier exits (all OOS) : 1437 trades, sum  -1422.99%, mean/trade  -0.990%
+  M2 / triple-barrier (p*=0.75)       :   14 trades, sum    +27.10%, mean/trade  +1.935%
+  M2 / native exits (p*=0.75)         :   14 trades, sum   -131.01%, mean/trade  -9.358%
+  Lift M2-native vs M1-native (sum)   : -539.37pp  ← deployment-metric lift
+  Lift M2-TB     vs M1-TB     (sum)   : +1450.09pp  (label-side, diagnostic only)
+  Min-OOS-trade guard                 : FAIL (need >= 100, n_kept_native=14)
+
+✓ Inserted meta_models row for momentum_v1|mcap_nano|1d|3
+Distribution stats (M2-kept native PnL, deployment metric):
+  trimmed-mean (5% each tail) : -9.7689%
+  top-1 trade share of sum    : -27.04%
+  t-stat                      : -1.576
+  HLZ Bonferroni bar (M=240) : 4.117
+
+--- VERDICT ---
+
+Criterion checks:
+  [PASS] C1 — M2 OOS AUC >= 0.55 (real learned signal, not just threshold-volume effect)
+        actual: 0.6122
+  [FAIL] C2 — OOS kept-trade count >= 100 (sample is large enough to evaluate)
+        actual: 14
+  [FAIL] C3 — M2-filtered M1-native per-trade mean > M1-native unfiltered per-trade mean
+        actual: -9.3578% vs +0.2842%
+  [FAIL] C4 — M2-filtered M1-native OOS sum > 0 (cell is at least breakeven OOS)
+        actual: -131.01%
+  [FAIL] C5 — 5%-trimmed mean > 0 (positive ex-outliers; ADR-019)
+        actual: -9.7689%
+  [PASS] C6 — top-1 trade share <= 50% of sum (no single-trade dominance; ADR-019)
+        actual: -27.04%
+  [FAIL] C7 — t-stat >= HLZ bar (clears multiple-testing haircut; ADR-019)
+        actual: -1.576 vs bar 4.117
+
+REJECT (still net negative): M2-filtered using M1's native exits sums to -131.01% on OOS.
+         Filtering reduced losses but did not produce positive OOS edge.

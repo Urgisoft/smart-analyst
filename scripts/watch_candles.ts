@@ -94,9 +94,12 @@ const POLL_SECONDS = Math.max(30, Number(arg('poll-seconds', '120')));
 const COOLDOWN_SECONDS = Math.max(0, Number(arg('cooldown-seconds', '600')));
 const BUNDLE_REFRESH_SECONDS = Math.max(60, Number(arg('bundle-refresh-seconds', '300')));
 
+// MUST stay in lockstep with batch_backtest.ts PARAM_GRID — see ADR-016. If these
+// diverge, the watcher daemon appends bt_runs rows at one grid while sweeps land at
+// another, silently mixing per-cell K_dsr counts and corrupting score_strategies output.
 const PARAM_GRID = GRID === 'full'
   ? Array.from({ length: 19 }, (_, i) => 5 + i * 5)
-  : [5, 10, 15, 20, 30, 50, 100];
+  : [3, 5, 7, 10, 14, 20, 30, 50];                       // ADR-016 (was [5,10,15,20,30,50,100])
 
 // ───── Types ─────
 interface Bundle {

@@ -1,0 +1,76 @@
+train_meta_label — cell momentum_v1|mcap_nano|1d|3  m1_run_sig 36dd8391956cb6cb  regime=btc_sma_100
+
+Loaded 4526 rows  ({'m2_train': 1853, 'oos': 1437, 'm2_tune': 1236})
+Regime filter 'btc_sma_100' (kind=sma, n=100; BTC daily bars: 1825)
+  m2_train  before= 1853  after= 1411  retain= 76.1%
+  m2_tune   before= 1236  after=  277  retain= 22.4%
+  oos       before= 1437  after=  164  retain= 11.4%
+  TOTAL    before= 4526  after= 1852  retain= 40.9%
+
+Features: ['vol_pct_30', 'vol_pct_90', 'btc_mom_30', 'btc_vol_pct_90', 'bars_since_first_seen', 'tok_volume_pct_90', 'm1_hit_rate_20', 'm1_pnl_mean_20', 'm1_signal_strength']
+
+Slice rows: m2_train=1411  m2_tune=277  oos=164
+Embargo: 3 bars  (259200000 ms)
+
+Hyperparam sweep (16 configs × 5 folds)…
+  done in 2.5s
+  best AUC (m2_train CV) = 0.6005 ± 0.0560  params={'n_estimators': 100, 'max_depth': 5, 'learning_rate': 0.05, 'num_leaves': 31, 'min_child_samples': 20}
+
+Refitting on full m2_train…
+Threshold tuning on m2_tune… (ADR-018 + ADR-020: objective = trimmed-mean × n_kept native PnL)
+  AUC on m2_tune = 0.6297
+  threshold  n_kept  sum_tb%        sum_native%      trim_mean%      robust_score  ← objective
+    0.10       234      -548.68%       -1429.08%        -7.4433%        -1741.74
+    0.15       187      -381.22%       -1111.93%        -7.6691%        -1434.13
+    0.20       146      -165.80%        -782.65%        -7.6568%        -1117.89
+    0.25       119       -49.16%        -539.73%        -7.2214%         -859.34
+    0.30        95       +46.92%        -391.94%        -7.2160%         -685.52
+    0.35        77       -63.32%        -385.90%        -7.2543%         -558.58
+    0.40        60        +5.03%        -293.61%        -7.3562%         -441.37
+    0.45        45       +83.99%        -223.51%        -7.6723%         -345.25
+    0.50        39       +70.28%        -223.45%        -8.9859%         -350.45
+    0.55        29       +29.68%        -221.58%        -9.9237%         -287.79
+    0.60        22       -14.63%        -152.59%        -9.9474%         -218.84
+    0.65        17       -37.72%        -120.67%       -11.1352%         -189.30
+    0.70        12       -29.56%         -67.70%       -11.4054%         -136.87
+    0.75         7        +2.44%          +0.12%        +0.0178%           +0.12
+    0.80         5       +26.06%          +9.87%        +1.9738%           +9.87
+  → chosen threshold p* = 0.80  (robust_score = trim_mean(+1.9738%) × n_kept(5) = +9.87; raw native sum = +9.87%)
+
+Evaluating on OOS slice (untouched by training or threshold tuning)…
+  AUC on OOS                          : 0.6632  (moderate signal)
+  M1 / native exits (all OOS)         :  164 trades, sum  +1419.46%, mean/trade  +8.655%
+  M1 / triple-barrier exits (all OOS) :  164 trades, sum   -132.05%, mean/trade  -0.805%
+  M2 / triple-barrier (p*=0.80)       :    0 trades, sum     +0.00%, mean/trade  +0.000%
+  M2 / native exits (p*=0.80)         :    0 trades, sum     +0.00%, mean/trade  +0.000%
+  Lift M2-native vs M1-native (sum)   : -1419.46pp  ← deployment-metric lift
+  Lift M2-TB     vs M1-TB     (sum)   : +132.05pp  (label-side, diagnostic only)
+  Min-OOS-trade guard                 : FAIL (need >= 100, n_kept_native=0)
+
+✓ Inserted meta_models row for momentum_v1|mcap_nano|1d|3
+Distribution stats (M2-kept native PnL, deployment metric):
+  trimmed-mean (5% each tail) : +nan%
+  top-1 trade share of sum    : +nan%
+  t-stat                      : +nan
+  HLZ Bonferroni bar (M=240) : 4.117
+
+--- VERDICT ---
+
+Criterion checks:
+  [PASS] C1 — M2 OOS AUC >= 0.55 (real learned signal, not just threshold-volume effect)
+        actual: 0.6632
+  [FAIL] C2 — OOS kept-trade count >= 100 (sample is large enough to evaluate)
+        actual: 0
+  [FAIL] C3 — M2-filtered M1-native per-trade mean > M1-native unfiltered per-trade mean
+        actual: +0.0000% vs +8.6553%
+  [FAIL] C4 — M2-filtered M1-native OOS sum > 0 (cell is at least breakeven OOS)
+        actual: +0.00%
+  [FAIL] C5 — 5%-trimmed mean > 0 (positive ex-outliers; ADR-019)
+        actual: +nan%
+  [FAIL] C6 — top-1 trade share <= 50% of sum (no single-trade dominance; ADR-019)
+        actual: +nan%
+  [FAIL] C7 — t-stat >= HLZ bar (clears multiple-testing haircut; ADR-019)
+        actual: +nan vs bar 4.117
+
+REJECT (still net negative): M2-filtered using M1's native exits sums to +0.00% on OOS.
+         Filtering reduced losses but did not produce positive OOS edge.

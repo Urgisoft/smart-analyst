@@ -1,0 +1,72 @@
+train_meta_label — cell trend_v1|mcap_micro|1d|5  m1_run_sig 487bf85ca0439274  regime=none
+
+Loaded 907 rows  ({'m2_train': 369, 'oos': 291, 'm2_tune': 247})
+Features: ['vol_pct_30', 'vol_pct_90', 'btc_mom_30', 'btc_vol_pct_90', 'bars_since_first_seen', 'tok_volume_pct_90', 'm1_hit_rate_20', 'm1_pnl_mean_20', 'm1_signal_strength']
+
+Slice rows: m2_train=369  m2_tune=247  oos=291
+Embargo: 10 bars  (864000000 ms)
+
+Hyperparam sweep (16 configs × 5 folds)…
+  done in 1.8s
+  best AUC (m2_train CV) = 0.5754 ± 0.0530  params={'n_estimators': 100, 'max_depth': 5, 'learning_rate': 0.05, 'num_leaves': 31, 'min_child_samples': 20}
+
+Refitting on full m2_train…
+Threshold tuning on m2_tune… (ADR-018 + ADR-020: objective = trimmed-mean × n_kept native PnL)
+  AUC on m2_tune = 0.6839
+  threshold  n_kept  sum_tb%        sum_native%      trim_mean%      robust_score  ← objective
+    0.10       194       -31.54%       +3301.36%        -5.9590%        -1156.06
+    0.15       164       +22.32%       +3508.98%        -5.5021%         -902.35
+    0.20       146       +53.59%       +3604.48%        -5.1022%         -744.93
+    0.25       133       +79.60%       +1520.98%        -5.4706%         -727.59
+    0.30       123      +199.14%       +1681.11%        -4.0224%         -494.75
+    0.35       111      +241.48%       +1772.69%        -3.5848%         -397.92
+    0.40        94      +239.41%        +852.65%        -2.6324%         -247.45
+    0.45        76      +279.04%        +933.92%        -1.1371%          -86.42
+    0.50        64      +366.16%        +766.52%        -0.1509%           -9.66
+    0.55        47      +210.77%        +761.94%        +1.7169%          +80.69
+    0.60        33      +203.10%        +683.95%        -0.1786%           -5.89
+    0.65        25      +139.63%        +640.70%        +1.6833%          +42.08
+    0.70        15       +81.79%        +496.65%        -8.1019%         -121.53
+    0.75         7        -7.03%        +552.87%       +78.9809%         +552.87
+    0.80         3        -1.29%         -48.47%       -16.1551%          -48.47
+  → chosen threshold p* = 0.75  (robust_score = trim_mean(+78.9809%) × n_kept(7) = +552.87; raw native sum = +552.87%)
+
+Evaluating on OOS slice (untouched by training or threshold tuning)…
+  AUC on OOS                          : 0.6396  (moderate signal)
+  M1 / native exits (all OOS)         :  291 trades, sum     +1.00%, mean/trade  +0.003%
+  M1 / triple-barrier exits (all OOS) :  291 trades, sum   -326.27%, mean/trade  -1.121%
+  M2 / triple-barrier (p*=0.75)       :   16 trades, sum    +22.56%, mean/trade  +1.410%
+  M2 / native exits (p*=0.75)         :   16 trades, sum   +574.77%, mean/trade +35.923%
+  Lift M2-native vs M1-native (sum)   : +573.77pp  ← deployment-metric lift
+  Lift M2-TB     vs M1-TB     (sum)   : +348.83pp  (label-side, diagnostic only)
+  Min-OOS-trade guard                 : FAIL (need >= 100, n_kept_native=16)
+
+✓ Inserted meta_models row for trend_v1|mcap_micro|1d|5
+Distribution stats (M2-kept native PnL, deployment metric):
+  trimmed-mean (5% each tail) : +9.6199%
+  top-1 trade share of sum    : +83.45%
+  t-stat                      : +1.130
+  HLZ Bonferroni bar (M=240) : 4.117
+
+--- VERDICT ---
+
+Criterion checks:
+  [PASS] C1 — M2 OOS AUC >= 0.55 (real learned signal, not just threshold-volume effect)
+        actual: 0.6396
+  [FAIL] C2 — OOS kept-trade count >= 100 (sample is large enough to evaluate)
+        actual: 16
+  [PASS] C3 — M2-filtered M1-native per-trade mean > M1-native unfiltered per-trade mean
+        actual: +35.9229% vs +0.0034%
+  [PASS] C4 — M2-filtered M1-native OOS sum > 0 (cell is at least breakeven OOS)
+        actual: +574.77%
+  [PASS] C5 — 5%-trimmed mean > 0 (positive ex-outliers; ADR-019)
+        actual: +9.6199%
+  [FAIL] C6 — top-1 trade share <= 50% of sum (no single-trade dominance; ADR-019)
+        actual: +83.45%
+  [FAIL] C7 — t-stat >= HLZ bar (clears multiple-testing haircut; ADR-019)
+        actual: +1.130 vs bar 4.117
+
+REJECT (outlier-dominated; ADR-019): headline criteria pass but distribution is tail-driven.
+         top-1 trade is 83.4% of sum — single trade dominates the result.
+         t-stat = +1.130 vs HLZ bar 4.117 — fails cross-cell multiple-testing haircut.
+         The lift is pump-luck, not predictive edge. Do not promote.

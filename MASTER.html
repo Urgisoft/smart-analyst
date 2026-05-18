@@ -1,0 +1,1526 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>SignalForge — Master Document (Vector Core)</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --panel: #161b22;
+  --panel-2: #1c2128;
+  --border: #30363d;
+  --text: #e6edf3;
+  --text-dim: #8b949e;
+  --accent: #58a6ff;
+  --accent-2: #d2a8ff;
+  --green: #3fb950;
+  --red: #f85149;
+  --yellow: #d29922;
+  --orange: #ff8c42;
+  --purple: #bc8cff;
+  --teal: #56d4dd;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  line-height: 1.65;
+  font-size: 16px;
+}
+.container { max-width: 1040px; margin: 0 auto; padding: 48px 32px 96px; }
+h1 {
+  font-size: 32px;
+  font-weight: 700;
+  margin: 0 0 8px;
+  letter-spacing: -0.5px;
+}
+.subtitle { color: var(--text-dim); margin-bottom: 32px; font-size: 15px; }
+.meta-line {
+  color: var(--text-dim);
+  font-size: 13px;
+  margin-bottom: 48px;
+  padding: 12px 16px;
+  background: var(--panel-2);
+  border-left: 2px solid var(--accent);
+  border-radius: 0 4px 4px 0;
+}
+h2 {
+  font-size: 24px;
+  margin-top: 64px;
+  margin-bottom: 16px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--accent);
+}
+h3 {
+  font-size: 18px;
+  margin-top: 32px;
+  margin-bottom: 12px;
+  color: var(--accent-2);
+}
+h4 {
+  font-size: 14px;
+  margin-top: 20px;
+  margin-bottom: 6px;
+  color: var(--text);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+p { margin: 12px 0; }
+.toc {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px 28px;
+  margin-bottom: 32px;
+}
+.toc ol { margin: 8px 0; padding-left: 24px; }
+.toc a { color: var(--accent); text-decoration: none; }
+.toc a:hover { text-decoration: underline; }
+.callout {
+  background: var(--panel);
+  border-left: 3px solid var(--accent);
+  padding: 14px 20px;
+  margin: 18px 0;
+  border-radius: 0 6px 6px 0;
+}
+.callout.warn { border-left-color: var(--yellow); }
+.callout.danger { border-left-color: var(--red); }
+.callout.success { border-left-color: var(--green); }
+.callout.purple { border-left-color: var(--purple); }
+.callout-title {
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+  color: var(--accent);
+}
+.callout.warn .callout-title { color: var(--yellow); }
+.callout.danger .callout-title { color: var(--red); }
+.callout.success .callout-title { color: var(--green); }
+.callout.purple .callout-title { color: var(--purple); }
+.viz {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 22px;
+  margin: 22px 0;
+}
+.viz-caption {
+  color: var(--text-dim);
+  font-size: 13px;
+  margin-top: 10px;
+  text-align: center;
+  font-style: italic;
+}
+code {
+  background: var(--panel-2);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 13px;
+  font-family: "SF Mono", Monaco, Consolas, monospace;
+  color: var(--accent-2);
+}
+pre {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 14px 16px;
+  overflow-x: auto;
+  font-size: 13px;
+  font-family: "SF Mono", Monaco, Consolas, monospace;
+  color: var(--text);
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 14px 0;
+  font-size: 14px;
+}
+th, td {
+  padding: 9px 11px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+th {
+  background: var(--panel-2);
+  font-weight: 600;
+  color: var(--accent);
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+tr:hover { background: var(--panel); }
+.sig { color: var(--green); }
+.bad { color: var(--red); }
+.warn-c { color: var(--yellow); }
+.dim { color: var(--text-dim); }
+.tag {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  font-family: "SF Mono", Monaco, monospace;
+}
+.tag-exists { background: rgba(63,185,80,0.15); color: var(--green); border: 1px solid rgba(63,185,80,0.4); }
+.tag-partial { background: rgba(210,153,34,0.15); color: var(--yellow); border: 1px solid rgba(210,153,34,0.4); }
+.tag-new { background: rgba(188,140,255,0.15); color: var(--purple); border: 1px solid rgba(188,140,255,0.4); }
+.tag-stub { background: rgba(255,140,66,0.15); color: var(--orange); border: 1px solid rgba(255,140,66,0.4); }
+.tag-broken { background: rgba(248,81,73,0.15); color: var(--red); border: 1px solid rgba(248,81,73,0.4); }
+hr { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+ul li, ol li { margin: 5px 0; }
+.kv-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 16px 0;
+}
+.kv-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 16px;
+}
+.kv-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+.kv-value { font-size: 14px; }
+.adr {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 14px 18px;
+  margin: 14px 0;
+}
+.adr-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 6px;
+  border-bottom: 1px dashed var(--border);
+  padding-bottom: 6px;
+}
+.adr-num { font-family: "SF Mono", monospace; font-size: 13px; color: var(--accent); font-weight: 700; }
+.adr-title { font-weight: 600; font-size: 15px; }
+.adr-date { font-size: 12px; color: var(--text-dim); }
+.adr-status {
+  display: inline-block; padding: 1px 7px; border-radius: 3px;
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+}
+.adr-status.accepted { background: rgba(63,185,80,0.15); color: var(--green); }
+.adr-status.superseded { background: rgba(248,81,73,0.15); color: var(--red); }
+.adr-status.proposed { background: rgba(210,153,34,0.15); color: var(--yellow); }
+.adr-section { margin: 6px 0; font-size: 14px; }
+.adr-section strong { color: var(--accent-2); }
+.checklist-entry {
+  background: var(--panel-2);
+  border-left: 2px solid var(--teal);
+  padding: 8px 14px;
+  margin: 6px 0;
+  border-radius: 0 4px 4px 0;
+  font-size: 14px;
+}
+.checklist-entry .id { font-family: "SF Mono", monospace; color: var(--teal); font-weight: 700; margin-right: 8px; font-size: 12px; }
+.forbidden {
+  background: rgba(248,81,73,0.05);
+  border: 1px solid rgba(248,81,73,0.3);
+  border-radius: 6px;
+  padding: 10px 16px;
+  margin: 8px 0;
+  font-size: 14px;
+}
+.forbidden::before { content: "✗ "; color: var(--red); font-weight: 700; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>SignalForge — Master Document</h1>
+<div class="subtitle">Vector Core methodology · Behavioral clustering across markets · Deflation-gated promotion · Paper-first execution</div>
+
+<div class="meta-line">
+<strong>Version:</strong> 1.4 · <strong>Last updated:</strong> 2026-05-06 · <strong>Authoritative:</strong> this file + <code>.claude/HANDOFF.md</code> · <strong>Source thesis:</strong> <a href="docs/quant_reference.html">docs/quant_reference.html</a> · <strong>Operating prompt:</strong> <code>.claude/vector_core_system_prompt.md</code> · <strong>Sister docs:</strong> <a href="check.md">check.md</a> · <a href="docs/decisions/README.md">docs/decisions/</a> · <a href="docs/critic_workflow.md">docs/critic_workflow.md</a> · <a href="docs/components/README.md">docs/components/</a> · <a href="docs/specs/phase-1-targeted-resweep.md">P1 SPEC</a> · <strong>Changes since v1.3:</strong> ADR-014 through ADR-031 landed; clustering pipeline (P2) and meta-labeling stack shipped; cross-asset-class universe (yfinance equity_midcap, 60 tickers) ingested + validated through full deflation arc; deployment grade-card established — <code>mr_v1 / equity_midcap / 1d / p=14</code> primary, <code>trend_v1 / equity_midcap / 1d / p=30</code> conditional secondary; broad-market regime-gate REJECTED on equity_midcap (ADR-031); MVP paper-trading daemon (yfinance daily fetch → run M1 → diff → Telegram) shipped; tests now 561 TS + 62 Python.
+</div>
+
+<div class="toc">
+<strong>Contents</strong>
+<ol>
+  <li><a href="#part1">System overview — what SignalForge is and the pipeline it implements</a></li>
+  <li><a href="#part2">Operating principles — the 14 commitments (with rationale)</a></li>
+  <li><a href="#part3">Component catalog — every module, its status, what it does</a></li>
+  <li><a href="#part4">Self-correction layer: check.md, critic agent, three-tier checkpoints, forbidden list</a></li>
+  <li><a href="#part5">Roadmap — phases, gates, exit criteria</a></li>
+  <li><a href="#part6">Decisions log — append-only ADR trail</a></li>
+  <li><a href="#part7">Living state — what is true today</a></li>
+  <li><a href="#part8">Glossary — terms unique to SignalForge</a></li>
+  <li><a href="#part9">Anti-hallucination protocol — defenses against context drift</a></li>
+</ol>
+</div>
+
+<!-- =============== PART 1 =============== -->
+<h2 id="part1">1. System overview</h2>
+
+<p>SignalForge is a research lab for systematic crypto strategies. The thesis behind it is not "find the best strategy on Solana" — it is <strong>behavioral clustering across markets</strong>: assets cluster by their statistical properties (volatility, beta, liquidity, autocorrelation) regardless of their asset-class label, and a strategy that genuinely has edge on a behavioral cluster in one market should survive recalibration on the same cluster in a different market. Failing that survival test means the result was a venue-specific quirk, not a behavioral truth.</p>
+
+<p>Everything else — the dashboard, the validator, the deflation pipeline, the broker abstraction yet to be built — exists to support that single research workflow without letting any of the well-known failure modes (selection bias, single-market overfit, undisciplined re-running, premature live capital) corrupt the conclusion.</p>
+
+<h3>The pipeline at a glance</h3>
+
+<div class="viz">
+<svg viewBox="0 0 980 540" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#58a6ff"/>
+    </marker>
+    <marker id="arrow-r" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#f85149"/>
+    </marker>
+    <linearGradient id="lane" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1c2128"/>
+      <stop offset="100%" style="stop-color:#161b22"/>
+    </linearGradient>
+  </defs>
+
+  <text x="490" y="28" text-anchor="middle" fill="#e6edf3" font-size="14" font-weight="700">SignalForge research-to-deployment pipeline</text>
+  <text x="490" y="46" text-anchor="middle" fill="#8b949e" font-size="11">Each gate rejects a different failure mode; skipping any gate inherits its failure mode silently</text>
+
+  <!-- Stage boxes top row -->
+  <g>
+    <rect x="20" y="80" width="170" height="100" rx="8" fill="url(#lane)" stroke="#bc8cff" stroke-width="2"/>
+    <text x="105" y="106" text-anchor="middle" fill="#bc8cff" font-size="12" font-weight="700">1 · DISCOVERY</text>
+    <text x="105" y="128" text-anchor="middle" fill="#e6edf3" font-size="11">behavioral clusters</text>
+    <text x="105" y="143" text-anchor="middle" fill="#e6edf3" font-size="11">in the universe</text>
+    <text x="105" y="163" text-anchor="middle" fill="#8b949e" font-size="10">(today: tier heuristics</text>
+    <text x="105" y="175" text-anchor="middle" fill="#8b949e" font-size="10">soon: feature-space ML)</text>
+  </g>
+
+  <g>
+    <rect x="210" y="80" width="170" height="100" rx="8" fill="url(#lane)" stroke="#56d4dd" stroke-width="2"/>
+    <text x="295" y="106" text-anchor="middle" fill="#56d4dd" font-size="12" font-weight="700">2 · DESIGN</text>
+    <text x="295" y="128" text-anchor="middle" fill="#e6edf3" font-size="11">strategy spec for</text>
+    <text x="295" y="143" text-anchor="middle" fill="#e6edf3" font-size="11">ONE cluster</text>
+    <text x="295" y="163" text-anchor="middle" fill="#8b949e" font-size="10">canon-grounded,</text>
+    <text x="295" y="175" text-anchor="middle" fill="#8b949e" font-size="10">≤5 free params</text>
+  </g>
+
+  <g>
+    <rect x="400" y="80" width="170" height="100" rx="8" fill="url(#lane)" stroke="#3fb950" stroke-width="2"/>
+    <text x="485" y="106" text-anchor="middle" fill="#3fb950" font-size="12" font-weight="700">3 · BACKTEST</text>
+    <text x="485" y="128" text-anchor="middle" fill="#e6edf3" font-size="11">walk-forward, fee-adj,</text>
+    <text x="485" y="143" text-anchor="middle" fill="#e6edf3" font-size="11">cluster-restricted</text>
+    <text x="485" y="163" text-anchor="middle" fill="#8b949e" font-size="10">CSCV folds,</text>
+    <text x="485" y="175" text-anchor="middle" fill="#8b949e" font-size="10">honest cost model</text>
+  </g>
+
+  <g>
+    <rect x="590" y="80" width="170" height="100" rx="8" fill="url(#lane)" stroke="#d29922" stroke-width="2"/>
+    <text x="675" y="106" text-anchor="middle" fill="#d29922" font-size="12" font-weight="700">4 · DEFLATE</text>
+    <text x="675" y="128" text-anchor="middle" fill="#e6edf3" font-size="11">DSR + PBO + HLZ</text>
+    <text x="675" y="143" text-anchor="middle" fill="#e6edf3" font-size="11">+ Pardo OOS/IS</text>
+    <text x="675" y="163" text-anchor="middle" fill="#8b949e" font-size="10">survives or dies here</text>
+    <text x="675" y="175" text-anchor="middle" fill="#8b949e" font-size="10">selection bias killed</text>
+  </g>
+
+  <g>
+    <rect x="780" y="80" width="170" height="100" rx="8" fill="url(#lane)" stroke="#ff8c42" stroke-width="2"/>
+    <text x="865" y="106" text-anchor="middle" fill="#ff8c42" font-size="12" font-weight="700">5 · CROSS-MARKET</text>
+    <text x="865" y="128" text-anchor="middle" fill="#e6edf3" font-size="11">recalibrate &amp; re-deflate</text>
+    <text x="865" y="143" text-anchor="middle" fill="#e6edf3" font-size="11">on Market B</text>
+    <text x="865" y="163" text-anchor="middle" fill="#8b949e" font-size="10">transfer hypothesis,</text>
+    <text x="865" y="175" text-anchor="middle" fill="#8b949e" font-size="10">not parameters</text>
+  </g>
+
+  <!-- Bottom row -->
+  <g>
+    <rect x="120" y="290" width="240" height="100" rx="8" fill="url(#lane)" stroke="#58a6ff" stroke-width="2"/>
+    <text x="240" y="316" text-anchor="middle" fill="#58a6ff" font-size="12" font-weight="700">6 · PAPER TRADE</text>
+    <text x="240" y="338" text-anchor="middle" fill="#e6edf3" font-size="11">PaperBroker — replay live signals</text>
+    <text x="240" y="353" text-anchor="middle" fill="#e6edf3" font-size="11">monitor live-vs-backtest divergence</text>
+    <text x="240" y="375" text-anchor="middle" fill="#8b949e" font-size="10">duration: weeks not days</text>
+  </g>
+
+  <g>
+    <rect x="400" y="290" width="240" height="100" rx="8" fill="url(#lane)" stroke="#58a6ff" stroke-width="2"/>
+    <text x="520" y="316" text-anchor="middle" fill="#58a6ff" font-size="12" font-weight="700">7 · SMALL LIVE</text>
+    <text x="520" y="338" text-anchor="middle" fill="#e6edf3" font-size="11">LiveBroker — minimum-viable capital</text>
+    <text x="520" y="353" text-anchor="middle" fill="#e6edf3" font-size="11">verify execution model + slippage</text>
+    <text x="520" y="375" text-anchor="middle" fill="#8b949e" font-size="10">a separate DECISION, not a step</text>
+  </g>
+
+  <g>
+    <rect x="680" y="290" width="240" height="100" rx="8" fill="url(#lane)" stroke="#58a6ff" stroke-width="2"/>
+    <text x="800" y="316" text-anchor="middle" fill="#58a6ff" font-size="12" font-weight="700">8 · SCALE / ITERATE</text>
+    <text x="800" y="338" text-anchor="middle" fill="#e6edf3" font-size="11">grow capital · re-validate quarterly</text>
+    <text x="800" y="353" text-anchor="middle" fill="#e6edf3" font-size="11">portfolio of small uncorrelated edges</text>
+    <text x="800" y="375" text-anchor="middle" fill="#8b949e" font-size="10">edges decay → loop back to step 1</text>
+  </g>
+
+  <!-- Self-correction strip across the bottom -->
+  <g>
+    <rect x="20" y="430" width="930" height="80" rx="8" fill="#0d1117" stroke="#56d4dd" stroke-width="2" stroke-dasharray="6,4"/>
+    <text x="485" y="455" text-anchor="middle" fill="#56d4dd" font-size="12" font-weight="700">SELF-CORRECTION LAYER (runs continuously, never as a separate stage)</text>
+    <text x="485" y="476" text-anchor="middle" fill="#e6edf3" font-size="11">check.md producer self-check  ·  critic-agent review  ·  three-tier checkpoints  ·  forbidden-action guard  ·  decisions log</text>
+    <text x="485" y="495" text-anchor="middle" fill="#8b949e" font-size="10">every artifact passes through check.md before it leaves a stage; critic agent runs against the producer's output before user sees it</text>
+  </g>
+
+  <!-- Forward arrows -->
+  <line x1="190" y1="130" x2="208" y2="130" stroke="#58a6ff" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="380" y1="130" x2="398" y2="130" stroke="#58a6ff" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="570" y1="130" x2="588" y2="130" stroke="#58a6ff" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="760" y1="130" x2="778" y2="130" stroke="#58a6ff" stroke-width="2" marker-end="url(#arrow)"/>
+  <path d="M 865,180 Q 865,235 240,290" fill="none" stroke="#58a6ff" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="360" y1="340" x2="398" y2="340" stroke="#58a6ff" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="640" y1="340" x2="678" y2="340" stroke="#58a6ff" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Failure-rejection arrows -->
+  <path d="M 675,180 Q 675,230 105,180" fill="none" stroke="#f85149" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arrow-r)"/>
+  <text x="450" y="225" text-anchor="middle" fill="#f85149" font-size="10" font-style="italic">rejection — back to discovery, not "tweak the params"</text>
+
+  <!-- Iterate loop -->
+  <path d="M 800,390 Q 800,420 130,420 Q 80,420 80,180" fill="none" stroke="#8b949e" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+</svg>
+<div class="viz-caption">Eight stages, one self-correction layer. Stages are serial; the self-correction layer runs across all of them. Rejection at any deflation gate sends work back to discovery — not to "try a different parameter range."</div>
+</div>
+
+<h3>Why this exists</h3>
+
+<p>Almost everyone who tries systematic crypto trading produces beautiful in-sample results that disintegrate live. The reason is not that they are bad at coding — it is that they conflate "I tested 10,000 configurations and one looked great" with "I found edge." The first is the maximum of 10,000 random variables. The second requires deflation, walk-forward, and cross-market confirmation.</p>
+
+<p>SignalForge is the local environment where every promotion decision passes through those gates. The headline result of the work to date — "0 of 69 cells pass all four gates" — is not a failure of the system; it is the system <em>working</em>. Most of those 0 are correctly being rejected. The next functional task (Phase 1 below) is fixing measurement artifacts in 23 of those cells so the rejection signal is honest.</p>
+
+<div class="callout">
+<div class="callout-title">North star</div>
+<strong>Confidence beats raw returns.</strong> A deflated Sharpe of 1.2 with PBO &lt; 0.5 and cross-market confirmation beats a raw profit factor of 3 from a single market sweep, every time. The system is built around this preference; every gate exists to enforce it.
+</div>
+
+<div class="callout warn">
+<div class="callout-title">Where ML clustering fits — and why it's P2, not P1</div>
+The canonical research pipeline (per <code>quant_reference.html</code>) puts <strong>ML clustering as stage 1</strong>, upstream of strategy design. SignalForge has it historically inverted — existing strategies were designed first, then applied to static tier slices (<code>vol_high</code>, <code>mcap_micro</code>, etc.). Those tiers <em>are</em> a coarse approximation of behavioral clusters (they use 3 of the 4 canonical features: vol, β, mcap; the missing one is autocorrelation), but they're <strong>static buckets</strong> with <strong>frozen membership</strong>. Phase 2 closes both gaps: continuous feature-space clustering with weekly-recomputed membership.<br><br>
+The reason clustering stays P2 (not P1) is the binding bottleneck. The "0 of 69 cells pass" headline is <em>measurement artifact</em>, not strategy failure — the 23 case_b cells have schema contamination. Re-defining the universe before fixing the metric that grades strategies on it produces a fancier-looking "0 of N" headline, not progress. P1 unblocks the signal; P2 upgrades the universe; together they let us ask the right question. For <strong>new</strong> strategies (post-P5), the canonical order applies: cluster first, then design.
+</div>
+
+<h3>Universe and venues</h3>
+
+<table>
+<thead><tr><th>Venue / source</th><th>Status</th><th>Role</th></tr></thead>
+<tbody>
+<tr><td>Solana DEX (Jupiter API)</td><td><span class="tag tag-exists">live</span></td><td>Primary universe — long tail tokens, used for cluster discovery</td></tr>
+<tr><td>CEX majors (Coinbase, Kraken)</td><td><span class="tag tag-exists">live</span></td><td>Liquid majors for cross-cluster baselines</td></tr>
+<tr><td><code>bot.db</code> historical (cleaned)</td><td><span class="tag tag-partial">grandfathered</span></td><td>Pre-existing historical OHLCV; <strong>see ADR-005</strong> — different cost model, kept for now with caveat per cell</td></tr>
+<tr><td>Equities (cross-market venue)</td><td><span class="tag tag-new">phase 4</span></td><td>Reserved for cross-market validation only — not for primary discovery</td></tr>
+</tbody>
+</table>
+
+<h3>Storage and execution</h3>
+
+<table>
+<thead><tr><th>Component</th><th>Tech</th><th>Role</th></tr></thead>
+<tbody>
+<tr><td>Warehouse</td><td>ClickHouse (Docker, port 8123, db <code>quantlab</code>)</td><td>Source of truth for candles, backtest runs, scores, validator outputs</td></tr>
+<tr><td>App / orchestrator</td><td>TypeScript (Node + tsx) primary; Python via ClickHouse-as-bus</td><td>Backtest engine, scorer, validator route, dashboard server</td></tr>
+<tr><td>UI</td><td>React 19 + Vite + Tailwind, recharts for charts, lightweight-charts for OHLC</td><td>Dashboard, validator surface, browse view</td></tr>
+<tr><td>Indicators</td><td><code>technicalindicators</code> (npm)</td><td>SMA/EMA/RSI/Bollinger/ATR — never reimplemented</td></tr>
+<tr><td>Stats — heavy</td><td>Python via ClickHouse round-trip (escape hatch)</td><td>scipy/statsmodels/sklearn when JS doesn't cut it</td></tr>
+<tr><td>Execution</td><td><strong>Not yet built</strong> — PaperBroker / LiveBroker abstraction is Phase 3</td><td>Paper-first. Live capital is a separate decision, not a continuation</td></tr>
+</tbody>
+</table>
+
+<!-- =============== PART 2 =============== -->
+<h2 id="part2">2. Operating principles — the 14 commitments</h2>
+
+<p>These are the standing rules for how work happens in this repository. They are not preferences; they are the things skipping which produces silent corruption of the research result. Each commitment has a status (already enforced, partially enforced, or new infrastructure needed) and a rationale.</p>
+
+<div class="kv-grid">
+<div class="kv-card"><div class="kv-label">Total commitments</div><div class="kv-value">14</div></div>
+<div class="kv-card"><div class="kv-label">Enforced today</div><div class="kv-value sig">4</div></div>
+<div class="kv-card"><div class="kv-label">Partially enforced</div><div class="kv-value warn-c">4</div></div>
+<div class="kv-card"><div class="kv-label">Net-new infrastructure</div><div class="kv-value" style="color:var(--purple)">6</div></div>
+</div>
+
+<h3>The 14, in detail</h3>
+
+<table>
+<thead><tr><th style="width:5%">#</th><th style="width:32%">Commitment</th><th style="width:13%">Status</th><th>Rationale &amp; mechanism</th></tr></thead>
+<tbody>
+
+<tr><td>1</td><td><strong>Self-correction via <code>check.md</code></strong> — 40+ entries, growing. Producer self-check before every handoff; critic agent enforces.</td><td><span class="tag tag-new">new</span></td><td>The 2026-05-03 framing-error incident (where "unscorable" conflated three independent fail modes) showed that errors compound silently when there's no checklist gate. <code>check.md</code> is the gate. See Part 4.</td></tr>
+
+<tr><td>2</td><td><strong>Decisions log</strong> — ADR-style, append-only, with rationale and supersession links.</td><td><span class="tag tag-new">new</span></td><td>The handoff brief captures current state; it does not capture <em>why</em> historical choices were made. Re-litigating settled decisions wastes tokens. ADRs end that. See Part 6.</td></tr>
+
+<tr><td>3</td><td><strong>Visualization-rich documentation</strong> — SVG diagrams over prose for any system-shape concept.</td><td><span class="tag tag-exists">enforced (in this artifact)</span></td><td>User fatigues on long prose. Diagrams compress the same information by ~10× for the reader. The <code>quant_reference.html</code> style is the template. This document follows it; future architecture docs are expected to.</td></tr>
+
+<tr><td>4</td><td><strong>Multi-agent layer</strong> — critic, researcher, unit/regression test generators. All follow <code>check.md</code>.</td><td><span class="tag tag-new">new</span></td><td>Catches drift the producer can't see. Available primitive: Claude Code <code>Agent</code> tool with subagent types. The workflow itself (when to spawn which agent on what artifact) is what's net-new. See Part 4.</td></tr>
+
+<tr><td>5</td><td><strong>Existing libraries when justified</strong>; custom only when no library fits — with documented reason.</td><td><span class="tag tag-exists">enforced</span></td><td>Vector Core canon: re-implementing battle-tested code (statsmodels, scipy, technicalindicators, empyrical) is overfit-prone and bug-prone. Codebase already heavy on libraries. ADR-002 codifies this.</td></tr>
+
+<tr><td>6</td><td><strong>Cross-market validation AFTER local survival</strong> — transfer the hypothesis, recalibrate per market.</td><td><span class="tag tag-new">new</span></td><td>Cross-market validation only matters once one cell survives the four local gates. Today: zero survivors. Building cross-market infra now is premature. Phase 4 work, not phase 1. See Part 5.</td></tr>
+
+<tr><td>7</td><td><strong>Paper trading first</strong> via <code>PaperBroker</code> / <code>LiveBroker</code> abstraction. Live capital is a <em>separate decision</em>.</td><td><span class="tag tag-new">new</span></td><td>Backtest is a hypothesis test, not a forecast. Paper trade reveals execution-model assumptions (slippage, fill timing, order rejection) that no backtest can fully model. Live capital only after paper-trade evidence. See Part 3 component spec.</td></tr>
+
+<tr><td>8</td><td><strong>Linear staging</strong> — RESEARCH → DESIGN → SPEC → CODE. No skipping.</td><td><span class="tag tag-exists">enforced</span></td><td>Codified in <code>.claude/vector_core_system_prompt.md</code>. Continuous TEACH and PUSHBACK roles run across all stages. Refused-stage-skip is the standing behaviour.</td></tr>
+
+<tr><td>9</td><td><strong>Three-tier checkpoints</strong>: mandatory at component boundaries, optional summaries, automatic implementation details.</td><td><span class="tag tag-new">new</span></td><td>Not every step needs user attention. Component-boundary changes do; intermediate edits don't. See Part 4 for the explicit tier definitions.</td></tr>
+
+<tr><td>10</td><td><strong>Forbidden list</strong> — codified actions that get refused even if asked.</td><td><span class="tag tag-new">new</span></td><td>Implicit in Vector Core today. Making it explicit means PUSHBACK doesn't need to be invented per turn. See Part 4 for the list.</td></tr>
+
+<tr><td>11</td><td><strong>ClickHouse-as-bus</strong> for Python escape hatch. JS/TS primary; Python for stats-heavy work via warehouse round-trip.</td><td><span class="tag tag-partial">partial</span></td><td>One Python script exists today (<code>scripts/import_botdb_candles.py</code>, frozen per ADR-005) using stdlib only. The pattern is: Python reads from CH, writes results back to CH, never owns its own state. Phase 2 will exercise the pattern again for cluster discovery (sklearn). This keeps language choice from forcing a service split.</td></tr>
+
+<tr><td>12</td><td><strong>Thesis: behavioral clustering across markets</strong> — assets cluster by statistical properties, not by asset-class label.</td><td><span class="tag tag-partial">partial</span></td><td>Tier definitions today are static heuristic buckets (vol_high/mcap_micro/etc.). The Vector Core canon's "behavioral cluster" is feature-space (continuous vol, beta, liquidity, autocorr) and dynamic (membership recomputed). Bridging this is Phase 2 work.</td></tr>
+
+<tr><td>13</td><td><strong><code>bot.db</code> data is grandfathered, not freshly imported</strong>: different cost model, different OOS methodology.</td><td><span class="tag tag-partial">partial</span></td><td><strong>Important nuance:</strong> <code>scripts/import_botdb_candles.py</code> exists and bot.db rows are already in <code>quantlab.candles</code> with <code>source='botdb'</code>. The commitment going forward: no new bot.db imports, no new bot.db ingest features, and the cost-model/OOS caveat documented per affected cell. See ADR-005.</td></tr>
+
+<tr><td>14</td><td><strong>User context</strong>: self-taught engineer; learning by doing; fatigues on long prose; drifts toward ML / market-switches / multi-agent when tired. Redirect those impulses to boring rigor.</td><td><span class="tag tag-exists">enforced</span></td><td>Memory record. Operationally: when the user proposes "let's switch to equities" or "let's add an ML layer", the default response is PUSHBACK with a check against the current pipeline stage. Real wins live in finishing the current stage, not in switching venues.</td></tr>
+
+</tbody>
+</table>
+
+<div class="callout warn">
+<div class="callout-title">Drift signal</div>
+The user has flagged three specific drift patterns: <strong>(a) jumping to ML when the primary pipeline isn't producing survivors</strong>, <strong>(b) switching markets to escape a validation problem</strong>, <strong>(c) building multi-agent orchestration as a substitute for finishing concrete work</strong>. The first response when any of these surface mid-conversation is to name the pattern and propose returning to the in-progress concrete task.
+</div>
+
+<!-- =============== PART 3 =============== -->
+<h2 id="part3">3. Component catalog</h2>
+
+<p>Every module in the system, what it does, current status, and where it sits in the pipeline. Status legend: <span class="tag tag-exists">exists</span> works today · <span class="tag tag-partial">partial</span> works but has known gaps · <span class="tag tag-stub">stub</span> file present, behaviour incomplete · <span class="tag tag-new">new</span> not yet built · <span class="tag tag-broken">broken</span> known regression.</p>
+
+<h3>Data ingest layer</h3>
+
+<table>
+<thead><tr><th>Module</th><th>Path</th><th>Status</th><th>Role</th></tr></thead>
+<tbody>
+<tr><td>Jupiter backfill</td><td><code>scripts/jupiter_backfill.ts</code></td><td><span class="tag tag-exists">exists</span></td><td>Solana DEX OHLCV ingest. Source of truth for the primary universe.</td></tr>
+<tr><td>Coinbase backfill</td><td><code>scripts/coinbase_backfill.ts</code></td><td><span class="tag tag-exists">exists</span></td><td>CEX-major OHLCV (BTC, ETH, SOL …) for cex_major tier.</td></tr>
+<tr><td>Kraken backfill</td><td><code>scripts/kraken_backfill.ts</code></td><td><span class="tag tag-exists">exists</span></td><td>CEX-major coverage gap-filler.</td></tr>
+<tr><td>1h → 4h resampler</td><td><code>scripts/resample_1h_to_4h.ts</code></td><td><span class="tag tag-exists">exists</span></td><td>Server-side aggregation; avoids re-downloading 4h candles.</td></tr>
+<tr><td>bot.db importer (Python)</td><td><code>scripts/import_botdb_candles.py</code></td><td><span class="tag tag-partial">grandfathered</span></td><td>Historical Solana data from the prior project. <strong>No new runs.</strong> See ADR-005.</td></tr>
+<tr><td>Token metadata loader</td><td><code>scripts/load_token_metadata.ts</code></td><td><span class="tag tag-exists">exists</span></td><td>Symbols, decimals, mcap snapshot.</td></tr>
+<tr><td>Watch-candles daemon</td><td><code>scripts/watch_candles.ts</code></td><td><span class="tag tag-exists">exists</span></td><td>Polls for new closed candles and triggers incremental backtests.</td></tr>
+<tr><td>Candle cleaner / deduper</td><td><code>scripts/clean_candles.ts</code>, <code>scripts/dedupe_candles.ts</code></td><td><span class="tag tag-exists">exists</span></td><td>Quality gates and duplicate collapse.</td></tr>
+</tbody>
+</table>
+
+<h3>Strategy &amp; backtest engine</h3>
+
+<table>
+<thead><tr><th>Module</th><th>Path</th><th>Status</th><th>Role</th></tr></thead>
+<tbody>
+<tr><td>Indicators &amp; runners</td><td><code>src/lib/indicators.ts</code></td><td><span class="tag tag-exists">exists</span></td><td>Shared between browser and server. SMA/EMA/RSI/BB/ATR via <code>technicalindicators</code>. Strategies: MOMENTUM, MEAN_REVERSION, TREND, VOLUME_BREAKOUT, TSMOM_VOL, CUSTOM.</td></tr>
+<tr><td>Batch backtest orchestrator</td><td><code>scripts/batch_backtest.ts</code></td><td><span class="tag tag-exists">exists</span></td><td>Runs the param sweep across (strategy × tier × interval × params), persists to <code>bt_runs</code> + <code>bt_trades</code>.</td></tr>
+<tr><td>Worker</td><td><code>scripts/batch_backtest_worker.ts</code></td><td><span class="tag tag-exists">exists</span></td><td>Per-cell execution; writes <code>oos_sharpe_ratio</code> and <code>data_span_days</code> on every insert.</td></tr>
+<tr><td>XSMOM cross-sectional engine</td><td><code>scripts/batch_backtest_xsmom.ts</code></td><td><span class="tag tag-exists">exists</span></td><td>Cross-sectional momentum: rank tokens, long top, short bottom.</td></tr>
+<tr><td>Cost stress harness</td><td><code>scripts/cost_stress.ts</code></td><td><span class="tag tag-exists">exists</span></td><td>Re-runs survivors with elevated fees to test edge robustness to cost assumptions.</td></tr>
+<tr><td>BT noise cleaner</td><td><code>scripts/clean_bt_noise.ts</code></td><td><span class="tag tag-exists">exists</span></td><td>Removes spurious bt_runs rows (zero-trade, malformed) before scoring.</td></tr>
+<tr><td>Sortkey migration</td><td><code>scripts/migrate_candles_sortkey.ts</code></td><td><span class="tag tag-exists">exists</span></td><td>One-shot ALTER for the candles ORDER BY; idempotent with <code>--apply</code> guard.</td></tr>
+<tr><td>PBO schema migration</td><td><code>scripts/migrate_pbo_schema.ts</code></td><td><span class="tag tag-exists">exists</span></td><td>Adds the PBO/CSCV-required columns to <code>strategy_scores</code>; idempotent.</td></tr>
+</tbody>
+</table>
+
+<h3>Deflation pipeline</h3>
+
+<div class="callout success">
+<div class="callout-title">This is the working core</div>
+The deflation pipeline is the most-validated part of the system. 383 tests pass; every formula has a citation. When other parts break, this is what stays trusted.
+</div>
+
+<table>
+<thead><tr><th>Module</th><th>Path</th><th>Status</th><th>Role</th></tr></thead>
+<tbody>
+<tr><td>PSR + DSR (Bailey-LdP 2014)</td><td><code>src/lib/psr.ts</code></td><td><span class="tag tag-exists">exists</span></td><td>Probabilistic Sharpe + Deflated Sharpe. Bootstrap variant per Bailey-LdP §11.5; mulberry32 PRNG; default B=10000 seed=42.</td></tr>
+<tr><td>CSCV / PBO (Bailey-Borwein-LdP-Zhu 2014)</td><td><code>src/lib/cscv.ts</code></td><td><span class="tag tag-exists">exists</span></td><td>Combinatorially symmetric cross-validation; computes PBO as fraction of splits where IS-best ranks below median OOS.</td></tr>
+<tr><td>HLZ haircut (Harvey-Liu-Zhu 2016)</td><td><code>src/lib/hlzHaircut.ts</code></td><td><span class="tag tag-exists">exists</span></td><td>BHY (Benjamini-Hochberg-Yekutieli, HLZ 2016 §3) t-stat correction for multiple testing across the factor zoo. Cross-cell via <code>applyLeaderboardHaircut</code> on PSR-derived t-stats. One-sided default.</td></tr>
+<tr><td>Slice metrics</td><td><code>src/lib/sliceMetrics.ts</code></td><td><span class="tag tag-exists">exists</span></td><td>Per-fold returns/Sharpe/drawdown. Foundation for the OOS Sharpe column.</td></tr>
+<tr><td>Liquidity gate</td><td><code>src/lib/liquidity.ts</code></td><td><span class="tag tag-exists">exists</span></td><td>Capacity / market-impact filter; gates promotion on whether the strategy is implementable.</td></tr>
+<tr><td>Strategy scorer</td><td><code>scripts/score_strategies.ts</code></td><td><span class="tag tag-exists">exists</span></td><td>Aggregates per-cell. Writes <code>strategy_scores</code> with DSR, PBO, HLZ pass, OOS/IS status, and the new <code>oos_is_status</code> enum.</td></tr>
+</tbody>
+</table>
+
+<h3>Validator surface</h3>
+
+<table>
+<thead><tr><th>Module</th><th>Path</th><th>Status</th><th>Role</th></tr></thead>
+<tbody>
+<tr><td>Validator core</td><td><code>src/lib/validator.ts</code></td><td><span class="tag tag-exists">exists</span></td><td>CSV-path orchestrator. Runs all four gates against a single (strategy × tier × interval) cell on demand.</td></tr>
+<tr><td>Cell-level validator</td><td><code>src/lib/validator_cell.ts</code></td><td><span class="tag tag-exists">exists</span></td><td>Per-param Pardo OOS/IS with legacy-row exclusion (<code>data_span_days &gt; 0</code> filter).</td></tr>
+<tr><td>Request orchestration</td><td><code>src/lib/validator_request.ts</code>, <code>src/lib/validator_cell_request.ts</code></td><td><span class="tag tag-exists">exists</span></td><td>API surface for the validator routes.</td></tr>
+<tr><td>UI</td><td><code>src/components/validator/*</code></td><td><span class="tag tag-partial">programmatic-OK</span></td><td>Hash-routed at <code>#/validator</code>. Browser smoke-test pending.</td></tr>
+<tr><td>Demo CSVs</td><td><code>docs/fixtures/validator_demo_*.csv</code></td><td><span class="tag tag-exists">exists</span></td><td>Fixtures for pass/fail/per-asset cases — viewable and routable.</td></tr>
+</tbody>
+</table>
+
+<h3>Cross-market validation <span class="tag tag-new">net-new</span></h3>
+
+<p>Phase 4 work. Components needed (none built):</p>
+<ul>
+  <li><code>src/lib/clusterCharacteristics.ts</code> — extract continuous (vol, β, liquidity, autocorr) features per asset per market.</li>
+  <li><code>scripts/cross_market_recalibrate.ts</code> — given a hypothesis (strategy + cluster definition) that survived on Market A, recompute cluster membership on Market B and run an independent walk-forward + deflation.</li>
+  <li><code>src/lib/transferReport.ts</code> — comparison report across markets; "survives both" vs "fails one" verdict.</li>
+</ul>
+
+<h3>Execution layer <span class="tag tag-new">net-new</span></h3>
+
+<p>The PaperBroker / LiveBroker abstraction is the gate between research and capital. Spec sketch (full SPEC produced at Phase 3):</p>
+
+<div class="viz">
+<svg viewBox="0 0 940 320" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto">
+  <text x="470" y="26" text-anchor="middle" fill="#e6edf3" font-size="14" font-weight="700">Broker abstraction (Phase 3 spec)</text>
+
+  <!-- Strategy -->
+  <rect x="40" y="60" width="160" height="60" rx="6" fill="#1c2128" stroke="#56d4dd" stroke-width="2"/>
+  <text x="120" y="86" text-anchor="middle" fill="#56d4dd" font-size="12" font-weight="700">Strategy</text>
+  <text x="120" y="103" text-anchor="middle" fill="#8b949e" font-size="10">emits Order intents</text>
+
+  <!-- Broker interface -->
+  <rect x="280" y="60" width="200" height="60" rx="6" fill="#1c2128" stroke="#bc8cff" stroke-width="2"/>
+  <text x="380" y="84" text-anchor="middle" fill="#bc8cff" font-size="12" font-weight="700">Broker (interface)</text>
+  <text x="380" y="100" text-anchor="middle" fill="#e6edf3" font-size="10">submit(order) → fill | reject</text>
+  <text x="380" y="113" text-anchor="middle" fill="#e6edf3" font-size="10">getPosition(asset) → Position</text>
+
+  <!-- Paper -->
+  <rect x="560" y="20" width="160" height="60" rx="6" fill="#1c2128" stroke="#3fb950" stroke-width="2"/>
+  <text x="640" y="44" text-anchor="middle" fill="#3fb950" font-size="12" font-weight="700">PaperBroker</text>
+  <text x="640" y="60" text-anchor="middle" fill="#8b949e" font-size="10">replay against live candles</text>
+  <text x="640" y="72" text-anchor="middle" fill="#8b949e" font-size="10">model slippage explicitly</text>
+
+  <!-- Live -->
+  <rect x="560" y="100" width="160" height="60" rx="6" fill="#1c2128" stroke="#f85149" stroke-width="2"/>
+  <text x="640" y="124" text-anchor="middle" fill="#f85149" font-size="12" font-weight="700">LiveBroker</text>
+  <text x="640" y="140" text-anchor="middle" fill="#8b949e" font-size="10">venue API adapter</text>
+  <text x="640" y="152" text-anchor="middle" fill="#8b949e" font-size="10">capital-controlled</text>
+
+  <!-- Storage -->
+  <rect x="780" y="60" width="120" height="60" rx="6" fill="#1c2128" stroke="#d29922" stroke-width="2"/>
+  <text x="840" y="84" text-anchor="middle" fill="#d29922" font-size="12" font-weight="700">CH bus</text>
+  <text x="840" y="100" text-anchor="middle" fill="#8b949e" font-size="10">paper_fills,</text>
+  <text x="840" y="112" text-anchor="middle" fill="#8b949e" font-size="10">live_fills</text>
+
+  <!-- arrows -->
+  <line x1="200" y1="90" x2="278" y2="90" stroke="#58a6ff" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="480" y1="78" x2="558" y2="50" stroke="#58a6ff" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="480" y1="100" x2="558" y2="130" stroke="#58a6ff" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="720" y1="50" x2="780" y2="80" stroke="#58a6ff" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="720" y1="130" x2="780" y2="100" stroke="#58a6ff" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Verification box -->
+  <rect x="40" y="200" width="860" height="100" rx="8" fill="#0d1117" stroke="#56d4dd" stroke-width="1.5" stroke-dasharray="5,3"/>
+  <text x="470" y="226" text-anchor="middle" fill="#56d4dd" font-size="12" font-weight="700">Live-vs-backtest divergence monitor</text>
+  <text x="470" y="248" text-anchor="middle" fill="#e6edf3" font-size="11">paper trade run → divergence(realized vs backtest) → if &gt; 2σ for N periods → pause + investigate</text>
+  <text x="470" y="270" text-anchor="middle" fill="#e6edf3" font-size="11">live trade run → divergence(realized vs paper) → if &gt; 2σ for N periods → pause + investigate</text>
+  <text x="470" y="290" text-anchor="middle" fill="#8b949e" font-size="10">divergence is the signal that an execution-model assumption (slippage, queue position, order rejection) is wrong</text>
+</svg>
+<div class="viz-caption">Same Strategy code path drives PaperBroker and LiveBroker. The divergence monitor is what prevents "the backtest worked but it doesn't trade" from being discovered too late.</div>
+</div>
+
+<h3>Dashboard / browse UI</h3>
+
+<table>
+<thead><tr><th>Module</th><th>Path</th><th>Status</th><th>Role</th></tr></thead>
+<tbody>
+<tr><td>App shell</td><td><code>src/App.tsx</code></td><td><span class="tag tag-exists">exists</span></td><td>Tier picker, strategy picker, chart, sweep panel.</td></tr>
+<tr><td>Server</td><td><code>server.ts</code></td><td><span class="tag tag-exists">exists</span></td><td>Express; <code>/api/tiers</code>, <code>/api/candles</code>, <code>/api/backtest/sweep</code>, validator route.</td></tr>
+<tr><td>ClickHouse client</td><td><code>src/server/clickhouse.ts</code></td><td><span class="tag tag-exists">exists</span></td><td>Single-instance client, idempotent table creation, <code>bt_runs</code>/<code>bt_trades</code> persistence.</td></tr>
+<tr><td>Live price hook</td><td><code>src/hooks/useLivePrice.ts</code></td><td><span class="tag tag-exists">exists</span></td><td>Streaming price for the chart panel.</td></tr>
+</tbody>
+</table>
+
+<h3>Diagnostics</h3>
+
+<table>
+<thead><tr><th>Module</th><th>Path</th><th>Status</th><th>Role</th></tr></thead>
+<tbody>
+<tr><td>DSR diagnostic</td><td><code>scripts/diagnose_dsr.ts</code></td><td><span class="tag tag-exists">exists</span></td><td>Mertens vs bootstrap DSR agreement check.</td></tr>
+<tr><td>MR lottery diagnostic</td><td><code>scripts/diagnose_mr_lottery.ts</code></td><td><span class="tag tag-exists">exists</span></td><td>Detects mean-reversion strategies whose returns are dominated by a few outlier trades.</td></tr>
+<tr><td>Rank-1 regime diagnostic</td><td><code>scripts/diagnose_rank1_regime.ts</code></td><td><span class="tag tag-exists">exists</span></td><td>Conditions rank-1 strategy returns on SOL volatility regime.</td></tr>
+<tr><td>Rank-1 token-feature diagnostic</td><td><code>scripts/diagnose_rank1_token_features.ts</code></td><td><span class="tag tag-exists">exists</span></td><td>Conditions rank-1 returns on per-token features.</td></tr>
+<tr><td>Bear-gate validator</td><td><code>scripts/validate_rank1_bear_gate.ts</code></td><td><span class="tag tag-exists">exists</span></td><td>Sanity-check the regime gate's effect size.</td></tr>
+</tbody>
+</table>
+
+<h3>Behavioral clustering stack <span class="tag tag-partial">infrastructure shipped, exit gate unmet</span></h3>
+
+<p>The <em>infrastructure</em> for ADR-010's "feature-space, dynamic, weekly-recomputed cluster membership" exists in code: per-asset feature extraction, HDBSCAN cluster fit, walk-forward validation, cluster-axis dashboard. The Phase 2 <em>exit gate</em> ("≥ 1 cell promoted in Phase 1 ties cleanly to a single cluster") has not been met — Phase 1 produced 0 surviving cells on the crypto-side gate suite, so there is nothing to tie to a cluster. Cross-asset-class universe (ADRs 027-031) shifted the active research arc to equity_midcap; clustering pipeline remains available but is not load-bearing for the current deployable cells. ClickHouse-as-bus pattern (Python escape hatch) per principle 11.</p>
+
+<table>
+<thead><tr><th>Module</th><th>Path</th><th>Status</th><th>Role</th></tr></thead>
+<tbody>
+<tr><td>Weekly token feature extractor</td><td><code>scripts/compute_token_features_weekly.py</code></td><td><span class="tag tag-exists">exists</span></td><td>Per-asset (vol, β, liquidity, autocorrelation) feature extraction. Reads candles → writes <code>token_features_weekly</code>.</td></tr>
+<tr><td>Weekly cluster fit</td><td><code>scripts/cluster_tokens_weekly.py</code></td><td><span class="tag tag-exists">exists</span></td><td>HDBSCAN cluster discovery on the weekly feature snapshot. Stable cluster statistics; rotating membership.</td></tr>
+<tr><td>Walk-forward cluster validation</td><td><code>scripts/walk_forward_cluster.py</code></td><td><span class="tag tag-exists">exists</span></td><td>Tests cluster reproducibility across walks; ties surviving cells back to clusters.</td></tr>
+<tr><td>Cluster-axis dashboard</td><td><code>src/components/cluster/*</code></td><td><span class="tag tag-exists">exists</span></td><td>Hash-routed at <code>#/cluster</code>. Diagnostics + cluster scores by fit_id.</td></tr>
+<tr><td>HDBSCAN pocket diagnostic</td><td><code>scripts/diagnose_hdbscan_pockets.py</code></td><td><span class="tag tag-exists">exists</span></td><td>Per-cluster surfacing of param/strategy survivors.</td></tr>
+<tr><td>Score-by-cluster</td><td><code>scripts/score_strategies_by_cluster.ts</code></td><td><span class="tag tag-exists">exists</span></td><td>Replaces tier-axis aggregation with cluster-axis aggregation.</td></tr>
+<tr><td>Cluster diagnostics route</td><td><code>/api/cluster/diagnostics</code>, <code>/api/cluster/scores</code></td><td><span class="tag tag-exists">exists</span></td><td>HTTP surface backing the cluster dashboard.</td></tr>
+</tbody>
+</table>
+
+<h3>Meta-labeling stack <span class="tag tag-exists">shipped</span></h3>
+
+<p>Per ADR-017 / SPEC §6 and the ADR-024 through ADR-031 arc. Meta-labeling builds a per-trade training set by labeling each M1 entry with a vol-scaled triple barrier (López de Prado, AFML §3), then trains an M2 classifier to filter M1's losing trades. <strong>Verdict on equities (ADR-029 / ADR-031):</strong> M2 does not add value over M1 on the equity_midcap universe — the deployable layer is M1 primary. Stack ships as latent infrastructure for future use.</p>
+
+<table>
+<thead><tr><th>Module</th><th>Path</th><th>Status</th><th>Role</th></tr></thead>
+<tbody>
+<tr><td>Meta-train set builder</td><td><code>scripts/build_meta_train_set.ts</code></td><td><span class="tag tag-exists">exists</span></td><td>Per-cell entry labeling + feature build. Writes <code>meta_train_trades</code>. Now also supports <code>--regime-gate</code> for Faber 2007 GTAA-style entry gating (ADR-031).</td></tr>
+<tr><td>Triple-barrier labeler</td><td><code>src/lib/metaLabeling/tripleBarrier.ts</code></td><td><span class="tag tag-exists">exists</span></td><td>AFML §3: PT, SL, vertical barriers; ATR-scaled.</td></tr>
+<tr><td>Feature builder</td><td><code>src/lib/metaLabeling/features.ts</code></td><td><span class="tag tag-exists">exists</span></td><td>V0 feature set: signal-time indicators + BTC/SOL regime context + rolling per-token statistics.</td></tr>
+<tr><td>M2 trainer</td><td><code>scripts/train_meta_label.py</code></td><td><span class="tag tag-exists">exists</span></td><td>scikit-learn classifier (gradient boosting) on the train/tune slices. Verdict against the 7 promotion criteria written to <code>meta_models</code>.</td></tr>
+<tr><td>Meta-labeling research log UI</td><td><code>src/components/metaLabeling/MetaLabelingApp.tsx</code>, <code>/api/meta-labeling/cells</code></td><td><span class="tag tag-exists">exists</span></td><td>Hash-routed at <code>#/meta-labeling</code>. Per-cell M1 vs M1+M2 verdict, with criterion breakdown.</td></tr>
+<tr><td>Regime-gate infrastructure</td><td><code>scripts/build_meta_train_set.ts</code> (parseRegimeGate / buildGateSeries / makeEntryGate)</td><td><span class="tag tag-exists">latent</span></td><td>ADR-031: <code>--regime-gate spy_sma_200</code> et al. Default <code>none</code>. Lands as reusable infra; the SPY-200d gate itself was rejected on equity_midcap.</td></tr>
+<tr><td>SPY regime backfill</td><td><code>scripts/_backfill_spy_regime.py</code></td><td><span class="tag tag-exists">exists</span></td><td>One-off SPY_USD ingest (12y, source='yfinance_regime'). Trading universe excludes SPY at <code>loadUniverse()</code>.</td></tr>
+<tr><td>Regime-gate robustness arc</td><td><code>scripts/_regime_gate_robustness_arc.py</code></td><td><span class="tag tag-exists">exists</span></td><td>7-section comprehensive diagnostic (filtration, param-stability, gate-threshold sensitivity, OOO verdicts, regime decomposition, cross-correlation, negative control).</td></tr>
+</tbody>
+</table>
+
+<h3>Cross-asset-class data — equity_midcap universe <span class="tag tag-exists">shipped</span></h3>
+
+<p>Per ADR-027 (A4 cross-asset-class smoke test): 60 US mid/large-cap equities ingested via yfinance with synthetic addresses (<code>{TICKER}_USD</code>). <strong>Universe-tier override</strong> in <code>loadUniverse()</code> matches <code>^[A-Z]{1,5}_USD$</code> to <code>equity_midcap</code> tier. The cross-market validation arc that produced the deployment grade-card (ADRs 028-031) ran against this universe.</p>
+
+<table>
+<thead><tr><th>Module</th><th>Path</th><th>Status</th><th>Role</th></tr></thead>
+<tbody>
+<tr><td>yfinance backfill</td><td><code>scripts/yfinance_backfill.py</code></td><td><span class="tag tag-exists">exists</span></td><td>10y daily OHLC for the 60-ticker curated universe. <code>source='yfinance'</code>.</td></tr>
+<tr><td>Equity tcost-adjust + OOO</td><td><code>scripts/_tcost_adjust_equity_deploy.py</code>, <code>scripts/_ooo_2014_2016_equity_deploy.py</code></td><td><span class="tag tag-exists">exists</span></td><td>ADR-030: cost stress + out-of-original-OOS validation 2014-2016. Both deployable cells survived 0.10% round-trip cost; mr_v1/p=14 PRESERVES OOO; trend_v1/p=20 COLLAPSES (later p=30 PRESERVES per ADR-031).</td></tr>
+</tbody>
+</table>
+
+<h3>Paper-trading daemon (MVP) <span class="tag tag-exists">shipped</span></h3>
+
+<p>Daily-signal daemon for the deployable grade-card. Runs on cron / Task Scheduler at end-of-trading-day; surfaces operational failure modes (yfinance reliability, calendar arithmetic, slippage vs modeled cost) cheaply <em>before</em> committing to multi-week deployment infra. Telegram bot reused from sister project <code>solana-smart-money-bot</code>.</p>
+
+<table>
+<thead><tr><th>Module</th><th>Path</th><th>Status</th><th>Role</th></tr></thead>
+<tbody>
+<tr><td>Daemon orchestrator</td><td><code>scripts/daily_signal_daemon.ts</code></td><td><span class="tag tag-exists">exists</span></td><td>npm run <code>daemon:daily</code>. yfinance fetch → run mr_v1/p=14 + trend_v1/p=30 across the 60-ticker universe → diff vs prior state → persist to <code>live_signals</code> → Telegram report.</td></tr>
+<tr><td>Daily yfinance fetch helper</td><td><code>scripts/fetch_daily_yfinance.py</code></td><td><span class="tag tag-exists">exists</span></td><td>Incremental sister to <code>yfinance_backfill.py</code>: pulls last 5 days for 60 tickers + SPY. JSON-line summary on stdout for the orchestrator.</td></tr>
+<tr><td>Live state evaluator</td><td><code>src/lib/liveSignalState.ts</code></td><td><span class="tag tag-exists">exists</span></td><td>Pure-function diff: paired-trade pairing + force-close detection (Trade.reason='final' on the last bar = position genuinely open) + day-over-day NEW/EXIT/OPEN diff + Telegram report formatter.</td></tr>
+<tr><td>Telegram alerter</td><td><code>src/alerts/telegram.ts</code></td><td><span class="tag tag-exists">exists</span></td><td>Stripped-down port of sister-project pattern. HTML mode w/ plain-text fallback; 1 msg/sec rate limit; reads <code>TELEGRAM_BOT_TOKEN</code> + <code>TELEGRAM_ALERT_CHAT_ID</code> from env.</td></tr>
+<tr><td>live_signals migration</td><td><code>scripts/migrate_live_signals.ts</code></td><td><span class="tag tag-exists">exists</span></td><td>ReplacingMergeTree on (cell_key, token_address) versioned by run_at. <code>npm run migrate:live-signals -- --apply</code>.</td></tr>
+<tr><td>Paper-trading dashboard tab</td><td><code>src/components/paperTrading/PaperTradingApp.tsx</code></td><td><span class="tag tag-exists">exists</span></td><td><strong>NEW 2026-05-07.</strong> Read-only UI tab at <code>/#/paper-trading</code>. Surfaces the daemon's <code>live_signals</code> state: per-cell open positions (entry date / entry price / latest close / unrealized % / bars held) + recent run history. Replaces (or complements) Telegram-only daemon observability — operator can browse current positions visually instead of tailing chat.</td></tr>
+<tr><td>Paper-trading dashboard endpoint</td><td><code>src/server/paper_trading_dashboard.ts</code> + <code>server.ts</code> route</td><td><span class="tag tag-exists">exists</span></td><td><strong>NEW 2026-05-07.</strong> <code>GET /api/paper-trading/state</code> — aggregates <code>live_signals</code> FINAL into per-cell summaries + recent-run history. Pure functions for testability; orchestrator parallelises the three CH queries.</td></tr>
+</tbody>
+</table>
+
+<h3>Tests</h3>
+
+<p><code>npm test</code> runs the full TS suite via Node <code>--test</code>; <strong>561/561 TS tests passing</strong> as of 2026-05-06 (was 383 at v1.3). Python: <strong>62/62 passing</strong> via <code>pytest</code>. Coverage centers on the deflation pipeline + meta-labeling labeler/feature-builder + cluster diagnostics + the new daemon's pure functions; thinner on backtest-engine UI integration (no headless browser harness).</p>
+
+<!-- =============== PART 4 =============== -->
+<h2 id="part4">4. Self-correction layer</h2>
+
+<p>The single most important addition to the system. The 2026-05-03 framing-error incident — where "unscorable" silently conflated "no IS edge" with "data missing" — is the canonical example of a class of error that no test catches because the test passes against the wrong question. The self-correction layer's purpose is to catch that class of error.</p>
+
+<h3>The four mechanisms</h3>
+
+<div class="viz">
+<svg viewBox="0 0 940 360" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto">
+  <text x="470" y="26" text-anchor="middle" fill="#e6edf3" font-size="14" font-weight="700">Self-correction layer — four cooperating mechanisms</text>
+
+  <!-- check.md -->
+  <rect x="40" y="60" width="200" height="100" rx="8" fill="#1c2128" stroke="#56d4dd" stroke-width="2"/>
+  <text x="140" y="86" text-anchor="middle" fill="#56d4dd" font-size="12" font-weight="700">check.md</text>
+  <text x="140" y="105" text-anchor="middle" fill="#e6edf3" font-size="10">producer self-check</text>
+  <text x="140" y="120" text-anchor="middle" fill="#e6edf3" font-size="10">40+ entries, growing</text>
+  <text x="140" y="142" text-anchor="middle" fill="#8b949e" font-size="10">every artifact passes</text>
+  <text x="140" y="154" text-anchor="middle" fill="#8b949e" font-size="10">through it before exit</text>
+
+  <!-- Critic agent -->
+  <rect x="270" y="60" width="200" height="100" rx="8" fill="#1c2128" stroke="#bc8cff" stroke-width="2"/>
+  <text x="370" y="86" text-anchor="middle" fill="#bc8cff" font-size="12" font-weight="700">Critic agent</text>
+  <text x="370" y="105" text-anchor="middle" fill="#e6edf3" font-size="10">independent review</text>
+  <text x="370" y="120" text-anchor="middle" fill="#e6edf3" font-size="10">applies check.md</text>
+  <text x="370" y="142" text-anchor="middle" fill="#8b949e" font-size="10">runs against producer's</text>
+  <text x="370" y="154" text-anchor="middle" fill="#8b949e" font-size="10">output before user sees it</text>
+
+  <!-- Three-tier checkpoints -->
+  <rect x="500" y="60" width="200" height="100" rx="8" fill="#1c2128" stroke="#d29922" stroke-width="2"/>
+  <text x="600" y="86" text-anchor="middle" fill="#d29922" font-size="12" font-weight="700">3-tier checkpoints</text>
+  <text x="600" y="105" text-anchor="middle" fill="#e6edf3" font-size="10">user-attention budget</text>
+  <text x="600" y="120" text-anchor="middle" fill="#e6edf3" font-size="10">component / phase / impl</text>
+  <text x="600" y="142" text-anchor="middle" fill="#8b949e" font-size="10">most actions automatic;</text>
+  <text x="600" y="154" text-anchor="middle" fill="#8b949e" font-size="10">boundaries always reviewed</text>
+
+  <!-- Forbidden list -->
+  <rect x="730" y="60" width="170" height="100" rx="8" fill="#1c2128" stroke="#f85149" stroke-width="2"/>
+  <text x="815" y="86" text-anchor="middle" fill="#f85149" font-size="12" font-weight="700">Forbidden list</text>
+  <text x="815" y="105" text-anchor="middle" fill="#e6edf3" font-size="10">refused even if asked</text>
+  <text x="815" y="120" text-anchor="middle" fill="#e6edf3" font-size="10">PUSHBACK shortcut</text>
+  <text x="815" y="142" text-anchor="middle" fill="#8b949e" font-size="10">codifies what would</text>
+  <text x="815" y="154" text-anchor="middle" fill="#8b949e" font-size="10">otherwise be ad-hoc</text>
+
+  <!-- Flow diagram bottom -->
+  <text x="470" y="200" text-anchor="middle" fill="#e6edf3" font-size="13" font-weight="700">Per-artifact flow</text>
+
+  <g transform="translate(60,220)">
+    <rect x="0" y="0" width="120" height="50" rx="5" fill="#161b22" stroke="#30363d"/>
+    <text x="60" y="22" text-anchor="middle" fill="#e6edf3" font-size="11" font-weight="600">Producer</text>
+    <text x="60" y="38" text-anchor="middle" fill="#8b949e" font-size="10">Claude (architect)</text>
+  </g>
+
+  <line x1="180" y1="245" x2="218" y2="245" stroke="#58a6ff" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <g transform="translate(220,220)">
+    <rect x="0" y="0" width="140" height="50" rx="5" fill="#161b22" stroke="#56d4dd"/>
+    <text x="70" y="22" text-anchor="middle" fill="#56d4dd" font-size="11" font-weight="600">Self-check</text>
+    <text x="70" y="38" text-anchor="middle" fill="#8b949e" font-size="10">apply check.md inline</text>
+  </g>
+
+  <line x1="360" y1="245" x2="398" y2="245" stroke="#58a6ff" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <g transform="translate(400,220)">
+    <rect x="0" y="0" width="140" height="50" rx="5" fill="#161b22" stroke="#bc8cff"/>
+    <text x="70" y="22" text-anchor="middle" fill="#bc8cff" font-size="11" font-weight="600">Critic agent</text>
+    <text x="70" y="38" text-anchor="middle" fill="#8b949e" font-size="10">independent review</text>
+  </g>
+
+  <line x1="540" y1="245" x2="578" y2="245" stroke="#58a6ff" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <g transform="translate(580,220)">
+    <rect x="0" y="0" width="140" height="50" rx="5" fill="#161b22" stroke="#d29922"/>
+    <text x="70" y="22" text-anchor="middle" fill="#d29922" font-size="11" font-weight="600">Tier check</text>
+    <text x="70" y="38" text-anchor="middle" fill="#8b949e" font-size="10">user / auto?</text>
+  </g>
+
+  <line x1="720" y1="245" x2="758" y2="245" stroke="#58a6ff" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <g transform="translate(760,220)">
+    <rect x="0" y="0" width="120" height="50" rx="5" fill="#161b22" stroke="#3fb950"/>
+    <text x="60" y="22" text-anchor="middle" fill="#3fb950" font-size="11" font-weight="600">Ship</text>
+    <text x="60" y="38" text-anchor="middle" fill="#8b949e" font-size="10">+ ADR if applicable</text>
+  </g>
+
+  <text x="470" y="320" text-anchor="middle" fill="#8b949e" font-size="11" font-style="italic">Forbidden list runs as a guard at the producer step — refused actions don't enter the flow at all</text>
+</svg>
+<div class="viz-caption">The four mechanisms operate at different points. check.md is what the producer applies; the critic agent is what catches things the producer missed; tier checkpoints decide whether the user sees it; the forbidden list refuses certain things up front.</div>
+</div>
+
+<h3>4.1 The check.md system</h3>
+
+<p><code>check.md</code> is a growing checklist of self-correction prompts. Every entry is a question or invariant that, if violated silently, produces silent corruption of the research result. <strong>Status as of this document:</strong> the seed entries below are committed inline here only — <code>check.md</code> is not yet a file at the repo root. Phase 0 task: extract the 40 entries below into <code>check.md</code> and pin a counter at the top. Until that ships, this document's §4.1 is the authoritative version.</p>
+
+<p><strong>Initial seed (40 entries — full file produced at Phase 0).</strong> Snapshot of the structure:</p>
+
+<h4>FRAMING (the 2026-05-03 incident class)</h4>
+<div class="checklist-entry"><span class="id">FR-01</span>Before producing a diagnostic, list the symptom-vs-cause distinction explicitly. What is the binding mechanism, and have I verified it with a query before writing the fix?</div>
+<div class="checklist-entry"><span class="id">FR-02</span>Does any sentinel value (zero, empty string, null) collapse multiple distinct conditions into one bucket? If so, name them before proceeding.</div>
+<div class="checklist-entry"><span class="id">FR-03</span>If the user said "X is wrong", have I checked whether <em>my framing</em> of X is wrong, not just my answer? Wrong question → right-shaped answer → silent error.</div>
+
+<h4>STATISTICS (deflation correctness)</h4>
+<div class="checklist-entry"><span class="id">ST-01</span>For DSR: is N (trial count) the actual number of param trials, not the number of cells or the number of strategies?</div>
+<div class="checklist-entry"><span class="id">ST-02a</span>For PSR at strategy-level (cross-cell ranking, <code>applyLeaderboardHaircut</code> input): <code>nObservations</code> is <strong>trade count</strong> (Bailey-LdP 2014, §2 — Sharpe SE under iid trades). The codebase passes <code>totalTrades</code> here.</div>
+<div class="checklist-entry"><span class="id">ST-02b</span>For HLZ T (validator-cell path, time-series Sharpe): <code>T = data_span_days × bars_per_day</code> — bars, not trades. The two paths use different denominators by design; do not unify them. Existing inconsistency is intentional but easy to misread; flag in code review.</div>
+<div class="checklist-entry"><span class="id">ST-03</span>For HLZ: is the t-stat I'm correcting derived from a Sharpe whose underlying assumptions (iid, normal, mean-known) are checked?</div>
+<div class="checklist-entry"><span class="id">ST-04</span>For PBO via CSCV: are the splits actually independent, or do overlapping windows leak?</div>
+<div class="checklist-entry"><span class="id">ST-05</span>Have I tested on a positive control (synthetic data where the answer is known)?</div>
+
+<h4>BACKTEST DESIGN</h4>
+<div class="checklist-entry"><span class="id">BT-01</span>Is the cost model (fees + slippage + funding) honest for the venue, or am I assuming zero?</div>
+<div class="checklist-entry"><span class="id">BT-02</span>Is the IS/OOS split done <em>before</em> the param sweep, or am I peeking?</div>
+<div class="checklist-entry"><span class="id">BT-03</span>Are tokens with &lt; 90 days of history excluded? Survivorship bias is the silent killer.</div>
+<div class="checklist-entry"><span class="id">BT-04</span>Does the engine close positions at bar-close or bar-open? Mismatch produces phantom edge.</div>
+<div class="checklist-entry"><span class="id">BT-05</span>Are walk-forward windows non-overlapping, or do I have look-ahead leakage?</div>
+<div class="checklist-entry"><span class="id">BT-06</span>For cross-sectional strategies, is the rebalance schedule realistic (cost-aware), not assumed-instant?</div>
+
+<h4>DATA INTEGRITY</h4>
+<div class="checklist-entry"><span class="id">DI-01</span>Are <code>bt_runs</code> rows from before/after a schema migration mixed in this query? <code>data_span_days &gt; 0</code> is the modern-row filter.</div>
+<div class="checklist-entry"><span class="id">DI-02</span>Does this query use <code>FINAL</code> on <code>ReplacingMergeTree</code> tables? Without it I see pre-merge ghosts.</div>
+<div class="checklist-entry"><span class="id">DI-03</span>For bot.db-sourced rows (<code>source = 'botdb'</code>): is the cost-model caveat applied per ADR-005?</div>
+<div class="checklist-entry"><span class="id">DI-04</span>Have I verified my count by joining the source table, not just trusting the aggregate?</div>
+
+<h4>METHODOLOGY</h4>
+<div class="checklist-entry"><span class="id">ME-01</span>Have I cited the source for any non-trivial statistical choice (book + chapter, or paper + section)?</div>
+<div class="checklist-entry"><span class="id">ME-02</span>Am I about to invent a citation? If unsure, say "I recall a result like this but can't verify."</div>
+<div class="checklist-entry"><span class="id">ME-03</span>Is this a Tier-3 source? If so, did I disclose it?</div>
+<div class="checklist-entry"><span class="id">ME-04</span>Does any Tier-1 source actively <em>not</em> apply here (e.g., assumes equity, doesn't translate to 24/7 crypto)? If so, did I flag it?</div>
+
+<h4>USER-COLLABORATION</h4>
+<div class="checklist-entry"><span class="id">UC-01</span>Am I about to skip a stage (RESEARCH → DESIGN → SPEC → CODE)? Refuse and name what's unresolved.</div>
+<div class="checklist-entry"><span class="id">UC-02</span>Am I assuming user buy-in on a methodology choice without naming the alternatives?</div>
+<div class="checklist-entry"><span class="id">UC-03</span>Did the user use a term incorrectly? Correct it briefly, with the source.</div>
+<div class="checklist-entry"><span class="id">UC-04</span>Is this a load-bearing concept? Use the [TEACH] role: intuition → mechanism → failure mode.</div>
+<div class="checklist-entry"><span class="id">UC-05</span>Drift signal: is the user proposing ML / market-switch / multi-agent as a substitute for finishing the current concrete task? Name the pattern.</div>
+
+<h4>CODE</h4>
+<div class="checklist-entry"><span class="id">CO-01</span>Did I use an existing battle-tested library (<code>technicalindicators</code>, scipy, statsmodels), or am I reimplementing?</div>
+<div class="checklist-entry"><span class="id">CO-02</span>Are silent dependencies (env var, CH table, upstream function) called out at the top of the diff?</div>
+<div class="checklist-entry"><span class="id">CO-03</span>Did I add tests for the edge cases the spec named, not just the happy path?</div>
+<div class="checklist-entry"><span class="id">CO-04</span>Type-check pass: <code>npx tsc --noEmit</code> clean?</div>
+<div class="checklist-entry"><span class="id">CO-05</span>Test-suite pass: <code>npm test</code> green?</div>
+<div class="checklist-entry"><span class="id">CO-06</span>Have I added a "what could break this" note at the bottom of any non-trivial new file?</div>
+
+<h4>OPERATIONS</h4>
+<div class="checklist-entry"><span class="id">OP-01</span>Before a destructive operation (<code>ALTER TABLE … DELETE</code>, schema rollback, <code>OPTIMIZE FINAL</code> on a hot table), is the handoff fresh enough that the prior state is recoverable?</div>
+<div class="checklist-entry"><span class="id">OP-02</span>Are sweep IDs idempotent so re-runs don't double-count?</div>
+<div class="checklist-entry"><span class="id">OP-03</span>Is the targeted re-sweep actually targeted, or am I about to re-run everything?</div>
+
+<h4>FORBIDDEN-CHECK (paired with the forbidden list — see §4.4)</h4>
+<div class="checklist-entry"><span class="id">FB-01</span>Am I about to add a new strategy when the existing pipeline has zero survivors? Refuse.</div>
+<div class="checklist-entry"><span class="id">FB-02</span>Am I about to switch markets to escape a validation problem? Refuse.</div>
+<div class="checklist-entry"><span class="id">FB-03</span>Am I about to run a sweep without applying deflation? Refuse.</div>
+<div class="checklist-entry"><span class="id">FB-04</span>Am I about to deploy live capital without paper-trade evidence? Refuse.</div>
+
+<p class="dim">… more entries are added as new failure modes are discovered. Pinned at the top of <code>check.md</code>: a counter (<code>v1.0 — 40 entries</code>) and a "last added" date so growth is visible.</p>
+
+<h3>4.2 The critic agent</h3>
+
+<p>The critic agent is a separate Claude invocation (via the Claude Code <code>Agent</code> tool with <code>subagent_type</code> appropriate to the artifact: code-reviewer for diffs, general-purpose for analysis docs). The critic does not see the producer's reasoning — only the artifact. Its job is to apply <code>check.md</code> against what was produced and report violations.</p>
+
+<p><strong>When it runs:</strong> automatically before any artifact is presented to the user that touches:</p>
+<ul>
+  <li>A new ADR (commitment 2)</li>
+  <li>A SPEC document (Vector Core SPEC stage)</li>
+  <li>A diff that touches deflation code (<code>src/lib/psr.ts</code>, <code>src/lib/cscv.ts</code>, <code>src/lib/hlzHaircut.ts</code>, <code>scripts/score_strategies.ts</code>, <code>src/lib/validator*.ts</code>)</li>
+  <li>A schema migration</li>
+  <li>The MASTER document itself (this file)</li>
+</ul>
+
+<p><strong>Researcher and test-generator agents</strong> are siblings of the critic. The researcher is invoked when the producer has cited a paper or method but is uncertain about a specific claim — it does literature lookup against the canon. The test-generator is invoked when a new SPEC has named edge cases — it produces unit tests covering each before the CODE stage begins.</p>
+
+<h3>4.3 Three-tier checkpoints</h3>
+
+<table>
+<thead><tr><th>Tier</th><th>Trigger</th><th>What surfaces</th><th>User involvement</th></tr></thead>
+<tbody>
+<tr><td><strong>Tier 1 — Mandatory</strong></td><td>Component boundaries, phase transitions, ADR creation, irreversible operations (schema migration, force-push, capital deployment)</td><td>Full SPEC or summary; user signs off before proceeding</td><td>Required</td></tr>
+<tr><td><strong>Tier 2 — Optional summary</strong></td><td>Coherent unit of work completed; not boundary-crossing (e.g. a single bug fix with tests)</td><td>One-line "did X, tests green, ADR-N if needed"</td><td>Read; redirect if needed</td></tr>
+<tr><td><strong>Tier 3 — Automatic</strong></td><td>Implementation details inside an approved SPEC: edits, refactors, file moves, test additions, intermediate diagnostics</td><td>Visible in tool calls; no user prompt</td><td>None unless something blocks</td></tr>
+</tbody>
+</table>
+
+<p>The principle: user attention is a scarce resource. Component boundaries deserve it; intermediate edits do not. The architect-implementer does the bulk of the work in Tier 3 and surfaces only at Tier 1.</p>
+
+<h3>4.4 Forbidden list</h3>
+
+<p>Codified actions that are refused regardless of how they are asked, with the canonical reason. PUSHBACK references this list rather than re-deriving the rule each time.</p>
+
+<div class="forbidden">Add a new strategy to the registry while the existing pipeline has zero survivors. <em>Reason:</em> more strategies inflate the multiple-testing burden without addressing the bottleneck (which is data quality / cell evaluation), and dilute attention. <strong>Unblock when:</strong> ≥ 1 cell passes all four gates AND survives a cross-market check.</div>
+
+<div class="forbidden">Switch the primary market to escape a validation problem. <em>Reason:</em> the cross-market protocol is "transfer hypothesis after local survival", not "give up locally and try elsewhere." Switching pre-survival defeats the validation purpose. <strong>Unblock when:</strong> a cell has survived locally; switch is then a phase-4 cross-market run, not a primary-market change.</div>
+
+<div class="forbidden">Run a parameter sweep without applying deflation (DSR + PBO + HLZ). <em>Reason:</em> the maximum of N random trials is not edge. Reporting raw best-of-N is misleading by construction. <strong>Unblock when:</strong> never. Even diagnostic sweeps must produce deflated metrics for the surviving rows.</div>
+
+<div class="forbidden">Deploy live capital before paper-trade evidence. <em>Reason:</em> backtests are hypothesis tests, not forecasts; paper trade reveals execution-model assumptions. <strong>Unblock when:</strong> ≥ N weeks of paper-trade data with realized-vs-backtest divergence within tolerance (N defined at Phase 6 SPEC).</div>
+
+<div class="forbidden">Skip a Vector Core stage (RESEARCH → DESIGN → SPEC → CODE). <em>Reason:</em> stage skips are how silent corruption enters; "let's just code it" is the most common drift. <strong>Unblock when:</strong> never. If the spec exposes a hole, kick back to RESEARCH; do not paper over.</div>
+
+<div class="forbidden">Re-implement what a battle-tested library already does (DSR formula reinvention, custom RSI, hand-rolled CSV parser). <em>Reason:</em> reimplementation is bug-prone and overfit-prone. <strong>Unblock when:</strong> a specific, named library deficiency is documented in an ADR.</div>
+
+<div class="forbidden">Invent a citation. <em>Reason:</em> Vector Core canon, no exceptions. If unsure, say "I recall a result like this but can't verify the source." <strong>Unblock when:</strong> never.</div>
+
+<div class="forbidden">Run a destructive operation (<code>ALTER TABLE … DELETE</code>, schema rollback, force-push) without rewriting the handoff first. <em>Reason:</em> if the destruction goes wrong, the prior state is the only recovery path. <strong>Unblock when:</strong> handoff written, last-updated date current, user signed off if Tier 1.</div>
+
+<div class="forbidden">Promote a cell with PBO ≥ 0.5 because DSR is high. <em>Reason:</em> PBO &gt; 0.5 means the selection mechanism is anti-correlated with OOS — high IS DSR is the symptom, not a counter-argument. <strong>Unblock when:</strong> never. (See: <code>tsmom_vol_v1 / cex_major / 1d</code>, the canary.)</div>
+
+<!-- =============== PART 5 =============== -->
+<h2 id="part5">5. Roadmap</h2>
+
+<p>Six phases. Each gate exits with a specific evidentiary requirement; if the requirement isn't met, the phase doesn't end. Phases are serial — running Phase 4 before Phase 1 closes is a forbidden action.</p>
+
+<div class="viz">
+<svg viewBox="0 0 940 460" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto">
+  <text x="470" y="26" text-anchor="middle" fill="#e6edf3" font-size="14" font-weight="700">SignalForge phase plan with exit gates</text>
+
+  <!-- Lane backgrounds -->
+  <rect x="40" y="60" width="860" height="50" rx="6" fill="#1c2128" stroke="#bc8cff" stroke-width="1.5"/>
+  <text x="80" y="84" fill="#bc8cff" font-size="12" font-weight="700">P0 · Foundation</text>
+  <text x="80" y="100" fill="#8b949e" font-size="10">check.md · ADR scaffolding · critic-agent workflow</text>
+  <text x="700" y="92" fill="#3fb950" font-size="11" font-weight="600">EXIT: check.md ≥ 40 entries, ADR-001..010 written, critic invocation tested</text>
+
+  <rect x="40" y="120" width="860" height="50" rx="6" fill="#1c2128" stroke="#56d4dd" stroke-width="1.5"/>
+  <text x="80" y="144" fill="#56d4dd" font-size="12" font-weight="700">P1 · Targeted re-sweep (23 case_b cells)</text>
+  <text x="80" y="160" fill="#8b949e" font-size="10">SPEC re-sweep plan · run · re-score · verify case_b drops</text>
+  <text x="700" y="152" fill="#3fb950" font-size="11" font-weight="600">EXIT: case_b → 0; pct_data_span_zero ≈ 0 on affected cells</text>
+
+  <rect x="40" y="180" width="860" height="50" rx="6" fill="#1c2128" stroke="#3fb950" stroke-width="1.5"/>
+  <text x="80" y="204" fill="#3fb950" font-size="12" font-weight="700">P2 · Behavioral cluster discovery (proper)</text>
+  <text x="80" y="220" fill="#8b949e" font-size="10">replace tier heuristics with feature-space clusters · per-asset (vol, β, liq, autocorr)</text>
+  <text x="700" y="212" fill="#3fb950" font-size="11" font-weight="600">EXIT: cluster membership reproducible, ≥ 1 promoted cell ties to cluster</text>
+
+  <rect x="40" y="240" width="860" height="50" rx="6" fill="#1c2128" stroke="#d29922" stroke-width="1.5"/>
+  <text x="80" y="264" fill="#d29922" font-size="12" font-weight="700">P3 · Execution layer (PaperBroker / LiveBroker)</text>
+  <text x="80" y="280" fill="#8b949e" font-size="10">Broker interface · PaperBroker against live candles · divergence monitor</text>
+  <text x="700" y="272" fill="#3fb950" font-size="11" font-weight="600">EXIT: paper run produces fills matching backtest within tolerance</text>
+
+  <rect x="40" y="300" width="860" height="50" rx="6" fill="#1c2128" stroke="#ff8c42" stroke-width="1.5"/>
+  <text x="80" y="324" fill="#ff8c42" font-size="12" font-weight="700">P4 · Cross-market validation</text>
+  <text x="80" y="340" fill="#8b949e" font-size="10">recalibrate cluster on Market B · re-run gates · transfer report</text>
+  <text x="700" y="332" fill="#3fb950" font-size="11" font-weight="600">EXIT: ≥ 1 cell survives both venues</text>
+
+  <rect x="40" y="360" width="860" height="50" rx="6" fill="#1c2128" stroke="#58a6ff" stroke-width="1.5"/>
+  <text x="80" y="384" fill="#58a6ff" font-size="12" font-weight="700">P5 · Live (small) — separate decision</text>
+  <text x="80" y="400" fill="#8b949e" font-size="10">minimum-viable capital · LiveBroker · real-money divergence monitor</text>
+  <text x="700" y="392" fill="#3fb950" font-size="11" font-weight="600">EXIT: realized-vs-paper within tolerance for ≥ N weeks</text>
+
+  <text x="470" y="445" text-anchor="middle" fill="#8b949e" font-size="11" font-style="italic">Phases are serial. Skipping requires a written ADR; default is refusal.</text>
+</svg>
+<div class="viz-caption">Six phases, each with a specific exit gate. The exit gate is what unblocks the next phase. No "soft" exits.</div>
+</div>
+
+<h3>Phase 0 — Foundation <span class="tag tag-exists">closed</span></h3>
+
+<table>
+<thead><tr><th>Task</th><th>Status</th><th>Output</th></tr></thead>
+<tbody>
+<tr><td>Write <code>check.md</code> with 40+ entries</td><td>done</td><td><code>check.md</code> at repo root</td></tr>
+<tr><td>Write decisions log <code>docs/decisions/</code></td><td>done</td><td><code>docs/decisions/README.md</code> — ADR-001 through ADR-031 written</td></tr>
+<tr><td>Codify critic-agent workflow</td><td>done</td><td><code>docs/critic_workflow.md</code> + first invocation tested (incl. parallel-critic on this document's v1.4 edits + the MVP daemon stack, 2026-05-06)</td></tr>
+<tr><td>Codify three-tier checkpoint rules</td><td>done</td><td>this document Part 4 (reference)</td></tr>
+<tr><td>Codify forbidden list</td><td>done</td><td>this document Part 4 (reference)</td></tr>
+</tbody>
+</table>
+
+<p><strong>Exit gate:</strong> <code>check.md</code> contains ≥ 40 entries, ADR-001 through ADR-010 are written (the retroactive set covering existing decisions), and the critic agent has been invoked at least once and produced findings against a real artifact. <strong>Met.</strong></p>
+
+<h3>Phase 1 — Targeted re-sweep on 23 case_b cells <span class="tag tag-exists">closed</span></h3>
+
+<p>The first functional task. The 23 case_b cells are the "schema-contamination" cells from the diagnostic — positive IS edge plus high <code>pct_data_span_zero</code> from the ALTER ADD legacy era. Re-running them with the modern worker (which writes <code>oos_sharpe_ratio</code> and <code>data_span_days</code> on every insert) collapses the contamination.</p>
+
+<table>
+<thead><tr><th>Step</th><th>Detail</th></tr></thead>
+<tbody>
+<tr><td>1. SPEC the re-sweep</td><td>Which <code>npm run backtest:*</code> invocations cover the affected (strategy, tier, interval) tuples without re-running unaffected cells. Runtime estimate. Confirm worker writes <code>oos_sharpe_ratio</code> + <code>data_span_days</code> on every insert (verified 2026-05-02; smoke-confirm before run).</td></tr>
+<tr><td>2. Resolve duplicate-row strategy</td><td>ReplacingMergeTree FINAL collapses by sweep_id + run_id, but param + token + interval may differ. Spec the collision resolution before running.</td></tr>
+<tr><td>3. Run targeted sweep</td><td>Only the 23 cells, not the full universe.</td></tr>
+<tr><td>4. Re-score</td><td><code>npm run score:strategies</code></td></tr>
+<tr><td>5. Re-classify diagnostic</td><td>Run the case_a/b/c heuristic. Verify case_b → 0 for the affected cells.</td></tr>
+</tbody>
+</table>
+
+<p><strong>Exit gate:</strong> Post-resweep, the 23 affected cells' <code>pct_data_span_zero</code> and <code>pct_oos_sharpe_zero</code> drop to ~0; case_b classification collapses for those cells. Cells migrate to either case_a (genuine no-edge with full data) or — if any have edge — to a non-zero <code>gates_pass</code> row, which would be the first survivor.</p>
+
+<p><strong>Special-watch cell:</strong> <code>mean_reversion_v1 / mcap_micro / 1h</code> — 226 tokens × 20 params, the largest case_b cell, the most likely candidate to produce a real full-evaluable verdict.</p>
+
+<div class="callout danger">
+<div class="callout-title">Canary — not a Phase 1 candidate</div>
+<code>tsmom_vol_v1 / cex_major / 1d</code> is <strong>BLOCKED — PBO = 0.715</strong> and is not in the case_b set. It is case_a_no_edge: full data, no edge, binding gate is selection-mechanism-anti-correlated-with-OOS. Re-sweeping it does nothing because PBO is a property of the param sweep design, not of data quality. If it surfaces in any "closest to passing — ship it" framing, refuse with this rule.
+</div>
+
+<h3>Phase 2 — Behavioral cluster discovery (proper) <span class="tag tag-partial">infrastructure shipped, exit gate unmet</span></h3>
+
+<p>Today's "tiers" are static heuristic buckets (<code>vol_high</code>, <code>mcap_micro</code>, etc.). The Vector Core canon's behavioral cluster is feature-space (continuous vol, beta, liquidity, autocorrelation) and dynamic (membership recomputed). The bridge:</p>
+<ul>
+<li>Per-asset feature extraction (extends the existing <code>v_token_features</code> view).</li>
+<li>Cluster discovery via unsupervised method (sklearn KMeans / GMM via Python escape hatch — ClickHouse-as-bus).</li>
+<li>Cluster <em>statistics</em> are stable; cluster <em>membership</em> recomputed weekly.</li>
+<li>Tie a Phase-1 promoted cell (if any) to its cluster — does the strategy work on the cluster's behavioral signature, or just on a specific token list?</li>
+</ul>
+
+<div class="callout warn">
+<div class="callout-title">Clustering ≠ ML strategy</div>
+Phase 2 uses unsupervised ML <em>to define the asset universe</em>, not to predict returns. Meta-labeling (ML on top of an existing primary edge) stays Phase 4+ per ADR-009 / Vector Core canon. Skim-readers may conflate the two; they are different uses of ML and only the first is in scope here.
+</div>
+
+<p><strong>Exit gate:</strong> cluster membership is reproducible from a seed; ≥ 1 cell promoted in Phase 1 ties cleanly to a single cluster (membership of its winning tokens overlaps a cluster ≥ X%; threshold defined at Phase 2 SPEC). <strong>Status:</strong> infrastructure shipped (per the Behavioral clustering stack table in §3); exit gate <em>not</em> met because Phase 1 produced 0 surviving cells. The active deployable cells are equity_midcap (per ADRs 027-031), which were not validated through cluster-axis aggregation.</p>
+
+<div class="callout warn">
+<div class="callout-title">Phase 2 dependency</div>
+If Phase 1 produces zero survivors, Phase 2 cannot proceed in the form described — there is nothing to tie to a cluster. The fallback in that case is <strong>not</strong> to widen the search; it is to return to discovery (revisit strategy hypotheses, revisit cost model, revisit data quality). Forbidden-list rule applies.
+</div>
+
+<h3>Phase 3 — Execution layer <span class="tag tag-partial">MVP shipped, full infra pending</span></h3>
+
+<p>Broker abstraction per Part 3. PaperBroker first; LiveBroker later. Output: paper-trade run on the surviving cell with explicit slippage modeling and divergence monitoring.</p>
+
+<p><strong>MVP shipped 2026-05-06:</strong> the daily-signal daemon (<code>scripts/daily_signal_daemon.ts</code>) is the smallest end-to-end loop that exercises the deployable cells daily. Per the post-session-17 direction lock-in, the full PaperBroker / LiveBroker abstraction is deferred until the MVP run-in (4-6 weeks) has surfaced operational failure modes (yfinance reliability, calendar arithmetic, slippage vs modeled cost). MVP is a deliberate "spike" to inform the proper-infra spec rather than guess at it.</p>
+
+<p><strong>Exit gate:</strong> paper run produces fills whose realized PnL matches the backtest's expected PnL within tolerance (tolerance defined at Phase 3 SPEC; expect 1.5–2× backtest variance). MVP daemon's run-in produces the first dataset for evaluating this gate.</p>
+
+<h3>Phase 4 — Cross-market validation <span class="tag tag-exists">shipped (equity_midcap arc complete)</span></h3>
+
+<p>Recalibrate the cluster on Market B (likely liquid majors first, equities later). Re-run the four gates independently. Compare via transfer report.</p>
+
+<p><strong>Shipped:</strong> per the ADR-027 → ADR-031 arc, equity_midcap (60 US mid/large-caps via yfinance) was added as the cross-market venue, and two cells survived the full validation suite (post-cost OOS + OOO 2014-2016 + robustness arc): <code>mr_v1 / equity_midcap / 1d / p=14</code> as primary deployable, and <code>trend_v1 / equity_midcap / 1d / p=30</code> as conditional secondary. Broad-market regime gating (Faber 2007 GTAA, SPY 200d) was tested as a rescue mechanism for trend_v1 and REJECTED across 8 cells (ADR-031). The "survives both venues" gate was not met by any single cell — the equity survivors are the cross-market validation outputs, not transfers from a crypto-side survivor.</p>
+
+<p><strong>Exit gate:</strong> the cell survives <em>both</em> venues' gate suites independently. "Survives one, dies in the other" is not a survivor. <em>Status:</em> partial — the equity arc validates the methodology end-to-end but does not produce a single cell that survives both crypto and equity gates (because the original crypto-side gate suite produced 0 survivors).</p>
+
+<h3>Phase 5 — Live (small)</h3>
+
+<p>A separate decision, not a default continuation. Minimum-viable capital. LiveBroker. Real-money divergence monitor compares to paper and to backtest. Pause-conditions written into the LiveBroker's runtime guard.</p>
+
+<p><strong>Exit gate:</strong> realized-vs-paper divergence within tolerance for ≥ N weeks. Deviation triggers pause + investigation, not automatic capital increase.</p>
+
+<h3>Phase 9 — Future regime classifier extensions <span class="tag tag-new">documentation only</span></h3>
+
+<p><strong>Not a gated build phase.</strong> This is a curated short list of academically-grounded candidate components to consider when iteration on the macro regime classifier (phase1_v3) eventually resumes — recorded now so future-Opus and future-user have a reviewed list to choose from rather than reaching for whatever sounds interesting at the time.</p>
+
+<p>Current operational focus remains Phases 5-8 work: paper-trading shakedown, phase1_v3 validation, the four-gate trade execution pipeline. <strong>None of the Phase 9 candidates are authorized for implementation yet.</strong></p>
+
+<p>Candidates documented (full spec at <a href="docs/specs/regime-classifier-phase9-candidates.md"><code>docs/specs/regime-classifier-phase9-candidates.md</code></a>):</p>
+
+<ol>
+<li><strong>Margin debt growth rate</strong> — FINRA monthly margin statistics as a percentage of Wilshire 5000 market cap; signal is rate of change, not absolute level. Goyal-Welch 2008.</li>
+<li><strong>Aggregate short interest rate of change</strong> — FINRA biweekly; signal is 30-day rate of change, not absolute level. Diether-Lee-Werner 2009. <em>Aggregate version only is weakly contrarian; individual-stock version is bearish — only the aggregate is relevant here.</em></li>
+<li><strong>CFTC COT positioning</strong> — weekly speculator vs commercial net positioning in SPX/Nasdaq e-mini futures, percentile-ranked within 3-year rolling history. Wang 2001; Sanders-Boris-Manfredo 2004.</li>
+<li><strong>ETF flow divergence</strong> — daily net flows for SPY/QQQ/IWM/XLK; signal is flow-vs-price divergence, not absolute flow. Ben-David-Franzoni-Moussawi 2018.</li>
+</ol>
+
+<p>Rejected candidates (documented for the record): insider transactions (weak aggregate signal; belongs in position-monitor not regime classifier), options dealer gamma (paid black-box methodology), prime broker exposure surveys (not systematically available).</p>
+
+<p><strong>Implementation principles</strong> when these eventually get built: one component at a time with independent validation; apply the standard deflation pipeline (DSR, PBO, HLZ) — <em>the number of components is part of the trial count</em>; reject additions that are highly correlated with existing categories (redundancy ≠ defense in depth); each component gets its own ADR.</p>
+
+<h3>Phase 10 — Cross-layer refinement gaps <span class="tag tag-new">documentation only</span></h3>
+
+<p><strong>Companion to Phase 9, broader scope.</strong> Phase 9 covers Layer 0 (regime classifier) refinements only. Phase 10 collects the same posture — academically-grounded, deferred, documented-not-built — across <strong>Layer 1 (strategies)</strong>, <strong>Layer 2 (universe filter)</strong>, <strong>Layer 4 (execution)</strong>, and <strong>Operations</strong>. Full inventory at <a href="docs/obsidian/gaps/README.md"><code>docs/obsidian/gaps/README.md</code></a>. <strong>None authorized for implementation</strong> with the single exception of <code>capital-deployment-ramp</code>, promoted to <strong>ADR-039 (Proposed)</strong> on 2026-05-16 because its deadline (~2026-06-29 paper-trading completion) falls inside the active planning horizon.</p>
+
+<ol>
+<li><strong>Strategy demotion &amp; decay detection</strong> (Layer 1) — promotion gate exists; symmetric demotion gate does not. Risk: allowlist accumulates strategies whose edge has decayed in the live regime. (López de Prado AFML ch. 11.)</li>
+<li><strong>Earnings calendar integration</strong> (Layer 4) — predictable per-ticker risk window; currently the daemon may enter positions immediately before earnings without flagging.</li>
+<li><strong>Drawdown response framework</strong> (Operations) — A1-A5 kill criteria are binary; graduated response (size reduction → pause → exit) does not exist between "fine" and "kill."</li>
+<li><strong>Cross-strategy correlation cap</strong> (Position sizing) — concurrent <code>mr_v1</code> + <code>trend_v1</code> exposure is not correlation-capped; matters at scale.</li>
+<li><strong>Capital deployment ramp</strong> (Operations) — <strong>PROMOTED to ADR-039 (Proposed)</strong>; four-stage allocation schedule pre-committed before 2026-06-29. See §6 below.</li>
+<li><strong>Cross-asset signals</strong> (Layer 0) — overlaps Phase 9 scope; check against Phase 9 §2-5 before building.</li>
+<li><strong>Event-driven filings processor</strong> (Layer 2) — 8-K / 13D/G institutional signals; fast adverse-event detection.</li>
+<li><strong>Executive departure signal</strong> (Layer 2) — lower value/effort; lowest priority of the eight.</li>
+</ol>
+
+<p>Same implementation principles as Phase 9 apply when any of these eventually get built: one at a time, deflation pipeline on composites, independence testing, separate ADR per component.</p>
+
+<h3>Operator playbook — Symbol Analysis Worksheet <span class="tag tag-new">documentation only</span></h3>
+
+<p>Manual 7-dimension methodology for evaluating any individual stock, ETF, or fund: <em>what is it</em>, <em>fundamentals</em>, <em>valuation</em>, <em>technicals</em>, <em>sentiment / options</em>, <em>structure</em>, <em>macro fit</em>, then combined into a decision framework. Lives at <a href="docs/obsidian/symbol-analysis/README.md"><code>docs/obsidian/symbol-analysis/</code></a> in the Obsidian vault. Two entry points: <code>quick-screen.md</code> (15-minute pass) and <code>worksheet-template.md</code> (full analysis — duplicate as <code>[TICKER]-[YYYY-MM-DD].md</code>). This is operator workflow, not a system phase; included in the roadmap doc so it is discoverable, not because it gates anything.</p>
+
+<h3>Beyond P5 — Scale / iterate (the loop)</h3>
+
+<p>Not a gated phase; a continuous mode entered after P5 closes. Loop back to discovery: find the next cluster, the next strategy, re-validate existing survivors quarterly. Edges decay; the discovery process runs continuously. The roadmap SVG above stops at P5 because P5 is the last gate — everything after is iteration over the same six phases.</p>
+
+<!-- =============== PART 6 =============== -->
+<h2 id="part6">6. Decisions log</h2>
+
+<p>ADR-style append-only. Each entry: number, title, status (Accepted / Superseded / Proposed), date, context, decision, consequences. Supersession is by reference, never by edit. Old ADRs stay readable.</p>
+
+<p><strong>Storage:</strong> the canonical markdown form lives at <a href="docs/decisions/README.md"><code>docs/decisions/README.md</code></a>. The inline cards below are a quick-reference snapshot; if the two diverge, the markdown file is authoritative. Future ADRs are added there first.</p>
+
+<div class="adr">
+<div class="adr-header">
+  <span><span class="adr-num">ADR-001</span> · <span class="adr-title">Vector Core methodology canon</span></span>
+  <span><span class="adr-status accepted">Accepted</span> · <span class="adr-date">2026-04-15</span></span>
+</div>
+<div class="adr-section"><strong>Context:</strong> need a deterministic methodology source so the agent grounds recommendations rather than improvising.</div>
+<div class="adr-section"><strong>Decision:</strong> use <code>.claude/vector_core_system_prompt.md</code> as always-on operating prompt with tiered canon (LdP AFML, Bailey-LdP DSR, BBLZ PBO, HLZ, Pardo, Bergstra-Bengio, Aronson). RESEARCH→DESIGN→SPEC→CODE staging; continuous TEACH and PUSHBACK.</div>
+<div class="adr-section"><strong>Consequences:</strong> every methodology recommendation cites a specific chapter/section. Inventing citations is forbidden.</div>
+</div>
+
+<div class="adr">
+<div class="adr-header">
+  <span><span class="adr-num">ADR-002</span> · <span class="adr-title">Library-first; reimplementation requires justification</span></span>
+  <span><span class="adr-status accepted">Accepted</span> · <span class="adr-date">2026-04-15</span></span>
+</div>
+<div class="adr-section"><strong>Context:</strong> reimplemented stats are bug-prone; battle-tested code exists.</div>
+<div class="adr-section"><strong>Decision:</strong> use <code>technicalindicators</code> for indicators; <code>@clickhouse/client</code> for DB; <code>recharts</code> + <code>lightweight-charts</code> for UI; scipy/statsmodels/sklearn via Python escape hatch when JS doesn't cut it. Custom code requires a named library deficiency.</div>
+<div class="adr-section"><strong>Consequences:</strong> faster iteration, fewer bugs, clearer attribution of failures (library vs us).</div>
+</div>
+
+<div class="adr">
+<div class="adr-header">
+  <span><span class="adr-num">ADR-003</span> · <span class="adr-title">ClickHouse as the single source of truth and the language bus</span></span>
+  <span><span class="adr-status accepted">Accepted</span> · <span class="adr-date">2026-04-18</span></span>
+</div>
+<div class="adr-section"><strong>Context:</strong> some statistics work is faster in Python; the rest of the system is TS.</div>
+<div class="adr-section"><strong>Decision:</strong> ClickHouse <code>quantlab</code> is the only stateful surface. JS/TS owns the orchestrator and UI. Python scripts read from CH and write back to CH; they own no local state. Auth and schema are shared.</div>
+<div class="adr-section"><strong>Consequences:</strong> language choice doesn't force a service split. Cross-language interop is solved by the warehouse, not by RPC. Trade-off: warehouse round-trips for every job; tolerable at this scale.</div>
+</div>
+
+<div class="adr">
+<div class="adr-header">
+  <span><span class="adr-num">ADR-004</span> · <span class="adr-title">Deflation gates: DSR + PBO + HLZ + Pardo OOS/IS</span></span>
+  <span><span class="adr-status accepted">Accepted</span> · <span class="adr-date">2026-04-22</span></span>
+</div>
+<div class="adr-section"><strong>Context:</strong> raw best-of-N Sharpe is misleading by construction.</div>
+<div class="adr-section"><strong>Decision:</strong> all promotion decisions pass through four gates: <strong>DSR pass = Pr(true SR &gt; 0) &gt; 0.95</strong> (Bailey-LdP 2014, §3 — note: this is a probability, not a Sharpe value), <strong>PBO &lt; 0.5</strong> (BBLZ 2014 via CSCV), <strong>HLZ haircut survives BHY at α=0.05</strong> (Harvey-Liu-Zhu 2016), <strong>Pardo OOS/IS ratio gate</strong> (Pardo 2008). Bootstrap DSR per Bailey-LdP §11.5 with mulberry32 PRNG, B=10000, seed=42.</div>
+<div class="adr-section"><strong>Consequences:</strong> most cells fail. That's the system working. Test count: 383/383 covering the gate machinery.</div>
+</div>
+
+<div class="adr">
+<div class="adr-header">
+  <span><span class="adr-num">ADR-005</span> · <span class="adr-title">bot.db data is grandfathered; no new imports</span></span>
+  <span><span class="adr-status accepted">Accepted</span> · <span class="adr-date">2026-05-03</span></span>
+</div>
+<div class="adr-section"><strong>Context:</strong> <code>scripts/import_botdb_candles.py</code> was used to bootstrap historical Solana coverage from the prior project's <code>bot.db</code>. Those rows live in <code>quantlab.candles</code> with <code>source = 'botdb'</code>. Cost model and OOS methodology of the source project differ from SignalForge's.</div>
+<div class="adr-section"><strong>Decision:</strong> existing bot.db rows stay (they are the basis for the case_c structural-limit cells and several thin-history tokens). <strong>Policy:</strong> no new bot.db imports, no new bot.db ingest features. <strong>Enforcement:</strong> the policy is documentary as of v1.0 — the importer script <code>scripts/import_botdb_candles.py</code> remains executable. Phase 0 task: add a runtime guard at the top of the script (<code>raise SystemExit("ADR-005: bot.db imports frozen — see MASTER.html §6")</code>) so the policy has teeth. Per-cell caveat documented when bot.db rows materially affect the result.</div>
+<div class="adr-section"><strong>Alternatives considered:</strong> (a) full purge: rejected because case_c cells become permanently unscored; (b) full re-ingest from venue APIs: rejected because the venue history doesn't go back far enough.</div>
+<div class="adr-section"><strong>Consequences:</strong> case_c cells are inherently limited; documenting the limit per cell is the next step. <code>check.md</code> entry DI-03 enforces the caveat at producer-self-check time. Runtime guard ensures the policy survives an absent-minded re-run.</div>
+</div>
+
+<div class="adr">
+<div class="adr-header">
+  <span><span class="adr-num">ADR-006</span> · <span class="adr-title">oos_is_status enum replaces ambiguous oos_is_ratio = 0</span></span>
+  <span><span class="adr-status accepted">Accepted</span> · <span class="adr-date">2026-05-03</span></span>
+</div>
+<div class="adr-section"><strong>Context:</strong> <code>oos_is_ratio = 0</code> collapsed three distinct fail reasons (no IS edge, OOS negative, schema-legacy missing data). The 2026-05-03 framing-error incident traced to this ambiguity.</div>
+<div class="adr-section"><strong>Decision:</strong> add <code>strategy_scores.oos_is_status LowCardinality(String)</code> with values <code>'pass' | 'fail' | 'fail_oos_negative' | 'fail_no_is_edge'</code>. Validator-cell aggregation filters on <code>data_span_days &gt; 0</code> and uses <code>oosSharpesQualifyingCount</code> instead of the ambiguous zero-OOS-Sharpe check.</div>
+<div class="adr-section"><strong>Consequences:</strong> the "0/69 passed" headline decomposes honestly into case_a_no_edge=1, case_a_no_is_edge=31, case_b_schema_contamination=23, case_c_structural_limit=9, mixed=5. 383/383 tests pass.</div>
+</div>
+
+<div class="adr">
+<div class="adr-header">
+  <span><span class="adr-num">ADR-007</span> · <span class="adr-title">Self-correction layer: check.md + critic agent + tier checkpoints + forbidden list</span></span>
+  <span><span class="adr-status accepted">Accepted</span> · <span class="adr-date">2026-05-03</span></span>
+</div>
+<div class="adr-section"><strong>Context:</strong> the framing-error class of bug is not caught by tests because the test passes against the wrong question.</div>
+<div class="adr-section"><strong>Decision:</strong> codify <code>check.md</code> (40+ entries), critic-agent workflow, three-tier checkpoint rules, forbidden list. See Part 4 of MASTER.html.</div>
+<div class="adr-section"><strong>Consequences:</strong> producer self-checks before handoff; critic catches missed checks; tier system rations user attention; forbidden list shortcuts PUSHBACK.</div>
+</div>
+
+<div class="adr">
+<div class="adr-header">
+  <span><span class="adr-num">ADR-008</span> · <span class="adr-title">Paper-first execution: PaperBroker before LiveBroker, both via shared interface</span></span>
+  <span><span class="adr-status accepted">Accepted</span> · <span class="adr-date">2026-05-03</span></span>
+</div>
+<div class="adr-section"><strong>Context:</strong> backtests don't reveal slippage / fill timing / order rejection assumptions.</div>
+<div class="adr-section"><strong>Decision:</strong> PaperBroker and LiveBroker share the <code>Broker</code> interface. Strategy code is identical; only the broker swaps. Divergence monitor (paper-vs-backtest, live-vs-paper) is part of the runtime, not external. Live capital is a separate decision.</div>
+<div class="adr-section"><strong>Consequences:</strong> Phase 3 work. SPEC produced when Phase 2 closes.</div>
+</div>
+
+<div class="adr">
+<div class="adr-header">
+  <span><span class="adr-num">ADR-009</span> · <span class="adr-title">Cross-market validation is post-survival, not parallel</span></span>
+  <span><span class="adr-status accepted">Accepted</span> · <span class="adr-date">2026-05-03</span></span>
+</div>
+<div class="adr-section"><strong>Context:</strong> tempting to switch markets when local validation is hard.</div>
+<div class="adr-section"><strong>Decision:</strong> cross-market validation runs after a cell survives the four local gates. The transferred unit is the hypothesis, not the parameters; recalibrate per market.</div>
+<div class="adr-section"><strong>Consequences:</strong> cross-market infra (cluster characteristics extractor, recalibration script, transfer report) is Phase 4, not Phase 1. Switching markets to escape local validation is forbidden.</div>
+</div>
+
+<div class="adr">
+<div class="adr-header">
+  <span><span class="adr-num">ADR-010</span> · <span class="adr-title">Behavioral clustering is feature-space and dynamic, not tier-based</span></span>
+  <span><span class="adr-status proposed">Proposed</span> · <span class="adr-date">2026-05-03</span></span>
+</div>
+<div class="adr-section"><strong>Context:</strong> existing tier definitions (<code>vol_high</code>, <code>mcap_micro</code>) are static heuristic buckets; the canon's behavioral cluster is continuous-feature and recomputed. Per <code>quant_reference.html</code>, ML clustering is the canonical pipeline's stage 1 (upstream of strategy design); SignalForge has it inverted historically (strategies first, tier slice second).</div>
+<div class="adr-section"><strong>Decision (proposed):</strong> Phase 2 work — upgrade the existing tier system rather than replace it. Add the missing autocorrelation feature; move from static buckets to continuous feature-space; recompute membership weekly; tie surviving cells to their cluster. Existing strategies remain legacy (designed pre-clustering). New strategies (post-P5) follow the canonical order: cluster first, then design.</div>
+<div class="adr-section"><strong>Why P2 not P1:</strong> the binding bottleneck is measurement artifact (case_b cells), not universe definition. Re-defining the universe before fixing the metric that grades strategies on it produces a fancier-looking "0 of N" headline, not progress.</div>
+<div class="adr-section"><strong>Open questions:</strong> KMeans vs GMM vs HDBSCAN? How many clusters? Stability metric (silhouette, Calinski-Harabasz, or LdP's <em>Machine Learning for Asset Managers</em> §4 ONC)? Defer to Phase 2 SPEC.</div>
+</div>
+
+<div class="adr">
+<div class="adr-header">
+  <span><span class="adr-num">ADR-011</span> · <span class="adr-title">Anti-hallucination protocol — three-layer defense against context drift</span></span>
+  <span><span class="adr-status accepted">Accepted</span> · <span class="adr-date">2026-05-03</span></span>
+</div>
+<div class="adr-section"><strong>Context:</strong> as a session fills, the producer's recall drifts from file truth. Errors compound silently because the recalled fact <em>feels</em> as confident as the verified fact. The 2026-05-03 framing-error incident was a less severe instance.</div>
+<div class="adr-section"><strong>Decision:</strong> codify three-layer defense in MASTER §9 — (L1) file-first, recall-second, with verification stamps; (L2) independent fresh eyes via critic agent and /clear at long sessions; (L3) anchor checks at session start and before destructive ops. Hard refuse rules for "tests pass without running" / "edit from recall" / "ADR from memory" / "destructive op without re-read" / "term not in glossary" / "session past 50 turns without HANDOFF."</div>
+<div class="adr-section"><strong>Consequences:</strong> producer is slower (more reads, more verification) and produces fewer false claims. User has explicit drift-spotting checklist. Critic agent is now part of the architecture, not a one-off.</div>
+</div>
+
+<div class="adr">
+<div class="adr-header">
+  <span><span class="adr-num">ADR-012</span> · <span class="adr-title">Capital tranching for live deployment</span></span>
+  <span><span class="adr-status accepted">Accepted</span> · <span class="adr-date">2026-05-03</span></span>
+</div>
+<div class="adr-section"><strong>Context:</strong> a "small live" → "scale" transition is where most retail systematic traders blow up — the small-live evidence looks fine, then the larger tranche reveals execution-model assumptions that didn't show at small size.</div>
+<div class="adr-section"><strong>Decision:</strong> live deployment is tranched: $1k → $5k → $25k → $100k+. At each tranche, the divergence monitor runs against both backtest and paper. A tranche increase is a separate Tier 1 decision, not an automatic continuation. Pause-conditions are written into the LiveBroker's runtime guard. Skipping a tranche is forbidden.</div>
+<div class="adr-section"><strong>Consequences:</strong> slower scale-up than "trust the paper trade and go." But silent execution-model errors are caught at the smallest possible loss.</div>
+</div>
+
+<p><em>ADR-013 through ADR-031 inline cards have not been backfilled here. Per the snapshot policy at the top of this section, the canonical text lives in <a href="docs/decisions/README.md"><code>docs/decisions/README.md</code></a>. Quick index:</em></p>
+
+<ul>
+  <li><strong>ADR-013</strong> case_b OR-clause split (case_b_contamination → case_b_pure + case_a_flat_oos).</li>
+  <li><strong>ADR-014</strong> zero-vol exclusion + cluster-1 hard exclude + single-cohort path.</li>
+  <li><strong>ADR-015</strong> K_dsr&lt;2 → dsr=psr per Bailey-LdP §3, surfaced via <code>dsr_status</code> + <code>k_dsr_effective</code>.</li>
+  <li><strong>ADR-016</strong> parameter-grid reframe (coarse grid <code>[5,10,15,20,30,50,100]</code> → <code>[3,5,7,10,14,20,30,50]</code>; pre-resweep housekeeping).</li>
+  <li><strong>ADR-017</strong> Meta-labeling (LdP AFML ch. 3) as the strategy-family expansion path; cell-agnostic pipeline, first applied to <code>trend_v1/mcap_nano/1d/p=5</code>.</li>
+  <li><strong>ADR-018</strong> Meta-labeling v1 — primary's exits preserved; threshold tuned against deployment metric.</li>
+  <li><strong>ADR-019</strong> Trainer-side promotion guardrail — distribution-robustness criteria added to the verdict.</li>
+  <li><strong>ADR-020</strong> Robust threshold-tuning objective — trimmed-mean × n_kept replaces raw native-PnL sum.</li>
+  <li><strong>ADR-021</strong> BTC-regime pre-filter overlay — empirically REJECTED on v1 cells under current OOS window.</li>
+  <li><strong>ADR-022</strong> Mean-reversion archetype on <code>mcap_micro × 1d</code> — empirically REJECTED; v0 features identified as the bottleneck.</li>
+  <li><strong>ADR-023</strong> v1-feature smoke test on <code>mean_reversion_v1|mcap_micro|1d|p=7</code> — partial-positive (+5pp AUC lift) but verdict REJECT; v1 features carry signal, single feature insufficient.</li>
+  <li><strong>ADR-024</strong> v1-feature smoke test on <code>trend_v1|mcap_micro|1d|p=5</code> — does NOT replicate the ADR-023 +5pp lift; two-cell evidence the lift was cell-specific; v0+meta-labeling pipeline closed on this universe (Track C accepted).</li>
+  <li><strong>ADR-025</strong> Cross-market validation on <code>cex_major</code> (BTC/ETH/SOL via Kraken) — v1 archetypes do NOT transfer; v1 framework decisively exhausted across two universes (N=27 trainings, all REJECT); recommended pivot to Phase 2 §5.5 dashboard.</li>
+  <li><strong>ADR-026</strong> Intraday-on-Solana smoke test (<code>mean_reversion_v1|mcap_micro|1h|p=5</code>) — closes the unfinished half of the "different surface" branch from ADR-024/025; v1 archetypes also do NOT work intraday; confirms ADR-025 finding #3 (archetype is the bottleneck, not the surface).</li>
+  <li><strong>ADR-027</strong> A4 cross-asset-class smoke test on <code>equity_midcap</code> (yfinance, 60 US large-caps, 10y daily) — pipeline PASSES the "universe-was-bottleneck" branch; 6/7 criteria pass with C7 first-ever; primary mean-reversion archetype shows deployable edge on equities while meta-labeling layer adds no value.</li>
+  <li><strong>ADR-028</strong> Robustness arc on the equity_midcap result — 4 orthogonal checks all confirm; mean_reversion_v1 + trend_v1 have genuine alpha (not beta), edge holds across params, edge STRENGTHENS in drawdowns; momentum_v1 distinct (loses on equities) — equity-universe edge robust enough to warrant Sharadar-tier validation.</li>
+  <li><strong>ADR-029</strong> Robustness arc on <code>trend_v1 / equity_midcap</code> — param-stability PASSES with monotonic per-trade improvement; beta exposure HIGHER than mr_v1 (1.49 aggregate) but alpha still positive at p≥20; regime sensitivity is param-dependent (p=14 loses in drawdowns, p≥20 works); cross-correlation with mr_v1 ≈ 0 — two-archetype equity portfolio is genuinely diversified.</li>
+  <li><strong>ADR-030</strong> Transaction-cost adjustment + OOO 2014-2016 re-validation on equity deployment-candidate cells — mr_v1/p=14 PRESERVES (93% of post-2018 mean, t=+3.86, win=68%); trend_v1/p=20 COLLAPSES (13% of post-2018 mean, t=+0.24, win=27%); mr_v1 is epoch-robust, trend_v1's edge concentrated in post-2018 (post-QE) regime; revised baseline drops trend_v1 from primary mix pending Sharadar / paid-data 2002-2010 OOO.</li>
+  <li><strong>ADR-031</strong> Regime-gated <code>trend_v1</code> on <code>equity_midcap</code> (Faber 2007 GTAA, SPY 200d gate) — empirically REJECTED across 8 cells; gate does not rescue trend_v1's COLLAPSES verdict and actively HARMS the deployable mr_v1 baseline; surfaces deeper finding that ungated <code>trend_v1 / p=30</code> PRESERVES on OOO 2014-2016, suggesting EMA-period (not regime gating) is the right knob.</li>
+</ul>
+
+<p><em>(Post-ADR-031, no new ADRs; the next sprint is the MVP paper-trading daemon — operational shakedown, not methodology arc — so any ADR will land only when the run-in produces a decision-grade finding.)</em></p>
+
+<!-- =============== PART 7 =============== -->
+<h2 id="part7">7. Living state</h2>
+
+<p>What is true about the system today. This section is rewritten on every meaningful state change. Last write: 2026-05-06.</p>
+
+<div class="kv-grid">
+<div class="kv-card"><div class="kv-label">Tests (TS)</div><div class="kv-value sig">561 / 561 (verified 2026-05-06)</div></div>
+<div class="kv-card"><div class="kv-label">Tests (Python)</div><div class="kv-value sig">62 / 62 (verified 2026-05-06)</div></div>
+<div class="kv-card"><div class="kv-label">TypeScript check</div><div class="kv-value warn-c"><code>tsc --noEmit</code> clean for new code; pre-existing line-57 enum error in <code>build_meta_train_set.ts</code> unchanged</div></div>
+<div class="kv-card"><div class="kv-label">Crypto-side gates (legacy 4-gate)</div><div class="kv-value bad">0 / 69 cells passing — measurement honest (no contamination)</div></div>
+<div class="kv-card"><div class="kv-label">Equity-side deployable</div><div class="kv-value sig">2 cells: <code>mr_v1 / equity_midcap / 1d / p=14</code> (primary, t=+3.86 OOO), <code>trend_v1 / equity_midcap / 1d / p=30</code> (conditional secondary, t=+1.51 OOO at threshold)</div></div>
+<div class="kv-card"><div class="kv-label">HLZ M ratchet</div><div class="kv-value">267 (cumulative meta-labeling trial count; ADR-026)</div></div>
+<div class="kv-card"><div class="kv-label">Active sprint</div><div class="kv-value sig">MVP paper-trading daemon (Days 1-2 shipped; Day 3 holiday/edge-case shakedown pending; Day 4 MASTER.html refresh — this commit)</div></div>
+<div class="kv-card"><div class="kv-label">Deferred</div><div class="kv-value">Sharadar SF1 ($49/mo, opt-in) and full PaperBroker/LiveBroker infra (2-4 weeks). Both unblocked AFTER MVP run-in surfaces operational failure modes.</div></div>
+</div>
+
+<h3>Deployment grade-card (equity_midcap, post-ADR-031)</h3>
+
+<table>
+<thead><tr><th>Cell</th><th>Status</th><th>Verdict</th><th>OOO 2014-2016</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td><code>mean_reversion_v1 / equity_midcap / 1d / p=14</code></td><td><span class="tag tag-partial">conditional</span></td><td>PRESERVES (with caveats)</td><td>+2.42% / trade @ 5d hold @ 68% win, t=+3.86, n=154</td><td><strong>Downgraded primary→conditional 2026-05-06</strong> after critic-agent review (session 19). Headline +2.42 / 68% on OOO 2014-2016 hides four real concerns surfaced by full-history diagnostic (<code>scripts/_critic_response_diagnostics.ts</code>): (a) <strong>2020 was a losing year</strong>: -2.21%/trade, 58.8% WR, n=85; April-Dec V-recovery slice -2.67%/trade with 55.6% WR — mean-reversion fails in V-shaped regimes. (b) <strong>Worst single trade -64.37%</strong> (2022 H2). Per-token median max DD -38.5%; portfolio max DD -27.3%; portfolio worst rolling 30-day -26.8%. (c) <strong>30/60 RSI thresholds in code don't match Wilder 30/70 referenced in ADR text</strong>: <code>docs/decisions/README.md:2948</code> says "RSI&lt;30 / RSI&gt;70 at p=14 Wilder canonical" while <code>:1846</code> and the actual code (<code>src/lib/indicators.ts:232,241</code> and <code>src/server/clickhouse.ts:173</code>) use 30/60. Self-contradictory. Corrigendum filed (ADR-032). 2026-05-07 follow-up sweep (<code>scripts/_threshold_stability_sweep.ts</code>) confirms surface is <strong>plateau, not knife-edge</strong> (Pardo §10 — strategy class is parameter-robust) but deployed 30/60 is empirically dominated by 30/70: Sharpe 0.466 vs 0.609 (+31%), mean per-trade 2.69% vs 6.75% (+151%), WR 71% vs 78%, portfolio max DD essentially identical. <strong>Decision: post-shakedown switch to mr_v1 with thresholds 30/70 (Wilder canonical), not 30/60.</strong> Mid-shakedown switch prohibited (contaminates operational signal). (d) <strong>Pairwise daily P&amp;L correlation with trend_v1/p=30 is +0.17, not ~0</strong> as ADR-029 monthly-aggregation claim suggested; +0.64 in 2014 declining to +0.05 in 2025. Diversification benefit is regime-dependent. Robustness arc (ADR-028) and OOO test (ADR-030) still pass — but the deployable claim must include all four caveats.</td></tr>
+<tr><td><code>trend_v1 / equity_midcap / 1d / p=30</code></td><td><span class="tag tag-partial">conditional</span></td><td>PRESERVES (at threshold)</td><td>+5.81% / trade @ 6d hold @ 33% win, t=+1.51, n=201</td><td>Right-skewed. Re-qualified at p=30 per ADR-031 (was p=20 per ADR-029, then COLLAPSES on OOO per ADR-030, then ADR-031 surfaced p=30 PRESERVES). Treat OOO verdict as positive but not high-confidence; Sharadar deeper history is the natural escalation.</td></tr>
+<tr><td><code>trend_v1 / equity_midcap / 1d / p=20</code></td><td><span class="tag tag-broken">shelved</span></td><td>COLLAPSES</td><td>per ADR-030</td><td>Superseded by p=30 on OOO. Stays in code paths but excluded from deployment.</td></tr>
+<tr><td>All gated <code>trend_v1 + spy{50,100,200}</code> variants</td><td><span class="tag tag-broken">rejected</span></td><td>FAIL</td><td>per ADR-031 (8 cells)</td><td>Gate's premise (filtered trades are losers) is empirically false on equity_midcap; SPY-down trades have higher mean than SPY-up at p=14/30. Latent infrastructure remains for future cross-universe experiments.</td></tr>
+</tbody>
+</table>
+
+<h3>Cell classification (post-P1, 2026-05-04)</h3>
+
+<table>
+<thead><tr><th>Class</th><th>Count</th><th>Meaning</th><th>Status</th></tr></thead>
+<tbody>
+<tr><td><code>case_a_no_edge</code></td><td>1</td><td>Full data, no edge. Canary: <code>tsmom_vol_v1 / cex_major / 1d</code>. PBO=0.715. <strong>BLOCKED.</strong></td><td>Honest fail; permanently.</td></tr>
+<tr><td><code>case_a_no_is_edge</code></td><td>~52</td><td><code>oos_is_status = 'fail_no_is_edge'</code> — strategy lost in-sample. Includes 31 original + cells migrated from re-swept case_b.</td><td>Honest fail.</td></tr>
+<tr><td><code>case_a_flat_oos</code> <span class="tag tag-new">new class</span></td><td>4</td><td>NEW classification per ADR-013. <code>volume_breakout_v1</code> and <code>volume_breakout_xmom_v1</code> at <code>mcap_micro</code> / <code>mcap_nano</code> 1d. Zero contamination but high flat-OOS rate (strategy under-trades in OOS for many param trials).</td><td>Honest fail; not a re-sweep candidate.</td></tr>
+<tr><td><code>case_b_contamination</code></td><td>0</td><td>Was 11 (post-ADR-013 split). All re-swept in P1; modern-only <code>pct_data_span_zero = 0</code> across all 11.</td><td>Resolved.</td></tr>
+<tr><td><code>case_c_structural_limit</code></td><td>~9</td><td><code>modern_row_count &lt; 16</code> or <code>total_trades &lt; 100</code>. Re-sweep won't fix.</td><td>Documented per-cell; bot.db caveat (ADR-005).</td></tr>
+<tr><td><code>oos_is_status = 'pass'</code> notable</td><td>2</td><td><code>mean_reversion_v1 / mcap_nano / 15m</code> (37.2% IS) and <code>1h</code> (50.4% IS). Pardo gate met; <strong>fail another gate (DSR / PBO / HLZ)</strong> so <code>gates_pass = 0</code>.</td><td>Diagnostic candidates for the next session.</td></tr>
+<tr><td><strong>Total</strong></td><td><strong>69</strong></td><td></td><td></td></tr>
+</tbody>
+</table>
+
+<div class="callout success">
+<div class="callout-title">P1 result — what the system actually did</div>
+The "0/69 passed all gates" headline is unchanged but is now <strong>fully honest</strong>. No measurement artifact remains. Eleven cells that previously failed because of schema-contaminated data have been re-swept; their failures are now real failures (or, in two cases, partial passes blocked by other gates). The next stage is not "fix something to make a survivor appear" — it's <strong>understand what the existing strategies are doing and decide whether the next move is P2 (universe redefinition) or a deeper diagnostic on the two OOS/IS-passing cells.</strong>
+</div>
+
+<h3>Open questions (live)</h3>
+
+<ul>
+<li><strong>Sample-size fragility on <code>trend_v1 / p=30</code> OOO</strong> — PRESERVES verdict has t=+1.51 (right at threshold), n=201 OOO trades, win rate 33% (right-skewed). Any small calibration shift (e.g. t≥1.6) demotes to INCONCLUSIVE. Sharadar's deeper history would partially address — deferred until MVP run-in.</li>
+<li><strong>Sharadar SF1 follow-up</strong> ($49/mo, opt-in) — most informative experiment is testing trend_v1/p=30 across 2002-2010 (incl. GFC). Deferred until MVP run-in produces live operational data; trend_v1's signal frequency (~17 trades/year across 60 tickers) may make Sharadar moot.</li>
+<li><strong>Full PaperBroker / LiveBroker infrastructure</strong> (2-4 weeks engineering) — spec depends on empirical answers MVP will produce: yfinance reliability, calendar arithmetic on early-close days, fill slippage vs modeled cost, runtime as candle-table grows. Premature abstraction without those answers.</li>
+<li><strong>MVP daemon shakedown</strong> — daemon ships ready-to-run. Pending: 4-6 weeks of daily runs to surface operational failure modes (yfinance phantom partial bars on early-close days, holiday-week missing bars, transient HTTP retry behavior, Telegram delivery reliability).</li>
+<li><strong>Browser smoke-test of validator sweep mode</strong> — programmatic verification works; no human click-through yet.</li>
+<li><strong>ADR-005 enforcement</strong> — runtime guard on <code>scripts/import_botdb_candles.py</code> not yet added; policy is documentary only.</li>
+</ul>
+
+<h3>Active watch-outs</h3>
+
+<ul>
+<li><strong>MVP daemon defaults to <code>--regime-gate none</code></strong> in build_meta_train_set. Pre-ADR-031 invocations are zero-diff. <code>--candle-limit</code> default is still 2000 (~7.7y daily). Deep-history work — incl. regime-gate experiments — needs <code>--candle-limit 5000</code>.</li>
+<li><strong><code>trend_v1 / p=30</code> OOO PRESERVES is AT THRESHOLD</strong> (t=+1.51 against the PRESERVES decision rule from ADR-030; small calibration shifts — e.g. t≥1.6, a single mega-trade outlier, or a stricter post-hoc rule — demote to INCONCLUSIVE). Treat as positive evidence but not high-confidence. Operationally requires more drawdown tolerance than mr_v1 (right-skewed return profile, 33% win rate, n=201).</li>
+<li><strong>Future regime-gating experiments must exclude the regime asset from the trading universe.</strong> SPY_USD matches the equity_midcap regex and would otherwise be both gated-on and traded. The build_meta_train_set filter is in place; copy callsites must replicate <code>universe.filter(t =&gt; t.tokenAddress !== regimeAsset)</code>.</li>
+<li><strong>SPY_USD source field is <code>'yfinance_regime'</code>, not <code>'yfinance'</code>.</strong> Distinguishes the regime-reference asset from the trading universe. Queries filtering by <code>source = 'yfinance'</code> won't include SPY (intentional).</li>
+<li><strong>MVP daemon Telegram bot reuse:</strong> token + chat ID copy from sister project <code>solana-smart-money-bot</code> .env. Messages MUST be prefixed <code>[SignalForge]</code> to disambiguate in shared channels. Bot token never committed to git.</li>
+<li><strong>MVP daemon must NOT trigger M2 retraining.</strong> Deployable layer is M1 primary (ADR-029). Daemon only fetches candles + runs M1 + emits signals.</li>
+<li><strong>MVP daemon re-runs the FULL backtest each day, not incremental indicator state.</strong> Re-running on a 12y candle stream is sub-second per ticker; carrying EMA/RSI state across days adds bug surface. Only revisit if the daily run-time becomes a real bottleneck.</li>
+<li><code>oos_is_status</code> column is empty string for legacy <code>strategy_scores</code> rows; ReplacingMergeTree FINAL collapses these on query, but pre-merge state can show ghosts. Always FINAL on this table.</li>
+<li><code>fail_no_is_edge</code> is a <strong>fail</strong>, not unscorable. The cell ran; the strategy lost money. Don't treat as missing data.</li>
+<li><code>tsmom_vol_v1 / cex_major / 1d</code> is the legacy crypto-side canary — PBO=0.715 hard fail. PBO is not fixable by re-sweep.</li>
+<li>Express middleware order, lockstep tests, type-only import cycle, port 3000 EADDRINUSE pattern, <code>strict: false</code> narrowing, 5MB / 50MB cap mismatch, lazy-loaded <code>#/validator</code> route, bootstrap seed=42, HLZ one-sided default, PIT mcap backfill, markdownlint MD004, cloudflared opt-in via <code>WITH_TUNNEL=1</code>, max_partitions_per_insert_block override on candle inserts, CH 24.8 FINAL/UUID quirk, dev server <code>tsx server.ts</code> (no --watch) — all unchanged from prior sessions.</li>
+</ul>
+
+<h3>Last edits (snapshot — see HANDOFF for live)</h3>
+
+<p class="dim">This subsection duplicates HANDOFF "Files / code state" and goes stale fast. Use it for orientation in this document; trust HANDOFF for current truth.</p>
+
+<ul>
+<li><code>scripts/daily_signal_daemon.ts</code> — NEW. MVP paper-trading daemon orchestrator. <code>npm run daemon:daily</code>.</li>
+<li><code>scripts/fetch_daily_yfinance.py</code> — NEW. Incremental yfinance fetch (sister to <code>yfinance_backfill.py</code>); JSON-summary mode for orchestrator parsing.</li>
+<li><code>scripts/migrate_live_signals.ts</code> — NEW. Creates <code>quantlab.live_signals</code> ReplacingMergeTree.</li>
+<li><code>src/lib/liveSignalState.ts</code> — NEW. Pure-function live-state evaluator + day-over-day diff + Telegram report formatter.</li>
+<li><code>src/alerts/telegram.ts</code> — NEW. Stripped-down port of sister-project pattern; HTML mode + plain-text fallback + 1-sec rate limit.</li>
+<li><code>scripts/tests/liveSignalState.test.ts</code> — NEW. 21 tests covering force-close detection, diff edge cases, formatter output. All green.</li>
+<li><code>package.json</code> — added <code>daemon:daily</code>, <code>daemon:daily:dry</code>, <code>daemon:daily:no-fetch</code>, <code>migrate:live-signals</code>, <code>migrate:live-signals:apply</code>.</li>
+</ul>
+
+<p class="dim">Earlier session edits (ADRs 014-031) — see <a href="docs/decisions/README.md">docs/decisions/</a>. Highlights: <code>scripts/build_meta_train_set.ts</code> (regime-gate infra), <code>scripts/_regime_gate_robustness_arc.py</code>, <code>scripts/_backfill_spy_regime.py</code>, full meta-labeling stack under <code>src/lib/metaLabeling/*</code> + <code>scripts/train_meta_label.py</code>, full clustering stack under <code>scripts/cluster_tokens_weekly.py</code> + sibling Python scripts + <code>src/components/cluster/*</code>.</p>
+
+<!-- =============== PART 8 =============== -->
+<h2 id="part8">8. Glossary</h2>
+
+<table>
+<thead><tr><th>Term</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><strong>Behavioral cluster</strong></td><td>A group of assets sharing statistical properties (vol, β, liquidity, autocorrelation) regardless of asset-class label. Cluster <em>statistics</em> are stable; cluster <em>membership</em> is dynamic.</td></tr>
+<tr><td><strong>Cell</strong></td><td>A (strategy_type × tier × interval) tuple. The unit at which scoring and validation happen. There are 69 today.</td></tr>
+<tr><td><strong>case_a / case_b / case_c / mixed</strong></td><td>Diagnostic classification of a cell after the 2026-05-03 reclassification. case_a = honest fail (no edge or no IS edge); case_b = schema contamination (re-sweep candidate); case_c = structural data limit; mixed = multiple flags.</td></tr>
+<tr><td><strong>check.md</strong></td><td>The self-correction checklist; producer applies before handoff. See Part 4.</td></tr>
+<tr><td><strong>Critic agent</strong></td><td>Independent Claude invocation that applies <code>check.md</code> against the producer's output before the user sees it.</td></tr>
+<tr><td><strong>CSCV</strong></td><td>Combinatorially Symmetric Cross-Validation. Generates many synthetic OOS evaluations from limited data. Source for PBO.</td></tr>
+<tr><td><strong>Cross-market validation</strong></td><td>Re-running the deflation pipeline on a second market with independent calibration. Phase 4.</td></tr>
+<tr><td><strong>DSR</strong></td><td>Deflated Sharpe Ratio. Probability the true Sharpe &gt; 0 after correcting for the number of trials. Bailey-LdP 2014.</td></tr>
+<tr><td><strong>Deflation</strong></td><td>The collective name for DSR + PBO + HLZ + Pardo. Each gate corrects a different bias.</td></tr>
+<tr><td><strong>Forbidden list</strong></td><td>Codified actions refused regardless of how asked. PUSHBACK shortcut. See Part 4.</td></tr>
+<tr><td><strong>HLZ haircut</strong></td><td>Harvey-Liu-Zhu t-stat correction for multiple testing across the factor zoo. BHY threshold over Bonferroni.</td></tr>
+<tr><td><strong>Lockstep</strong></td><td>The discipline that <code>validator_cell.ts</code> applies the same per-param Sharpe and winner-pick logic as <code>score_strategies.scoreCell</code>. Tested with dedicated lockstep tests.</td></tr>
+<tr><td><strong>Meta-labeling</strong></td><td>An ML filter on top of a primary strategy that already has edge. Predicts "will this signal work?" Reserved for after Phase 4. AFML chapter 3.</td></tr>
+<tr><td><strong>oos_is_status</strong></td><td>The new typed enum in <code>strategy_scores</code> replacing the ambiguous <code>oos_is_ratio = 0</code>. Values: <code>pass | fail | fail_oos_negative | fail_no_is_edge</code>.</td></tr>
+<tr><td><strong>PaperBroker / LiveBroker</strong></td><td>The execution abstraction (Phase 3). Same Strategy code; broker swaps. Divergence monitor compares realized vs expected.</td></tr>
+<tr><td><strong>Pardo OOS/IS gate</strong></td><td>Did the in-sample edge survive out-of-sample? Pardo (2008). Fourth deflation gate alongside DSR/PBO/HLZ.</td></tr>
+<tr><td><strong>PBO</strong></td><td>Probability of Backtest Overfitting. Fraction of CSCV splits where the in-sample winner ranks below median OOS. BBLZ 2014.</td></tr>
+<tr><td><strong>PSR</strong></td><td>Probabilistic Sharpe Ratio. The standard normal CDF of how many standard errors the realized Sharpe lies above zero. Underlies DSR.</td></tr>
+<tr><td><strong>PUSHBACK</strong></td><td>Vector Core continuous role: refuse what's wrong, name why, propose the right move.</td></tr>
+<tr><td><strong>RESEARCH → DESIGN → SPEC → CODE</strong></td><td>The serial Vector Core build stages. Skipping is forbidden.</td></tr>
+<tr><td><strong>Self-correction layer</strong></td><td>The four cooperating mechanisms (check.md, critic agent, three-tier checkpoints, forbidden list) that catch errors before they propagate.</td></tr>
+<tr><td><strong>TEACH</strong></td><td>Vector Core continuous role: intuition → mechanism → failure mode. Triggered when the user is about to use a concept they haven't shown they understand.</td></tr>
+<tr><td><strong>Three-tier checkpoints</strong></td><td>Mandatory (component boundaries) / Optional (summaries) / Automatic (implementation details). Rations user attention. See Part 4.</td></tr>
+<tr><td><strong>Tier (in code)</strong></td><td>Today's static heuristic asset bucket: <code>vol_high</code>, <code>mcap_micro</code>, <code>cex_major</code>, etc. Will be replaced by feature-space behavioral clusters in Phase 2 — but the term will remain in legacy paths until the swap is complete.</td></tr>
+</tbody>
+</table>
+
+<hr>
+
+<!-- =============== PART 9 =============== -->
+<h2 id="part9">9. Anti-hallucination protocol</h2>
+
+<p>The risk is concrete and grows with context length: as a session fills, the producer (Claude) starts mis-remembering decisions, file paths, test counts, schema details. Errors compound silently because the producer doesn't notice it's drifting — the recalled fact <em>feels</em> as confident as the verified fact. This part codifies defenses. It is not optional.</p>
+
+<div class="callout danger">
+<div class="callout-title">The failure mode being defended against</div>
+"I remember we decided X" → confident edit based on X → X was actually Y, decided three sessions ago → silent corruption that no test catches because the test was written against X too. The 2026-05-03 framing-error incident was a less severe version of this same class.
+</div>
+
+<h3>Three layers of defense</h3>
+
+<div class="viz">
+<svg viewBox="0 0 940 340" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto">
+  <text x="470" y="26" text-anchor="middle" fill="#e6edf3" font-size="14" font-weight="700">Three-layer defense against context drift</text>
+
+  <!-- Layer 1 -->
+  <rect x="40" y="60" width="280" height="240" rx="8" fill="#1c2128" stroke="#56d4dd" stroke-width="2"/>
+  <text x="180" y="86" text-anchor="middle" fill="#56d4dd" font-size="13" font-weight="700">L1 · File-first, recall-second</text>
+  <text x="60" y="118" fill="#e6edf3" font-size="11" font-weight="600">Never edit from recall</text>
+  <text x="60" y="134" fill="#8b949e" font-size="10">Read tool before any Edit, always</text>
+  <text x="60" y="158" fill="#e6edf3" font-size="11" font-weight="600">Verify before claiming</text>
+  <text x="60" y="174" fill="#8b949e" font-size="10">"383 tests pass" → run npm test today</text>
+  <text x="60" y="198" fill="#e6edf3" font-size="11" font-weight="600">Quote ADRs, don't reconstruct</text>
+  <text x="60" y="214" fill="#8b949e" font-size="10">Read the ADR file; paste the decision</text>
+  <text x="60" y="238" fill="#e6edf3" font-size="11" font-weight="600">Read just-before destructive op</text>
+  <text x="60" y="254" fill="#8b949e" font-size="10">Schema/file/branch state → re-read seconds before</text>
+  <text x="60" y="278" fill="#e6edf3" font-size="11" font-weight="600">Stamp facts with verification date</text>
+  <text x="60" y="294" fill="#8b949e" font-size="10">"as of 2026-05-03 verified" not "I think"</text>
+
+  <!-- Layer 2 -->
+  <rect x="340" y="60" width="280" height="240" rx="8" fill="#1c2128" stroke="#bc8cff" stroke-width="2"/>
+  <text x="480" y="86" text-anchor="middle" fill="#bc8cff" font-size="13" font-weight="700">L2 · Independent fresh eyes</text>
+  <text x="360" y="118" fill="#e6edf3" font-size="11" font-weight="600">Critic agent has no chat context</text>
+  <text x="360" y="134" fill="#8b949e" font-size="10">Sees only the artifact, applies check.md</text>
+  <text x="360" y="158" fill="#e6edf3" font-size="11" font-weight="600">Required on drift-prone artifacts</text>
+  <text x="360" y="174" fill="#8b949e" font-size="10">deflation lib, schema, ADRs, SPECs, MASTER</text>
+  <text x="360" y="198" fill="#e6edf3" font-size="11" font-weight="600">Trigger /clear at long sessions</text>
+  <text x="360" y="214" fill="#8b949e" font-size="10">&gt;50 turns or context anxiety → write HANDOFF, /clear</text>
+  <text x="360" y="238" fill="#e6edf3" font-size="11" font-weight="600">Diff-show before non-trivial commits</text>
+  <text x="360" y="254" fill="#8b949e" font-size="10">User catches drift the producer can't</text>
+  <text x="360" y="278" fill="#e6edf3" font-size="11" font-weight="600">User-trigger /ultrareview on big changes</text>
+  <text x="360" y="294" fill="#8b949e" font-size="10">Multi-agent cloud review at boundaries</text>
+
+  <!-- Layer 3 -->
+  <rect x="640" y="60" width="280" height="240" rx="8" fill="#1c2128" stroke="#d29922" stroke-width="2"/>
+  <text x="780" y="86" text-anchor="middle" fill="#d29922" font-size="13" font-weight="700">L3 · Anchor checks</text>
+  <text x="660" y="118" fill="#e6edf3" font-size="11" font-weight="600">Session start: read 5 files</text>
+  <text x="660" y="134" fill="#8b949e" font-size="10">HANDOFF · MASTER §7 · check.md · ADR-N · ADR-N-1</text>
+  <text x="660" y="158" fill="#e6edf3" font-size="11" font-weight="600">Pre-destructive: re-read MASTER §7</text>
+  <text x="660" y="174" fill="#8b949e" font-size="10">Living state, not chat memory</text>
+  <text x="660" y="198" fill="#e6edf3" font-size="11" font-weight="600">Vocabulary anchor</text>
+  <text x="660" y="214" fill="#8b949e" font-size="10">Before introducing term → check MASTER §8</text>
+  <text x="660" y="238" fill="#e6edf3" font-size="11" font-weight="600">Test gate: green ⇒ "done"</text>
+  <text x="660" y="254" fill="#8b949e" font-size="10">No "done" claim without npm test green</text>
+  <text x="660" y="278" fill="#e6edf3" font-size="11" font-weight="600">Counter-source for big claims</text>
+  <text x="660" y="294" fill="#8b949e" font-size="10">Cross-check 2 sources before destructive op</text>
+</svg>
+<div class="viz-caption">Three layers, each catching a different drift mode. L1 is per-action discipline; L2 is independent review; L3 is periodic re-grounding. None is sufficient alone.</div>
+</div>
+
+<h3>9.1 Refuse rules (hard)</h3>
+
+<p>The producer must refuse the following actions even if asked, until the rule is satisfied:</p>
+
+<div class="forbidden">Claim "tests pass" / "lint clean" / "type-check passes" without running the verification this turn. <strong>Unblock:</strong> run the command and quote the output.</div>
+
+<div class="forbidden">Edit a file from recall (without a Read in this turn). <strong>Unblock:</strong> Read the file just before the Edit. The Edit tool already enforces this; the rule is to not work around it.</div>
+
+<div class="forbidden">Restate an ADR's decision from memory in a new ADR or in a code comment. <strong>Unblock:</strong> read the ADR file and quote the decision verbatim.</div>
+
+<div class="forbidden">Run a destructive operation (schema migration, force push, large DELETE, OPTIMIZE FINAL on a hot table) without re-reading both MASTER §7 (living state) and the relevant component file in the same turn. <strong>Unblock:</strong> read both, present diff for confirmation if Tier 1.</div>
+
+<div class="forbidden">Introduce a domain term not in MASTER §8 glossary. <strong>Unblock:</strong> add the term to the glossary in the same turn, with a one-line definition.</div>
+
+<div class="forbidden">Continue a session past 50 turns of dense work without writing HANDOFF and offering to /clear. <strong>Unblock:</strong> write HANDOFF (the protocol triggers anyway); recommend /clear and a fresh session for the next chunk of work.</div>
+
+<h3>9.2 Verification stamps</h3>
+
+<p>When stating a fact about state — test counts, row counts, file paths, dependency versions, schema columns — include the date the fact was last verified, in the form <code>(verified 2026-05-03)</code>. Stale stamps are not lies, but they signal the reader to check before acting.</p>
+
+<p><strong>Example:</strong></p>
+<pre>BAD:  "The strategy_scores table has the oos_is_status column."
+GOOD: "strategy_scores has oos_is_status (LowCardinality(String), DEFAULT '')
+       — verified in scripts/score_strategies.ts schema, 2026-05-03."</pre>
+
+<h3>9.3 Anchor checks at session start</h3>
+
+<p>Before producing any work in a fresh session, the producer reads — in this order — and confirms internally that nothing in the current task contradicts:</p>
+
+<ol>
+<li><code>.claude/HANDOFF.md</code> — auto-loaded. Captures last-session state.</li>
+<li><code>MASTER.html §7</code> — living state. May contain newer info than HANDOFF if HANDOFF wasn't rewritten.</li>
+<li><code>check.md</code> — the procedural memory. Scan for relevant domains.</li>
+<li><code>docs/decisions/</code> last 3 ADRs — recent decisions most likely to bear on the active task.</li>
+<li>Component file(s) directly affected by the active task — never trust recall on file structure.</li>
+</ol>
+
+<p>This is roughly 5 reads, ~3-5k tokens. It's the cheapest insurance against drift.</p>
+
+<h3>9.4 Mid-session anchors</h3>
+
+<p>Every ~30 turns, or before any Tier 1 action, the producer re-reads MASTER §7. The act of re-reading is itself the defense — it surfaces the cases where chat memory has drifted from file truth. If a contradiction surfaces, write the HANDOFF and consider /clear.</p>
+
+<h3>9.5 Critic-agent role in drift defense</h3>
+
+<p>The critic agent is the strongest single defense because it has no chat context. It cannot inherit the producer's drift. The producer's job is to invoke it on the artifacts that matter most — and trust its findings even when they contradict the producer's recall.</p>
+
+<p>Critic invocation, in order of strength:</p>
+<ol>
+<li><strong>Architectural artifacts</strong> (MASTER edits, new SPECs, new ADRs) — critic required.</li>
+<li><strong>Deflation-pipeline diffs</strong> (psr.ts, cscv.ts, hlzHaircut.ts, score_strategies.ts, validator*.ts) — critic required.</li>
+<li><strong>Schema migrations</strong> — critic required.</li>
+<li><strong>Other diffs &gt; 100 lines</strong> — critic recommended; producer's call.</li>
+</ol>
+
+<h3>9.6 What the user should watch for</h3>
+
+<p>The producer's own drift defenses miss things by definition. The user is the third line. Patterns that signal drift:</p>
+
+<ul>
+<li>The producer cites a file path or function name with no Read tool call this session.</li>
+<li>The producer states a test count, row count, or schema fact without a verification stamp or recent run.</li>
+<li>The producer describes "what we decided" without quoting the ADR.</li>
+<li>The producer's plan reference Phase numbers or component names that don't appear in MASTER §3 or §5.</li>
+<li>The producer answers "how does X work?" with confidence but no Read tool call to the X file.</li>
+</ul>
+
+<p>If you spot any of these, the right response is "verify that against the file" or "quote the ADR." The producer will course-correct.</p>
+
+<div class="callout success">
+<div class="callout-title">Why this is in MASTER and not check.md</div>
+<code>check.md</code> entries are per-artifact: producer applies them inline. Anti-hallucination is per-session: it shapes <em>how</em> the producer works, not what they check. Putting it in MASTER means a fresh session sees it on first read, alongside the principles and roadmap, before producing any artifact at all.
+</div>
+
+<hr>
+
+<div class="callout success">
+<div class="callout-title">How to use this document</div>
+This file is the durable companion to <code>.claude/HANDOFF.md</code>. The handoff captures live state for the next session; MASTER captures the standing rules and architecture. When they conflict, the MASTER document is authoritative for principles and components; the HANDOFF is authoritative for current state. Editing MASTER means amending an ADR (Part 6) or rewriting a Part with the date stamped.
+</div>
+
+<div class="callout purple">
+<div class="callout-title">For the next chat</div>
+Read in this order: HANDOFF (state) → MASTER §7 (living state diff) → MASTER §9 (anti-hallucination protocol — apply throughout) → MASTER §5 (active phase task) → MASTER §4 (self-correction expectations) → only re-read other parts if specifically relevant. The full document is ~7500 words; you don't need all of it on every turn — but §9 is non-optional.
+</div>
+
+</div>
+</body>
+</html>

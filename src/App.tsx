@@ -1,25 +1,9 @@
-import { useState, useMemo, useEffect, useRef, useDeferredValue, ReactNode } from 'react';
-import { 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip as RechartsTooltip, 
-  ResponsiveContainer, 
-  AreaChart, 
-  Area,
-  ComposedChart,
-  Bar,
-  ReferenceLine,
-  Cell,
-  Scatter,
-  Line,
-  Brush,
-  BarChart as ReBarChart
-} from 'recharts';
+import { useState, useMemo, useEffect, ReactNode } from 'react';
+// recharts was used by the deleted in-app Parameter_Distribution chart. Library_Filter_Aggregate
+// renders its own SVG histogram, so no chart library is needed here anymore.
 import {
   TrendingUp,
   Zap,
-  ShieldCheck,
   BarChart2,
   Database,
   Cpu,
@@ -33,23 +17,20 @@ import {
   Minimize2,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  calculateSqueeze, 
-  generateMockCandles, 
-  runParameterSweep,
+import {
+  calculateSqueeze,
+  generateMockCandles,
   runMultiAssetBacktest,
   runStrategy,
   calculateChartIndicators,
   STRATEGIES,
   STRATEGY_DEFAULTS,
   STRATEGY_VARS,
-  BACKTEST_SOURCE,
   DEFAULT_FEE_PCT_PER_SIDE,
   StrategyType,
   StrategyAdvancedCfg,
   Timeframe,
   Candle,
-  BacktestResult
 } from './lib/indicators';
 import { useLivePrice } from './hooks/useLivePrice';
 import { cn } from './lib/utils';
@@ -173,6 +154,25 @@ export default function App() {
     oos_win_rate: number; oos_trades: number; oos_sharpe_ratio: number;
     data_span_days: number;
   }
+  // Strategy scores from quantlab.strategy_scores — composite "is this worth deploying?"
+  // rankings derived offline by `npm run score:strategies`. Unlike Backtest Library rows
+  // (one row per backtest run), one row here = one (strategy × tier × interval) recommendation.
+  interface StrategyScoreRow {
+    scored_at: string;
+    strategy_type: string; tier: string; interval: string;
+    best_param: number;
+    n_tokens_total: number; n_tokens_traded: number; n_tokens_winning: number;
+    tier_coverage: number;
+    total_trades: number; wt_net_pct: number; wt_win_rate: number; agg_pf: number; median_sharpe: number;
+    dsr: number; plateau: number; oos_is_ratio: number; oos_norm: number; trades_norm: number;
+    composite: number;
+    n_param_trials: number;
+  }
+  const [strategyScores, setStrategyScores] = useState<StrategyScoreRow[]>([]);
+  const [scoresLoading, setScoresLoading] = useState(false);
+  const [showScoringHelp, setShowScoringHelp] = useState(false);
+  const [selectedScoreRow, setSelectedScoreRow] = useState<StrategyScoreRow | null>(null);
+
   interface SearchFacets { strategies: string[]; tiers: string[]; intervals: string[]; }
   const [searchFacets, setSearchFacets] = useState<SearchFacets>({ strategies: [], tiers: [], intervals: [] });
   const [searchResults, setSearchResults] = useState<BacktestRunRow[]>([]);
@@ -224,73 +224,19 @@ export default function App() {
     { id: 'MBias', name: 'Momentum Bias', color: 'text-emerald-400' },
     { id: 'VOL', name: 'Volume', color: 'text-gray-400' },
   ];
-  const [sweepStart, setSweepStart] = useState(5);
-  const [sweepEnd, setSweepEnd] = useState(50);
-  const [sweepStep, setSweepStep] = useState(5);
-  // Per-strategy editable code, initialized from defaults. Editing any field overrides the
-  // built-in implementation for that strategy ID, since runStrategy now routes anything with
-  // a non-empty entry/exit through runCustomBacktest.
-  const [strategyCode, setStrategyCode] = useState<Record<StrategyType, { entry: string; exit: string }>>(STRATEGY_DEFAULTS);
-  const setStrategyEntry = (id: StrategyType, entry: string) =>
-    setStrategyCode(prev => ({ ...prev, [id]: { ...prev[id], entry } }));
-  const setStrategyExit = (id: StrategyType, exit: string) =>
-    setStrategyCode(prev => ({ ...prev, [id]: { ...prev[id], exit } }));
-  const resetStrategyCode = (id: StrategyType) =>
-    setStrategyCode(prev => ({ ...prev, [id]: STRATEGY_DEFAULTS[id] }));
-  const isStrategyEdited = (id: StrategyType) =>
-    strategyCode[id].entry !== STRATEGY_DEFAULTS[id].entry || strategyCode[id].exit !== STRATEGY_DEFAULTS[id].exit;
-
-  // Per-strategy threshold sweep config. When enabled and the user's code uses $E / $X
-  // placeholders, the parameter_distribution chart explores the (param × $E × $X) grid
-  // and reports the BEST combo per param value, plus the global argmax.
-  interface SweepCfg { enabled: boolean; eMin: number; eMax: number; eStep: number; xMin: number; xMax: number; xStep: number; }
-  const SWEEP_DEFAULT: SweepCfg = { enabled: false, eMin: 30, eMax: 70, eStep: 5, xMin: 20, xMax: 60, xStep: 5 };
-  const [strategySweep, setStrategySweep] = useState<Record<StrategyType, SweepCfg>>({
-    momentum: SWEEP_DEFAULT, mean_reversion: SWEEP_DEFAULT, trend_following: SWEEP_DEFAULT, custom: SWEEP_DEFAULT,
-  });
-
-  // Per-strategy advanced controls — opt-in. When `enabled` is false we pass `undefined` to
-  // the engine so behavior is identical to the simple all-in / signal-only model.
-  interface AdvancedCfgUI extends StrategyAdvancedCfg { enabled: boolean; }
-  const ADVANCED_DEFAULT: AdvancedCfgUI = { enabled: false, positionSizePct: 100, stopLossPct: 0, takeProfitPct: 0 };
-  const [strategyAdvanced, setStrategyAdvanced] = useState<Record<StrategyType, AdvancedCfgUI>>({
-    momentum: ADVANCED_DEFAULT, mean_reversion: ADVANCED_DEFAULT, trend_following: ADVANCED_DEFAULT, custom: ADVANCED_DEFAULT,
-  });
-  const updateAdvancedCfg = (id: StrategyType, patch: Partial<AdvancedCfgUI>) =>
-    setStrategyAdvanced(prev => ({ ...prev, [id]: { ...prev[id], ...patch } }));
-  // The cfg actually fed to the engine — strip the `enabled` wrapper, return undefined when off.
-  const advancedCfg: StrategyAdvancedCfg | undefined = useMemo(() => {
-    const a = strategyAdvanced[selectedStrategy];
-    if (!a.enabled) return undefined;
-    return { positionSizePct: a.positionSizePct, stopLossPct: a.stopLossPct, takeProfitPct: a.takeProfitPct };
-  }, [strategyAdvanced, selectedStrategy]);
-  const updateSweepCfg = (id: StrategyType, patch: Partial<SweepCfg>) =>
-    setStrategySweep(prev => ({ ...prev, [id]: { ...prev[id], ...patch } }));
-  const sweepCfg = strategySweep[selectedStrategy];
-
-  // Substitute $E / $X placeholders in strategy code with concrete numbers.
-  const sub = (logic: string, e: number, x: number): string =>
-    logic.replace(/\$E\b/g, String(e)).replace(/\$X\b/g, String(x));
-
-  // Live-backtest entry/exit always have placeholders substituted with the mid-range default.
-  // Without this, an unsubstituted `$E` makes the eval engine throw and silently produce
-  // zero trades for everything (which is the "why do I see zero" bug).
-  const midE = (sweepCfg.eMin + sweepCfg.eMax) / 2;
-  const midX = (sweepCfg.xMin + sweepCfg.xMax) / 2;
-  const rawEntry = strategyCode[selectedStrategy].entry;
-  const rawExit  = strategyCode[selectedStrategy].exit;
-  const customEntry = sub(rawEntry, midE, midX);
-  const customExit  = sub(rawExit,  midE, midX);
-  const codeHasPlaceholders = /\$E\b|\$X\b/.test(rawEntry + rawExit);
-
-  // Build the value lists for a sweep range, clamped to a sane size (max 12 steps each).
-  const rangeValues = (min: number, max: number, step: number): number[] => {
-    if (step <= 0 || max < min) return [min];
-    const vals: number[] = [];
-    for (let v = min; v <= max && vals.length < 12; v += step) vals.push(Number(v.toFixed(4)));
-    return vals;
-  };
-  const [initialCapital, setInitialCapital] = useState(10000);
+  // Active strategy config — driven exclusively by clicks on Top_Strategies rows or the bundle
+  // detail modal's "Load" button. The user no longer types into entry/exit fields directly: the
+  // batch engine is the only thing that actually runs backtests against `bt_runs`, so making the
+  // sidebar editable just invited overfit-by-tweaking. State stays here because the live-preview
+  // cards on the right still need a `(strategy × param × entry × exit × advanced)` tuple to run
+  // an in-app sanity backtest against the currently-loaded tier.
+  const [customEntry, setCustomEntry] = useState<string>(STRATEGY_DEFAULTS.momentum.entry);
+  const [customExit, setCustomExit]   = useState<string>(STRATEGY_DEFAULTS.momentum.exit);
+  const [advancedCfg, setAdvancedCfg] = useState<StrategyAdvancedCfg | undefined>(undefined);
+  // Bundle currently displayed in the detail modal (null = modal closed). Distinct from
+  // `selectedScoreRow` which tracks the Top_Strategies row a user has loaded into the chart.
+  const [bundleDetail, setBundleDetail] = useState<PersistedBundle | null>(null);
+  const [initialCapital] = useState(10000);
   
   const [isIndicatorMenuOpen, setIsIndicatorMenuOpen] = useState(false);
 
@@ -334,19 +280,6 @@ export default function App() {
   // Walk-forward: train on first 70% of each token's candles, eval on last 30%.
   // The sweep finds best params on train; the OOS panel shows what they'd produce on test.
   const [walkForwardEnabled, setWalkForwardEnabled] = useState(false);
-  const deferredSweepStart = useDeferredValue(sweepStart);
-  const deferredSweepEnd = useDeferredValue(sweepEnd);
-  const deferredSweepStep = useDeferredValue(sweepStep);
-
-  const handleCapitalChange = (val: number) => {
-    const safeVal = Math.max(100, Math.min(1000000, val));
-    setInitialCapital(safeVal);
-  };
-
-  const handleParamChange = (val: number) => {
-    const safeVal = Math.max(2, Math.min(500, val));
-    setStrategyParam(safeVal);
-  };
   
   const { price: wsPrice } = useLivePrice(selectedTokenSpec.symbol);
   const [history, setHistory] = useState<Candle[]>([]);
@@ -375,69 +308,24 @@ export default function App() {
   };
   useEffect(() => { refreshBundles(); }, []);
 
-  // Apply a saved bundle to the active strategy state — copies entry/exit, advanced cfg,
-  // sweep ranges, lookback window, fee, and walk-forward toggle. Also switches the editor
-  // to the bundle's family.
+  // Load a saved bundle into the active config. Copies family + entry/exit + advanced cfg
+  // + walk-forward + fee from the bundle into the live state. The user can then preview
+  // the strategy on the currently-loaded tier via the right-column metric cards. Sweep
+  // ranges (paramMin/Max/Step, eMin/eMax/etc.) are stored in the bundle but not consumed
+  // here — the batch engine reads those from the registry on its own.
   const loadBundle = (b: PersistedBundle) => {
     setSelectedStrategy(b.family);
-    setStrategyCode(prev => ({ ...prev, [b.family]: { entry: b.entryLogic, exit: b.exitLogic } }));
-    setStrategyAdvanced(prev => ({
-      ...prev,
-      [b.family]: {
-        enabled: b.positionSizePct != null || b.stopLossPct != null || b.takeProfitPct != null,
-        positionSizePct: b.positionSizePct ?? 100,
-        stopLossPct: b.stopLossPct ?? 0,
-        takeProfitPct: b.takeProfitPct ?? 0,
-      }
-    }));
-    setStrategySweep(prev => ({
-      ...prev,
-      [b.family]: {
-        enabled: ((b.eMax ?? 0) > (b.eMin ?? 0)) || ((b.xMax ?? 0) > (b.xMin ?? 0)),
-        eMin: b.eMin ?? 30, eMax: b.eMax ?? 70, eStep: b.eStep ?? 5,
-        xMin: b.xMin ?? 20, xMax: b.xMax ?? 60, xStep: b.xStep ?? 5,
-      }
-    }));
-    if (b.paramMin) setSweepStart(b.paramMin);
-    if (b.paramMax) setSweepEnd(b.paramMax);
-    if (b.paramStep) setSweepStep(b.paramStep);
+    setCustomEntry(b.entryLogic);
+    setCustomExit(b.exitLogic);
+    const hasAdvanced = b.positionSizePct != null || b.stopLossPct != null || b.takeProfitPct != null;
+    setAdvancedCfg(hasAdvanced ? {
+      positionSizePct: b.positionSizePct ?? 100,
+      stopLossPct:     b.stopLossPct     ?? 0,
+      takeProfitPct:   b.takeProfitPct   ?? 0,
+    } : undefined);
+    if (b.paramMin) setStrategyParam(b.paramMin);
     if (b.feePctPerSide != null) setFeePctPerSide(b.feePctPerSide);
     setWalkForwardEnabled(!!b.walkForward);
-  };
-
-  // Capture the current strategy's config as a new (or replacement) bundle in the registry.
-  const saveCurrentAsBundle = async () => {
-    if (!saveBundleId || !saveBundleName) return;
-    const adv = strategyAdvanced[selectedStrategy];
-    const sw  = strategySweep[selectedStrategy];
-    const payload: PersistedBundle = {
-      bundleId: saveBundleId,
-      name: saveBundleName,
-      family: selectedStrategy,
-      entryLogic: strategyCode[selectedStrategy].entry,
-      exitLogic:  strategyCode[selectedStrategy].exit,
-      paramMin: sweepStart, paramMax: sweepEnd, paramStep: sweepStep,
-      eMin: sw.enabled ? sw.eMin : 0, eMax: sw.enabled ? sw.eMax : 0, eStep: sw.enabled ? sw.eStep : 0,
-      xMin: sw.enabled ? sw.xMin : 0, xMax: sw.enabled ? sw.xMax : 0, xStep: sw.enabled ? sw.xStep : 0,
-      positionSizePct: adv.enabled ? adv.positionSizePct ?? null : null,
-      stopLossPct:     adv.enabled ? adv.stopLossPct     ?? null : null,
-      takeProfitPct:   adv.enabled ? adv.takeProfitPct   ?? null : null,
-      feePctPerSide: feePctPerSide,
-      walkForward: walkForwardEnabled,
-      splitPct: 70,
-    };
-    try {
-      const r = await fetch('/api/strategies', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      if (!r.ok) throw new Error((await r.json()).error ?? `HTTP ${r.status}`);
-      setShowSaveBundle(false);
-      setSaveBundleId(''); setSaveBundleName('');
-      refreshBundles();
-    } catch (e) {
-      alert(`Save failed: ${(e as Error).message}`);
-    }
   };
 
   const archiveBundle = async (id: string) => {
@@ -458,6 +346,17 @@ export default function App() {
       .then(r => r.json())
       .then((f: SearchFacets) => setSearchFacets(f))
       .catch(err => console.warn('facets load failed:', err));
+  }, []);
+
+  // Load Top Strategy scores once. Recomputed offline by `npm run score:strategies` after each
+  // batch run, so the user just refreshes the page to pick up new scores.
+  useEffect(() => {
+    setScoresLoading(true);
+    fetch('/api/strategies/scores?limit=50', { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+      .then((rows: StrategyScoreRow[]) => setStrategyScores(Array.isArray(rows) ? rows : []))
+      .catch(err => console.warn('strategy scores load failed:', err))
+      .finally(() => setScoresLoading(false));
   }, []);
 
   // Re-query bt_runs whenever any filter changes. Debounced via cleanup so rapid slider drags
@@ -509,6 +408,31 @@ export default function App() {
     return () => { cancelled = true; clearTimeout(t); };
   }, [filterStrategy, filterTier, filterInterval, filterSymbolLike, filterMinNetPct, filterMinPf, filterMinTrades, filterMinOosNetPct, filterMinOosPf, filterMinOosTrades, filterMinDataSpanDays, filterSortBy, filterBestPerToken]);
 
+  // Apply a Top-Strategies score row to the editor: switch tier (so the chart's tierData refits
+  // to the right cohort), set the recommended best param, switch interval, and route the active
+  // strategy to the matching bundle. Doesn't pick a single token — the score is a tier-level
+  // recommendation, so the user lands on a curated cohort and can drill into individuals from
+  // there.
+  const applyStrategyScore = (row: StrategyScoreRow) => {
+    setSelectedScoreRow(row);
+    setSelectedTiers([row.tier]);
+    if (row.interval) setSelectedTimeframe(row.interval as Timeframe);
+    setStrategyParam(row.best_param);
+    const knownFamilies: StrategyType[] = ['momentum', 'mean_reversion', 'trend_following', 'custom'];
+    if (knownFamilies.includes(row.strategy_type as StrategyType)) {
+      setSelectedStrategy(row.strategy_type as StrategyType);
+    } else {
+      const bundle = bundles.find(b => b.bundleId === row.strategy_type);
+      if (bundle) loadBundle(bundle);
+      else setSelectedStrategy('custom');
+    }
+    // Also seed the Backtest Library filter so the user sees the underlying bt_runs rows
+    // for this score's strategy/tier/interval — clicking a score is asking "show me this".
+    setFilterStrategy(row.strategy_type);
+    setFilterTier(row.tier);
+    setFilterInterval(row.interval);
+  };
+
   // Apply a backtest result row to the live editor: load the token, copy entry/exit, set lookback
   // param, and (if a matching bundle exists) the rest of the bundle's config too.
   const applyBacktestRow = (row: BacktestRunRow) => {
@@ -519,17 +443,18 @@ export default function App() {
     // strategy_type may be a built-in family OR a bundle_id. Resolve.
     const knownFamilies: StrategyType[] = ['momentum', 'mean_reversion', 'trend_following', 'custom'];
     if (knownFamilies.includes(row.strategy_type as StrategyType)) {
-      const fam = row.strategy_type as StrategyType;
-      setSelectedStrategy(fam);
-      setStrategyCode(prev => ({ ...prev, [fam]: { entry: row.entry_logic, exit: row.exit_logic } }));
+      setSelectedStrategy(row.strategy_type as StrategyType);
+      setCustomEntry(row.entry_logic);
+      setCustomExit(row.exit_logic);
     } else {
       const bundle = bundles.find(b => b.bundleId === row.strategy_type);
       if (bundle) {
         loadBundle(bundle);
       } else {
-        // Unknown bundle (maybe archived) — fall back to custom + entry/exit code from the row itself.
+        // Unknown bundle (maybe archived) — fall back to the entry/exit code stamped on the row.
         setSelectedStrategy('custom');
-        setStrategyCode(prev => ({ ...prev, custom: { entry: row.entry_logic, exit: row.exit_logic } }));
+        setCustomEntry(row.entry_logic);
+        setCustomExit(row.exit_logic);
       }
     }
   };
@@ -727,80 +652,11 @@ export default function App() {
     return tierData.map(a => ({ symbol: a.symbol, candles: a.candles.slice(Math.floor(a.candles.length * SPLIT)) }));
   }, [tierData, walkForwardEnabled]);
 
-  // Parameter Sweep — runs in a Web Worker so heavy threshold grids don't freeze the UI.
-  // Results land via `setSweep`. Stale jobs (when inputs change mid-flight) are dropped
-  // via jobId comparison.
-  const [sweep, setSweep] = useState<any[]>([]);
-  const [sweepBusy, setSweepBusy] = useState(false);
-  const [sweepMs, setSweepMs] = useState<number | null>(null);
-  const sweepWorkerRef = useRef<Worker | null>(null);
-  const sweepJobIdRef = useRef(0);
-
-  // Spin the worker up once, tear down on unmount.
-  useEffect(() => {
-    const w = new Worker(new URL('./workers/sweepWorker.ts', import.meta.url), { type: 'module' });
-    sweepWorkerRef.current = w;
-    w.onmessage = (e: MessageEvent<{ jobId: number; results: any[]; ms: number }>) => {
-      // Drop stale responses — if the user changed inputs while a job was running, we already
-      // queued a newer one and only its result should land in state.
-      if (e.data.jobId !== sweepJobIdRef.current) return;
-      setSweep(e.data.results);
-      setSweepMs(e.data.ms);
-      setSweepBusy(false);
-    };
-    return () => { w.terminate(); sweepWorkerRef.current = null; };
-  }, []);
-
-  // Whenever any sweep input changes, post a fresh job to the worker. Each effect run
-  // increments jobId so older in-flight results are ignored when they arrive.
-  useEffect(() => {
-    const data = walkForwardEnabled ? tierDataTrain : tierData;
-    if (data.length === 0) { setSweep([]); setSweepBusy(false); return; }
-    const periods: number[] = [];
-    for (let i = Math.max(2, deferredSweepStart); i <= Math.min(500, deferredSweepEnd); i += Math.max(1, deferredSweepStep)) {
-      periods.push(i);
-    }
-    if (periods.length === 0) { setSweep([]); setSweepBusy(false); return; }
-
-    const usesPlaceholders = /\$E\b|\$X\b/.test(customEntry + customExit);
-    const grid = sweepCfg.enabled && usesPlaceholders
-      ? { eVals: rangeValues(sweepCfg.eMin, sweepCfg.eMax, sweepCfg.eStep), xVals: rangeValues(sweepCfg.xMin, sweepCfg.xMax, sweepCfg.xStep) }
-      : undefined;
-
-    const jobId = ++sweepJobIdRef.current;
-    setSweepBusy(true);
-    sweepWorkerRef.current?.postMessage({
-      jobId, tierData: data, strategy: selectedStrategy, periods,
-      customEntry, customExit, initialCapital, feePctPerSide,
-      advanced: advancedCfg, grid,
-    });
-  }, [tierData, tierDataTrain, walkForwardEnabled, selectedStrategy, customEntry, customExit,
-      deferredSweepStart, deferredSweepEnd, deferredSweepStep,
-      initialCapital, sweepCfg, feePctPerSide, advancedCfg]);
-
-  // Find the global best combo from the sweep (for the "Adopt best" button)
-  const sweepBest = useMemo(() => {
-    if (sweep.length === 0) return null;
-    return sweep.reduce((b: any, r: any) => (r.avgNetProfit > b.avgNetProfit ? r : b), sweep[0]);
-  }, [sweep]);
-
-  // Out-of-sample evaluation — apply the train-best combo to the held-out test slice.
-  // If OOS performance collapses, the in-sample win was overfit.
-  const sweepBestOOS = useMemo(() => {
-    if (!walkForwardEnabled || !sweepBest || tierDataTest.length === 0) return null;
-    const e = sweepBest.bestE, x = sweepBest.bestX;
-    const entry = e !== undefined && x !== undefined ? sub(customEntry, e, x) : customEntry;
-    const exit  = e !== undefined && x !== undefined ? sub(customExit,  e, x) : customExit;
-    const bt = runMultiAssetBacktest(
-      tierDataTest, selectedStrategy, sweepBest.parameter, entry, exit, initialCapital, feePctPerSide, advancedCfg
-    );
-    return {
-      netProfit: bt.aggregated.netProfit,
-      winRate: bt.aggregated.winRate,
-      profitFactor: bt.aggregated.profitFactor,
-      trades: bt.aggregated.totalTrades,
-    };
-  }, [walkForwardEnabled, sweepBest, tierDataTest, selectedStrategy, customEntry, customExit, initialCapital, feePctPerSide, advancedCfg]);
+  // The in-app Web Worker sweep (Parameter_Distribution chart + sweepBest/OOS overlays) was
+  // removed. It duplicated work the batch engine already does — and seeing in-UI sweep wins
+  // tempted users into per-tier overfit. Use `npm run backtest` + `npm run score:strategies`
+  // for the authoritative source. The Library_Filter_Aggregate panel's param histogram
+  // visualizes the same thing, but from the persisted bt_runs.
 
   const cohorts = useMemo(() => {
     if (!portfolio?.perAsset) return { winners: [], middles: [], losers: [] };
@@ -935,84 +791,11 @@ export default function App() {
             )}
           </div>
 
-          {/* CAPITALIZATION + LOOKBACK — both shape every backtest below; pinned to top so they're always visible */}
-          <div className="space-y-3 pb-4 border-b border-[#1a1a1a]">
-            <div className="space-y-1.5">
-              <label className="text-[9px] font-black text-[#444] uppercase tracking-widest flex justify-between items-center px-1">
-                <span className="flex items-center gap-2">
-                  Capitalization ($)
-                  <InfoTooltip content="Initial starting balance per asset. Drives client-side and server-side backtests. Max $1M.">
-                    <Info className="w-3 h-3 text-[#333] hover:text-yellow-400 transition-colors" />
-                  </InfoTooltip>
-                </span>
-                <span className="text-yellow-400 font-mono text-[10px]">${initialCapital.toLocaleString()}</span>
-              </label>
-              <input
-                type="number"
-                value={initialCapital}
-                onChange={(e) => handleCapitalChange(Number(e.target.value))}
-                className="w-full bg-black border border-[#1a1a1a] rounded-xl px-4 py-2.5 text-sm font-mono focus:border-yellow-400 outline-none"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-[9px] font-black text-[#444] uppercase tracking-widest flex justify-between items-center px-1">
-                <span className="flex items-center gap-2">
-                  Lookback Period
-                  <InfoTooltip content="RSI period for momentum / mean-reversion / custom strategies. Fast EMA period (slow = 3×) for trend-following. Higher values smooth signals but lag more, and need 3× as much candle history (warm-up). Range: 2 - 500.">
-                    <Info className="w-3 h-3 text-[#333] hover:text-yellow-400 transition-colors" />
-                  </InfoTooltip>
-                </span>
-                <span className="text-yellow-400 font-mono text-[10px]">{strategyParam}</span>
-              </label>
-              <div className="flex items-center gap-2 px-1">
-                <input
-                  type="range"
-                  min="2"
-                  max="500"
-                  value={strategyParam}
-                  onChange={(e) => handleParamChange(Number(e.target.value))}
-                  className="flex-1 accent-yellow-400"
-                />
-                <input
-                  type="number"
-                  min="2"
-                  max="500"
-                  value={strategyParam}
-                  onChange={(e) => handleParamChange(Number(e.target.value))}
-                  className="w-16 bg-black border border-[#1a1a1a] rounded-lg px-2 py-1 text-[11px] font-mono text-yellow-400 focus:border-yellow-400 outline-none text-right"
-                />
-              </div>
-              <p className="text-[8px] text-gray-700 italic px-1">2 - 500 candles</p>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-[9px] font-black text-[#444] uppercase tracking-widest flex justify-between items-center px-1">
-                <span className="flex items-center gap-2">
-                  Fee per Side (%)
-                  <InfoTooltip content="Round-trip cost per side: Jupiter routing fee + typical memecoin slippage. Default 0.6% per side ⇒ ~1.2% per round-trip. Set to 0 to see fee-free results, but those are unrealistic on Solana DEXs.">
-                    <Info className="w-3 h-3 text-[#333] hover:text-yellow-400 transition-colors" />
-                  </InfoTooltip>
-                </span>
-                <span className="text-yellow-400 font-mono text-[10px]">{feePctPerSide.toFixed(2)}%</span>
-              </label>
-              <div className="flex items-center gap-2 px-1">
-                <input
-                  type="range" min="0" max="2" step="0.05"
-                  value={feePctPerSide}
-                  onChange={(e) => setFeePctPerSide(Math.max(0, Math.min(5, Number(e.target.value))))}
-                  className="flex-1 accent-yellow-400"
-                />
-                <input
-                  type="number" min="0" max="5" step="0.05"
-                  value={feePctPerSide}
-                  onChange={(e) => setFeePctPerSide(Math.max(0, Math.min(5, Number(e.target.value))))}
-                  className="w-16 bg-black border border-[#1a1a1a] rounded-lg px-2 py-1 text-[11px] font-mono text-yellow-400 focus:border-yellow-400 outline-none text-right"
-                />
-              </div>
-              <p className="text-[8px] text-gray-700 italic px-1">Per side · charged on entry & exit</p>
-            </div>
-          </div>
+          {/* CAPITALIZATION / LOOKBACK / FEE used to live here as editable sidebar inputs, but
+              they never affected the persisted bt_runs (those are batch-only) — the editable
+              UI just made it look like they did. Now they're constants ($10k / lookback comes
+              from the loaded score / 0.6% default). Edit DEFAULT_FEE_PCT_PER_SIDE in
+              src/lib/indicators.ts to change the fee, or pass `--capital` to npm run backtest. */}
 
           {/* PRE-COMPUTED RESULTS BROWSER — primary entry point. Queries the bt_runs table
               populated by the batch engine. Click any row to load that token + strategy into
@@ -1449,319 +1232,59 @@ export default function App() {
 
           </div>
 
-          {/* STRATEGY LIBRARY — persisted bundles from quantlab.strategies. Load applies the
-              bundle's full config to the editor below; Save captures the current editor state. */}
+          {/* STRATEGY LIBRARY — read-only catalog of bundles from quantlab.strategies. Strategies
+              are authored OUT OF BAND (`scripts/load_strategy_bundles.ts` or directly in
+              ClickHouse) and consumed by `npm run backtest`. Editing them here would be a lie:
+              your edits never reached the batch engine, only the in-UI live preview, which
+              tempted users into per-tier overfit.
+              "View" opens a mobile-friendly detail modal showing what the strategy actually
+              does in plain English + the full entry/exit code in read-only form. */}
           <div className="space-y-2">
             <div className="flex items-center justify-between px-1">
               <p className="text-[9px] font-black text-[#666] uppercase tracking-[0.2em]">Strategy Library</p>
-              <InfoTooltip content="Persisted strategy bundles. Loading copies entry/exit code, advanced cfg, sweep ranges, lookback, and fee into the editor. Saving captures the current strategy as a new bundle (bundle_id is the primary key — re-using one updates).">
+              <InfoTooltip content="Read-only. Strategies are defined in quantlab.strategies and consumed by the batch backtester. Click View on any row for plain-English details + the full entry/exit code.">
                 <Info className="w-3 h-3 text-[#444] hover:text-yellow-400 transition-colors cursor-help" />
               </InfoTooltip>
             </div>
-            <div className="grid gap-1 max-h-48 overflow-y-auto pr-1 custom-scrollbar">
+            <div className="grid gap-1 max-h-72 overflow-y-auto pr-1 custom-scrollbar">
               {bundles.length === 0 && (
-                <p className="text-[9px] text-gray-700 italic px-1">No bundles yet — save one below.</p>
+                <p className="text-[9px] text-gray-700 italic px-1">
+                  No bundles in <span className="font-mono">quantlab.strategies</span>. The seed
+                  block in <span className="font-mono">ensureBacktestTables()</span> populates
+                  the three built-ins on first server boot.
+                </p>
               )}
               {bundles.map(b => (
-                <div key={b.bundleId} className="group flex items-center justify-between gap-2 px-3 py-2 rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] hover:border-[#222] transition-all">
-                  <button
-                    onClick={() => loadBundle(b)}
-                    className="flex-1 text-left min-w-0"
-                    title={`${b.entryLogic} / ${b.exitLogic}`}
-                  >
+                <div key={b.bundleId} className="group flex items-center justify-between gap-2 px-3 py-2 rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] hover:border-yellow-400/30 transition-all">
+                  <div className="flex-1 min-w-0">
                     <div className="text-[10px] font-black truncate">{b.name}</div>
-                    <div className="text-[8px] text-gray-700 uppercase tracking-widest">{b.bundleId} · {b.family}</div>
-                  </button>
-                  <button
-                    onClick={() => archiveBundle(b.bundleId)}
-                    className="text-[8px] font-bold text-gray-700 hover:text-red-400 uppercase tracking-widest"
-                    title="Archive (kept in history, hidden from active list)"
-                  >
-                    [ × ]
-                  </button>
-                </div>
-              ))}
-            </div>
-            {!showSaveBundle ? (
-              <button
-                onClick={() => {
-                  setShowSaveBundle(true);
-                  // pre-fill from current state for convenience
-                  setSaveBundleName(`${selectedStrategy} v${bundles.filter(b => b.family === selectedStrategy).length + 1}`);
-                  setSaveBundleId(`${selectedStrategy}_v${bundles.filter(b => b.family === selectedStrategy).length + 1}`);
-                }}
-                className="w-full text-[8px] font-black text-emerald-400/70 hover:text-emerald-400 uppercase tracking-widest border border-emerald-500/15 hover:border-emerald-500/30 rounded-lg py-1.5 transition-colors"
-              >
-                + Save current as bundle
-              </button>
-            ) : (
-              <div className="space-y-1.5 p-2 rounded-xl bg-emerald-500/[0.04] border border-emerald-500/20">
-                <p className="text-[8px] font-black text-emerald-400 uppercase tracking-widest">Save bundle ({selectedStrategy})</p>
-                <input
-                  value={saveBundleName}
-                  onChange={e => setSaveBundleName(e.target.value)}
-                  placeholder="Display name"
-                  className="w-full bg-black border border-[#222] rounded-lg px-2 py-1.5 text-[10px] focus:border-emerald-400 outline-none"
-                />
-                <input
-                  value={saveBundleId}
-                  onChange={e => setSaveBundleId(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
-                  placeholder="bundle_id (alphanum_underscore)"
-                  className="w-full bg-black border border-[#222] rounded-lg px-2 py-1.5 text-[10px] font-mono focus:border-emerald-400 outline-none"
-                />
-                <div className="flex gap-1.5">
-                  <button onClick={saveCurrentAsBundle} disabled={!saveBundleId || !saveBundleName} className="flex-1 text-[8px] font-black text-black bg-emerald-400 hover:bg-emerald-300 disabled:bg-emerald-800 disabled:text-gray-700 rounded-lg py-1.5 uppercase tracking-widest">Save</button>
-                  <button onClick={() => setShowSaveBundle(false)} className="flex-1 text-[8px] font-black text-gray-500 hover:text-white border border-[#222] rounded-lg py-1.5 uppercase tracking-widest">Cancel</button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* STRATEGY SELECTION */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between px-1">
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-4 rounded-full bg-yellow-400 text-black flex items-center justify-center text-[9px] font-black italic">1</div>
-                <p className="text-[9px] font-black text-[#666] uppercase tracking-[0.2em]">Select Strategy Logic</p>
-              </div>
-              <InfoTooltip content="Select the core logic used to generate buy/sell signals across all market tiers.">
-                <Info className="w-3 h-3 text-[#444] hover:text-yellow-400 transition-colors cursor-help" />
-              </InfoTooltip>
-            </div>
-            <div className="space-y-1">
-              {STRATEGIES.map(s => (
-                <div key={s.id} className="space-y-1">
-                  <button 
-                    onClick={() => setSelectedStrategy(s.id)}
-                    className={cn(
-                      "w-full text-left px-4 py-3 rounded-xl border transition-all group relative overflow-hidden",
-                      selectedStrategy === s.id ? "bg-yellow-400 border-yellow-400 text-black shadow-[0_0_20px_rgba(250,204,21,0.15)]" : "bg-[#0a0a0a] border-[#1a1a1a] text-gray-500 hover:text-white"
-                    )}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                        <span className="text-[10px] font-black uppercase tracking-wider">{s.name}</span>
-                        {selectedStrategy === s.id && <Zap className="w-3 h-3 fill-current" />}
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <span className="text-[8px] font-mono text-gray-700 truncate">{b.bundleId}</span>
+                      <span className="text-[7px] font-black text-yellow-400/70 bg-yellow-400/5 border border-yellow-400/15 px-1.5 py-px rounded uppercase tracking-widest shrink-0">
+                        {b.family}
+                      </span>
                     </div>
-                    <p className={cn(
-                      "text-[8px] leading-relaxed mb-1",
-                      selectedStrategy === s.id ? "text-black/60" : "text-gray-600"
-                    )}>{s.description}</p>
+                  </div>
+                  <button
+                    onClick={() => setBundleDetail(b)}
+                    className="text-[8px] font-black text-yellow-400/80 hover:text-yellow-300 hover:bg-yellow-400/5 border border-yellow-400/20 hover:border-yellow-400/50 rounded-lg px-2.5 py-1 uppercase tracking-widest transition-colors shrink-0"
+                    title="Open the strategy details modal"
+                  >
+                    View
                   </button>
-
-                  <AnimatePresence>
-                    {selectedStrategy === s.id && (
-                      <motion.div
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: 'auto' }}
-                        exit={{ opacity: 0, height: 0 }}
-                        className="overflow-hidden"
-                      >
-                        <div className="p-4 rounded-b-2xl bg-[#080808] border-x border-b border-[#1a1a1a] space-y-3 mb-2">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[8px] font-bold text-gray-700 uppercase tracking-widest">
-                              Editable code · runs every backtest
-                            </span>
-                            {isStrategyEdited(s.id) && (
-                              <button
-                                onClick={() => resetStrategyCode(s.id)}
-                                className="text-[8px] font-bold text-yellow-400/80 hover:text-yellow-300 uppercase tracking-widest"
-                              >
-                                Reset
-                              </button>
-                            )}
-                          </div>
-                          {s.id === selectedStrategy && codeHasPlaceholders && (
-                            <div className="px-2 py-1.5 rounded-lg bg-cyan-400/[0.04] border border-cyan-400/15 text-[8px] text-cyan-400/80 leading-relaxed">
-                              <span className="font-black uppercase tracking-widest">Live backtest substitutes</span>
-                              <span className="font-mono normal-case tracking-normal text-cyan-300/90 ml-1.5">
-                                $E={midE}, $X={midX}
-                              </span>
-                              <span className="text-gray-700"> (mid of sweep range — toggle Sweep on to optimize)</span>
-                            </div>
-                          )}
-                           <div className="space-y-2">
-                            <label className="text-[9px] font-black text-gray-600 uppercase flex items-center gap-2">
-                              <div className="w-1 h-1 rounded-full bg-emerald-500" />
-                              Entry Trigger
-                            </label>
-                            <textarea
-                              spellCheck={false}
-                              value={strategyCode[s.id].entry}
-                              onChange={(e) => setStrategyEntry(s.id, e.target.value)}
-                              className="w-full bg-black border border-[#222] rounded-lg px-3 py-2 text-[10px] font-mono focus:border-yellow-400 outline-none min-h-[60px] resize-y text-emerald-300/90"
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <label className="text-[9px] font-black text-gray-600 uppercase flex items-center gap-2">
-                              <div className="w-1 h-1 rounded-full bg-red-500" />
-                              Exit Protocol
-                            </label>
-                            <textarea
-                              spellCheck={false}
-                              value={strategyCode[s.id].exit}
-                              onChange={(e) => setStrategyExit(s.id, e.target.value)}
-                              className="w-full bg-black border border-[#222] rounded-lg px-3 py-2 text-[10px] font-mono focus:border-yellow-400 outline-none min-h-[60px] resize-y text-red-300/90"
-                            />
-                          </div>
-                          <div>
-                            <p className="text-[8px] font-bold text-gray-700 uppercase tracking-widest mb-1">Available variables</p>
-                            <div className="flex flex-wrap gap-1">
-                              {STRATEGY_VARS.map(v => (
-                                <span key={v} className="text-[8px] font-mono text-yellow-400/60 bg-yellow-400/5 border border-yellow-400/10 px-1.5 py-0.5 rounded">{v}</span>
-                              ))}
-                              <span className="text-[8px] font-mono text-cyan-400/70 bg-cyan-400/5 border border-cyan-400/15 px-1.5 py-0.5 rounded">$E</span>
-                              <span className="text-[8px] font-mono text-cyan-400/70 bg-cyan-400/5 border border-cyan-400/15 px-1.5 py-0.5 rounded">$X</span>
-                            </div>
-                            <p className="text-[8px] text-gray-700 italic mt-1.5 leading-relaxed">$E and $X are sweep placeholders — substitute for any number you want the optimizer to vary, e.g. <span className="font-mono text-cyan-400/70">rsi &gt; $E</span>.</p>
-                          </div>
-
-                          {/* THRESHOLD SWEEP TOGGLE + RANGES */}
-                          <div className="border-t border-[#1a1a1a] pt-3 space-y-2">
-                            <label className="flex items-center justify-between cursor-pointer">
-                              <span className="flex items-center gap-2">
-                                <span className="text-[9px] font-black text-gray-500 uppercase tracking-widest">Sweep $E / $X</span>
-                                <InfoTooltip content="When ON, the Parameter Distribution chart explores every (lookback × $E × $X) combo and shows the best net profit per lookback. Heavy compute — toggle off when not optimizing.">
-                                  <Info className="w-3 h-3 text-[#333] hover:text-cyan-400 transition-colors" />
-                                </InfoTooltip>
-                              </span>
-                              <div
-                                onClick={() => updateSweepCfg(s.id, { enabled: !strategySweep[s.id].enabled })}
-                                className={cn(
-                                  "relative w-8 h-4 rounded-full transition-colors",
-                                  strategySweep[s.id].enabled ? "bg-cyan-400" : "bg-[#222]"
-                                )}
-                              >
-                                <div className={cn(
-                                  "absolute top-0.5 w-3 h-3 rounded-full bg-black transition-all",
-                                  strategySweep[s.id].enabled ? "left-4" : "left-0.5"
-                                )} />
-                              </div>
-                            </label>
-
-                            {strategySweep[s.id].enabled && (
-                              <div className="grid grid-cols-2 gap-2 pt-1">
-                                <div className="space-y-1">
-                                  <p className="text-[8px] font-bold text-cyan-400/70 uppercase tracking-widest">$E range</p>
-                                  <div className="flex gap-1 items-center">
-                                    <input type="number" value={strategySweep[s.id].eMin}
-                                      onChange={e => updateSweepCfg(s.id, { eMin: Number(e.target.value) })}
-                                      className="w-full bg-black border border-[#222] rounded px-1.5 py-1 text-[10px] font-mono text-cyan-400 outline-none focus:border-cyan-400" />
-                                    <span className="text-gray-700 text-[8px]">→</span>
-                                    <input type="number" value={strategySweep[s.id].eMax}
-                                      onChange={e => updateSweepCfg(s.id, { eMax: Number(e.target.value) })}
-                                      className="w-full bg-black border border-[#222] rounded px-1.5 py-1 text-[10px] font-mono text-cyan-400 outline-none focus:border-cyan-400" />
-                                    <span className="text-gray-700 text-[8px]">/</span>
-                                    <input type="number" value={strategySweep[s.id].eStep}
-                                      onChange={e => updateSweepCfg(s.id, { eStep: Number(e.target.value) })}
-                                      className="w-12 bg-black border border-[#222] rounded px-1.5 py-1 text-[10px] font-mono text-cyan-400 outline-none focus:border-cyan-400" />
-                                  </div>
-                                </div>
-                                <div className="space-y-1">
-                                  <p className="text-[8px] font-bold text-cyan-400/70 uppercase tracking-widest">$X range</p>
-                                  <div className="flex gap-1 items-center">
-                                    <input type="number" value={strategySweep[s.id].xMin}
-                                      onChange={e => updateSweepCfg(s.id, { xMin: Number(e.target.value) })}
-                                      className="w-full bg-black border border-[#222] rounded px-1.5 py-1 text-[10px] font-mono text-cyan-400 outline-none focus:border-cyan-400" />
-                                    <span className="text-gray-700 text-[8px]">→</span>
-                                    <input type="number" value={strategySweep[s.id].xMax}
-                                      onChange={e => updateSweepCfg(s.id, { xMax: Number(e.target.value) })}
-                                      className="w-full bg-black border border-[#222] rounded px-1.5 py-1 text-[10px] font-mono text-cyan-400 outline-none focus:border-cyan-400" />
-                                    <span className="text-gray-700 text-[8px]">/</span>
-                                    <input type="number" value={strategySweep[s.id].xStep}
-                                      onChange={e => updateSweepCfg(s.id, { xStep: Number(e.target.value) })}
-                                      className="w-12 bg-black border border-[#222] rounded px-1.5 py-1 text-[10px] font-mono text-cyan-400 outline-none focus:border-cyan-400" />
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-
-                          {/* ADVANCED CONTROLS — sizing + stop-loss + take-profit, opt-in */}
-                          <div className="border-t border-[#1a1a1a] pt-3 space-y-2">
-                            <label className="flex items-center justify-between cursor-pointer">
-                              <span className="flex items-center gap-2">
-                                <span className="text-[9px] font-black text-gray-500 uppercase tracking-widest">Advanced · sizing + SL/TP</span>
-                                <InfoTooltip content="When ON: deploy a fraction of cash per entry, hard stop-loss / take-profit checked intrabar (low/high). All three are independent — set any to 0 to disable.">
-                                  <Info className="w-3 h-3 text-[#333] hover:text-emerald-400 transition-colors" />
-                                </InfoTooltip>
-                              </span>
-                              <div
-                                onClick={() => updateAdvancedCfg(s.id, { enabled: !strategyAdvanced[s.id].enabled })}
-                                className={cn(
-                                  "relative w-8 h-4 rounded-full transition-colors",
-                                  strategyAdvanced[s.id].enabled ? "bg-emerald-400" : "bg-[#222]"
-                                )}
-                              >
-                                <div className={cn(
-                                  "absolute top-0.5 w-3 h-3 rounded-full bg-black transition-all",
-                                  strategyAdvanced[s.id].enabled ? "left-4" : "left-0.5"
-                                )} />
-                              </div>
-                            </label>
-
-                            {strategyAdvanced[s.id].enabled && (
-                              <div className="space-y-2 pt-1">
-                                <div className="space-y-1">
-                                  <label className="text-[8px] font-bold text-emerald-400/70 uppercase tracking-widest flex justify-between">
-                                    <span>Position size · % of cash</span>
-                                    <span className="font-mono">{strategyAdvanced[s.id].positionSizePct}%</span>
-                                  </label>
-                                  <input type="range" min="1" max="100" step="1"
-                                    value={strategyAdvanced[s.id].positionSizePct}
-                                    onChange={e => updateAdvancedCfg(s.id, { positionSizePct: Number(e.target.value) })}
-                                    className="w-full accent-emerald-400" />
-                                </div>
-                                <div className="space-y-1">
-                                  <label className="text-[8px] font-bold text-emerald-400/70 uppercase tracking-widest flex justify-between">
-                                    <span>Stop-loss · % below entry</span>
-                                    <span className="font-mono">{strategyAdvanced[s.id].stopLossPct === 0 ? 'OFF' : `${strategyAdvanced[s.id].stopLossPct}%`}</span>
-                                  </label>
-                                  <input type="range" min="0" max="50" step="0.5"
-                                    value={strategyAdvanced[s.id].stopLossPct}
-                                    onChange={e => updateAdvancedCfg(s.id, { stopLossPct: Number(e.target.value) })}
-                                    className="w-full accent-emerald-400" />
-                                </div>
-                                <div className="space-y-1">
-                                  <label className="text-[8px] font-bold text-emerald-400/70 uppercase tracking-widest flex justify-between">
-                                    <span>Take-profit · % above entry</span>
-                                    <span className="font-mono">{strategyAdvanced[s.id].takeProfitPct === 0 ? 'OFF' : `${strategyAdvanced[s.id].takeProfitPct}%`}</span>
-                                  </label>
-                                  <input type="range" min="0" max="200" step="1"
-                                    value={strategyAdvanced[s.id].takeProfitPct}
-                                    onChange={e => updateAdvancedCfg(s.id, { takeProfitPct: Number(e.target.value) })}
-                                    className="w-full accent-emerald-400" />
-                                </div>
-                                <p className="text-[8px] text-gray-700 italic leading-relaxed pt-1">
-                                  Stop-loss is checked before take-profit when both could trigger in the same bar (conservative).
-                                  These also expose <span className="font-mono text-emerald-400/70">position_pnl_pct</span>, <span className="font-mono text-emerald-400/70">bars_in_position</span>, <span className="font-mono text-emerald-400/70">drawdown_pct</span> in your entry/exit code.
-                                </p>
-                              </div>
-                            )}
-                          </div>
-
-                          {/* SOURCE VIEWER — show what loop your entry/exit code actually feeds into */}
-                          <div className="border-t border-[#1a1a1a] pt-3">
-                            <button
-                              onClick={() => setShowBacktestSource(v => !v)}
-                              className="w-full flex items-center justify-between text-[8px] font-bold text-gray-700 uppercase tracking-widest hover:text-gray-500 transition-colors"
-                            >
-                              <span>View backtest source</span>
-                              <span>{showBacktestSource ? '−' : '+'}</span>
-                            </button>
-                            {showBacktestSource && (
-                              <pre className="mt-2 p-3 bg-black border border-[#1a1a1a] rounded-lg text-[9px] font-mono text-gray-400 leading-relaxed overflow-x-auto custom-scrollbar whitespace-pre">
-{BACKTEST_SOURCE}
-                              </pre>
-                            )}
-                          </div>
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
                 </div>
               ))}
             </div>
+            <p className="text-[8px] text-gray-700 italic px-1 leading-relaxed pt-1">
+              To add or modify a strategy, edit <span className="font-mono">quantlab.strategies</span> in ClickHouse and re-run <span className="font-mono text-emerald-400/70">npm run backtest</span>.
+            </p>
           </div>
+
+          {/* STRATEGY SELECTION block (the editable entry/exit/sweep/advanced UI) was removed.
+              The active strategy is now driven by Top_Strategies row clicks in the right
+              column. Live-preview cards still update from `selectedStrategy` + `customEntry/Exit`
+              + `strategyParam` etc. — those state values just aren't user-editable here anymore. */}
+          {/* DELETED-BLOCK-MARKER */}
 
         </div>
 
@@ -1782,6 +1305,41 @@ export default function App() {
           </div>
           
           <div className="flex items-center gap-4">
+            <a
+              href="#/validator"
+              className="text-[9px] font-black text-yellow-400/80 hover:text-yellow-300 uppercase tracking-[0.2em] border border-yellow-400/30 hover:border-yellow-400 rounded-lg px-3 py-1.5 transition-colors"
+              title="Four-gate defensive validator (DSR / OOS-IS / HLZ / PBO)"
+            >
+              Validator →
+            </a>
+            <a
+              href="#/cluster"
+              className="text-[9px] font-black text-cyan-400/80 hover:text-cyan-300 uppercase tracking-[0.2em] border border-cyan-400/30 hover:border-cyan-400 rounded-lg px-3 py-1.5 transition-colors"
+              title="Cluster-axis dashboard (HDBSCAN universe + per-cluster four-gate scores)"
+            >
+              Cluster axis →
+            </a>
+            <a
+              href="#/meta-labeling"
+              className="text-[9px] font-black text-violet-400/80 hover:text-violet-300 uppercase tracking-[0.2em] border border-violet-400/30 hover:border-violet-400 rounded-lg px-3 py-1.5 transition-colors"
+              title="Meta-labeling research log (every cell-training in meta_models, partial 7-criterion verdict)"
+            >
+              Meta-labeling →
+            </a>
+            <a
+              href="#/paper-trading"
+              className="text-[9px] font-black text-emerald-400/80 hover:text-emerald-300 uppercase tracking-[0.2em] border border-emerald-400/30 hover:border-emerald-400 rounded-lg px-3 py-1.5 transition-colors"
+              title="Paper-trading dashboard (live state of the daily-signal daemon — current positions + run history)"
+            >
+              Paper trading →
+            </a>
+            <a
+              href="#/regime"
+              className="text-[9px] font-black text-amber-400/80 hover:text-amber-300 uppercase tracking-[0.2em] border border-amber-400/30 hover:border-amber-400 rounded-lg px-3 py-1.5 transition-colors"
+              title="Macro regime dashboard (phase1_v2 classifier · ADR-037 bias-quarantined · today's regime + 5d window + timeline + distribution)"
+            >
+              Macro regime →
+            </a>
             <div className="flex flex-col items-end">
               <span className="text-[9px] font-black text-[#444] uppercase tracking-widest leading-none mb-1">System_Status</span>
               <span className="text-[10px] font-mono font-bold tracking-tighter text-emerald-400 leading-none uppercase">
@@ -2062,17 +1620,144 @@ export default function App() {
 
           {/* RIGHT: PORTFOLIO & OPTIMIZER (4 columns) */}
           <div className="col-span-4 flex flex-col gap-6 overflow-hidden">
-            {/* SOURCE BANNER + PORTFOLIO QUICK STATS */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl border bg-white/[0.02] border-[#1a1a1a] text-gray-500 text-[9px] font-black uppercase tracking-widest">
-                <span className="flex items-center gap-2 truncate">
-                  <Layers className="w-3 h-3" />
-                  <span className="truncate">
-                    Showing current tier · {tierData.length} assets · ${initialCapital.toLocaleString()} each
-                  </span>
+
+            {/* TOP STRATEGIES — composite-ranked recommendations from quantlab.strategy_scores.
+                One row per (strategy × tier × interval). The composite stacks 5 robustness
+                dimensions (DSR, plateau, OOS/IS, coverage, trades) multiplicatively, so any
+                row with a score > 0 cleared every gate. Click "?" for the plain-English guide. */}
+            <div className="bg-[#0a0a0a] border border-amber-500/30 rounded-3xl p-4 space-y-3 relative overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-br from-amber-500/[0.04] to-transparent pointer-events-none" />
+              <div className="flex items-center justify-between relative z-10">
+                <div className="flex items-center gap-2">
+                  <TrendingUp className="w-3.5 h-3.5 text-amber-400" />
+                  <p className="text-[10px] font-black text-amber-400/95 uppercase tracking-[0.2em] italic">Top_Strategies</p>
+                  <button
+                    onClick={() => setShowScoringHelp(true)}
+                    className="ml-1 w-4 h-4 rounded-full bg-amber-500/15 border border-amber-500/40 text-amber-300 text-[8px] font-black hover:bg-amber-500/30 hover:text-white transition-colors flex items-center justify-center"
+                    title="What does this score mean?"
+                  >?</button>
+                </div>
+                <span className="text-[8px] font-mono text-gray-600">
+                  {scoresLoading ? 'computing…' : strategyScores.length === 0 ? 'no scores — run npm run score:strategies' : `${strategyScores.length} ranked`}
                 </span>
               </div>
+              {strategyScores.length === 0 && !scoresLoading ? (
+                <div className="px-3 py-4 text-center text-[9px] text-gray-600 italic">
+                  Run <span className="font-mono text-amber-400">npm run score:strategies</span> after each batch to populate.
+                </div>
+              ) : (
+                <div className="max-h-[300px] overflow-y-auto custom-scrollbar relative z-10 -mx-1 px-1">
+                  <div className="space-y-1">
+                    {strategyScores.slice(0, 12).map((s, idx) => {
+                      // Identify the worst dimension so the user can see WHY a row scored low.
+                      // Useful teaching tool: composite=0 with weakness="plateau" tells you
+                      // "great IS net% but the neighboring params don't work — single peak."
+                      const dims = [
+                        { k: 'DSR',      v: s.dsr,           label: 'edge probability' },
+                        { k: 'OOS',      v: s.oos_norm,      label: 'OOS survival' },
+                        { k: 'plateau',  v: s.plateau,       label: 'param robustness' },
+                        { k: 'coverage', v: s.tier_coverage, label: 'cohort breadth' },
+                        { k: 'trades',   v: s.trades_norm,   label: 'sample size' },
+                      ];
+                      const weakest = dims.reduce((min, d) => d.v < min.v ? d : min, dims[0]);
+                      const passes = s.composite > 0;
+                      const isSelected = selectedScoreRow?.strategy_type === s.strategy_type
+                        && selectedScoreRow?.tier === s.tier && selectedScoreRow?.interval === s.interval;
+                      return (
+                        <button
+                          key={`${s.strategy_type}|${s.tier}|${s.interval}`}
+                          onClick={() => applyStrategyScore(s)}
+                          className={cn(
+                            "w-full text-left rounded-xl border transition-all px-2.5 py-2 group",
+                            isSelected
+                              ? "bg-amber-500/[0.08] border-amber-400/50"
+                              : passes
+                                ? "bg-black/40 border-emerald-500/20 hover:border-emerald-400/50"
+                                : "bg-black/30 border-[#1a1a1a] hover:border-white/15"
+                          )}
+                          title={passes
+                            ? `Composite ${s.composite.toFixed(4)} — clears every dimension. Click to load.`
+                            : `Composite 0 — fails on "${weakest.k}" (${weakest.label}). Click to load and inspect.`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="text-[8px] font-mono text-gray-700 shrink-0">#{idx + 1}</span>
+                              <span className={cn(
+                                "text-[10px] font-black truncate",
+                                passes ? "text-emerald-300" : "text-gray-300"
+                              )}>{s.strategy_type}</span>
+                            </div>
+                            <span className={cn(
+                              "text-[10px] font-black tracking-tighter shrink-0 font-mono",
+                              passes ? "text-emerald-400" : "text-gray-600"
+                            )}>{s.composite.toFixed(3)}</span>
+                          </div>
+                          <div className="flex items-center gap-1 mt-1 text-[8px] font-bold uppercase tracking-widest text-gray-500">
+                            <span className="px-1 py-px rounded bg-white/5">{s.tier}</span>
+                            <span className="px-1 py-px rounded bg-white/5">{s.interval}</span>
+                            <span className="px-1 py-px rounded bg-white/5">P={s.best_param}</span>
+                            <span className="ml-auto text-gray-700 normal-case tracking-normal">
+                              {s.n_tokens_winning}/{s.n_tokens_total} tokens · {s.total_trades.toLocaleString()} trades
+                            </span>
+                          </div>
+                          {/* Compact dimension bar — five color-coded segments showing how well each
+                              robustness dimension scored. Visualizes WHICH dimension carried/killed
+                              the row at a glance. */}
+                          <div className="flex items-center gap-0.5 mt-1.5 h-1">
+                            {dims.map(d => (
+                              <div
+                                key={d.k}
+                                className="flex-1 rounded-full bg-[#1a1a1a] overflow-hidden"
+                                title={`${d.k} (${d.label}): ${d.v.toFixed(2)}${d === weakest ? ' ← weakest' : ''}`}
+                              >
+                                <div
+                                  className={cn(
+                                    "h-full transition-all",
+                                    d === weakest && d.v < 0.2 ? "bg-red-500/70" :
+                                    d.v >= 0.7 ? "bg-emerald-400/80" :
+                                    d.v >= 0.4 ? "bg-yellow-400/70" :
+                                    d.v >= 0.1 ? "bg-orange-400/60" :
+                                    "bg-red-500/40"
+                                  )}
+                                  style={{ width: `${Math.max(4, d.v * 100)}%` }}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                          <div className="flex items-center justify-between mt-1 text-[7px] font-mono text-gray-600">
+                            <span>
+                              IS{' '}
+                              <span className={s.wt_net_pct >= 0 ? 'text-emerald-400/80' : 'text-red-400/80'}>
+                                {s.wt_net_pct >= 0 ? '+' : ''}{s.wt_net_pct.toFixed(1)}%
+                              </span>
+                              {' · '}OOS{' '}
+                              <span className={s.oos_is_ratio * s.wt_net_pct >= 0 ? 'text-emerald-400/80' : 'text-red-400/80'}>
+                                {s.oos_is_ratio * s.wt_net_pct >= 0 ? '+' : ''}{(s.oos_is_ratio * s.wt_net_pct).toFixed(1)}%
+                              </span>
+                              {' · PF '}
+                              <span className={s.agg_pf >= 1 ? 'text-emerald-400/80' : 'text-red-400/80'}>
+                                {Number.isFinite(s.agg_pf) && s.agg_pf < 999 ? s.agg_pf.toFixed(2) : '∞'}
+                              </span>
+                            </span>
+                            {!passes && (
+                              <span className="text-red-400/70 font-bold uppercase tracking-widest">
+                                fails: {weakest.k}
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
 
+            {/* PORTFOLIO QUICK STATS — live in-app backtest of the currently-loaded tier
+                with the active strategy / param. (The "Showing current tier" banner that used
+                to live above this was dead weight after the in-app sweep was retired — only
+                one mode now, no need to label it.) */}
+            <div className="space-y-2">
               <div className="grid grid-cols-3 gap-3">
                  <div className="bg-[#0a0a0a] border border-[#1a1a1a] p-4 rounded-3xl group hover:border-yellow-400/20 transition-all relative overflow-hidden">
                     <p className="text-[8px] font-black text-gray-600 uppercase tracking-widest mb-1 italic">Total_Returns</p>
@@ -2340,124 +2025,337 @@ export default function App() {
               </div>
             )}
 
-            {/* OPTIMIZER BAR CHART */}
-            <div className={panelExpandClass('paramdist', "flex-[2] bg-[#0a0a0a] border border-[#1a1a1a] rounded-3xl p-6 flex flex-col min-h-[220px]")}>
-               <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <Zap className="w-3 h-3 text-yellow-400" />
-                  <InfoTooltip content="Sweeps Lookback Period across [sweepStart, sweepEnd]. Each bar = avg net profit across the current tier at that lookback. When threshold sweep is ON for the active strategy, also explores ($E × $X) per bar and shows the best combo.">
-                    <h3 className="text-[9px] font-black text-gray-400 tracking-[0.2em] uppercase italic cursor-help">Parameter_Distribution</h3>
-                  </InfoTooltip>
-                  {sweepCfg.enabled && /\$E\b|\$X\b/.test(customEntry + customExit) && (
-                    <span className="text-[7px] font-black text-cyan-400 bg-cyan-400/10 border border-cyan-400/20 px-1.5 py-0.5 rounded uppercase tracking-widest">Grid: P × $E × $X</span>
-                  )}
-                  {walkForwardEnabled && (
-                    <span className="text-[7px] font-black text-purple-400 bg-purple-400/10 border border-purple-400/20 px-1.5 py-0.5 rounded uppercase tracking-widest">Walk-fwd 70/30</span>
-                  )}
-                  {sweepBusy ? (
-                    <span className="text-[7px] font-black text-blue-400 bg-blue-400/10 border border-blue-400/20 px-1.5 py-0.5 rounded uppercase tracking-widest animate-pulse">Computing…</span>
-                  ) : sweepMs !== null && sweepMs > 200 && (
-                    <span className="text-[7px] font-bold text-gray-700 px-1.5 py-0.5 uppercase tracking-widest" title="Last sweep wall-clock time (worker thread)">
-                      {sweepMs}ms
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  <label className="flex items-center gap-1.5 cursor-pointer" title="Train on first 70% of each token's history, evaluate on the last 30%. Compare in-sample vs out-of-sample to detect overfit.">
-                    <span className="text-[7px] font-black text-gray-600 uppercase tracking-widest">WF</span>
-                    <div
-                      onClick={() => setWalkForwardEnabled(v => !v)}
-                      className={cn(
-                        "relative w-7 h-3.5 rounded-full transition-colors",
-                        walkForwardEnabled ? "bg-purple-400" : "bg-[#222]"
-                      )}
-                    >
-                      <div className={cn(
-                        "absolute top-0.5 w-2.5 h-2.5 rounded-full bg-black transition-all",
-                        walkForwardEnabled ? "left-4" : "left-0.5"
-                      )} />
-                    </div>
-                  </label>
-                  <div className="px-2 py-0.5 rounded bg-white/5 text-[8px] font-black text-gray-600 uppercase">Backtest_Matrix</div>
-                  <ExpandToggle id="paramdist" />
-                </div>
-              </div>
-              {sweepBest && sweepCfg.enabled && /\$E\b|\$X\b/.test(customEntry + customExit) && (
-                <div className="flex items-center justify-between mb-2 px-3 py-2 rounded-xl bg-cyan-400/[0.04] border border-cyan-400/15 text-[9px]">
-                  <span className="font-bold text-cyan-400/80 uppercase tracking-widest">
-                    {walkForwardEnabled ? 'In-sample · ' : 'Best · '}Param {sweepBest.parameter} · $E={sweepBest.bestE} · $X={sweepBest.bestX} · {(sweepBest.avgNetProfit >= 0 ? '+' : '')}${Math.abs(sweepBest.avgNetProfit).toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                  </span>
-                  <button
-                    onClick={() => {
-                      setStrategyParam(sweepBest.parameter);
-                      setStrategyEntry(selectedStrategy, sub(customEntry, sweepBest.bestE, sweepBest.bestX));
-                      setStrategyExit(selectedStrategy, sub(customExit, sweepBest.bestE, sweepBest.bestX));
-                    }}
-                    className="text-cyan-400 hover:text-cyan-300 font-black uppercase tracking-widest text-[9px]"
-                    title="Set Lookback to this param and bake the winning $E/$X numbers into the strategy code (replaces placeholders)"
-                  >
-                    [ Adopt ]
-                  </button>
-                </div>
-              )}
-              {walkForwardEnabled && sweepBestOOS && (() => {
-                const inSample = sweepBest?.avgNetProfit ?? 0;
-                const oos = sweepBestOOS.netProfit;
-                // Crude collapse heuristic: out-of-sample profit is < 30% of in-sample, or flips sign
-                const collapsed = inSample > 0 && (oos < inSample * 0.3 || oos < 0);
-                return (
-                  <div className={cn(
-                    "flex items-center justify-between mb-3 px-3 py-2 rounded-xl text-[9px] border",
-                    collapsed ? "bg-red-500/[0.06] border-red-500/25" : "bg-purple-400/[0.05] border-purple-400/20"
-                  )}>
-                    <span className={cn("font-bold uppercase tracking-widest", collapsed ? "text-red-400" : "text-purple-400/85")}>
-                      Out-of-sample · {(oos >= 0 ? '+' : '')}${Math.abs(oos).toLocaleString(undefined, { maximumFractionDigits: 0 })} · {sweepBestOOS.winRate.toFixed(0)}% win · PF {fmtPF(sweepBestOOS.profitFactor)} · {sweepBestOOS.trades} trades
-                    </span>
-                    {collapsed && (
-                      <span className="text-red-400/80 font-black uppercase tracking-widest text-[8px]">⚠ overfit risk</span>
-                    )}
-                  </div>
-                );
-              })()}
-              <div className="flex-1 min-h-[150px] relative">
-                {sweep.length === 0 ? (
-                  <div className="absolute inset-0 flex items-center justify-center text-[9px] text-gray-700 uppercase tracking-widest font-bold">
-                    No sweep data
-                  </div>
-                ) : (
-                 <ResponsiveContainer width="100%" height="100%" minWidth={50} minHeight={150}>
-                    <ReBarChart data={sweep} margin={{ top: 0, right: 10, bottom: 0, left: 0 }}>
-                       <CartesianGrid strokeDasharray="10 10" stroke="#111" vertical={false} />
-                       <XAxis dataKey="parameter" hide />
-                       <YAxis hide />
-                       <RechartsTooltip
-                        cursor={{ fill: 'rgba(255,255,255,0.03)' }}
-                        contentStyle={{ backgroundColor: '#000', border: '1px solid #222', borderRadius: '12px', fontSize: '9px' }}
-                        labelFormatter={(p) => `Param ${p}`}
-                        formatter={(v: any, _name: any, item: any) => {
-                          const r = item?.payload;
-                          const profit = `$${Number(v).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
-                          if (r?.bestE !== undefined) {
-                            return [`${profit} · $E=${r.bestE} $X=${r.bestX}`, 'best of grid'];
-                          }
-                          return [profit, 'avg net profit'];
-                        }}
-                       />
-                       <Bar dataKey="avgNetProfit" radius={[4, 4, 0, 0]}>
-                        {sweep.map((entry: any, index: number) => (
-                          <Cell key={`cell-${index}`} fill={entry.avgNetProfit > 0 ? "#eab308" : "#991b1b"} />
-                        ))}
-                       </Bar>
-                    </ReBarChart>
-                 </ResponsiveContainer>
-                )}
-              </div>
-            </div>
+            {/* OPTIMIZER BAR CHART removed — was a live in-app param sweep that duplicated
+                what the batch engine + score:strategies already compute. The
+                Library_Filter_Aggregate panel (above) shows the same param distribution but
+                from the persisted bt_runs, so it's the source of truth + free of overfit
+                temptation. ExpandablePanel id 'paramdist' is left in place to avoid breaking
+                any saved expand state, but no panel claims it. */}
 
           </div>
 
         </div>
       </main>
+
+      {/* STRATEGY DETAIL MODAL — opened by the "View" button in Strategy Library. Read-only
+          on purpose: strategies are authored out of band (quantlab.strategies + npm scripts);
+          this is just the documentation surface. The Load action wires the bundle into the
+          live-preview cards so the user can sanity-check it on the currently-loaded tier. */}
+      <AnimatePresence>
+        {bundleDetail && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm"
+              onClick={() => setBundleDetail(null)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 pointer-events-none"
+            >
+              <div
+                className="w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-[#0a0a0a] border border-yellow-400/30 rounded-3xl p-5 sm:p-7 pointer-events-auto custom-scrollbar shadow-2xl"
+                onClick={e => e.stopPropagation()}
+              >
+                <div className="flex items-start justify-between gap-3 mb-4">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      <Zap className="w-3.5 h-3.5 text-yellow-400 shrink-0" />
+                      <span className="text-[9px] font-black text-yellow-400 uppercase tracking-[0.2em] italic">Strategy</span>
+                      <span className="text-[8px] font-mono text-gray-700">{bundleDetail.bundleId}</span>
+                    </div>
+                    <h2 className="text-base sm:text-lg font-black tracking-tight text-white truncate">{bundleDetail.name}</h2>
+                  </div>
+                  <button
+                    onClick={() => setBundleDetail(null)}
+                    className="text-gray-600 hover:text-yellow-300 text-xs font-bold tracking-widest shrink-0 px-2 py-1"
+                  >CLOSE ✕</button>
+                </div>
+
+                {/* CHIPS — at-a-glance facts */}
+                <div className="flex flex-wrap items-center gap-1.5 text-[8px] font-bold uppercase tracking-widest mb-4">
+                  <span className="px-2 py-0.5 rounded bg-yellow-400/10 border border-yellow-400/20 text-yellow-400/90">family · {bundleDetail.family}</span>
+                  {bundleDetail.paramMin != null && bundleDetail.paramMax != null && (
+                    <span className="px-2 py-0.5 rounded bg-white/5 text-gray-400">lookback · {bundleDetail.paramMin}–{bundleDetail.paramMax}{bundleDetail.paramStep ? ` step ${bundleDetail.paramStep}` : ''}</span>
+                  )}
+                  {bundleDetail.feePctPerSide != null && (
+                    <span className="px-2 py-0.5 rounded bg-white/5 text-gray-400">fee · {bundleDetail.feePctPerSide}% / side</span>
+                  )}
+                  {bundleDetail.walkForward && (
+                    <span className="px-2 py-0.5 rounded bg-purple-400/10 border border-purple-400/20 text-purple-400/90">walk-fwd · {bundleDetail.splitPct ?? 70}/{100 - (bundleDetail.splitPct ?? 70)}</span>
+                  )}
+                  {(bundleDetail.positionSizePct != null && bundleDetail.positionSizePct < 100) && (
+                    <span className="px-2 py-0.5 rounded bg-emerald-400/10 border border-emerald-400/20 text-emerald-400/90">size · {bundleDetail.positionSizePct}%</span>
+                  )}
+                  {(bundleDetail.stopLossPct != null && bundleDetail.stopLossPct > 0) && (
+                    <span className="px-2 py-0.5 rounded bg-red-400/10 border border-red-400/20 text-red-400/90">SL · {bundleDetail.stopLossPct}%</span>
+                  )}
+                  {(bundleDetail.takeProfitPct != null && bundleDetail.takeProfitPct > 0) && (
+                    <span className="px-2 py-0.5 rounded bg-emerald-400/10 border border-emerald-400/20 text-emerald-400/90">TP · {bundleDetail.takeProfitPct}%</span>
+                  )}
+                </div>
+
+                {/* PLAIN-ENGLISH SUMMARY — derived from the family description in indicators.ts. */}
+                {(() => {
+                  const fam = STRATEGIES.find(s => s.id === bundleDetail.family);
+                  return fam ? (
+                    <div className="mb-4 p-3 rounded-xl bg-white/[0.02] border border-[#1a1a1a]">
+                      <p className="text-[9px] font-black text-gray-600 uppercase tracking-widest mb-1">What this strategy does</p>
+                      <p className="text-[11px] text-gray-300 leading-relaxed">{fam.description}</p>
+                    </div>
+                  ) : null;
+                })()}
+
+                {bundleDetail.notes && (
+                  <div className="mb-4 p-3 rounded-xl bg-white/[0.02] border border-[#1a1a1a]">
+                    <p className="text-[9px] font-black text-gray-600 uppercase tracking-widest mb-1">Notes</p>
+                    <p className="text-[11px] text-gray-400 leading-relaxed whitespace-pre-wrap">{bundleDetail.notes}</p>
+                  </div>
+                )}
+
+                {/* LOGIC — the actual entry/exit conditions, read-only. */}
+                <div className="space-y-3 mb-4">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                      <p className="text-[9px] font-black text-emerald-400 uppercase tracking-widest">Entry Trigger</p>
+                    </div>
+                    <pre className="bg-black border border-[#1a1a1a] rounded-xl p-3 text-[11px] font-mono text-emerald-300/95 whitespace-pre-wrap break-all leading-relaxed select-text">{bundleDetail.entryLogic}</pre>
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <div className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                      <p className="text-[9px] font-black text-red-400 uppercase tracking-widest">Exit Trigger</p>
+                    </div>
+                    <pre className="bg-black border border-[#1a1a1a] rounded-xl p-3 text-[11px] font-mono text-red-300/95 whitespace-pre-wrap break-all leading-relaxed select-text">{bundleDetail.exitLogic}</pre>
+                  </div>
+                </div>
+
+                {/* AVAILABLE VARIABLES — quick reference for what the entry/exit expressions can use. */}
+                <details className="mb-4 group">
+                  <summary className="text-[9px] font-black text-gray-600 uppercase tracking-widest cursor-pointer hover:text-yellow-400 transition-colors py-1 list-none flex items-center gap-2">
+                    <span className="group-open:rotate-90 transition-transform inline-block">›</span>
+                    Variables available in entry/exit
+                  </summary>
+                  <div className="flex flex-wrap gap-1 mt-2 pl-3">
+                    {STRATEGY_VARS.map(v => (
+                      <span key={v} className="text-[9px] font-mono text-yellow-400/70 bg-yellow-400/5 border border-yellow-400/10 px-1.5 py-0.5 rounded">{v}</span>
+                    ))}
+                  </div>
+                </details>
+
+                {/* ACTIONS — Load applies the bundle to the live-preview cards on the right. The
+                    Archive action soft-deletes from quantlab.strategies (kept in history). */}
+                <div className="flex flex-col sm:flex-row gap-2 pt-3 border-t border-[#1a1a1a]">
+                  <button
+                    onClick={() => { loadBundle(bundleDetail); setBundleDetail(null); }}
+                    className="flex-1 bg-yellow-400 hover:bg-yellow-300 text-black text-[10px] font-black uppercase tracking-[0.2em] py-2.5 rounded-xl transition-colors"
+                    title="Apply this bundle to the right-column live preview cards (sanity check on the currently-loaded tier). Doesn't affect persisted bt_runs."
+                  >
+                    Load · Preview on current tier
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (!confirm(`Archive "${bundleDetail.bundleId}"? Stays in history but hidden from active list.`)) return;
+                      try {
+                        const r = await fetch(`/api/strategies/${encodeURIComponent(bundleDetail.bundleId)}`, { method: 'DELETE' });
+                        if (!r.ok) throw new Error((await r.json()).error ?? `HTTP ${r.status}`);
+                        refreshBundles();
+                        setBundleDetail(null);
+                      } catch (e) {
+                        alert(`Archive failed: ${(e as Error).message}`);
+                      }
+                    }}
+                    className="sm:w-auto bg-transparent hover:bg-red-400/10 text-red-400/80 hover:text-red-300 border border-red-400/20 hover:border-red-400/40 text-[10px] font-bold uppercase tracking-widest py-2.5 px-4 rounded-xl transition-colors"
+                    title="Soft-delete: marks archived in quantlab.strategies. Existing bt_runs rows still reference it."
+                  >
+                    Archive
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* SCORING HELP MODAL — plain-English guide to what each Top-Strategies dimension means.
+          The score is multi-dimensional on purpose: each dimension catches a different way a
+          strategy can look great in-sample but fail in deployment, so the user needs to know
+          what each one is checking before trusting (or distrusting) a row. */}
+      <AnimatePresence>
+        {showScoringHelp && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm"
+              onClick={() => setShowScoringHelp(false)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="fixed inset-0 z-50 flex items-center justify-center p-6 pointer-events-none"
+            >
+              <div
+                className="w-full max-w-2xl max-h-[85vh] overflow-y-auto bg-[#0a0a0a] border border-amber-500/30 rounded-3xl p-8 pointer-events-auto custom-scrollbar shadow-2xl"
+                onClick={e => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between mb-5">
+                  <div className="flex items-center gap-2">
+                    <TrendingUp className="w-4 h-4 text-amber-400" />
+                    <h2 className="text-sm font-black uppercase tracking-[0.2em] text-amber-400 italic">
+                      How "Top Strategies" works
+                    </h2>
+                  </div>
+                  <button
+                    onClick={() => setShowScoringHelp(false)}
+                    className="text-gray-600 hover:text-amber-300 text-xs font-bold tracking-widest"
+                  >CLOSE ✕</button>
+                </div>
+
+                <p className="text-[11px] text-gray-400 leading-relaxed mb-5">
+                  Raw "highest IS net %" is the worst way to rank backtests — when you sweep N parameter
+                  values, the luckiest one will always look great even if there's no real edge (this is the
+                  same reason a coin-flip series of 20 people will always have a "winner"). The composite
+                  score multiplies <span className="font-mono text-amber-300">5 dimensions</span>, each one
+                  catching a different way a strategy can fool you. The product is multiplicative — a 0 in
+                  any dimension makes the whole composite 0. That's the design: we don't want
+                  "phenomenal IS but never traded OOS" to win.
+                </p>
+
+                <div className="space-y-4">
+                  {[
+                    {
+                      key: 'DSR',
+                      title: 'DSR — Deflated Sharpe Ratio',
+                      color: 'text-emerald-400',
+                      tagline: 'Did the IS Sharpe beat random chance after correcting for the parameter sweep?',
+                      body: (
+                        <>
+                          When you try N parameter values and report the best one, the headline Sharpe is
+                          biased upward — even random data will produce some "winner" by luck. DSR adjusts
+                          for this multiple-testing problem (Bailey & López de Prado, 2014). It returns a
+                          probability between 0 and 1: <span className="text-amber-300 font-mono">0.95</span> means
+                          "I'm 95% confident the edge is real." We use the median Sharpe per param across all
+                          tier tokens as the trial set, then test whether the chosen-param's Sharpe lies
+                          enough standard errors above the noise floor.
+                        </>
+                      ),
+                    },
+                    {
+                      key: 'OOS',
+                      title: 'OOS / IS ratio — Out-of-sample survival',
+                      color: 'text-emerald-400',
+                      tagline: 'Did the held-out test slice confirm the train slice?',
+                      body: (
+                        <>
+                          Every backtest is split 70/30 (train / test) by candle order. Train picks the best
+                          param, test evaluates that same param on bars the optimizer never saw. If train
+                          says +50% and test says +5%, the param was curve-fit to history. Ratio of 1.0 means
+                          OOS matches IS exactly; we cap the upside at 1.5 (OOS exceeded IS) and divide by
+                          1.5 to land in [0, 1]. Anything below ~0.4 is concerning.
+                        </>
+                      ),
+                    },
+                    {
+                      key: 'plateau',
+                      title: 'Plateau — Param robustness',
+                      color: 'text-emerald-400',
+                      tagline: 'Are the neighboring param values also profitable?',
+                      body: (
+                        <>
+                          A "winner" param surrounded by losing neighbors is probably noise — you got lucky on
+                          one specific RSI period and the strategy collapses if you're off by one grid step.
+                          A flat region of profitability ("plateau") around the chosen param is much more
+                          reproducible. We measure it as <span className="font-mono">1 − coefficient_of_variation</span>{' '}
+                          across the [P-1, P, P+1] cluster: flat = 1, isolated spike = 0.
+                        </>
+                      ),
+                    },
+                    {
+                      key: 'coverage',
+                      title: 'Tier coverage — Cohort breadth',
+                      color: 'text-emerald-400',
+                      tagline: 'Does it work on multiple tokens, or just one outlier saving the average?',
+                      body: (
+                        <>
+                          Fraction of tokens in the tier where this best-param produced a positive OOS net %.
+                          Penalizes the "PENGU pumped 100x and saved the headline" failure mode — if 5% of
+                          tokens are positive and 95% are negative, the strategy doesn't generalize across
+                          the cohort, even if the trade-weighted average looks good. Higher = better.
+                        </>
+                      ),
+                    },
+                    {
+                      key: 'trades',
+                      title: 'Trades — Sample size',
+                      color: 'text-emerald-400',
+                      tagline: 'Did we even see enough trades to trust the metric?',
+                      body: (
+                        <>
+                          Log-normalized: <span className="font-mono">log(trades+1) / log(101)</span>, capped at
+                          T=100 → 1.0. A strategy with 5 trades reporting PF=∞ is statistical noise; we want
+                          at least dozens of trades before we trust the win rate or PF. Diminishing returns
+                          above ~100 trades.
+                        </>
+                      ),
+                    },
+                  ].map(d => (
+                    <div key={d.key} className="bg-black/40 border border-[#1a1a1a] rounded-2xl p-3.5">
+                      <div className="flex items-baseline gap-2 mb-1">
+                        <h3 className={cn("text-[11px] font-black uppercase tracking-widest", d.color)}>{d.title}</h3>
+                      </div>
+                      <p className="text-[10px] text-gray-500 italic mb-1.5">{d.tagline}</p>
+                      <p className="text-[10px] text-gray-400 leading-relaxed">{d.body}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-6 p-3.5 rounded-2xl bg-amber-500/[0.04] border border-amber-500/20">
+                  <p className="text-[10px] font-black text-amber-400 uppercase tracking-widest mb-2">
+                    Reading the row card
+                  </p>
+                  <ul className="text-[10px] text-gray-400 space-y-1.5 leading-relaxed">
+                    <li>
+                      <span className="font-mono text-amber-300">Composite</span> = DSR × OOS × plateau × coverage × trades.
+                      Above 0 means every dimension cleared its floor — the row is genuinely deployable. 0 means
+                      at least one dimension fully failed; the card shows which one ("fails: DSR/OOS/...").
+                    </li>
+                    <li>
+                      <span className="font-mono text-amber-300">5-segment bar</span> = each dimension visualized
+                      individually. Green = ≥0.7, yellow = 0.4-0.7, orange = 0.1-0.4, red = &lt;0.1. The shortest
+                      red segment is your weakness.
+                    </li>
+                    <li>
+                      <span className="font-mono text-amber-300">Click any row</span> to load that strategy's
+                      tier into the chart and seed the Backtest Library with the matching filter — drill into
+                      the underlying per-token rows from there.
+                    </li>
+                    <li>
+                      <span className="font-mono text-amber-300">Refreshing scores</span>: run{' '}
+                      <span className="font-mono text-emerald-400">npm run score:strategies</span> after each
+                      batch and refresh the page.
+                    </li>
+                  </ul>
+                </div>
+
+                <div className="mt-4 p-3 rounded-xl bg-white/[0.02] border border-[#1a1a1a]">
+                  <p className="text-[9px] text-gray-600 italic leading-relaxed">
+                    Built on Bailey & López de Prado's "Pseudo-Mathematics and Financial Charlatanism" (2014).
+                    Future iterations may add full Combinatorial Symmetric Cross-Validation (PBO) as a promotion gate.
+                  </p>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

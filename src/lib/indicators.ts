@@ -1,11 +1,14 @@
-import { 
-  SMA, 
-  EMA, 
-  RSI, 
+import {
+  SMA,
+  EMA,
+  RSI,
   ROC,
   BollingerBands,
   ATR
 } from 'technicalindicators';
+import { computeReturnMoments, equityToReturns } from './sliceMetrics.js';
+import { computeStop, sizePositionFixedRisk } from './risk.js';
+import { DEFAULT_RISK_CONFIG } from '../server/capital_deployment_config.js';
 
 export interface Candle {
   date: string;
@@ -40,6 +43,51 @@ export interface StrategyAdvancedCfg {
   stopLossPct?: number;
   /** Take-profit as a percent above entry. 0 = disabled. Range 0-200. */
   takeProfitPct?: number;
+  /**
+   * Optional entry gate. When provided, called BEFORE the entry rule is evaluated
+   * at each bar. Return false to block the entry (the rule is not evaluated; bar
+   * proceeds normally otherwise). Exits, mark-to-market, and equity tracking are
+   * unaffected. Used by validators that need to add an external signal (e.g. a
+   * macro regime gate) to a strategy without modifying its entry-string rule.
+   * `barIdx` is the candle index; `barTime` is the candle's millisecond timestamp.
+   */
+  entryGate?: (barIdx: number, barTime: number) => boolean;
+  /**
+   * Opt-in: route entries through the §3A/3B sizing layer (src/lib/risk.ts).
+   *
+   * When **unset or false**, runCustomBacktest behaves exactly as before
+   * (all-in `positionSizePct` allocation, fixed-pct stop from `stopLossPct`)
+   * — byte-identical results to the pre-refactor engine. This is the
+   * backwards-compatibility guarantee per
+   * docs/specs/position-sizing-and-kill-switch.md §9 step 3.
+   *
+   * When **true**:
+   *   - stop price is `computeStop({entryPrice, atr14, config})` per §3B
+   *     (max(ATR-based, fixed-pct-floor) — tighter wins).
+   *   - shares is `sizePositionFixedRisk({...}).shares` per §3A
+   *     (integer floor of min(risk-bounded, capital-bounded)).
+   *   - The legacy `stopLossPct` parameter is IGNORED — the intrabar stop
+   *     check uses the computed `stopPrice` instead.
+   *   - When `shares === 0` the entry signal is SKIPPED (no trade recorded),
+   *     matching SPEC §7 "Sizer returns 0 shares" failure mode.
+   *
+   * fee-reserve is NOT consumed by the sizer in this slice — SPEC §3A defers
+   * `feeReserve` integration to a future iteration.
+   */
+  useRiskConfig?: boolean;
+  /**
+   * Subset of RiskConfig (src/server/capital_deployment_config.ts) actually
+   * consumed by the in-engine sizer/stop. Omitted fields fall back to
+   * DEFAULT_RISK_CONFIG values. Ignored when `useRiskConfig !== true`.
+   */
+  riskConfig?: {
+    /** Fraction of total capital risked per trade. Default DEFAULT_RISK_CONFIG.maxRiskPerTrade (0.02). */
+    maxRiskPerTrade?: number;
+    /** ATR multiple for the volatility-adaptive stop. Default DEFAULT_RISK_CONFIG.atrMultiple (2.5). */
+    atrMultiple?: number;
+    /** Fixed-pct floor on stop width (tighter stop wins). Default DEFAULT_RISK_CONFIG.fixedPctFloor (0.05). */
+    fixedPctFloor?: number;
+  };
 }
 
 export interface BacktestResult {
@@ -52,6 +100,18 @@ export interface BacktestResult {
   equity: number[];
   trades: Trade[];
   sharpeRatio: number;
+  /** Sample skewness γ₃ of bar-level equity returns. Feeds full Bailey 2014 PSR. */
+  skewness: number;
+  /** Raw kurtosis γ₄ (Gaussian = 3) of bar-level equity returns. Feeds full Bailey 2014 PSR. */
+  kurtosis: number;
+}
+
+/**
+ * Helper: skewness/kurtosis from an equity curve. Wraps the two-step pipeline
+ * (equity → bar returns → moments) so each backtest's return statement stays a one-liner.
+ */
+function momentsFromEquity(equity: number[]): { skewness: number; kurtosis: number } {
+  return computeReturnMoments(equityToReturns(equity));
 }
 
 export function calculateEMA(data: number[], period: number) {
@@ -96,6 +156,7 @@ export const STRATEGY_DEFAULTS: Record<StrategyType, { entry: string; exit: stri
 export const STRATEGY_VARS = [
   'rsi', 'roc', 'ema_fast', 'ema_slow',
   'close', 'open', 'high', 'low', 'volume',
+  'vol_ratio', 'donchian_high', 'roc_param',
   'position_pnl_pct', 'bars_in_position', 'drawdown_pct',
 ] as const;
 
@@ -180,7 +241,8 @@ export function runMomentumBacktest(candles: Candle[], initialBalance: number = 
     netProfit: balance - initialBalance,
     equity,
     trades,
-    sharpeRatio: calculateSharpeRatio(equity)
+    sharpeRatio: calculateSharpeRatio(equity),
+    ...momentsFromEquity(equity),
   };
 }
 
@@ -237,7 +299,7 @@ export function runMeanReversionBacktest(candles: Candle[], initialBalance: numb
     equity[i] = balance;
   }
 
-  return { winRate: tradesCount > 0 ? (wins / tradesCount) * 100 : 0, totalTrades: tradesCount, profitFactor: totalLoss > 0 ? totalProfit / totalLoss : (totalProfit > 0 ? Infinity : 1.0), grossProfit: totalProfit, grossLoss: totalLoss, netProfit: balance - initialBalance, equity, trades, sharpeRatio: calculateSharpeRatio(equity) };
+  return { winRate: tradesCount > 0 ? (wins / tradesCount) * 100 : 0, totalTrades: tradesCount, profitFactor: totalLoss > 0 ? totalProfit / totalLoss : (totalProfit > 0 ? Infinity : 1.0), grossProfit: totalProfit, grossLoss: totalLoss, netProfit: balance - initialBalance, equity, trades, sharpeRatio: calculateSharpeRatio(equity), ...momentsFromEquity(equity) };
 }
 
 /**
@@ -292,7 +354,7 @@ export function runTrendFollowingBacktest(candles: Candle[], initialBalance: num
     equity[i] = balance;
   }
 
-  return { winRate: tradesCount > 0 ? (wins / tradesCount) * 100 : 0, totalTrades: tradesCount, profitFactor: totalLoss > 0 ? totalProfit / totalLoss : (totalProfit > 0 ? Infinity : 1.0), grossProfit: totalProfit, grossLoss: totalLoss, netProfit: balance - initialBalance, equity, trades, sharpeRatio: calculateSharpeRatio(equity) };
+  return { winRate: tradesCount > 0 ? (wins / tradesCount) * 100 : 0, totalTrades: tradesCount, profitFactor: totalLoss > 0 ? totalProfit / totalLoss : (totalProfit > 0 ? Infinity : 1.0), grossProfit: totalProfit, grossLoss: totalLoss, netProfit: balance - initialBalance, equity, trades, sharpeRatio: calculateSharpeRatio(equity), ...momentsFromEquity(equity) };
 }
 
 /**
@@ -316,10 +378,47 @@ export function runCustomBacktest(
   advanced?: StrategyAdvancedCfg
 ): BacktestResult {
   const closes = candles.map(c => c.close);
+  const highs = candles.map(c => c.high);
+  const volumes = candles.map(c => c.volume);
   const rsi = RSI.calculate({ values: closes, period: param });
   const roc = ROC.calculate({ values: closes, period: 12 });
   const fastEma = EMA.calculate({ values: closes, period: param });
   const slowEma = EMA.calculate({ values: closes, period: param * 3 });
+
+  // Volume SMA over the trailing `param` bars EXCLUDING the current bar — pairs with
+  // `vol_ratio = candle.volume / volume_sma[i]` so the entry test "is current volume
+  // a spike vs recent history?" stays interpretable. Karpoff (1987), Blume-Easley-O'Hara (1994).
+  const volumeSMA = new Array<number>(candles.length).fill(0);
+  let runningVolSum = 0;
+  for (let i = 0; i < candles.length; i++) {
+    if (i >= param) {
+      volumeSMA[i] = runningVolSum / param;
+      runningVolSum -= volumes[i - param];
+    }
+    runningVolSum += volumes[i];
+  }
+  // Donchian channel high: max of highs over the trailing `param` bars EXCLUDING the
+  // current bar. Donchian (1960s); the Turtle Traders breakout (Dennis 1983). Slice + max
+  // is O(n·param) total, ~100k ops per backtest at param=100, well under any wall-clock budget.
+  const donchianHigh = new Array<number>(candles.length).fill(-Infinity);
+  for (let i = param; i < candles.length; i++) {
+    let maxH = -Infinity;
+    for (let j = i - param; j < i; j++) {
+      if (highs[j] > maxH) maxH = highs[j];
+    }
+    donchianHigh[i] = maxH;
+  }
+  // Per-token N-bar rate of change — own-series momentum, used as a degraded substitute
+  // for cross-sectional momentum (Jegadeesh-Titman 1993) when only single-token state is
+  // available. `roc_param[i] = (close[i] / close[i - param] - 1) * 100`. Returns 0 when
+  // there isn't enough history or the lookback close is non-positive (defensive against
+  // bad data). Pairs with the Volume-Breakout bundle's vol_ratio + donchian_high so a
+  // strategy can require "the token is also in its own uptrend" as an entry filter.
+  const rocParam = new Array<number>(candles.length).fill(0);
+  for (let i = param; i < candles.length; i++) {
+    const past = closes[i - param];
+    if (past > 0) rocParam[i] = (closes[i] / past - 1) * 100;
+  }
 
   const offset = Math.max(param * 3, 12);
   const feeFrac = Math.max(0, feePctPerSide) / 100;
@@ -328,9 +427,38 @@ export function runCustomBacktest(
   const slPct    = Math.max(0,    Math.min(50,  advanced?.stopLossPct   ?? 0));
   const tpPct    = Math.max(0,    Math.min(200, advanced?.takeProfitPct ?? 0));
 
+  // ───── §9 step 3: optional sizing/stop layer (off by default) ─────
+  // When useRiskConfig=true, entries route through src/lib/risk.ts's
+  // computeStop + sizePositionFixedRisk per SPEC §3A/§3B. The legacy slPct
+  // is ignored; the intrabar stop check reads position.stopPrice instead.
+  // When useRiskConfig is unset/false, NONE of the new code runs and the
+  // engine produces byte-identical results to the pre-refactor version.
+  const useRiskConfig = advanced?.useRiskConfig === true;
+  const riskMaxRisk    = advanced?.riskConfig?.maxRiskPerTrade ?? DEFAULT_RISK_CONFIG.maxRiskPerTrade;
+  const riskAtrMult    = advanced?.riskConfig?.atrMultiple     ?? DEFAULT_RISK_CONFIG.atrMultiple;
+  const riskFixedFloor = advanced?.riskConfig?.fixedPctFloor   ?? DEFAULT_RISK_CONFIG.fixedPctFloor;
+  // ATR(14) over the full candle array — single pass, only computed when
+  // we actually need it. ATR returns N - period + 1 values; index j ↔ bar
+  // (j + period - 1). So atr14[i - 13] is the ATR ending at bar i.
+  // Bars i < 13 have no ATR — sizer falls back to fixed-pct floor (SPEC §7).
+  const ATR_PERIOD = 14;
+  const atr14 = useRiskConfig
+    ? ATR.calculate({
+        period: ATR_PERIOD,
+        high: highs,
+        low: candles.map(c => c.low),
+        close: closes,
+      })
+    : ([] as number[]);
+  const atrAt = (i: number): number | undefined => {
+    if (!useRiskConfig) return undefined;
+    const j = i - (ATR_PERIOD - 1);
+    return j >= 0 && j < atr14.length ? atr14[j] : undefined;
+  };
+
   let balance = initialBalance;
   let equity: number[] = new Array(candles.length).fill(balance);
-  let position: { entryPrice: number; size: number; entryTime: number; entryCost: number; entryIdx: number } | null = null;
+  let position: { entryPrice: number; size: number; entryTime: number; entryCost: number; entryIdx: number; stopPrice?: number } | null = null;
   let trades: Trade[] = [];
   let wins = 0;
   let totalProfit = 0;
@@ -380,9 +508,16 @@ export function runCustomBacktest(
     // Stop-loss is checked BEFORE take-profit when both could trigger in the same bar
     // (conservative — assume the worst-case path through the bar).
     if (position) {
-      const stopPrice = slPct > 0 ? position.entryPrice * (1 - slPct / 100) : -Infinity;
+      // When useRiskConfig=true the position carries a pre-computed stopPrice
+      // (from computeStop) and we honor that instead of the legacy slPct rule.
+      // useRiskConfig path: slPct is ignored entirely (per SPEC §9 step 3).
+      const hasRiskStop = position.stopPrice != null;
+      const stopPrice = hasRiskStop
+        ? (position.stopPrice as number)
+        : (slPct > 0 ? position.entryPrice * (1 - slPct / 100) : -Infinity);
+      const stopActive = hasRiskStop || slPct > 0;
       const tpPrice   = tpPct > 0 ? position.entryPrice * (1 + tpPct / 100) :  Infinity;
-      if (slPct > 0 && candle.low <= stopPrice) {
+      if (stopActive && candle.low <= stopPrice) {
         closePosition(stopPrice, candle.time, 'stop_loss');
       } else if (tpPct > 0 && candle.high >= tpPrice) {
         closePosition(tpPrice, candle.time, 'take_profit');
@@ -395,6 +530,10 @@ export function runCustomBacktest(
     //   EMA:     n - period + 1 values, idx j ↔ close index j + period - 1
     //                                            → fastEma[i - param + 1] = bar i  ✓
     // Reading `fastEma[i - param]` (no +1) gave the EMA from bar i-1 — a 1-bar-stale signal.
+    // vol_ratio = current bar's volume / trailing `param`-bar volume SMA. Defaults to 1
+    // (neutral) when the SMA window isn't full yet so the entry test never trips on garbage.
+    const volSma = volumeSMA[i];
+    const volRatio = volSma > 0 ? candle.volume / volSma : 1;
     const ctx: Record<string, number | undefined> = {
       rsi: rsi[i - param],
       roc: roc[i - 12],
@@ -405,6 +544,15 @@ export function runCustomBacktest(
       high: candle.high,
       low: candle.low,
       volume: candle.volume,
+      // Volume-Breakout primitives — let strategies in the eval engine express
+      //   "current volume vs the trailing N-bar average"  →  vol_ratio
+      //   "did close break out above the trailing N-bar high?"  →  close > donchian_high
+      //   "is the token in its own N-bar uptrend?"  →  roc_param > 0
+      // roc_param is a per-token momentum filter — degraded substitute for cross-sectional
+      // momentum (Jegadeesh-Titman 1993) when only single-token state is available.
+      vol_ratio: volRatio,
+      donchian_high: donchianHigh[i],
+      roc_param: rocParam[i],
       // Advanced state vars — usable in entry/exit expressions
       position_pnl_pct: position ? ((candle.close - position.entryPrice) / position.entryPrice) * 100 : 0,
       bars_in_position: position ? (i - position.entryIdx) : 0,
@@ -412,14 +560,62 @@ export function runCustomBacktest(
     };
 
     if (!position) {
-      if (evaluate(entryLogic, ctx)) {
-        // Deploy `sizeFrac` of available cash; the rest stays in cash.
-        const cashDeployed = balance * sizeFrac;
-        const entryFee = cashDeployed * feeFrac;
-        const sizeBought = (cashDeployed - entryFee) / candle.close;
-        position = { entryPrice: candle.close, size: sizeBought, entryTime: candle.time, entryCost: cashDeployed, entryIdx: i };
-        balance -= cashDeployed;
-        trades.push({ symbol, type: 'buy', price: candle.close, time: candle.time, size: sizeBought, balanceAfter: balance });
+      // Optional external gate (e.g. macro regime). When provided AND it returns false,
+      // skip the entry-rule evaluation entirely for this bar. Exits/mark-to-market still run.
+      const gateOpen = advanced?.entryGate ? advanced.entryGate(i, candle.time) : true;
+      if (gateOpen && evaluate(entryLogic, ctx)) {
+        if (useRiskConfig) {
+          // §3B compute stop, then §3A size. If shares == 0 (insufficient
+          // capital for 1 share, or stop >= entry from atr fallback edge),
+          // SPEC §7 says: skip the trade, no buy recorded.
+          const entryPrice = candle.close;
+          const stop = computeStop({
+            entryPrice,
+            atr14: atrAt(i) ?? NaN, // NaN forces fixed-pct floor per risk.ts contract
+            config: { atrMultiple: riskAtrMult, fixedPctFloor: riskFixedFloor },
+          });
+          // Pre-discount cellCapital by (1 + feeFrac) before passing to the
+          // sizer. Without this, sharesByCap = balance/entryPrice yields
+          // notional ≤ balance, then notional + entryFee = notional*(1+feeFrac)
+          // > balance, driving `balance` negative on a capital-bound entry
+          // and silently locking the cell out of all subsequent entries
+          // (next sizer call sees cellCapital ≤ 0, returns shares=0).
+          // The discount caps cashDeployed at balance: notional ≤ balance/(1+feeFrac)
+          // → notional*(1+feeFrac) ≤ balance. Documented in session-47 critic fix.
+          const size = sizePositionFixedRisk({
+            totalCapital: initialBalance, // total portfolio NAV at entry
+            cellCapital: balance / (1 + feeFrac),
+            entryPrice,
+            stopPrice: stop.stopPrice,
+            maxRiskPerTrade: riskMaxRisk,
+          });
+          if (size.shares > 0) {
+            // entryCost includes fee on the notional (entry-side fee).
+            // entryFee is deducted from cash; balance falls by notional+fee.
+            const entryFee = size.notional * feeFrac;
+            const cashDeployed = size.notional + entryFee;
+            position = {
+              entryPrice,
+              size: size.shares,
+              entryTime: candle.time,
+              entryCost: cashDeployed,
+              entryIdx: i,
+              stopPrice: stop.stopPrice,
+            };
+            balance -= cashDeployed;
+            trades.push({ symbol, type: 'buy', price: entryPrice, time: candle.time, size: size.shares, balanceAfter: balance });
+          }
+          // shares == 0 → skip silently per SPEC §7.
+        } else {
+          // Legacy path — UNCHANGED. Byte-identical to pre-refactor behavior.
+          // Deploy `sizeFrac` of available cash; the rest stays in cash.
+          const cashDeployed = balance * sizeFrac;
+          const entryFee = cashDeployed * feeFrac;
+          const sizeBought = (cashDeployed - entryFee) / candle.close;
+          position = { entryPrice: candle.close, size: sizeBought, entryTime: candle.time, entryCost: cashDeployed, entryIdx: i };
+          balance -= cashDeployed;
+          trades.push({ symbol, type: 'buy', price: candle.close, time: candle.time, size: sizeBought, balanceAfter: balance });
+        }
       }
     } else {
       if (evaluate(exitLogic, ctx)) {
@@ -443,7 +639,8 @@ export function runCustomBacktest(
     netProfit: finalEquity - initialBalance,
     equity,
     trades,
-    sharpeRatio: calculateSharpeRatio(equity)
+    sharpeRatio: calculateSharpeRatio(equity),
+    ...momentsFromEquity(equity),
   };
 }
 
@@ -748,6 +945,7 @@ export function runMultiAssetBacktest(
       equity: combinedEquity,
       trades: allResults.flatMap(r => r.result.trades),
       sharpeRatio: avgSharpe,
+      ...momentsFromEquity(combinedEquity),
     },
     perAsset
   };
