@@ -32,6 +32,7 @@ import { CLASSIFIER_VERSION } from './macro_regime.js';
 import { getClickHouse } from './clickhouse.js';
 import {
   DrawdownStateRepository,
+  drawdownStateHasBundleIdColumn,
   drawdownStateHistoryTableExists,
 } from './drawdown_state_repository.js';
 import {
@@ -61,6 +62,7 @@ import type {
   BriefAnomaly,
   BriefDaemonSection,
   BriefDrawdownSection,
+  BriefDrawdownStrategyRow,
   BriefStageSection,
   BriefWatchlistItem,
 } from './operator_brief_render.js';
@@ -153,6 +155,15 @@ export interface BriefDeps {
    */
   fetchLatestDrawdownState?: () => Promise<DrawdownStateRow | null>;
   /**
+   * Per-strategy drawdown-state reader — strategy-tagged-drawdown-state.md
+   * §7.4 (Phase B). Defaults to `DrawdownStateRepository.loadLatestAllScopes`
+   * with the bundle_id column-presence flag probed once. Returns an empty
+   * map when (a) the table is absent, (b) the bundle_id column has not yet
+   * been added (pre-Phase-C), or (c) no per-strategy rows exist yet. Tests
+   * stub to drive the panel deterministically.
+   */
+  fetchLatestDrawdownStatePerStrategy?: () => Promise<Record<string, DrawdownStateRow>>;
+  /**
    * Stage state machine reader. Defaults to
    * `StageStateRepository.loadLatest({source:'paper'})`, returning null
    * when `quantlab.stage_state_history` does not exist or is empty.
@@ -203,6 +214,8 @@ export async function composeMorningBrief(deps?: Partial<BriefDeps>): Promise<Mo
   const fetchClosed = deps?.fetchClosedTrades ?? fetchClosedTradesFromCH;
   const fetchLatestDrawdown =
     deps?.fetchLatestDrawdownState ?? fetchLatestDrawdownStateFromCH;
+  const fetchLatestDrawdownPerStrategy =
+    deps?.fetchLatestDrawdownStatePerStrategy ?? fetchLatestDrawdownStatePerStrategyFromCH;
   const fetchLatestStage =
     deps?.fetchLatestStageState ?? fetchLatestStageStateFromCH;
   const haltSentinelPresent =
@@ -217,13 +230,14 @@ export async function composeMorningBrief(deps?: Partial<BriefDeps>): Promise<Mo
     deps?.fetchCellWeightsForBrief ?? defaultFetchCellWeightsForBrief;
   const now = deps?.now ?? (() => new Date());
 
-  const [regime, paper, lastRun, allowlists, closedTrades, latestDrawdown, latestStage, killCritDailyPresent] = await Promise.all([
+  const [regime, paper, lastRun, allowlists, closedTrades, latestDrawdown, latestDrawdownPerStrategy, latestStage, killCritDailyPresent] = await Promise.all([
     fetchRegime({ asOf: null, lookbackDays: LOOKBACK_DAYS_DEFAULT }),
     fetchPaper({ runHistoryLimit: 14 }),
     fetchDaemon(),
     fetchAllowlists(),
     fetchClosed(),
     fetchLatestDrawdown(),
+    fetchLatestDrawdownPerStrategy(),
     fetchLatestStage(),
     killCriteriaDailyTablePresent(),
   ]);
@@ -241,7 +255,7 @@ export async function composeMorningBrief(deps?: Partial<BriefDeps>): Promise<Mo
   });
   const daemon = buildDaemonSection(lastRun, now());
   const watchlist = buildWatchlist(paper, allowlists);
-  const drawdown = buildDrawdownSection(latestDrawdown, now());
+  const drawdown = buildDrawdownSection(latestDrawdown, now(), latestDrawdownPerStrategy);
   // ADR-040 SPEC §10.2 — re-compute cell weights at brief time (NOT
   // persisted). Skipped entirely when no stage row exists (the whole stage
   // section returns null in that case). Failures fall back to undefined →
@@ -388,8 +402,29 @@ async function fetchLatestDrawdownStateFromCH(): Promise<DrawdownStateRow | null
   const ch = getClickHouse();
   const present = await drawdownStateHistoryTableExists(ch);
   if (!present) return null;
+  // Pre-Phase-C the bundle_id column is absent — the repo's portfolio reads
+  // still work without the filter, so the flag stays false here. Per-strategy
+  // reads come through the separate composite fetch.
   const repo = new DrawdownStateRepository({ ch });
   return repo.loadLatest({ source: 'paper' });
+}
+
+/**
+ * Default impure read — per-strategy drawdown latest rows. Probes the
+ * `bundle_id` column once (graceful-degrade pre-migration), then uses the
+ * single GROUP-BY composite read (`loadLatestAllScopes`) and discards the
+ * portfolio half (the portfolio fetch above is its own canonical call).
+ * Returns {} when (a) table absent, (b) column absent, or (c) no rows.
+ */
+async function fetchLatestDrawdownStatePerStrategyFromCH(): Promise<Record<string, DrawdownStateRow>> {
+  const ch = getClickHouse();
+  const present = await drawdownStateHistoryTableExists(ch);
+  if (!present) return {};
+  const hasBundleId = await drawdownStateHasBundleIdColumn(ch);
+  if (!hasBundleId) return {};
+  const repo = new DrawdownStateRepository({ ch, bundleIdColumnPresent: true });
+  const all = await repo.loadLatestAllScopes({ source: 'paper' });
+  return all.perStrategy;
 }
 
 /**
@@ -532,6 +567,7 @@ const MS_PER_DAY_FOR_BRIEF = 86_400_000;
 export function buildDrawdownSection(
   row: DrawdownStateRow | null,
   now: Date,
+  perStrategyRows: Record<string, DrawdownStateRow> = {},
 ): BriefDrawdownSection | null {
   if (row === null) return null;
   const level = row.level;
@@ -541,6 +577,34 @@ export function buildDrawdownSection(
     0,
     Math.floor((now.getTime() - row.levelEnteredAt.getTime()) / MS_PER_DAY_FOR_BRIEF),
   );
+  // strategy-tagged-drawdown-state.md §7.4 — per-strategy sub-rows, sorted
+  // alphabetically by bundleId so byte-equal-stdout tests remain feasible.
+  // Re-derives sizingMultiplier / reviewRequirement / newEntriesAllowed via
+  // the same accessors the portfolio section uses (single source of truth
+  // for the SPEC §3 column values).
+  const perStrategy: BriefDrawdownStrategyRow[] = Object.entries(perStrategyRows)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([bundleId, r]) => {
+      const sDays = Math.max(
+        0,
+        Math.floor((now.getTime() - r.levelEnteredAt.getTime()) / MS_PER_DAY_FOR_BRIEF),
+      );
+      const sLevel = r.level;
+      const sRegimeExplained =
+        sLevel >= 1 && sLevel <= 3 && r.regimeRedDays30 >= 14;
+      return {
+        bundleId,
+        level: sLevel,
+        drawdown30dPct: r.drawdown30dPct,
+        sizingMultiplier: sizingMultiplierForLevel(sLevel),
+        newEntriesAllowed: computeNewEntriesAllowed(sLevel, now, r.levelEnteredAt),
+        reviewRequirement: reviewRequirementForLevel(sLevel),
+        regimeExplained: sRegimeExplained,
+        regimeRedDays30: r.regimeRedDays30,
+        daysAtLevel: sDays,
+        levelEnteredAt: r.levelEnteredAt.toISOString(),
+      };
+    });
   return {
     evaluatedAt: row.evaluatedAt.toISOString(),
     level,
@@ -555,6 +619,10 @@ export function buildDrawdownSection(
     levelEnteredAt: row.levelEnteredAt.toISOString(),
     source: row.source,
     stage: row.stage,
+    // Omit `perStrategy` entirely when empty so the portfolio block stays
+    // byte-equal to pre-Phase-B fixtures (the renderer also short-circuits
+    // on `!d.perStrategy || d.perStrategy.length === 0`).
+    ...(perStrategy.length > 0 ? { perStrategy } : {}),
   };
 }
 

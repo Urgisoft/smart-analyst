@@ -473,10 +473,10 @@ describe('Repository constructor — requiredConfigVersion pin', () => {
       // Bump history:
       //   s47 → 'ADR-039:Proposed:2026-05-16'
       //   s54 → 'ADR-039:Proposed:2026-05-17' (framework landed)
-      //   s74 → 'ADR-039:Accepted:2026-05-17+s74-drawdown-rescale'
-      //         (catches s73 ratification + s74 §4.1 L1-L4 + stage3.failDrawdown rescale)
+      //   s74 → 'ADR-039:Accepted:2026-05-17+s74-drawdown-rescale' (s73 ratification + §4.1 mr_v1-only rescale)
+      //   s77 → 'ADR-039:Accepted:2026-05-17+s77-drawdown-rescale-round2' (§4.2 blended-portfolio rescale)
       //   See capitalDeploymentConfig.test.ts header for full history.
-      { requiredConfigVersion: 'ADR-039:Accepted:2026-05-17+s74-drawdown-rescale' },
+      { requiredConfigVersion: 'ADR-039:Accepted:2026-05-17+s77-drawdown-rescale-round2' },
     ));
   });
 

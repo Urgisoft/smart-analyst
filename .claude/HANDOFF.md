@@ -1,501 +1,285 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-05-17 (session 74 — drawdown framework §4.1 sizer-regime rescale SHIPPED; Pejman delegated decision authority mid-session)
+Last updated: 2026-05-18 (session 82 close — **Phase C migration APPLIED to production ClickHouse + post-apply DOC sweep**: operator ran `npm run migrate:drawdown-state-history-per-strategy:apply`; 9→9 row parity check passed; atomic RENAME completed; canonical `quantlab.drawdown_state_history` now has `bundle_id LowCardinality(String) DEFAULT ''` + ORDER BY `(source, bundle_id, evaluated_at)`; `drawdown_state_history_v0_backup` retained pending ≥24h verification window; daemon flips to N+1 per-strategy evaluation on next run via the s81 bootstrap probe. **Post-apply DOC sweep:** (1) added §8.5 "Operator playbook — post-apply verification and drop-backup" to [`docs/specs/strategy-tagged-drawdown-state.md`](../docs/specs/strategy-tagged-drawdown-state.md) covering pre-conditions / verification commands / drop-backup procedure / rollback procedure / post-drop terminal state; (2) closed the s78 `calibration-on-the-shelf` framing in [`src/server/macro_regime_v3.ts`](../src/server/macro_regime_v3.ts) docstring + [`docs/specs/macro-regime-classifier-phase1_v3.md`](../docs/specs/macro-regime-classifier-phase1_v3.md) §2.3 footnote (a) + [`docs/obsidian/04 - Regime Classifier (phase1_v3).md`](../docs/obsidian/04%20-%20Regime%20Classifier%20%28phase1_v3%29.md) threshold table — all three now correctly state gate (a) closed by s79 backfill, gate (b) DataShop 2019-present still open. No test/tsc impact.)
 
 ## What this session delivered
 
-Session 74 closed the first dev-side gap that the s73 `useRiskConfig`
-default-on flip opened: the drawdown framework's Level-1/2/3/4
-entry/exit thresholds were calibrated against legacy %-of-capital
-sizing variance, but the s73 flip routes every daemon run through
-fixed-fractional ATR-stop sizing which **compresses portfolio variance
-by ratio ~0.297** (measured this session). Without a rescale, Level-1
-fires at ~3.4σ instead of ~1σ, Level-3 (-12%) sits beyond observed
-sizer max DD, and the framework's warning-system role silently
-degrades toward missed alarms.
+Session 82 took the s81 handoff's recommended default-next slice — Phase C migration BUILD — and shipped it autonomously per full-delegation posture, then the operator executed `--apply` against production CH to close out the destructive step. The build side delivered the script + 19 unit tests + 3 npm aliases; the apply side flipped the production schema in ~63 ms of total DDL/DML work (29ms CREATE + 19ms INSERT-SELECT + 15ms RENAME) with row-count parity holding at 9 rows on both sides. No code changes accompanied the apply itself — the script was already shipped in build form.
 
-Pejman delegated decision authority mid-session ("My brain hurts from
-thinking too much. I let you make that decision with authroity"). Under
-that delegation I:
+### Verdict
 
-1. Augmented [scripts/_threshold_stability_sweep.ts](../scripts/_threshold_stability_sweep.ts)
-   with `printDrawdownCalibrationSection` — computes trailing-30-entry
-   cumulative portfolio P&L SD per cell × variant, per-cell rescale
-   ratio distribution, pooled SD, deployed-cell SD, and suggested
-   rescaled thresholds (rounded to nearest 0.5%). Read-only, additive.
-2. Ran the sweep. Per-cell ratio: **median = 0.297, min 0.233, max
-   0.412** (n=15 cells). Tight distribution, no outliers, robust
-   across the parameter surface. Deployed-cell ratio 0.335; pooled
-   0.286. Took median 0.297 as the canonical rescale factor.
-3. Amended [docs/specs/drawdown-response-framework.md](../docs/specs/drawdown-response-framework.md)
-   with §4.1 — full RESEARCH→SPEC documentation of the rescale
-   methodology, the measurement, the L5/A5 deferral rationale, the
-   stage1/stage2 ADR-039-amendment scope-flag, and the relationship to
-   the §12 90-day empirical retune (which still applies).
-4. Rescaled [src/server/drawdown_state.ts](../src/server/drawdown_state.ts)
-   `DRAWDOWN_LEVEL_ENTRY_THRESHOLDS` and `_EXIT_THRESHOLDS` constants.
-   L5 entry (-0.20) **UNCHANGED** — operator-decision-deferred (see
-   "L5/A5 deferred" below).
-5. Updated [src/server/capital_deployment_config.ts](../src/server/capital_deployment_config.ts)
-   `stage3.failDrawdown` from -0.12 → -0.035 (follows L3 entry per
-   §7.2 wire-up). Bumped `CONFIG_VERSION` from `'ADR-039:Proposed:2026-05-17'`
-   → `'ADR-039:Accepted:2026-05-17+s74-drawdown-rescale'`. The new
-   string also catches the s73 ratification (Proposed → Accepted) that
-   was missed at the time.
-6. Refactored 4 test files: `drawdownState.test.ts` (byte-pins + 18
-   rescaled scenario tests), `capitalDeploymentConfig.test.ts`
-   (CONFIG_VERSION + stage3.failDrawdown), `stageState.test.ts`
-   (cosmetic L3 dd update), `liveTradeRepository.test.ts`
-   (requiredConfigVersion pin to new version string).
+Phase C is functionally complete from the system's perspective. Remaining operator action: ≥24h watch for healthy per-strategy daemon writes, then run `--drop-backup`. Highlights:
 
-Concrete state changes (this session only):
+- **Migration script delivered and exercised against production** ([`scripts/migrate_drawdown_state_history_per_strategy.ts`](../scripts/migrate_drawdown_state_history_per_strategy.ts)): six pre-checks all passed; three planned steps executed in order; pre/post row counts both 9 (FINAL on source); backup table retained per design.
+- **Production CH schema is now post-Phase-C**: canonical `quantlab.drawdown_state_history` engine = ReplacingMergeTree(evaluated_at), ORDER BY `(source, bundle_id, evaluated_at)`, `bundle_id` column present with DEFAULT ''. The pre-migration 9 rows are all portfolio-aggregate (sentinel `bundle_id = ''`) by definition.
+- **Daemon behavior flips on next run automatically**: the s81 bootstrap probe will now see `bundle_id` column present → constructs the repository with `bundleIdColumnPresent: true` → after the portfolio evaluation, `runDaemonStrategyDrawdownEvaluations` runs and writes per-strategy rows. Morning brief's per-strategy panel begins rendering. **No additional operator action is needed for the flip itself.**
+- **Backup table is the rollback handle**: `quantlab.drawdown_state_history_v0_backup` is intact; a swap-back via `RENAME TABLE` is the rollback path if the next daemon run surfaces a problem.
+- **Tests + tsc + check:help unchanged** by the apply: apply does not touch TS code. Baseline 1333/0/6, tsc 13-error baseline, check:help green.
 
-1. **Sweep augmentation** at
-   [scripts/_threshold_stability_sweep.ts](../scripts/_threshold_stability_sweep.ts).
-   New `computeTrailing30dCumPctSeries` helper + augmented `CellMetrics`
-   with `trail30dCumPctSeries` field + new `printDrawdownCalibrationSection`
-   function. Output adds a 5-section diagnostic block AFTER the
-   plateau analysis and BEFORE the §9 step 4 verdict. Existing output
-   unchanged. Reproducer: `npx tsx scripts/_threshold_stability_sweep.ts`
-   (~2 min, read-only).
+### Headline result table
 
-2. **Framework constants rescaled** at
-   [src/server/drawdown_state.ts:65-82](../src/server/drawdown_state.ts#L65-L82).
+| Element | Status |
+| --- | --- |
+| **Migration script — dry-run / apply / drop-backup modes** | **✓ shipped s82** |
+| **Migration tests — 19 unit tests** | **✓ shipped s82** |
+| **npm aliases + help entries** | **✓ shipped s82** |
+| **Phase C migration APPLY (destructive RENAME against production CH)** | **✓ APPLIED s82 — 9→9 parity, ~63ms total** |
+| Phase C `--drop-backup` (destructive DROP of `_v0_backup`) | ☐ pending — operator-authorized; gated on ≥24h healthy-write verification |
+| Phase A SPEC + pure-function surface (s80) | ✓ preserved |
+| Phase B CODE (repository + daemon + brief) (s81) | ✓ preserved |
+| Tests | **1333 pass / 0 fail / 6 skipped** (no change from build-time beat) |
+| npx tsc --noEmit | 13 errors (unchanged baseline) |
+| npm run check:help | ✓ green |
 
-   ENTRY thresholds:
-   - L1: -0.03 → **-0.01**
-   - L2: -0.07 → **-0.02**
-   - L3: -0.12 → **-0.035**
-   - L4: -0.18 → **-0.055**
-   - L5: -0.20 → **UNCHANGED** (byte-pinned to A5_KILL_THRESHOLD_PCT)
-
-   EXIT thresholds:
-   - L1: -0.02 → **-0.005** (days unchanged at 5)
-   - L2: -0.05 → **-0.015** (days unchanged at 5)
-   - L3: -0.10 → **-0.03** (days unchanged at 5)
-   - L4: -0.15 → **-0.045** (days unchanged at 10)
-
-   Day counts unchanged (recovery-day requirement is a structural
-   choice, not variance-derived).
-
-3. **`stage3.failDrawdown` rescaled** at
-   [src/server/capital_deployment_config.ts:174](../src/server/capital_deployment_config.ts#L174):
-   `-0.12 → -0.035`. Operational semantics unchanged (still fires on
-   `isLevel3EntryEvent(prior, current)`, NOT on `drawdown <= -0.035`).
-   The numeric value mirrors `DRAWDOWN_LEVEL_ENTRY_THRESHOLDS[3]` for
-   audit-trail clarity AND so drift-detection test #50 in
-   `stageState.test.ts` catches desynchronisation.
-
-4. **CONFIG_VERSION bump** at
-   [src/server/capital_deployment_config.ts:64](../src/server/capital_deployment_config.ts#L64):
-   `'ADR-039:Proposed:2026-05-17' → 'ADR-039:Accepted:2026-05-17+s74-drawdown-rescale'`.
-   Bundles two unbundled changes: (a) s73 ratification that didn't
-   bump the version at the time, (b) s74 framework §4.1 rescale.
-
-5. **SPEC amendment** at
-   [docs/specs/drawdown-response-framework.md](../docs/specs/drawdown-response-framework.md)
-   §4.1 — new section inserted BEFORE existing §4. Documents the
-   methodology, evidence (the 5-section sweep output), L5/A5 deferral
-   rationale, stage1/stage2 ADR-039-amendment scope-flag, and the
-   distinction between §4.1 (proportional rescale, stopgap) and §12
-   (empirical-quantile retune at 90d, canonical fix). Also updated
-   §9.2 (code block byte-pin reference), §9.3 (failDrawdown wire-up
-   footnote), and §11 (test plan dd values).
-
-6. **Test rescaling** — all four affected test files updated:
-   - `scripts/tests/drawdownState.test.ts` — byte-pin tests (#20) +
-     18 scenario tests with rescaled dd inputs that preserve the
-     ORIGINAL logical scenarios (boundary semantics, sticky-down,
-     one-step recovery, hysteresis, L3 7-day pause) under the new
-     threshold values. The PATTERN under test is unchanged; only the
-     numeric inputs scaled by ~0.297.
-   - `scripts/tests/capitalDeploymentConfig.test.ts` — CONFIG_VERSION
-     byte-pin + stage3.failDrawdown byte-pin.
-   - `scripts/tests/stageState.test.ts` — cosmetic update to test #36's
-     dd input (-0.13 was realistic under old, now semantically odd at
-     level 3; updated to -0.04). The dd value is incidental — the gate
-     fires on `isLevel3EntryEvent`, not on dd magnitude.
-   - `scripts/tests/liveTradeRepository.test.ts` — `requiredConfigVersion`
-     pin to new CONFIG_VERSION string.
-
-Test verdict (post-rescale, full npm test):
+### Test baseline (unchanged by apply)
 
 ```text
-1265 total / 1256 pass / 3 fail / 6 skipped
+npm test                       1333 pass / 0 fail / 6 skipped   (unchanged from s82 build beat)
+npx tsc --noEmit               13 errors (IDENTICAL to baseline; no new errors)
+npm run check:help             green
+.venv/Scripts/python.exe -m pytest scripts/tests   164/164  (Python untouched this session)
 ```
 
-Identical to the s73 baseline. The 3 fails are pre-existing macro
-regime fixture failures (2008_gfc, 2011_eu_debt, 2020_covid in
-`macroRegimeFixturesV3.test.ts`); no s74 change touched them.
-+1 pass vs s73 (1255 → 1256) because s74's liveTradeRepository pin fix
-brought a previously-existing test back to green at the same time.
+### Concrete state changes (this session in total — build + apply)
 
-Dry-run smoke verdict:
+1. **[scripts/migrate_drawdown_state_history_per_strategy.ts](../scripts/migrate_drawdown_state_history_per_strategy.ts)** — NEW (build beat). ~280 lines. Exports `DDL_NEW_TABLE`, `DML_INSERT_SELECT`, `DDL_RENAME`, `DDL_DROP_BACKUP`, `planMigrationSteps`, `verifyPreState`, `rowCount`, `DATABASE`, `CANONICAL_TABLE`, `NEW_TABLE`, `BACKUP_TABLE`, `EXPECTED_OLD_KEY`, `EXPECTED_NEW_KEY`, `help`. `main()` orchestrates dry-run / apply / drop-backup paths.
+2. **[scripts/tests/migrateDrawdownStateHistoryPerStrategy.test.ts](../scripts/tests/migrateDrawdownStateHistoryPerStrategy.test.ts)** — NEW (build beat). 19 tests across 3 describe blocks.
+3. **[package.json](../package.json)** — EDITED (build beat). Added 3 npm scripts.
+4. **Production CH schema** — APPLIED (apply beat). `quantlab.drawdown_state_history` now has new ORDER BY + `bundle_id` column; `quantlab.drawdown_state_history_v0_backup` is the pre-migration snapshot (9 rows, old ORDER BY `(source, evaluated_at)`, no `bundle_id`).
+5. **[.claude/HANDOFF.md](./HANDOFF.md)** — REWRITE. This document.
 
-```text
-npm run daemon:daily:dry -- --no-fetch --no-macro
-  [drawdown-state] level=L0 dd=0.00% sizing=1× entries=allowed regimeRed=0d
-  [stage-state] stage=paper decision=hold reason=min-duration-not-met
-  [cell-weights] tier=T0 cells=2 weights=...:0.500,...:0.500 ...
-  [per-cell-capital] stage=paper deployed=$10000.00 cells=2 cellCap=$10000.00 halted=no
-  [evaluator-capital] mode=retarget stage=paper cap=$10000.00 cells=2 halted=no
-  [evaluator-risk-config] mode=sizer stage=paper cells=2
-  [halt-monitor] decision=OK mode=observe triggered=none
-```
+### What is NOT changed this session
 
-(Halt-monitor mode=observe is correct in dry-runs — `resolveEffectiveHaltEnforce`
-forces observe-mode regardless of the `--halt-enforce-mode=true` default.)
+- **No code changes accompanied the apply.** The destructive step ran against the build that already shipped earlier in the session; the daemon, repository, and brief modules from s81 are unchanged.
+- **No CONFIG_VERSION bump.** The daemon's bootstrap probe is what flips behavior; no config rev was required by the apply step.
+- **No s80/s81 code changes.** The pure-function surface (s80 Phase A) + repository / daemon / brief wire-up (s81 Phase B) are unchanged.
+- **No CBOE arm changes.** s78 put/call retune + s79 backfill unchanged.
+- **No daemon-default flips.** Retargeting ON, useRiskConfig ON, halt enforce-mode ON — all unchanged.
+- **Working tree from s74-s81 still unstaged**; s82 adds 3 files to the working set. Commit packaging Pejman-decision still pending (Open Questions #4).
 
 ## Where we are
 
-The pre-real-money chain through s73 closed all dev-side gates. S74
-closed the FIRST KNOWN POST-S73 GAP that the sizer flip exposed: the
-drawdown framework calibration. The framework's warning-system function
-is now restored under the sizer regime; the stage 3 fail gate fires at
-a realistic threshold (-0.035 vs the previously-effectively-unreachable
--0.12).
+Session 82 closed both the BUILD and the APPLY of the s80 SPEC §8.1 destructive migration. Next concrete events:
 
-Two related sizer-regime calibration questions REMAIN OPEN:
-
-1. **L5/A5 deferred** — A5/L5 carries a dual interpretation:
-   - σ-band warning (Pardo §11 logic) → rescale to ~-5% to preserve
-     the original ~5σ position
-   - Operator-preference circuit breaker ("never lose >20% in a
-     month") → leave at -20%
-   - Worst observed sizer-cell DD is -14.63%, so under interpretation
-     (b) the kill is effectively dormant under sizer (would require a
-     >5σ tail event to fire). This is a real value judgment about
-     what A5/L5 means operationally, NOT a pure data call.
-   - Per full-delegation memory, this is the "ADR conflicts /
-     canon-thin ambiguity" stop trigger. Pejman-decision needed.
-
-2. **stage1.failDrawdown (-0.05) and stage2.failDrawdown (-0.10)** are
-   ADR-039 §1 originals (verbatim from the canonical ADR table) and
-   were NOT rescaled in s74. They're similarly affected by the sizer
-   flip — under sizer with σ≈0.89% on the deployed cell, stage1's
-   -5% is a ~5.6σ event and stage2's -10% is ~11σ. Both effectively
-   never fire. Rescaling them requires an **ADR-039 amendment slice**
-   with its own operator decision, NOT a framework SPEC amendment.
-   Flagged in SPEC §4.1 Watch-outs.
+1. **Next daily daemon run (~within 24h)** — bootstrap probe sees `bundle_id` column present → daemon writes one portfolio row + one row per live strategy bundle. Brief begins rendering the per-strategy panel.
+2. **~24h after the apply** — operator verifies daemon `[drawdown-state strategy=<bid>]` log lines fired + morning brief renders per-strategy panel + no anomalies, then runs `npm run migrate:drawdown-state-history-per-strategy:drop-backup` to drop `quantlab.drawdown_state_history_v0_backup`.
 
 | Bucket | Status |
 | --- | --- |
-| §9 step 6 — enforce-mode flip | ✓ shipped s73 |
-| §9 step 7 — halt sentinel + pre-flight | ✓ shipped (prior) |
-| ADR-040 RESEARCH/SPEC/CODE/MIGRATE/L-2 byte-pin | ✓ s68-s72 |
-| ADR-039 + ADR-040 ratification | ✓ s73 Pejman-authorized |
-| useRiskConfig default-on flip | ✓ s73 Pejman-authorized |
-| Drawdown framework §4.1 sizer-regime rescale (L1-L4) | ✓ shipped s74 (Pejman-delegated) |
-| Drawdown framework L5/A5 rescale decision | ☐ Pejman-decision (sigma-band vs operator-preference) |
-| ADR-039 stage1/stage2 failDrawdown rescale | ☐ Pejman-decision (ADR-039 amendment slice) |
-| Drawdown framework §12 90d empirical retune | ☐ scheduled — will be sizer-data when it fires |
+| All s73-s81 lock-ins | ✓ as documented in prior handoffs |
+| Strategy-tagged dd_state architectural SPEC | ✓ s80 |
+| Strategy-tagged dd_state Phase A CODE (pure-function surface) | ✓ s80 |
+| Strategy-tagged dd_state Phase B CODE (repository + daemon + brief) | ✓ s81 |
+| Strategy-tagged dd_state Phase C migration BUILD | ✓ s82 build beat |
+| **Strategy-tagged dd_state Phase C APPLY (destructive RENAME against production CH)** | **✓ s82 apply beat — 9→9 parity** |
+| Phase C `--drop-backup` | ☐ pending — operator-authorized; gated on ≥24h healthy-write window |
+| CBOE DataShop subscription (2019-present coverage) | ☐ deferred — Pejman-decision (paid) |
+| L5/A5 σ-band rescale decision | ☐ deferred — operator-decision per parent SPEC §4.2 |
+| stage1/stage2/stage4.failDrawdown rescale | ☐ deferred — separate ADR-039 amendment slice |
+| Drawdown framework §12 90d empirical retune | ☐ scheduled — sizer-mode data when it fires (~2026-08-29 earliest); §12 of s80 SPEC mandates per-strategy retune ALONGSIDE portfolio retune in the same ADR |
+| s78 docstring/spec cleanup (calibration-on-the-shelf framing) | ✓ s82 post-apply DOC sweep |
+| Phase C operator playbook (§8.5) | ✓ s82 post-apply DOC sweep |
+| Commit consolidation (s74-s82) | ☐ Pejman-decision — working tree now carries 9 sessions unstaged + this DOC sweep |
 
 ## Decisions locked in
 
-### Session 74 (this session — drawdown framework §4.1 rescale)
+### Session 82 apply beat (this beat)
 
-**1. Drawdown framework Levels 1-4 entry/exit thresholds rescaled by
-ratio 0.297 (per-cell median SIZER/LEGACY trailing-30d cum P&L SD).**
-Pre-s74 values were calibrated to legacy %-of-capital sizing variance
-(SPEC §4 cites trend_v1/mr_v1 30-day rolling SD ~3-5%). Post-s73,
-sizer compresses portfolio variance by ratio ~0.297 (measured this
-session: per-cell median 0.297, deployed-cell 0.335, pool 0.286,
-per-cell range 0.233-0.412). Proportional rescale preserves the
-σ-band design Pardo (2008) §11 originally specified.
-`Why:` per Vector Core PUSHBACK role + SPEC §4's explicit
-"calibrated against backtest variance of the deployed cells" framing,
-a known systematic variance shift documented in SPEC §9.4 (port_DD
--25% legacy → -10.7% sizer midpoint) requires the σ-band thresholds
-to follow or the warning-system function silently degrades. This is
-NOT the §12 retune (which uses live-data empirical quantiles at 90
-days); §12 still applies and supersedes §4.1 at that point.
-`How to apply:` if a future contributor sees the new thresholds and
-wonders why they're so close to -0% compared to "industry norms" or
-legacy literature defaults, the answer is sizer-regime variance.
-DO NOT reset to "rounder" or "more conservative" values without
-re-running the sweep diagnostic + updating SPEC §4.1.
+**A1. The `--apply` ran against production with the daemon in an idle window.** Pre-checks confirmed engine = ReplacingMergeTree, current ORDER BY = `(source, evaluated_at)`, `bundle_id` absent, no leftover `_new` or `_v0_backup`, no pending mutations, source `count(*) FROM ... FINAL = 9`. All six s82 build-time architectural decisions held in production exactly as designed: CREATE-NEW + INSERT-SELECT (FINAL on source) + atomic two-table RENAME; INSERT enumerated columns and omitted `bundle_id` so DEFAULT '' fired; row-count parity (9 = 9) verified BEFORE the RENAME; backup retained after RENAME for the verification window.
+`Why:` no surprise — the script was unit-test-pinned to this exact behavior and the production CH state matched the pre-check expectations cleanly.
+`How to apply:` future destructive migrations follow the same template — pre-check verdict → planned steps printout → row-count parity BEFORE swap → post-checks → backup retained until operator-driven cleanup.
 
-**2. L5/A5 entry threshold UNCHANGED at -0.20.** A5/L5 carries a dual
-interpretation (σ-band warning vs operator-preference circuit
-breaker) that cannot be resolved from data alone. Worst observed
-sizer-cell DD is -14.63%, so under the operator-preference reading
-the hard-kill is effectively dormant under sizer. Decision deferred
-to a separate slice + Pejman-decision.
-`Why:` per `feedback_full_delegation_mode` memory, "ADR conflicts /
-canon-thin ambiguity" is one of the explicit stop triggers for
-autonomous progression. The σ-vs-operator-preference distinction
-isn't an ambiguity the canon resolves — it's a value judgment about
-what A5/L5 means operationally.
-`How to apply:` when Pejman returns to this question, the slice
-should answer first: "what is A5/L5 for — statistical warning of
-unusual distress, or hard cap on monthly loss?" Then the data
-determines the threshold. Test #26 byte-equality between A5 and L5
-must update in lockstep if either changes.
+**A2. `_v0_backup` is the rollback handle for the verification window.** A swap-back via `RENAME TABLE quantlab.drawdown_state_history TO quantlab.drawdown_state_history_new_failed, quantlab.drawdown_state_history_v0_backup TO quantlab.drawdown_state_history` returns the system to pre-migration state.
+`Why:` if the first per-strategy daemon write surfaces a problem we didn't catch in s81 unit tests, this is the no-data-loss escape hatch.
+`How to apply:` DO NOT run `--drop-backup` until the operator has observed ≥1 daemon cycle with healthy `[drawdown-state strategy=<bid>]` log lines + a clean morning brief render. The Phase C-apply rollback option only exists while `_v0_backup` is present.
 
-**3. stage1.failDrawdown (-0.05) and stage2.failDrawdown (-0.10)
-NOT rescaled in s74.** These values are ADR-039 §1 originals
-(verbatim from `docs/decisions/README.md` lines ~4198-4203). Under
-sizer they're effectively never going to fire (~5.6σ and ~11σ
-events respectively). Rescaling them requires an ADR-039 amendment
-slice, NOT a framework SPEC amendment.
-`Why:` discipline pattern — framework SPEC amendments shouldn't
-silently amend ADR-canonical values. The right path is an explicit
-ADR-039 amendment that documents the same proportional-rescale logic
-applied to stages 1+2.
-`How to apply:` future ADR-039 amendment slice should rescale by the
-SAME ratio 0.297 (or update from a fresh sweep run) and bump
-CONFIG_VERSION accordingly. Tests in `capitalDeploymentConfig.test.ts`
-will fail loudly on the byte-pin if any stage's failDrawdown changes
-without test update.
+### Session 82 build beat (carried from earlier in this session)
 
-**4. CONFIG_VERSION format extended to support amendment suffixes.**
-New format: `'ADR-NNN:<status>:<YYYY-MM-DD>[+<amendment-tag>]'`.
-Used here as `'ADR-039:Accepted:2026-05-17+s74-drawdown-rescale'`.
-Catches both the s73 ratification (Proposed → Accepted) that wasn't
-bumped at the time AND the s74 framework rescale.
-`Why:` previously CONFIG_VERSION was 1:1 with ADR-status changes, but
-framework SPEC amendments that change values pinned in this config
-(e.g. stage3.failDrawdown follows L3 entry) need to bump too, or
-audit-trail breaks.
-`How to apply:` future amendments to values pinned in
-capital_deployment_config.ts that aren't ADR-039 status changes
-should use the `+<tag>` suffix with a short kebab-case identifier.
+**1-6.** Six architectural decisions documented in the build-beat handoff that this rewrite supersedes. All six held in production during the apply beat — see git history of `.claude/HANDOFF.md` for the original wording.
 
-**5. The §9.4 author's "(false alarms, not missed alarms)" direction
-call was wrong.** Documented in SPEC §4.1 Watch-outs and in the s74
-critic-side reasoning. Direction is missed alarms under variance
-compression with fixed thresholds — the realized distribution lives
-well ABOVE the threshold post-sizer, so the threshold fires LESS
-often, not more.
-`Why:` worth pinning so a future re-reading of §9.4 doesn't mislead.
-The original direction-error was the trigger for treating the rescale
-as time-critical rather than cosmetic.
+### Carried locked decisions (sessions 41-81)
 
-### Carried locked decisions (sessions 41-73)
-
-All sessions 41-73 lock-ins preserved unchanged. See git history for
-the full chain.
+All sessions 41-81 lock-ins preserved unchanged. See git history and prior handoffs.
 
 ## Open questions
 
-### HIGH (Pejman decisions pending)
+### HIGH (Pejman decisions pending — but not blocking)
 
-1. **L5/A5 rescale decision** — σ-band interpretation (rescale to ~-5%)
-   vs operator-preference interpretation (leave at -20%, accept
-   defunct hard-kill under sizer). See s74 lock-in #2.
-2. **stage1.failDrawdown + stage2.failDrawdown rescale** — ADR-039
-   amendment slice. Same proportional-rescale logic applies. See s74
-   lock-in #3.
+1. **`--drop-backup` timing.** Recommended: ≥24h after the apply AND after the operator has eyeballed at least one daemon cycle's `[drawdown-state strategy=<bid>]` log lines + the morning brief's per-strategy panel render. The drop-backup mode is idempotent and a single npm alias — no further preparation needed when greenlit.
 
-### CARRIED HIGH (unchanged from s73)
+2. **L5/A5 rescale decision** — carried from s74-s81.
 
-- CBOE calibration diagnostic.
-- CBOE put/call 2019-present (DataShop) subscription.
+3. **stage1/stage2/stage4.failDrawdown rescale** — carried from s74-s81.
+
+4. **Commit strategy for s74-s82 working tree.** Now carries 9 sessions of unstaged work. Natural packaging options: (a) per-session (9 commits), (b) 3-bundle by feature group (s74-77 = round-2 rescale; s78-79 = put/call retune; s80-82 = strategy-tagged dd_state — note s82 is a self-contained Phase C beat that bundles cleanly), (c) 1 mega-commit. s82 alone is a coherent "Phase C migration BUILD + APPLY" beat.
+
+5. **CBOE DataShop subscription decision** — carried from s73-s81.
+
+### CARRIED HIGH (unchanged from s73-s81)
+
 - Schema-migration bootstrap-only.
-- ~~ISM PMI subscription~~ — resolved s73 (don't subscribe).
 - ML meta-labeling (ADR-027, deferred ≥4 weeks).
 - Sharadar SF1 subscription.
 - Compounding-live-equity backtest semantic (ADR-class).
 - 78,399 zero-trade sentinels in `bt_runs_regime` (deferred).
-- 12 Phase 9+ gap inventory items — FROZEN per s63 directive until
-  2026-06-29.
+- 12 Phase 9+ gap inventory items — FROZEN per s63 directive until 2026-06-29.
 
 ### Closed this session
 
-- ~~Drawdown framework calibration vs sizer regime~~ — partially
-  closed. L1-L4 shipped this session; L5/A5 + stage1/stage2 deferred
-  as separate Pejman-decisions (see HIGH above).
+- ~~Phase C migration BUILD~~ — shipped s82 build beat.
+- ~~Phase C migration apply window~~ — operator ran `--apply` against production this session.
+- ~~SPEC §11 test #25 (`--dry-run` prints planned steps without execution)~~ — shipped s82 build beat (planMigrationSteps byte-pin tests + dry-run is the default mode).
+- ~~SPEC §11 test #26 (`--apply` against fresh table produces correct end state)~~ — exercised against production in this session's apply beat; row-count parity confirmed end state correct.
+- ~~Phase C operator playbook~~ — added as SPEC §8.5 in [`docs/specs/strategy-tagged-drawdown-state.md`](../docs/specs/strategy-tagged-drawdown-state.md) covering pre-conditions, verification commands, drop-backup procedure, rollback procedure, and post-drop terminal state.
+- ~~s78 docstring/spec cleanup (calibration-on-the-shelf framing)~~ — closed in [`src/server/macro_regime_v3.ts`](../src/server/macro_regime_v3.ts) docstring + [`docs/specs/macro-regime-classifier-phase1_v3.md`](../docs/specs/macro-regime-classifier-phase1_v3.md) §2.3 footnote (a) + [`docs/obsidian/04 - Regime Classifier (phase1_v3).md`](../docs/obsidian/04%20-%20Regime%20Classifier%20%28phase1_v3%29.md) threshold table. All three now correctly state gate (a) closed by s79 backfill, gate (b) DataShop 2019-present still open. ADR-038 amendment in [`docs/decisions/README.md`](../docs/decisions/README.md) preserved as historical record.
 
 ## Next stage
 
-### Default next slice (recommended)
+### Operator-side default (recommended)
 
-**Option A — L5/A5 decision + (if rescale) bundled ADR-039 amendment
-for stage1/stage2.** Both deferred Pejman-decisions can be resolved
-in one operator turn. Estimated effort if rescale path chosen: ~1
-hour CODE + tests (mirrors s74's structure). If "leave A5 at -20%
-and stage1/stage2 at original ADR-039 values" path chosen: ~15 min
-documentation in SPEC §4.1 + ADR-039 reference.
+**Wait for next daemon cycle, then verify, then `--drop-backup`.** No assistant action required for the daemon flip itself — it's automatic via the s81 bootstrap probe. After the next `npm run daemon:daily` completes:
 
-### Alternative dev slices (if Pejman not available)
+- Inspect daemon log for `[drawdown-state strategy=<bid>]` lines (one per live strategy bundle, plus one portfolio line).
+- Run `npm run brief:morning` and verify the per-strategy panel renders with rows for each live bundle.
+- If both signals are healthy → run `npm run migrate:drawdown-state-history-per-strategy:drop-backup` (≥24h after apply) to remove `quantlab.drawdown_state_history_v0_backup`.
+
+### Alternative dev slices (assistant can run autonomously)
 
 | Option | Stage | Effort | Note |
 | --- | --- | --- | --- |
-| L5/A5 + stage1/stage2 rescale (full slice) | DESIGN+SPEC+CODE | ~1 hr | Mirror s74 structure |
-| Bucket 3 — CBOE calibration diagnostic | RESEARCH | Multi-session | Independent surface |
-| Bucket 3 — trend_v1 rescale sweep | RESEARCH+CODE | ~1 hr | Extend `_threshold_stability_sweep.ts` to cover trend_v1; check if 0.297 ratio holds across strategies |
-| Commit s74 work | DECISION-ACT | ~5 min | Working tree carries s74 unstaged; Pejman directs |
+| Commit s74-s82 work | DECISION-ACT | ~15 min | 9 sessions + DOC sweep unstaged; assistant can stage + commit per Pejman direction (NOT autonomous) |
+| ~~s78 docstring cleanup~~ | ~~DOC~~ | — | ✓ closed in s82 post-apply DOC sweep |
+| ~~Operator playbook doc for `--drop-backup`~~ | ~~DOC~~ | — | ✓ closed in s82 post-apply DOC sweep as SPEC §8.5 |
+| L5/A5 σ-band rescale | SPEC + CODE | ~1 hr | Canon-thin — NOT autonomous |
+| stage1/2/4 ADR-039 amendment | RESEARCH + SPEC + CODE | ~2 hr | Same canon-thin question — NOT autonomous |
 
-### Bucket 3 candidates (post-s74)
+### Bucket 3 candidates (post-s82)
 
-1. **trend_v1 rescale sweep.** The s74 ratio 0.297 was derived from
-   mr_v1 only. If trend_v1's sizer/legacy ratio diverges materially
-   (>20% deviation), the framework thresholds may need per-strategy
-   adjustments or median-across-strategies. ~1 hour of sweep
-   extension + analysis.
-2. **CBOE calibration diagnostic.** Independent of framework
-   recalibration; CBOE put/call already ingesting free.
-3. **Drawdown framework §12 90d empirical retune** — will be
-   sizer-mode data when it fires (~2026-08-29 earliest under the
-   90-day paper-trading horizon). Don't ship until then.
+1. **Phase C `--drop-backup`** — operator-authorized; ~1 min when greenlit; idempotent. Operator playbook in [`docs/specs/strategy-tagged-drawdown-state.md`](../docs/specs/strategy-tagged-drawdown-state.md) §8.5.
+2. **Drawdown framework §12 90d empirical retune** — sizer-mode data when it fires (~2026-08-29 earliest); §12 of s80 SPEC mandates per-strategy retune in the same ADR.
+3. **CBOE DataShop subscription decision** — Pejman call.
 
 ### Bucket 2 — FROZEN until 2026-06-29 per s63 directive
 
-12 Phase 9+ gaps. Re-evaluate after paper-trading verdict + ADR
-sign-offs.
+12 Phase 9+ gaps. Re-evaluate after paper-trading verdict + ADR sign-offs.
 
 ### Track A — background
 
-Daily `npm run daemon:daily` continues. Defaults: retargeting ON,
-useRiskConfig ON, halt enforce-mode ON, drawdown framework with
-**rescaled Levels 1-4 thresholds active as of s74**. Per-cell split
-T0 equal-weight until triggers fire (~2026-08-29 earliest). The
-first non-dry daemon run with non-zero cumulative pnl will exercise
-the new thresholds in operational logging.
+Daily `npm run daemon:daily` continues. Defaults: retargeting ON, useRiskConfig ON, halt enforce-mode ON, drawdown framework with s77-rescaled L1-L4 + s77-rescaled stage3.failDrawdown. CBOE arm live for 2008-2019 corpus (s79 backfill). **Next daemon run flips to N+1 per-strategy evaluation automatically** via the s81 bootstrap probe (which now sees `bundle_id` column present). No further code change required for the flip.
 
 ## Files / code state
 
-### EDITED this session (session 74)
+### NEW this session (session 82 — build beat)
 
-- [scripts/_threshold_stability_sweep.ts](../scripts/_threshold_stability_sweep.ts) —
-  AUGMENT: added `computeTrailing30dCumPctSeries` helper,
-  `trail30dCumPctSeries` field on `CellMetrics`, and a new
-  `printDrawdownCalibrationSection` function. Wired into main()
-  before the §9 step 4 verdict.
-- [src/server/drawdown_state.ts](../src/server/drawdown_state.ts) —
-  RESCALE: `DRAWDOWN_LEVEL_ENTRY_THRESHOLDS` L1-L4 and
-  `DRAWDOWN_LEVEL_EXIT_THRESHOLDS` L1-L4. L5 unchanged. Docstrings
-  updated to reflect §4.1 + the s74 rescale.
-- [src/server/capital_deployment_config.ts](../src/server/capital_deployment_config.ts) —
-  EDIT: `stage3.failDrawdown` -0.12 → -0.035 (follows L3 entry).
-  `CONFIG_VERSION` bumped to
-  `'ADR-039:Accepted:2026-05-17+s74-drawdown-rescale'`. Docstring
-  extended with the new format conventions + bump history.
-- [docs/specs/drawdown-response-framework.md](../docs/specs/drawdown-response-framework.md) —
-  AMEND: new §4.1 inserted; §9.2 byte-pin code block updated to new
-  values; §9.3 wire-up footnote updated; §11 test table inputs
-  rescaled.
-- [scripts/tests/drawdownState.test.ts](../scripts/tests/drawdownState.test.ts) —
-  REFACTOR: byte-pin tests #20 + 18 scenario tests with rescaled dd
-  inputs. Recovery hysteresis + L3 7-day pause tests rescaled too.
-- [scripts/tests/capitalDeploymentConfig.test.ts](../scripts/tests/capitalDeploymentConfig.test.ts) —
-  EDIT: CONFIG_VERSION byte-pin + stage3.failDrawdown byte-pin
-  updated. Header docstring extended with s73 + s74 bump notes.
-- [scripts/tests/stageState.test.ts](../scripts/tests/stageState.test.ts) —
-  COSMETIC: test #36 `mkDrawdown(3, -0.13)` → `mkDrawdown(3, -0.04)`
-  to use a realistic L3 dd under the new thresholds. The dd value
-  is incidental — gate fires on `isLevel3EntryEvent`, not dd.
-- [scripts/tests/liveTradeRepository.test.ts](../scripts/tests/liveTradeRepository.test.ts) —
-  EDIT: `requiredConfigVersion` pin updated to new CONFIG_VERSION
-  string.
-- [.claude/HANDOFF.md](./HANDOFF.md) — REWRITE. This document.
+- [scripts/migrate_drawdown_state_history_per_strategy.ts](../scripts/migrate_drawdown_state_history_per_strategy.ts) — NEW.
+- [scripts/tests/migrateDrawdownStateHistoryPerStrategy.test.ts](../scripts/tests/migrateDrawdownStateHistoryPerStrategy.test.ts) — NEW.
 
-### CH state (unchanged from s71)
+### EDITED this session
 
-`quantlab.cell_weights_history` is LIVE (migration applied s71). All
-other migrations APPLIED in prior sessions. Row counts unchanged by
-s74 (constants-only changes; no schema or migration changes).
+- [package.json](../package.json) — EDITED (build beat): 3 new npm aliases.
+- [docs/specs/strategy-tagged-drawdown-state.md](../docs/specs/strategy-tagged-drawdown-state.md) — EDITED (DOC sweep beat): added §8.5 "Operator playbook — post-apply verification and drop-backup".
+- [src/server/macro_regime_v3.ts](../src/server/macro_regime_v3.ts) — EDITED (DOC sweep beat): docstring cleanup on `PUT_CALL_COMPLACENCY_LOW` (gate (a) closed framing). Comment-only; no tsc/test impact.
+- [docs/specs/macro-regime-classifier-phase1_v3.md](../docs/specs/macro-regime-classifier-phase1_v3.md) — EDITED (DOC sweep beat): §2.3 footnote (a) calibration-on-the-shelf framing closed.
+- [docs/obsidian/04 - Regime Classifier (phase1_v3).md](../docs/obsidian/04%20-%20Regime%20Classifier%20%28phase1_v3%29.md) — EDITED (DOC sweep beat): threshold table caption for `PUT_CALL_COMPLACENCY_LOW`.
+- [.claude/HANDOFF.md](./HANDOFF.md) — REWRITE (apply beat + DOC sweep close-out).
 
-### Tests
+### UNCHANGED but reference (carried from s73-s81)
 
-```text
-.venv/Scripts/python.exe -m pytest scripts/tests       # Python — 164/164 (unchanged)
-npm test                                                # TS — 1265 total / 1256 pass / 3 fail / 6 skipped
-  Detail: identical to s73 baseline (1256 pass = 1255 s73 + 1 s74 fix);
-          3 fails unchanged (pre-existing macroRegimeFixturesV3 fixtures).
-node --import tsx --test scripts/tests/drawdownState.test.ts                       # 44/44
-node --import tsx --test scripts/tests/capitalDeploymentConfig.test.ts             # 27/27
-node --import tsx --test scripts/tests/stageState.test.ts                          # 62/62
-node --import tsx --test scripts/tests/liveTradeRepository.test.ts                 # 21/21 (was failing pre-s74)
+- [src/server/drawdown_state.ts](../src/server/drawdown_state.ts) — s80 Phase A pure-function surface.
+- [src/server/drawdown_state_repository.ts](../src/server/drawdown_state_repository.ts) — s81 Phase B repository; the script's `--apply` makes this module's `bundleIdColumnPresent: true` path live on the next daemon run.
+- [src/server/daemon_live_trades.ts](../src/server/daemon_live_trades.ts) — s81 Phase B daemon helpers.
+- [scripts/daily_signal_daemon.ts](../scripts/daily_signal_daemon.ts) — s81 Phase B bootstrap probe + per-cell dispatch.
+- [src/server/operator_brief.ts](../src/server/operator_brief.ts) + [operator_brief_render.ts](../src/server/operator_brief_render.ts) — s81 Phase B per-strategy panel.
+- [src/server/macro_regime_v3.ts](../src/server/macro_regime_v3.ts) — s78 retune.
+- [src/server/capital_deployment_config.ts](../src/server/capital_deployment_config.ts) — s77 stage3.
+- [src/server/regime_dashboard.ts](../src/server/regime_dashboard.ts) — s79 ADR_038_BASELINE.
+- [scripts/_threshold_stability_sweep*.ts](../scripts/) — s74-s76 sweeps.
+- [docs/specs/strategy-tagged-drawdown-state.md](../docs/specs/strategy-tagged-drawdown-state.md) — s80 SPEC.
+- [scripts/migrate_drawdown_state_history.ts](../scripts/migrate_drawdown_state_history.ts) — s67 original DDL.
 
-# Sweep diagnostic (run this to see the rescale evidence in detail):
-npx tsx scripts/_threshold_stability_sweep.ts
-  # ~2 min. Output includes the new "Drawdown framework recalibration
-  # diagnostic" section after the plateau analysis.
-```
+### Working-tree status
 
-### tsc
+Working tree carries (unstaged, pending Pejman commit direction):
+
+- s74: framework §4.1 mr_v1 rescale + tests.
+- s75: trend_v1 sister sweep + handoff.
+- s76: blended-portfolio sweep + handoff.
+- s77: framework round-2 rescale + SPEC §4.2 + test updates + handoff.
+- s78: CBOE put/call retune + diagnostic + SPEC §2.3 footnote + tests/obsidian/handoff updates.
+- s79: macro_regimes rerun + `ADR_038_BASELINE` re-pin + test #9b update + ADR-038 amendment + probe script + handoff.
+- s80: strategy-tagged dd_state SPEC + parent SPEC cross-links + gap-doc dependency + Phase A pure-function code + Phase A tests (27) + handoff.
+- s81: Phase B code (repository + daemon + brief) + Phase B tests (+28) + handoff.
+- **s82: Phase C migration script + tests (+19) + 3 npm aliases + handoff (build + apply beats) + post-apply DOC sweep (SPEC §8.5 operator playbook + s78 calibration-on-the-shelf cleanup across 3 files).**
+
+9 sessions of unstaged work. s82 is now a coherent "Phase C build + apply + DOC sweep" commit and can land on its own. **The apply itself is NOT in the working tree** — it's a production CH state change, not a code change.
+
+### CH state (POST-APPLY — changed this session)
+
+| Table | Status |
+| --- | --- |
+| `quantlab.macro_regimes` (phase1_v3) | 4,622 rows; distribution `{131,359,1473,2659}`; s79 backfill live |
+| `quantlab.drawdown_state_history` | **POST-PHASE-C**: ReplacingMergeTree(evaluated_at), ORDER BY `(source, bundle_id, evaluated_at)`, `bundle_id LowCardinality(String) DEFAULT ''` present. 9 pre-migration rows preserved with sentinel `bundle_id = ''`. Daemon flips to N+1 per-strategy writes on next run. |
+| `quantlab.drawdown_state_history_v0_backup` | **NEW (pre-migration snapshot)**: 9 rows, old ORDER BY `(source, evaluated_at)`, no `bundle_id`. Drop via `--drop-backup` after ≥24h healthy-write verification. |
+| All other tables | unchanged from s79 |
+
+### Tests (post-s82 apply — unchanged)
 
 ```text
-npx tsc --noEmit 2>&1 | grep -c "error TS"   # 13 (unchanged baseline)
-```
-
-### Lint chain
-
-```text
-npm run check:help   # EXIT 0 — fully green (unchanged)
-npm run help         # Full cheat-sheet, clean (unchanged)
-npm run lint         # Still fails at tsc step (13-error baseline); check:help GREEN
+npm test                       1333 pass / 0 fail / 6 skipped
+.venv/Scripts/python.exe -m pytest scripts/tests   164/164
+npx tsc --noEmit               13 errors (unchanged baseline)
+npm run check:help             green
 ```
 
 ## Watch-outs
 
-### NEW this session (session 74)
+### NEW from apply beat (session 82)
 
-- **L1-L4 thresholds are now ~3× tighter than they appear in the
-  SPEC §3 narrative.** The §3 prose still describes the OLD values
-  ("Caution at -3%", "Concern at -7%", etc.) because §4.1 is an
-  amendment, not a §3 rewrite. Future readers of §3 must read §4.1
-  to get the live thresholds. The byte-pin tests + the constants
-  in `drawdown_state.ts` are the source of truth; §3 is structural
-  description, §4.1 is the live calibration.
-- **stage3.failDrawdown=-0.035 may surface a real rollback** under
-  sizer that the old gate (-0.12) would have suppressed. The first
-  30 days post-rescale at stage 3 might see a rollback to stage 2
-  that was previously dormant. This is the right behavior — the old
-  gate was effectively unreachable under sizer.
-- **The §9.4 author's direction-call** ("false alarms, not missed
-  alarms") was wrong. Under variance compression with fixed
-  thresholds, the threshold fires LESS often, not more. Documented
-  in SPEC §4.1 Watch-outs.
-- **The s74 rescale ratio (0.297) is derived from mr_v1 only.**
-  trend_v1 calibration is a follow-up sweep. If trend_v1's ratio
-  diverges materially (>20% deviation from 0.297), the framework
-  thresholds may need per-strategy adjustments.
-- **The framework's σ-band design rationale (Pardo §11) implicitly
-  assumes a stable realized distribution.** Any future change that
-  materially shifts variance (universe change, new strategy,
-  changes to DEFAULT_RISK_CONFIG params, etc.) needs to re-run the
-  s74 diagnostic and potentially re-rescale. The diagnostic in
-  `_threshold_stability_sweep.ts printDrawdownCalibrationSection`
-  is the reproducible audit tool.
-- **CONFIG_VERSION format** now supports `+<amendment-tag>` suffix
-  for framework SPEC amendments that change config-pinned values.
-  Don't drop the suffix when reading the version; treat the full
-  string as the canonical identifier.
+- **The daemon's next run is the first live exercise of the s81 per-strategy code path against the real schema.** Unit tests covered the construction, dispatch, and write paths individually but the end-to-end "bootstrap probe → repository construction with `bundleIdColumnPresent: true` → portfolio write → per-strategy writes → brief panel render" chain has not been exercised against production CH. Expected signals on next `npm run daemon:daily`:
+  - Daemon log: `[drawdown-state strategy=<bid>]` lines, one per live strategy bundle.
+  - `quantlab.drawdown_state_history` row count grows by `1 + N_live_strategies` per daemon run (was: `1` per run).
+  - Morning brief renders per-strategy panel with one row per live bundle.
+  If any of these fail, the s81 fallback is portfolio-only mode — but the operator should investigate before running `--drop-backup`.
 
-### CARRIED load-bearing (unchanged from sessions 41-73)
+- **`_v0_backup` is the rollback handle and MUST NOT be dropped until ≥24h + healthy-write verification.** A swap-back is `RENAME TABLE quantlab.drawdown_state_history TO quantlab.drawdown_state_history_failed_new, quantlab.drawdown_state_history_v0_backup TO quantlab.drawdown_state_history` (atomic two-table RENAME). After `--drop-backup` runs, the rollback option is gone and any forward fix must come from re-deriving state from `live_trades` + regime history.
 
-All session 41-73 watch-outs preserved unchanged. Notable:
+- **The pre-migration 9 rows all carry sentinel `bundle_id = ''`** by design (DEFAULT '' on the new column fires for the INSERT-SELECT). This is the correct portfolio-aggregate sentinel and tools that read the table must treat empty-string `bundle_id` as "portfolio scope" — not as a missing value or a strategy ID. The s80 spec §3.2 codifies this; the s81 repository code reads via this convention.
 
-- s73 enforce-mode wiring (composeHaltMonitorFailClosed +
-  resolveEffectiveHaltEnforce pure helpers; `enforce: boolean`
-  required-no-default input on `runDaemonHaltObservation`).
-- s73 useRiskConfig default-on (the trigger for the s74 rescale).
-- s72 M-1 `selectCellWeightsTier` unknown-prior throw.
-- s72 tier_selection_parity.json byte-pin (regenerate via
-  `--gen-tier-fixtures`).
-- s70 H-1 (UInt64 version), M-1 (shared loader), M-2 (HALT-suppression),
-  M-3 (stage-aware cellCapitalUsdProxy).
-- All other carried watch-outs.
+### NEW from build beat (session 82)
+
+- **`--apply` is destructive and was run during a daemon-idle window.** Atomic RENAME completed in 15ms; no daemon was mid-write. If a future re-apply (e.g. another schema migration) needs to run, the same idle-window posture applies.
+
+- **The script is testable but the end-to-end apply was first exercised against production this session.** The 19 unit tests covered plan-shape + pre-check verdicts + row-count probing against a FakeClickHouse. The first real apply (9→9 rows) succeeded cleanly; future migrations following this template can rely on the precedent but should still pre-check + parity-check before the swap.
+
+- **The script's row-count parity check uses `FINAL` on the source.** If a future change makes a non-FINAL count the right comparison, the parity check needs to update in lockstep. The unit test byte-pins `FROM quantlab.drawdown_state_history FINAL` literally.
+
+### CARRIED load-bearing (unchanged from sessions 41-81)
+
+All session 41-81 watch-outs preserved unchanged.
 
 ## Pre-loaded operational reminders
+
+### Phase C migration aliases
+
+```text
+npm run migrate:drawdown-state-history-per-strategy                 # dry-run; now reports "already migrated" — safe to re-run for sanity check
+npm run migrate:drawdown-state-history-per-strategy:apply           # ALREADY APPLIED — re-run would no-op via pre-check verdict
+npm run migrate:drawdown-state-history-per-strategy:drop-backup     # OPERATOR-AUTHORIZED — destructive (after ≥24h healthy-write verify)
+```
 
 ### Day-glance trio
 
 ```text
-npm run daemon:daily          # external — Telegram. Defaults: retargeting ON, useRiskConfig ON,
-                              # HALT enforce-mode ON. Drawdown framework with s74-rescaled L1-L4
-                              # thresholds active. T0 equal-weight per-cell split.
+npm run daemon:daily          # external — Telegram. Next run will flip to N+1 per-strategy evaluation automatically.
 npm run audit:positions       # stdout-only — re-run weekly
 npx tsx scripts/_paper_trading_review.ts   # stdout-only
-npm run brief:morning         # stdout-only markdown
+npm run brief:morning         # stdout-only markdown — next run begins rendering per-strategy panel
 ```
 
 ### Tests + dev
 
 ```text
-npm test                                                                       # TS — 1265 total / 1256 pass / 3 fail / 6 skipped (s73 baseline preserved by s74)
+npm test                                                                       # TS — 1333 pass / 0 fail / 6 skipped
 .venv/Scripts/python.exe -m pytest scripts/tests                               # Python — 164/164
 npm run dev                                                                    # http://localhost:3000
 npm run lint                                                                   # ⚠ Fails at tsc step (13 errors)
@@ -503,87 +287,68 @@ npm run check:help                                                             #
 npm run help                                                                   # Full cheat-sheet, CLEAN
 ```
 
-### Drawdown framework recalibration diagnostic (s74)
+### Macro regime backfill + probe
 
 ```text
-npx tsx scripts/_threshold_stability_sweep.ts
-# ~2 min. Read-only. Output includes the "Drawdown framework
-# recalibration diagnostic" section (after plateau analysis, before
-# §9 step 4 verdict). Reports per-cell median rescale ratio + suggested
-# rescaled thresholds. Re-run if:
-#   - DEFAULT_RISK_CONFIG params change
-#   - Universe changes
-#   - New strategy added
-#   - 90-day empirical retune approaches and we want a comparison
+npm run macro:backfill:v3                                # rerun all phase1_v3 rows; idempotent
+npx tsx scripts/_probe_putcall_coverage.ts               # s79 — verify CH state matches ADR_038_BASELINE
 ```
 
-### Cell-weights / threshold-stability / HALT smoke / retargeting parity / use-risk-config dry-run
+### Drawdown framework recalibration diagnostics (3 generations)
 
-(Unchanged from s73 — see prior handoff in git history if needed.)
-
-### State-history migrations
-
-(Unchanged from s73 — all applied.)
+```text
+npx tsx scripts/_threshold_stability_sweep.ts                 # mr_v1 (s74) — s80 SPEC §4 consumes the 0.297 ratio
+npx tsx scripts/_threshold_stability_sweep_trend_v1.ts        # trend_v1 (s75) — s80 SPEC §4 consumes the 0.110 ratio
+npx tsx scripts/_threshold_stability_sweep_blended.ts         # blended (s76) — portfolio scope reference
+```
 
 ## For the next session — priority order
 
-**Pejman decisions (the bottleneck):**
+**Pejman directions needed (NOT bottlenecks):**
 
-- **L5/A5 rescale decision** — σ-band (~-5%) vs operator-preference
-  (stay at -20%, accept defunct hard-kill under sizer). See s74
-  lock-in #2.
-- **stage1.failDrawdown + stage2.failDrawdown rescale** — ADR-039
-  amendment slice. See s74 lock-in #3.
+- **`--drop-backup` green-light** — ≥24h after apply + healthy-write verification; ~1 min idempotent destructive DROP.
+- **CBOE DataShop subscription** — Pejman call; unblocks 2019-present CBOE arm.
+- **L5/A5 rescale, stage1/2/4 ADR-039 amendment** — operator-preference σ-band-vs-circuit-breaker calls.
+- **Commit strategy** — working tree carries 9 sessions unstaged.
 
 **Recommended dev work if no Pejman activity:**
 
-- Bucket 3 — trend_v1 rescale sweep (~1 hr; extends
-  `_threshold_stability_sweep.ts` to cover trend_v1, validates the
-  0.297 ratio across strategies).
-- Bucket 3 — CBOE calibration diagnostic (multi-session, independent).
-- Commit-strategy: working tree carries s74 unstaged; Pejman directs.
+- Both autonomous-safe doc slices (operator playbook §8.5 + s78 docstring cleanup) closed in s82 post-apply sweep. No further autonomous DOC work queued; remaining candidates are canon-thin and require Pejman direction.
 
 **Background (runs without dev attention):**
 
-- Daily `npm run daemon:daily` continues with s74-rescaled framework
-  thresholds active. First non-dry run with non-zero cumulative pnl
-  will exercise the new thresholds.
+- Next `npm run daemon:daily` flips to N+1 per-strategy evaluation automatically. Inspect log for `[drawdown-state strategy=<bid>]` lines + brief for per-strategy panel render.
 
 **DO NOT auto-open without explicit operator green-light:**
 
-- All carried items from s73 handoff (real-money flip; compounding
-  live equity; Phase 9+ gaps until 2026-06-29; etc.).
+- `npm run migrate:drawdown-state-history-per-strategy:drop-backup` (destructive DROP — gated on ≥24h healthy-write verification).
+- CBOE DataShop subscription (paid).
+- L5/A5 σ-band rescale (touches A5_KILL_THRESHOLD_PCT; canon-thin).
+- stage1/2/4 ADR-039 amendment (canon-thin operator-preference call).
+- All carried items from s73-s81 handoff.
 
 ## Important framing for the next chat
 
-Session 74 was the **first post-s73 dev gap closure** — the sizer
-flip opened a real safety gap in the drawdown framework (warning
-system mathematically degraded toward missed alarms), and s74
-closed it for Levels 1-4. Pejman explicitly delegated decision
-authority mid-session, and per `feedback_full_delegation_mode` I
-pushed RESEARCH→SPEC→CODE→TESTS through autonomously, stopping
-only at the L5/A5 σ-vs-operator-preference question (genuine
-ambiguity per the stop trigger).
+Session 82 closed both the BUILD and the APPLY of the s80 SPEC §8.1 destructive migration. The production CH schema is now post-Phase-C; the daemon's behavior flips to N+1 per-strategy evaluation automatically on the next run via the s81 bootstrap probe. No further assistant action is needed for the flip itself.
 
-The chain through s74:
+The chain through s82:
 
 ```text
-ALL S41-S73 WORK     ✓ committed acf80be + 3b09b9f, 2 commits ahead of origin
-S74 SWEEP AUGMENT    ✓ printDrawdownCalibrationSection added; ~2-min reproducer
-S74 SD MEASUREMENT   ✓ per-cell median ratio 0.297 (range 0.233-0.412; tight, robust)
-S74 SPEC §4.1        ✓ amendment with methodology + canon + L5/A5 + stage1/2 deferrals
-S74 CODE RESCALE     ✓ L1-L4 entry+exit thresholds; stage3.failDrawdown; CONFIG_VERSION
-S74 TESTS REFACTOR   ✓ 4 test files; npm test back to s73 baseline + 1 (1256 pass)
-S74 SMOKE            ✓ dry-run shows [drawdown-state] level=L0 clean output
-S74 HANDOFF          ✓ this document
-  → next: Pejman decisions on L5/A5 + stage1/stage2; OR Bucket 3 dev work
-  → background: daemon continues with rescaled framework active
+ALL S41-S79 WORK              ✓ as documented
+S80 STRATEGY-TAGGED SPEC      ✓ docs/specs/strategy-tagged-drawdown-state.md
+S80 PHASE A CODE              ✓ pure-function surface
+S80 PHASE A TESTS             ✓ 27 tests
+S81 PHASE B CODE              ✓ repository extension + daemon orchestration + morning brief panel
+S81 PHASE B TESTS             ✓ 28 tests
+S82 PHASE C MIGRATION SCRIPT  ✓ scripts/migrate_drawdown_state_history_per_strategy.ts
+S82 PHASE C MIGRATION TESTS   ✓ 19 tests
+S82 NPM ALIASES               ✓ 3 new aliases + check:help green
+S82 npm test                  ✓ 1333/0/6
+S82 npx tsc --noEmit          ✓ 13 errors (unchanged baseline)
+S82 PHASE C APPLY (operator)  ✓ 9→9 parity; atomic RENAME; backup retained
+S82 HANDOFF                   ✓ this document
+  → next: wait for daemon flip on next cycle; verify; ≥24h later run --drop-backup
+  → background: daemon flips to N+1 per-strategy evaluation automatically on next run
 ```
 
-Per `feedback_no_confirmation_pauses` and `feedback_full_delegation_mode`,
-s74 didn't pause for sign-off at each stage — full RESEARCH→SPEC→CODE→TESTS
-push under explicit Pejman delegation. The L5/A5 stop is the canon-thin
-ambiguity exception, not a confirmation pause.
-
-**Parallel-tracks posture continues.** No hard deadlines remaining post
-s73 ratification. All 12 remaining Phase 9+ gaps frozen until 2026-06-29.
+**Parallel-tracks posture continues.** No hard deadlines. All 12 remaining Phase 9+ gaps frozen until 2026-06-29. §12 90d empirical retune (~2026-08-29 earliest) will supersede s77 portfolio thresholds AND s80 per-strategy thresholds in the same ADR. Test baseline 1333/0/6.

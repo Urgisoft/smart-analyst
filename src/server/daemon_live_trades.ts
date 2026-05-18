@@ -70,8 +70,11 @@ import {
 } from './paper_trading_halt_monitor.js';
 import { computeStop, sizePositionFixedRisk } from '../lib/risk.js';
 import {
+  bundleIdsFromTrades,
   evaluateDrawdownState,
+  evaluateStrategyDrawdownState,
   type DrawdownStateResult,
+  type SizingMultiplier,
 } from './drawdown_state.js';
 import { DrawdownStateRepository } from './drawdown_state_repository.js';
 import {
@@ -998,6 +1001,186 @@ export async function runDaemonDrawdownEvaluation(
       : null;
 
   return { state, regimeRedDays30, summaryLine, anomaly };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Per-strategy drawdown evaluation — SPEC strategy-tagged-drawdown-state.md
+// §7.3 + §9.1. Runs ALONGSIDE the portfolio evaluation: one row per distinct
+// bundleId in the closed-trade ledger plus the portfolio row. Cell-level
+// dispatch uses `min(portfolio.sizingMultiplier, strategy[bundleId])` and AND
+// of `newEntriesAllowed` (§7.3).
+//
+// Failure posture:
+//   - Pre-migration (bundle_id column absent): caller probes
+//     `drawdownStateHasBundleIdColumn` and SKIPS this evaluation entirely.
+//     `runDaemonStrategyDrawdownEvaluations` itself does NOT probe — it trusts
+//     the caller's flag. Calling it with a repository that lacks per-strategy
+//     support will throw on the first per-strategy write.
+//   - Unknown bundleId on an evaluator call propagates the throw from
+//     `entryThresholdsForStrategy`. SPEC §4.6.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface RunDaemonStrategyDrawdownEvaluationsInputs {
+  /** Repository — MUST have `bundleIdColumnPresent: true` (post Phase-C). */
+  drawdownRepo: DrawdownStateRepository;
+  /** Live-trade repository. Pass null when live_trades is absent. */
+  liveTradesRepo: LiveTradeRepository | null;
+  /** Same `asOf` the portfolio evaluation used — keep evaluations aligned. */
+  asOf?: Date;
+  /** Portfolio capital (SPEC §5.2 — strategies use PORTFOLIO capital as denom). */
+  deployedCapitalUsd: number;
+  source: 'paper' | 'live';
+  stage: DeploymentStage;
+  /**
+   * Same RED-day count the portfolio eval used — strategies inherit the
+   * portfolio-level macro regime (SPEC §6). Passed through, not re-fetched.
+   */
+  regimeRedDays30: number;
+  /** CONFIG_VERSION stored on each per-strategy history row. */
+  configVersion: string;
+  /**
+   * Explicit allowlist of bundleIds to evaluate. When omitted the helper
+   * derives the set from the trades' `cellKey.split('|')[0]` distinct values.
+   * Daemon passes the cell allowlist directly so that a strategy with zero
+   * recent trades still gets a Level-0 row written (which the demotion-detector
+   * gap doc will consume).
+   */
+  bundleIds?: readonly string[];
+}
+
+export interface RunDaemonStrategyDrawdownEvaluationsResult {
+  /** Per-bundleId state map. Keyed by bundleId; missing keys = not evaluated. */
+  perStrategyStates: Record<string, DrawdownStateResult>;
+  /** One-line summary per bundleId, alphabetical. Operator scripts grep `[drawdown-state strategy=`. */
+  summaryLines: string[];
+  /**
+   * One info-severity anomaly per strategy whose level >= 1, mirroring the
+   * portfolio's L1+ notification surface. Empty array when all strategies at L0.
+   */
+  anomalies: Array<{ severity: 'info'; message: string }>;
+}
+
+/**
+ * Compute + persist per-strategy drawdown state for every bundleId in scope.
+ * SPEC strategy-tagged-drawdown-state.md §7.3 step 2-3.
+ *
+ * Pipeline:
+ *   1. List closed trades once (filtered by `source`); empty when repo null.
+ *   2. Derive bundleId set: explicit override OR distinct cellKey-tagged ids.
+ *   3. For each bundleId in the set (alphabetical), filter trades, load that
+ *      strategy's prior history, evaluate state, write row.
+ *   4. Return state map + summary lines + L1+ anomalies.
+ *
+ * Per-strategy L5 entry does NOT write the halt sentinel (SPEC §7.1) — the
+ * daemon's halt-sentinel write path is gated on PORTFOLIO state only. This
+ * helper just persists the strategy row and surfaces the anomaly.
+ */
+export async function runDaemonStrategyDrawdownEvaluations(
+  inputs: RunDaemonStrategyDrawdownEvaluationsInputs,
+): Promise<RunDaemonStrategyDrawdownEvaluationsResult> {
+  const asOf = inputs.asOf ?? new Date();
+  const allClosedTrades: LiveTradeRow[] = inputs.liveTradesRepo
+    ? await inputs.liveTradesRepo.listClosedTrades({ source: inputs.source })
+    : [];
+
+  // Caller-supplied allowlist wins (so an idle strategy still gets a Level-0
+  // row written for downstream consumers); else derive from the trades.
+  const bundleIds = inputs.bundleIds && inputs.bundleIds.length > 0
+    ? [...new Set(inputs.bundleIds)].filter(b => b !== '').sort()
+    : bundleIdsFromTrades(allClosedTrades);
+
+  const perStrategyStates: Record<string, DrawdownStateResult> = {};
+  const summaryLines: string[] = [];
+  const anomalies: Array<{ severity: 'info'; message: string }> = [];
+
+  for (const bundleId of bundleIds) {
+    const bundleTrades = allClosedTrades.filter(
+      t => t.cellKey.split('|')[0] === bundleId,
+    );
+    const priorHistory = await inputs.drawdownRepo.loadPriorHistoryPerStrategy({
+      source: inputs.source,
+      bundleId,
+    });
+    const state = evaluateStrategyDrawdownState({
+      closedTrades: bundleTrades,
+      asOf,
+      deployedCapitalUsd: inputs.deployedCapitalUsd,
+      source: inputs.source,
+      stage: inputs.stage,
+      priorHistory,
+      regimeRedDays30: inputs.regimeRedDays30,
+      bundleId,
+    });
+    await inputs.drawdownRepo.writeEvaluationPerStrategy({
+      evaluatedAt: asOf,
+      source: inputs.source,
+      stage: inputs.stage,
+      drawdown30dPct: state.drawdown30dPct,
+      deployedCapital: inputs.deployedCapitalUsd,
+      level: state.level,
+      levelEnteredAt: state.levelEnteredAt,
+      regimeRedDays30: inputs.regimeRedDays30,
+      configVersion: inputs.configVersion,
+      bundleId,
+    });
+    perStrategyStates[bundleId] = state;
+
+    const ddPct = (state.drawdown30dPct * 100).toFixed(2);
+    const entries = state.newEntriesAllowed ? 'allowed' : 'BLOCKED';
+    summaryLines.push(
+      `[drawdown-state strategy=${bundleId}] level=L${state.level} dd=${ddPct}% ` +
+      `sizing=${state.sizingMultiplier}× entries=${entries}`,
+    );
+    if (state.level >= 1) {
+      anomalies.push({
+        severity: 'info',
+        message:
+          `drawdown-state strategy=${bundleId}: L${state.level} ` +
+          `(drawdown ${ddPct}%; sizing ${state.sizingMultiplier}×; entries ${entries.toLowerCase()})`,
+      });
+    }
+  }
+
+  return { perStrategyStates, summaryLines, anomalies };
+}
+
+/**
+ * SPEC §7.3 + §7.5 — cell-level `min(portfolio, strategy)` composition.
+ * The tighter scope wins for sizing; the AND-conjunction wins for the
+ * new-entries gate.
+ *
+ * Inputs:
+ *   - `portfolio`: result from `runDaemonDrawdownEvaluation` (always defined).
+ *   - `strategyState`: per-bundle state, or `undefined` when the strategy has
+ *     no per-strategy row (pre-migration OR strategy wasn't in scope). In
+ *     that case the cell falls back to PORTFOLIO behavior — no tightening.
+ *
+ * Returned multiplier preserves the SizingMultiplier nominal type so callers
+ * that pin `0 | 0.5 | 0.75 | 1` upstream still compose. The set of values
+ * sizingMultiplierForLevel returns is closed under `Math.min`.
+ */
+export function composeCellDrawdownEffective(args: {
+  portfolio: DrawdownStateResult;
+  strategyState: DrawdownStateResult | undefined;
+}): {
+  sizingMultiplier: SizingMultiplier;
+  newEntriesAllowed: boolean;
+} {
+  const { portfolio, strategyState } = args;
+  if (!strategyState) {
+    return {
+      sizingMultiplier: portfolio.sizingMultiplier,
+      newEntriesAllowed: portfolio.newEntriesAllowed,
+    };
+  }
+  const minMultiplier = Math.min(
+    portfolio.sizingMultiplier,
+    strategyState.sizingMultiplier,
+  ) as SizingMultiplier;
+  return {
+    sizingMultiplier: minMultiplier,
+    newEntriesAllowed: portfolio.newEntriesAllowed && strategyState.newEntriesAllowed,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -71,6 +71,12 @@ export interface BriefRegimeSection {
  * Drawdown-response framework section. `null` when the framework has no
  * evaluation row yet (drawdown_state_history table absent OR empty). SPEC
  * docs/specs/drawdown-response-framework.md §7.4.
+ *
+ * Per-strategy rows (`perStrategy`) are populated when the Phase-C
+ * strategy-tagged schema is live (strategy-tagged-drawdown-state.md §7.4).
+ * The portfolio block stays byte-equal to the legacy format so brief
+ * regression tests pre-Phase-C continue to pass verbatim; per-strategy
+ * lines are appended only when present.
  */
 export interface BriefDrawdownSection {
   /** Most recent evaluation timestamp (ISO 8601 with ms). */
@@ -90,6 +96,30 @@ export interface BriefDrawdownSection {
   levelEnteredAt: string;
   source: 'paper' | 'live';
   stage: string;
+  /**
+   * Per-strategy sub-sections — strategy-tagged-drawdown-state.md §7.4.
+   * Sorted alphabetically by bundleId at construction time so byte-equal
+   * stdout testing remains feasible. Empty array when pre-Phase-C OR no
+   * strategies are evaluated.
+   */
+  perStrategy?: ReadonlyArray<BriefDrawdownStrategyRow>;
+}
+
+/**
+ * Per-strategy sub-row of the drawdown-state panel. Same shape as the
+ * portfolio fields the renderer prints, scoped to a single bundleId.
+ */
+export interface BriefDrawdownStrategyRow {
+  bundleId: string;
+  level: DrawdownLevel;
+  drawdown30dPct: number;
+  sizingMultiplier: SizingMultiplier;
+  newEntriesAllowed: boolean;
+  reviewRequirement: DrawdownReviewRequirement;
+  regimeExplained: boolean;
+  regimeRedDays30: number;
+  daysAtLevel: number;
+  levelEnteredAt: string;
 }
 
 /**
@@ -354,6 +384,26 @@ function renderDrawdownSection(b: MorningBrief): string {
   lines.push(
     `_Last evaluated: \`${d.evaluatedAt}\` · source: \`${d.source}\` · stage: \`${d.stage}\`._`,
   );
+  // strategy-tagged-drawdown-state.md §7.4 — per-strategy sub-section.
+  // Appended ONLY when `perStrategy` is non-empty so the portfolio block
+  // stays byte-equal pre-Phase-C (existing fixtures keep their stdout).
+  // Strategies are sorted at construction time (BriefDeps).
+  if (d.perStrategy && d.perStrategy.length > 0) {
+    lines.push(``);
+    lines.push(`### Per strategy`);
+    lines.push(``);
+    lines.push(`| Strategy | Level | DD 30d | Sizing | Entries | Review |`);
+    lines.push(`|---|---|---|---|---|---|`);
+    for (const s of d.perStrategy) {
+      const sLabel = drawdownLevelLabel(s.level);
+      const sDd = (s.drawdown30dPct * 100).toFixed(2);
+      const sSign = s.drawdown30dPct >= 0 ? '+' : '';
+      const entries = s.newEntriesAllowed ? 'allowed' : '⚠ BLOCKED';
+      lines.push(
+        `| \`${s.bundleId}\` | L${s.level} (${sLabel}) | ${sSign}${sDd}% | ${s.sizingMultiplier}× | ${entries} | ${s.reviewRequirement} |`,
+      );
+    }
+  }
   return lines.join('\n');
 }
 

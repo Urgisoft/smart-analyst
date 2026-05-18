@@ -81,15 +81,18 @@ import {
   extractLastSellReasons,
   liveTradesTableExists,
   loadOpenSnapshotsForCell,
+  composeCellDrawdownEffective,
   lookupTodaysRegime,
   processCellLiveTrades,
   resolveEffectiveHaltEnforce,
   runDaemonDrawdownEvaluation,
   runDaemonHaltObservation,
   runDaemonStageStateEvaluation,
+  runDaemonStrategyDrawdownEvaluations,
 } from '../src/server/daemon_live_trades.js';
 import {
   DrawdownStateRepository,
+  drawdownStateHasBundleIdColumn,
   drawdownStateHistoryTableExists,
 } from '../src/server/drawdown_state_repository.js';
 import type { DrawdownStateResult } from '../src/server/drawdown_state.js';
@@ -770,7 +773,25 @@ async function main() {
     console.warn('[drawdown-state] quantlab.drawdown_state_history not found — framework disabled. Run: npm run migrate:drawdown-state-history:apply');
     anomalies.push({ severity: 'info', message: 'drawdown_state_history table missing; framework evaluation skipped' });
   }
-  const drawdownRepo = drawdownTablePresent ? new DrawdownStateRepository() : null;
+  // SPEC strategy-tagged-drawdown-state.md §10 / §11 #27 — per-strategy
+  // evaluation requires the Phase-C `bundle_id` column. Probe once at
+  // bootstrap so the repository can switch portfolio writes to include
+  // bundle_id='' (and reads to filter on it) AND so the per-strategy loop
+  // can run. Pre-migration: per-strategy state is skipped + the daemon
+  // continues with portfolio-only evaluation (info anomaly).
+  const bundleIdColumnPresent = drawdownTablePresent
+    ? await drawdownStateHasBundleIdColumn(ch)
+    : false;
+  if (drawdownTablePresent && !bundleIdColumnPresent) {
+    console.warn('[drawdown-state] bundle_id column absent — per-strategy evaluation disabled. Run: npx tsx scripts/migrate_drawdown_state_history_per_strategy.ts --apply (operator-authorized).');
+    anomalies.push({
+      severity: 'info',
+      message: 'drawdown_state_history.bundle_id column missing; per-strategy evaluation skipped (portfolio-only fallback active)',
+    });
+  }
+  const drawdownRepo = drawdownTablePresent
+    ? new DrawdownStateRepository({ bundleIdColumnPresent })
+    : null;
 
   // SPEC: docs/specs/stage-state-machine.md §13. Operator-gated DDL.
   // Without the table the daemon skips stage evaluation (info-anomaly +
@@ -932,6 +953,10 @@ async function main() {
   let drawdownSizingMultiplier = 1;
   let drawdownNewEntriesAllowed = true;
   let currentDrawdownResult: DrawdownStateResult | null = null;
+  // Per-strategy state map keyed by bundleId; empty when the per-strategy
+  // surface is disabled (pre-migration OR evaluation threw). Consumed at
+  // cell-level dispatch (SPEC §7.3 + §7.5) via composeCellDrawdownEffective.
+  let perStrategyDrawdownStates: Record<string, DrawdownStateResult> = {};
   if (drawdownRepo) {
     try {
       const ddResult = await runDaemonDrawdownEvaluation({
@@ -948,6 +973,39 @@ async function main() {
       drawdownSizingMultiplier = ddResult.state.sizingMultiplier;
       drawdownNewEntriesAllowed = ddResult.state.newEntriesAllowed;
       currentDrawdownResult = ddResult.state;
+
+      // SPEC strategy-tagged-drawdown-state.md §7.3 — per-strategy evaluation
+      // runs alongside the portfolio eval when the Phase-C column is present.
+      // The bundleId allowlist is the deployed cells' bundleIds; this
+      // guarantees that an idle strategy (no recent trades) still gets a
+      // Level-0 row written for the demotion-detector consumer.
+      if (bundleIdColumnPresent) {
+        try {
+          const deployedBundleIds = [...new Set(cells.map(c => c.bundleId))].sort();
+          const strategyResults = await runDaemonStrategyDrawdownEvaluations({
+            drawdownRepo,
+            liveTradesRepo,
+            asOf: new Date(t0),
+            deployedCapitalUsd: CAPITAL,
+            source: 'paper',
+            stage: 'paper',
+            regimeRedDays30: ddResult.regimeRedDays30,
+            configVersion: CONFIG_VERSION,
+            bundleIds: deployedBundleIds,
+          });
+          for (const line of strategyResults.summaryLines) console.log(line);
+          for (const a of strategyResults.anomalies) anomalies.push(a);
+          perStrategyDrawdownStates = strategyResults.perStrategyStates;
+        } catch (e) {
+          // Per-strategy is augmentative — failure here MUST NOT block the
+          // portfolio path. Same severity convention as the portfolio catch.
+          console.warn(`[drawdown-state per-strategy] evaluation failed (non-fatal, per-strategy disabled for this run): ${(e as Error).message}`);
+          anomalies.push({
+            severity: 'info',
+            message: `drawdown-state per-strategy evaluation failed: ${(e as Error).message}`,
+          });
+        }
+      }
     } catch (e) {
       console.warn(`[drawdown-state] evaluation failed (non-fatal, framework disabled for this run): ${(e as Error).message}`);
       // 'info' severity matches the table-absent branch above + the
@@ -1171,6 +1229,22 @@ async function main() {
     if (liveTradesRepo && !DRY_RUN) {
       try {
         const openSnaps = await loadOpenSnapshotsForCell(liveTradesRepo, cellKey, 'paper');
+        // SPEC strategy-tagged-drawdown-state.md §7.3 + §7.5 — cell-level
+        // min(portfolio, strategy) composition for sizing + AND for entries.
+        // Falls back to portfolio-only when the strategy state is missing
+        // (pre-migration OR strategy was not in scope this run).
+        const cellEffective = currentDrawdownResult
+          ? composeCellDrawdownEffective({
+              portfolio: currentDrawdownResult,
+              strategyState: perStrategyDrawdownStates[rt.cell.bundleId],
+            })
+          : { sizingMultiplier: drawdownSizingMultiplier, newEntriesAllowed: effectiveNewEntriesAllowed };
+        // The portfolio path was already OR-composed with stageHalted into
+        // `effectiveNewEntriesAllowed`; carry that through by AND-conjoining
+        // the cell-effective gate. Without this, stage HALT would be silently
+        // dropped on cells whose strategy state was Level-0.
+        const cellEffectiveNewEntriesAllowed =
+          effectiveNewEntriesAllowed && cellEffective.newEntriesAllowed;
         const writeSummary = await processCellLiveTrades({
           repo: liveTradesRepo,
           runId,
@@ -1197,12 +1271,12 @@ async function main() {
           stage: perCellCapital.stage,
           regimeAtEntry: todaysRegime,
           allowlistOk: allowed !== null,
-          // Drawdown-response framework (per-run constants; default 1/true
-          // when the framework is disabled — see runDaemonDrawdownEvaluation
-          // call above). SPEC §8.4.1 — stage HALT OR-composes into the
-          // entry gate so skippedOpenBlocked reflects framework block reason.
-          sizingMultiplier: drawdownSizingMultiplier,
-          newEntriesAllowed: effectiveNewEntriesAllowed,
+          // SPEC strategy-tagged-drawdown-state.md §7.3 + §7.5 — cell-effective
+          // sizing is min(portfolio, strategy) and entries is AND-composed
+          // (portfolio AND strategy AND stage-HALT-OR-portfolio). Pre-migration
+          // OR strategy-state-missing collapses to portfolio behavior.
+          sizingMultiplier: cellEffective.sizingMultiplier,
+          newEntriesAllowed: cellEffectiveNewEntriesAllowed,
         });
         console.log(`[live_trades ${rt.cell.label}] opened ${writeSummary.opened} closed ${writeSummary.closed}` +
           (writeSummary.skippedOpenInvalid > 0 ? ` skippedOpenInvalid ${writeSummary.skippedOpenInvalid}` : '') +
@@ -1213,10 +1287,18 @@ async function main() {
           // framework block so the operator brief points at the correct cause.
           // stageHalted forces effectiveNewEntriesAllowed=false (§8.4.1); if
           // that's the active reason, attribute to stage. Otherwise the
-          // drawdown framework's L4/L5/L3-pause is the blocker.
+          // drawdown framework's L4/L5/L3-pause is the blocker — at portfolio
+          // scope or per-strategy scope (s80 SPEC §7.3 + §7.5).
+          const strategyState = perStrategyDrawdownStates[rt.cell.bundleId];
+          const portfolioBlocked = currentDrawdownResult
+            ? !currentDrawdownResult.newEntriesAllowed
+            : false;
+          const strategyBlocked = strategyState ? !strategyState.newEntriesAllowed : false;
           const blockReason = stageHalted
             ? 'stage HALT (clear via npm run stage:clear-halt:apply)'
-            : 'drawdown-state framework';
+            : strategyBlocked && !portfolioBlocked
+              ? `drawdown-state framework (per-strategy ${rt.cell.bundleId} L${strategyState?.level})`
+              : 'drawdown-state framework';
           anomalies.push({
             severity: 'info',
             message: `live_trades: ${writeSummary.skippedOpenBlocked} open(s) blocked by ${blockReason} for ${rt.cell.label}`,

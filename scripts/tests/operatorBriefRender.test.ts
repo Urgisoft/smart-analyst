@@ -255,6 +255,97 @@ describe('renderBriefMarkdown — drawdown-response framework (SPEC §7.4)', () 
     assert.match(md, /## 5\. Drawdown response — Level 2 \(Concern\)/);
     assert.match(md, /Regime context:\*\* regime-explained \(18 RED days in trailing 30\)/);
   });
+
+  // strategy-tagged-drawdown-state.md §7.4 + §11 #13 — per-strategy panel
+  // appended at the end of the existing portfolio block. Byte-equality is
+  // preserved when `perStrategy` is omitted (existing fixtures above pass
+  // without the field set).
+  it('SPEC §7.4 #13 renders the per-strategy table when perStrategy is supplied', () => {
+    const md = renderBriefMarkdown(
+      brief({
+        drawdown: {
+          evaluatedAt: '2026-05-17T13:30:00.000Z',
+          level: 0,
+          drawdown30dPct: -0.001,
+          sizingMultiplier: 1,
+          newEntriesAllowed: true,
+          reviewRequirement: 'none',
+          regimeExplained: false,
+          regimeRedDays30: 0,
+          partialWindow: false,
+          daysAtLevel: 30,
+          levelEnteredAt: '2026-04-17T13:30:00.000Z',
+          source: 'paper',
+          stage: 'paper',
+          perStrategy: [
+            {
+              bundleId: 'mean_reversion_v1',
+              level: 3,
+              drawdown30dPct: -0.018,
+              sizingMultiplier: 0.5,
+              newEntriesAllowed: false,
+              reviewRequirement: 'strategy-review',
+              regimeExplained: false,
+              regimeRedDays30: 0,
+              daysAtLevel: 1,
+              levelEnteredAt: '2026-05-16T13:30:00.000Z',
+            },
+            {
+              bundleId: 'trend_v1',
+              level: 0,
+              drawdown30dPct: 0.002,
+              sizingMultiplier: 1,
+              newEntriesAllowed: true,
+              reviewRequirement: 'none',
+              regimeExplained: false,
+              regimeRedDays30: 0,
+              daysAtLevel: 30,
+              levelEnteredAt: '2026-04-17T13:30:00.000Z',
+            },
+          ],
+        },
+      }),
+    );
+    // Portfolio block byte-equal to the Level-0 fixture — header still says
+    // "Level 0 (Normal)" (no headerSuffix), and the trailing italic line
+    // anchors the portfolio block.
+    assert.match(md, /## 5\. Drawdown response — Level 0 \(Normal\)/);
+    assert.match(md, /_Last evaluated: `2026-05-17T13:30:00\.000Z` · source: `paper` · stage: `paper`\._/);
+    // Per-strategy header.
+    assert.match(md, /### Per strategy/);
+    // Table header + the two rows in alphabetical bundleId order.
+    assert.match(md, /\| Strategy \| Level \| DD 30d \| Sizing \| Entries \| Review \|/);
+    const mrIdx = md.indexOf('| `mean_reversion_v1` | L3 (Defensive) | -1.80% | 0.5× | ⚠ BLOCKED | strategy-review |');
+    const trIdx = md.indexOf('| `trend_v1` | L0 (Normal) | +0.20% | 1× | allowed | none |');
+    assert.ok(mrIdx >= 0, `mean_reversion_v1 row missing — got:\n${md}`);
+    assert.ok(trIdx >= 0, `trend_v1 row missing — got:\n${md}`);
+    assert.ok(mrIdx < trIdx, 'alphabetical sort: mean_reversion_v1 must precede trend_v1');
+  });
+
+  it('omits the per-strategy table when perStrategy is undefined (byte-equality preservation)', () => {
+    // No perStrategy field — same fixture shape as the Level-0 test above.
+    const md = renderBriefMarkdown(
+      brief({
+        drawdown: {
+          evaluatedAt: '2026-05-17T13:30:00.000Z',
+          level: 0,
+          drawdown30dPct: -0.02,
+          sizingMultiplier: 1,
+          newEntriesAllowed: true,
+          reviewRequirement: 'none',
+          regimeExplained: false,
+          regimeRedDays30: 0,
+          partialWindow: false,
+          daysAtLevel: 30,
+          levelEnteredAt: '2026-04-17T13:30:00.000Z',
+          source: 'paper',
+          stage: 'paper',
+        },
+      }),
+    );
+    assert.equal(/### Per strategy/.test(md), false);
+    assert.equal(/\| Strategy \| Level \| DD 30d/.test(md), false);
+  });
 });
 
 describe('renderBriefMarkdown — stage panel dollar splits (per-cell-stage-sizing SPEC §9.3 #27-#29)', () => {

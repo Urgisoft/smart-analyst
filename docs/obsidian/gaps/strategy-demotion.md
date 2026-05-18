@@ -55,6 +55,7 @@ This creates a structural accumulation problem:
 - Requires live trade ledger to exist (currently being built)
 - Requires sufficient live trade data (30+ trades per strategy minimum)
 - Best implemented after paper trading shakedown completes (~June 29, 2026)
+- **Requires per-strategy drawdown state** — specced at [`docs/specs/strategy-tagged-drawdown-state.md`](../../specs/strategy-tagged-drawdown-state.md) (2026-05-18). The performance-decay trigger reads per-strategy `drawdown_30d_pct` and per-strategy level history from `quantlab.drawdown_state_history WHERE bundle_id = '<strategy>'`; without that signal, demotion has no canonical per-strategy input to act on.
 
 ## Open questions
 
