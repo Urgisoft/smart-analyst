@@ -35,8 +35,14 @@ alfred/
 # rewrite these on demand via `macro:refresh-constituents:apply` etc.
 docs/phase1_breadth_restoration/*.csv
 
-# Accidental files from botched npm commands (e.g. `npm run x > foo@0.0.0`
-# captures the package name as a literal file). Anything matching this glob
-# should be deleted, not committed.
+# Accidental files from botched npm/shell commands. Sources:
+#  - `npm run x > foo@0.0.0` captures the package name as a literal file
+#    (`react-example@0.0.0`); the `*@*.*` glob catches this pattern.
+#  - Stray shell redirects writing to bare command names at repo root
+#    (`tsx`, `node` etc.). The `/<name>` anchored entries below cover the
+#    ones observed; add new ones as they appear. Anything matching should
+#    be deleted, not committed.
 *@*.*
-react-example@0.0.0
+/react-example@0.0.0
+/tsx
+/node
