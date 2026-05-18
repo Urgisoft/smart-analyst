@@ -59,26 +59,38 @@ export type DrawdownReviewRequirement =
  * Byte-pinned entry thresholds (`drawdown_30d_pct ≤ value` enters the level).
  * Indexed by destination level. Drift fails CI per drawdownState.test.ts §20.
  *
- * Level 5 = -0.20 is the byte-equal pair of `A5_KILL_THRESHOLD_PCT` in
- * paper_trading_kill_criteria.ts (-20 percent). SPEC §16 + test §26 enforce.
+ * Levels 1-4 rescaled 2026-05-17 (session 74) per SPEC §4.1 amendment —
+ * sizer-regime compensation for the s73 useRiskConfig default-on flip.
+ * Rescale factor = 0.297 (per-cell median ratio of trailing-30d cum P&L SD
+ * SIZER/LEGACY, measured by the augmented threshold-stability sweep). Old
+ * pre-rescale values: L1=-0.03, L2=-0.07, L3=-0.12, L4=-0.18.
+ *
+ * Level 5 = -0.20 UNCHANGED — operator-decision-deferred per SPEC §4.1
+ * "Why Level 5 is unchanged." Still the byte-equal pair of A5_KILL_THRESHOLD_PCT
+ * in paper_trading_kill_criteria.ts. SPEC §16 + test §26 enforce.
  */
 export const DRAWDOWN_LEVEL_ENTRY_THRESHOLDS = Object.freeze({
-  1: -0.03,
-  2: -0.07,
-  3: -0.12,
-  4: -0.18,
+  1: -0.01,
+  2: -0.02,
+  3: -0.035,
+  4: -0.055,
   5: -0.20,
 } as const);
 
 /**
  * Byte-pinned exit thresholds (more lenient than entry) + consecutive-day
  * requirement. Level 5 has no auto-exit (SPEC §3 "Level 5 is terminal").
+ *
+ * Rescaled 2026-05-17 (session 74) per SPEC §4.1. Old pre-rescale `pct`
+ * values: L1=-0.02, L2=-0.05, L3=-0.10, L4=-0.15. Day counts unchanged
+ * (the recovery-day requirement is a structural choice, not a variance-derived
+ * one).
  */
 export const DRAWDOWN_LEVEL_EXIT_THRESHOLDS = Object.freeze({
-  1: Object.freeze({ pct: -0.02, days: 5 }),
-  2: Object.freeze({ pct: -0.05, days: 5 }),
-  3: Object.freeze({ pct: -0.10, days: 5 }),
-  4: Object.freeze({ pct: -0.15, days: 10 }),
+  1: Object.freeze({ pct: -0.005, days: 5 }),
+  2: Object.freeze({ pct: -0.015, days: 5 }),
+  3: Object.freeze({ pct: -0.03, days: 5 }),
+  4: Object.freeze({ pct: -0.045, days: 10 }),
 } as const);
 
 /**

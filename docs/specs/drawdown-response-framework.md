@@ -67,6 +67,69 @@ Six levels, each with an entry threshold (down) and an exit threshold (up, hyste
 
 ---
 
+## §4.1 · Sizer-regime rescale (2026-05-17 amendment — session 74)
+
+> **Status:** AMENDS §3 entry/exit thresholds for Levels 1-4 ONLY. Level 5 unchanged.
+> **Trigger:** session 73 default-on flip of `evaluator-use-risk-config` ([daily_signal_daemon.ts:260](../../scripts/daily_signal_daemon.ts#L260)).
+> **Authority:** Pejman delegation (session 74) under "we are not live yet → you have the authority"; methodology grounded in Pardo (2008) §11 σ-band design + the session-58 / session-74 sweep evidence.
+
+**Problem.** §4 calibrated thresholds against legacy %-of-capital sizing variance (~3-5% per-cell 30-day SD). The s73 default-on flip routes daemon runs through fixed-fractional ATR-stop sizing ([src/lib/risk.ts](../../src/lib/risk.ts) `sizePositionFixedRisk`), which materially compresses portfolio variance — the §9.4 sweep ([position-sizing-and-kill-switch.md:299](position-sizing-and-kill-switch.md#L299)) showed per-cell `port_DD` dropping from -20.82..-29.43% (legacy) to -6.72..-14.63% (sizer). With unchanged absolute thresholds, the σ-band design Pardo §11 specified is violated: Level-1 fires at ~2.3σ instead of ~1σ, Level-3 (-12%) is beyond observed sizer max DD, and the framework's warning-system role is silently degraded toward missed alarms (NOT false alarms — see "Watch-outs" below).
+
+**Measurement.** Augmented [scripts/_threshold_stability_sweep.ts](../../scripts/_threshold_stability_sweep.ts) `printDrawdownCalibrationSection` computes trailing-30-entry cumulative portfolio P&L (% of capital) SD per cell × variant on the same equity_midcap universe + period as §9.4. Per-cell ratio of `SIZER_SD / LEGACY_SD`:
+
+| Estimator | LEGACY SD | SIZER SD | Ratio |
+|---|---|---|---|
+| Pooled across 15 cells (n=45,420) | 254.4% | 72.7% | 0.286 |
+| Deployed (30/60) cell only (n=3,028) | 173.0% | 57.9% | 0.335 |
+| Per-cell median (15 cells) | — | — | **0.297** |
+| Per-cell min / max | — | — | 0.233 / 0.412 |
+
+Absolute SDs are inflated by ~15× because the sweep's per-token capital is summed across the 15-token universe at fixed $10k each (denominator does not aggregate). The ratio cancels the inflation and is the load-bearing measurement. Per-cell ratio is tight (0.233-0.412 range) — compression is robust across the parameter surface, no outlier dominates. Per-cell **median = 0.297** is the chosen rescale factor (more robust than either pool SD or single-deployed-cell SD).
+
+**Rescale (Levels 1-4 only):**
+
+| Level | Old entry | New entry | Old exit | New exit |
+|---|---|---|---|---|
+| 1 | -0.03 | **-0.01** | -0.02 | **-0.005** |
+| 2 | -0.07 | **-0.02** | -0.05 | **-0.015** |
+| 3 | -0.12 | **-0.035** | -0.10 | **-0.03** |
+| 4 | -0.18 | **-0.055** | -0.15 | **-0.045** |
+| 5 | -0.20 | **(unchanged)** | (terminal) | (terminal) |
+
+Values are `currentThreshold × 0.297` rounded to the nearest 0.5%, with two manual adjustments for sane round-numbers: L1 exit -0.594% → -0.005 (not -0.005 vs -0.006 — both round-valid, picking -0.005 keeps the entry/exit gap consistent), L3 exit -2.968% → -0.030 not -0.025 (preserves a wider exit-from-entry hysteresis gap of 0.5%).
+
+**Why Level 5 is unchanged.** A5/L5 carries a dual interpretation: (a) σ-band warning (Pardo §11 logic → rescale to ~-5%), (b) operator-preference circuit breaker ("never lose >20% in a month, full stop" → leave at -20%). The session-58 sweep showed worst observed sizer-cell DD = -14.63%, so under interpretation (b) the kill is effectively dormant under sizer (would require a multi-σ unprecedented event). This is a real value judgment, deferred to a separate operator-decision slice. Until decided, the byte-equality with A5 (test #26) preserves the §7.1 contract.
+
+**Why this is NOT the §12 retune.** §12 specifies *empirical-quantile* retuning from ≥90 days of paper-trading ledger. This amendment is *proportional-rescale* against a known systematic shift documented in §9.4. The two are independent operations:
+
+- §4.1 (this amendment) compensates for the s73 sizer flip's variance compression using backtest-derived ratio.
+- §12 retune still applies at ~90-day mark: re-pin against live paper-trading-ledger quantiles, which will by then be sizer-mode data and will supersede the §4.1 values.
+
+The §12 retune does NOT need to redo §4.1's work — it goes directly from live-data quantiles to new thresholds. §4.1 is a stopgap; §12 is canonical.
+
+**Scope of change (CODE):**
+
+1. `DRAWDOWN_LEVEL_ENTRY_THRESHOLDS` and `DRAWDOWN_LEVEL_EXIT_THRESHOLDS` constants in [src/server/drawdown_state.ts](../../src/server/drawdown_state.ts).
+2. Byte-pin test #20 in [scripts/tests/drawdownState.test.ts](../../scripts/tests/drawdownState.test.ts) updates to new values.
+3. `stage3.failDrawdown` in [src/server/capital_deployment_config.ts](../../src/server/capital_deployment_config.ts) changes from -0.12 to -0.035 (follows L3 entry per §7.2 wire-up).
+4. `CONFIG_VERSION` in capital_deployment_config.ts bumps to reflect the rescale.
+5. Any test asserting `stage3.failDrawdown === -0.12` updates to the new value.
+
+Level 5 entry threshold and A5_KILL_THRESHOLD_PCT both unchanged. Test #26 byte-equality remains green.
+
+**What didn't change:** §3 framework structure (six levels, hysteresis, sizing multipliers, kill linkage), §5 measurement definition, §6 regime-conditional review, §7 integration, §8 persistence, §9 module surface, §10 failure modes, §11 test plan structure (only the numeric expectations in tests reading the constants update via the byte-pin pattern), §12 retune protocol.
+
+**Watch-outs:**
+
+- The §9.4 author wrote "(false alarms, not missed alarms)" — that direction-call is wrong. Under variance compression with fixed thresholds, the SAME threshold fires LESS often (the realized distribution lives well above the threshold). Direction is missed alarms / silent warning system. Confirming reasoning: SD compresses by 0.297×, so a -3% threshold that was ~1σ legacy is now ~3.4σ sizer — fires on ~0.03% of days instead of ~16%.
+- The rescale ratio 0.297 is derived from `mr_v1 / RSI / equity_midcap`. `trend_v1` is NOT in this sweep and its variance compression may differ. Follow-up: extend `_threshold_stability_sweep.ts` to cover trend_v1 OR run a parallel sweep. If trend_v1's ratio diverges materially from 0.297, the threshold may need a per-strategy adjustment (or the median-across-strategies). For now, treat -0.297 as a single-cell-portfolio estimator that's conservative-biased for a two-cell portfolio (uncorrelated 2-cell SD = SD/√2 ≈ 0.71× single-cell, meaning new thresholds are ~40% wider than ideal — fine for stopgap).
+- Stage-3 fail-gate semantics change: `stage3.failDrawdown` goes from -0.12 (essentially unreachable under sizer) to -0.035 (much more likely to fire). Stage-3 rollback to stage-2 becomes a real possibility under the rescale. Operator should be alert that the first 30 days post-rescale at stage-3 may surface a rollback that the old gate would have suppressed.
+- L3 7-day entry pause (SPEC §3 + §7.3) carries through unchanged; just fires at a different drawdown magnitude.
+- **`stage1.failDrawdown` (-0.05) and `stage2.failDrawdown` (-0.10) are NOT rescaled here** even though they're affected by the same s73 sizer flip. These values are ADR-039 §1 originals (verbatim from the canonical ADR table at [docs/decisions/README.md](../decisions/README.md) lines ~4198-4203). Under sizer with σ ≈ 0.89% on the deployed cell, stage1's -5% is a ~5.6σ event (effectively never fires) and stage2's -10% is ~11σ (truly never fires). Rescaling them requires an **ADR-039 amendment slice** with its own operator decision, not this framework SPEC amendment. Flagged here so future readers don't assume only stage3 is affected.
+- The §4.1 rescale ratio (0.297) was derived from a `mr_v1`-only sweep. If a future SPEC ships paid-data trend_v1 calibration and the ratio diverges materially (>20% deviation from 0.297), revisit the framework thresholds with per-strategy adjustments or median-across-strategies.
+
+---
+
 ## §4 · Calibration methodology
 
 The thresholds (-3 / -7 / -12 / -18 / -20) are not derived from theory; they are operator-state-machine design points calibrated against:
@@ -276,19 +339,23 @@ export function isLevel3EntryEvent(
 ### §9.2 Threshold constants (byte-pinned via test)
 
 ```typescript
+// Rescaled 2026-05-17 (session 74) per SPEC §4.1 sizer-regime amendment.
+// Pre-rescale values: L1=-0.03, L2=-0.07, L3=-0.12, L4=-0.18. L5 unchanged.
 export const DRAWDOWN_LEVEL_ENTRY_THRESHOLDS = Object.freeze({
-  1: -0.03,
-  2: -0.07,
-  3: -0.12,
-  4: -0.18,
+  1: -0.01,
+  2: -0.02,
+  3: -0.035,
+  4: -0.055,
   5: -0.20,
 } as const);
 
+// Rescaled 2026-05-17 (session 74). Pre-rescale `pct`:
+// L1=-0.02, L2=-0.05, L3=-0.10, L4=-0.15. Day counts unchanged.
 export const DRAWDOWN_LEVEL_EXIT_THRESHOLDS = Object.freeze({
-  1: { pct: -0.02, days: 5 },
-  2: { pct: -0.05, days: 5 },
-  3: { pct: -0.10, days: 5 },
-  4: { pct: -0.15, days: 10 },
+  1: { pct: -0.005, days: 5 },
+  2: { pct: -0.015, days: 5 },
+  3: { pct: -0.03, days: 5 },
+  4: { pct: -0.045, days: 10 },
   // Level 5 has no auto-exit; operator-only.
 } as const);
 ```
@@ -301,7 +368,7 @@ The values are byte-pinned by a test in the same pattern as `ADR_038_BASELINE` a
 |---------------------------------|------------------------------------------------------------|
 | `daily_signal_daemon.ts`        | `evaluateDrawdownState` once per run; persists row; passes `sizingMultiplier` down to `processCellLiveTrades` |
 | `operator_morning_brief.ts`     | Reads latest row from `drawdown_state_history` for display |
-| `capital_deployment_config.ts`  | `failDrawdown` for stage 3 flips from `null` to `-0.12`     |
+| `capital_deployment_config.ts`  | `failDrawdown` for stage 3 = `-0.035` (rescaled from `-0.12` per §4.1) |
 | Stage state machine (separate)  | Calls `isLevel3EntryEvent` for stage 3 fail-criterion test  |
 
 ---
@@ -323,19 +390,21 @@ The values are byte-pinned by a test in the same pattern as `ADR_038_BASELINE` a
 
 The CODE slice that implements this SPEC must include the following tests in `scripts/tests/drawdownState.test.ts`. Pure-function tests; no ClickHouse.
 
+**Note: dd values below reflect the §4.1 (2026-05-17, session 74) rescale.** Pre-rescale `(dd_old, expected)` pairs were dropped 2026-05-17 — git history at commit boundary preserves the original mapping if needed for archaeology. The PATTERN being tested (boundary semantics, sticky-down, one-step recovery, etc.) is unchanged; only the numeric inputs scaled by ~0.297 to stay in the same logical band under the new thresholds.
+
 | # | Test | Pinned behavior |
 |---|------|----------------|
-| 1 | `computeLevel` — drawdown -0.02, prev level 0 | returns 0 |
-| 2 | `computeLevel` — drawdown -0.04, prev level 0 | returns 1 |
-| 3 | `computeLevel` — drawdown -0.08, prev level 0 | returns 2 (skip-down OK) |
-| 4 | `computeLevel` — drawdown -0.21, prev level 0 | returns 5 (multi-level skip) |
-| 5 | `computeLevel` — drawdown -0.04, prev level 2, recovery days 0 | returns 2 (sticky down) |
-| 6 | `computeLevel` — drawdown -0.04, prev level 2, recovery days 5 | returns 1 (one-step up) |
-| 7 | `computeLevel` — drawdown -0.01, prev level 2, recovery days 5 | returns 1 (one-step up only) |
-| 8 | `computeLevel` — drawdown -0.01, prev level 5, recovery days 100 | returns 5 (terminal) |
+| 1 | `computeLevel` — drawdown -0.005, prev level 0 | returns 0 (above L1 entry -0.01) |
+| 2 | `computeLevel` — drawdown -0.015, prev level 0 | returns 1 |
+| 3 | `computeLevel` — drawdown -0.025, prev level 0 | returns 2 (skip-down OK) |
+| 4 | `computeLevel` — drawdown -0.21, prev level 0 | returns 5 (multi-level skip; L5 unchanged) |
+| 5 | `computeLevel` — drawdown -0.013, prev level 2, recovery days 0 | returns 2 (sticky down) |
+| 6 | `computeLevel` — drawdown -0.013, prev level 2, recovery days 5 | returns 1 (one-step up) |
+| 7 | `computeLevel` — drawdown -0.003, prev level 2, recovery days 5 | returns 1 (one-step up only) |
+| 8 | `computeLevel` — drawdown -0.003, prev level 5, recovery days 100 | returns 5 (terminal) |
 | 9 | `evaluateDrawdownState` — empty trades, asOf=2026-06-01 | level 0, drawdown 0, partialWindow false |
-| 10 | `evaluateDrawdownState` — single trade -$200 in window, capital 10000 | drawdown -0.02, level 0 |
-| 11 | `evaluateDrawdownState` — trades summing -$800 in window, capital 10000 | drawdown -0.08, level 2 |
+| 10 | `evaluateDrawdownState` — single trade -$50 in window, capital 10000 | drawdown -0.005, level 0 |
+| 11 | `evaluateDrawdownState` — trades summing -$250 in window, capital 10000 | drawdown -0.025, level 2 |
 | 12 | `evaluateDrawdownState` — trades exit_ts outside 30d window | not summed |
 | 13 | `evaluateDrawdownState` — partialWindow flag true when first trade <30 days ago |
 | 14 | `evaluateDrawdownState` — regimeRedDays30 ≥ 14, level 2 entry | regimeExplained = true |
@@ -344,13 +413,13 @@ The CODE slice that implements this SPEC must include the following tests in `sc
 | 17 | `evaluateDrawdownState` — level unchanged from prior | levelEnteredAt copied from prior row |
 | 18 | `evaluateDrawdownState` — level transition | levelEnteredAt = asOf |
 | 19 | `sizingMultiplierForLevel` — exhaustive 0..5 | byte-pinned |
-| 20 | `DRAWDOWN_LEVEL_ENTRY_THRESHOLDS` and `DRAWDOWN_LEVEL_EXIT_THRESHOLDS` | byte-pinned |
+| 20 | `DRAWDOWN_LEVEL_ENTRY_THRESHOLDS` and `DRAWDOWN_LEVEL_EXIT_THRESHOLDS` | byte-pinned to §9.2 (post-rescale) values |
 | 21 | `isLevel3EntryEvent(2, 3)` | true |
 | 22 | `isLevel3EntryEvent(3, 3)` | false (already at level 3) |
 | 23 | `isLevel3EntryEvent(1, 4)` | true (skip-down still counts as entry) |
 | 24 | `isLevel3EntryEvent(4, 3)` | false (upward) |
 | 25 | `evaluateDrawdownState` — `deployedCapitalUsd = 0` | throws |
-| 26 | A5 ↔ Level 5 byte-equal threshold check | `A5_KILL_THRESHOLD_PCT / 100 === DRAWDOWN_LEVEL_ENTRY_THRESHOLDS[5]` (the SHARED value -0.20). Both fire on a sub-threshold drawdown (e.g. -0.25); both pass above threshold (e.g. -0.10); they differ only at exactly the -0.20 boundary (A5 strict `<`, Level 5 `≤`). |
+| 26 | A5 ↔ Level 5 byte-equal threshold check | `A5_KILL_THRESHOLD_PCT / 100 === DRAWDOWN_LEVEL_ENTRY_THRESHOLDS[5]` (the SHARED value -0.20, UNCHANGED by §4.1 rescale). Both fire on a sub-threshold drawdown (e.g. -0.25); both pass above threshold (e.g. -0.10); they differ only at exactly the -0.20 boundary (A5 strict `<`, Level 5 `≤`). |
 
 A separate integration test exercises the `drawdown_state_history` repository round-trip (write → read latest → field equality). That lives in `scripts/tests/drawdownStateRepository.test.ts` and is part of the CODE slice's deliverables.
 

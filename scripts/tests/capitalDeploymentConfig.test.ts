@@ -12,12 +12,21 @@
  *     30-day shakedown for an ADR fact.
  *
  * Session 54 update — stage3.failDrawdown flipped from null to -0.12 once
- *   drawdown-response-framework.md shipped in code. The test now pins
- *   `stage3.failDrawdown === DRAWDOWN_LEVEL_ENTRY_THRESHOLDS[3]` (-0.12) so
- *   any future drift between the config and the framework constant fails CI.
- *   The fail-criterion FIRING uses the event predicate
+ *   drawdown-response-framework.md shipped in code. The test pins
+ *   `stage3.failDrawdown === DRAWDOWN_LEVEL_ENTRY_THRESHOLDS[3]` so any future
+ *   drift between the config and the framework constant fails CI. The
+ *   fail-criterion FIRING uses the event predicate
  *   `isLevel3EntryEvent(prior, current)`, NOT the threshold directly — see
  *   drawdown-response-framework.md §7.2.
+ *
+ * Session 73 (2026-05-17) — Pejman ratified ADR-039 (Proposed → Accepted) but
+ *   CONFIG_VERSION wasn't bumped at the time. Caught + corrected in s74.
+ *
+ * Session 74 (2026-05-17) — Framework SPEC §4.1 sizer-regime rescale: L1-L4
+ *   entry/exit thresholds shrunk by ratio 0.297; stage3.failDrawdown follows
+ *   L3 entry → now -0.035 (was -0.12). CONFIG_VERSION bumped to
+ *   'ADR-039:Accepted:2026-05-17+s74-drawdown-rescale' (bundles s73
+ *   ratification + s74 rescale).
  *
  * When the operator accepts ADR-039 (or supersedes it via ADR-040+), update
  * BOTH the config module AND this test in the same PR.
@@ -40,17 +49,18 @@ import {
 import { DRAWDOWN_LEVEL_ENTRY_THRESHOLDS } from '../../src/server/drawdown_state.js';
 
 describe('CONFIG_VERSION pin', () => {
-  it('byte-pinned to ADR-039 Proposed 2026-05-17 (post drawdown-framework landing)', () => {
-    // Bumped from 2026-05-16 → 2026-05-17 in session 54 when the drawdown-
-    // response framework SPEC was wired into code and stage3.failDrawdown
-    // flipped from null to -0.12. Update this string in lockstep with the
-    // config module's CONFIG_VERSION when ADR-039 status changes or a
-    // superseding ADR lands.
-    assert.equal(CONFIG_VERSION, 'ADR-039:Proposed:2026-05-17');
+  it('byte-pinned to ADR-039 Accepted 2026-05-17 + s74 drawdown rescale tag', () => {
+    // Bump history:
+    //   s47 initial → 'ADR-039:Proposed:2026-05-16'
+    //   s54 bumped → 'ADR-039:Proposed:2026-05-17' (framework landed + stage3.failDrawdown flipped from null to -0.12)
+    //   s73 ratified ADR-039 (Proposed→Accepted) but CONFIG_VERSION was NOT bumped
+    //   s74 bumped → 'ADR-039:Accepted:2026-05-17+s74-drawdown-rescale'
+    //     (catches s73 ratification + framework §4.1 L1-L4 + stage3.failDrawdown rescale to ratio 0.297)
+    assert.equal(CONFIG_VERSION, 'ADR-039:Accepted:2026-05-17+s74-drawdown-rescale');
   });
 
   it('assertConfigVersion accepts a matching string', () => {
-    assert.doesNotThrow(() => assertConfigVersion('ADR-039:Proposed:2026-05-17'));
+    assert.doesNotThrow(() => assertConfigVersion('ADR-039:Accepted:2026-05-17+s74-drawdown-rescale'));
   });
 
   it('assertConfigVersion throws on a stale or wrong pin', () => {
@@ -59,7 +69,11 @@ describe('CONFIG_VERSION pin', () => {
       /version mismatch/,
     );
     assert.throws(
-      () => assertConfigVersion('ADR-039:Accepted:2026-05-20'),
+      () => assertConfigVersion('ADR-039:Proposed:2026-05-17'), // pre-s74 (s54-era)
+      /version mismatch/,
+    );
+    assert.throws(
+      () => assertConfigVersion('ADR-039:Accepted:2026-05-17'), // missing s74 amendment suffix
       /version mismatch/,
     );
     assert.throws(
@@ -90,17 +104,18 @@ describe('ADR-039 §1 canonical stages (byte-pinned to the ADR)', () => {
     assert.equal(s.requiresKillCriteriaPass, true);
   });
 
-  it('stage3: 30% / 180 days / Sharpe > 0.7 / failDrawdown=-0.12 (Level-3 entry threshold)', () => {
+  it('stage3: 30% / 180 days / Sharpe > 0.7 / failDrawdown=-0.035 (Level-3 entry threshold, post-s74 rescale)', () => {
     const s = DEPLOYMENT_STAGES.stage3;
     assert.equal(s.allocationPct, 0.30);
     assert.equal(s.minDurationDays, 180);
     assert.equal(s.passSharpeMin, 0.7);
     assert.equal(s.requiresKillCriteriaPass, true);
-    // Post session 54: framework landed. failDrawdown mirrors the Level-3
-    // entry threshold so an audit reader sees the numeric value, BUT the
-    // operational firing uses `isLevel3EntryEvent(prior, current)` (not
-    // `drawdown <= -0.12`). See drawdown-response-framework.md §7.2.
-    assert.equal(s.failDrawdown, -0.12);
+    // Post s54: framework landed (failDrawdown -0.12 = L3 entry).
+    // Post s74: framework §4.1 rescaled L3 entry to -0.035; failDrawdown
+    // follows. Operational firing still uses `isLevel3EntryEvent(prior,
+    // current)`, not `drawdown <= -0.035`. See drawdown-response-framework.md
+    // §4.1 + §7.2.
+    assert.equal(s.failDrawdown, -0.035);
   });
 
   it('stage3.failDrawdown stays byte-pinned to DRAWDOWN_LEVEL_ENTRY_THRESHOLDS[3] (drift detection)', () => {

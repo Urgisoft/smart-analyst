@@ -247,6 +247,45 @@ interface CellMetrics {
   ptMedDD: number;
   sharpe: number;
   deployRate: number;
+  /**
+   * Trailing-30-entry cumulative portfolio P&L (% of capital) time series.
+   * Computed on cross-token-summed daily P&L. Drives the s73-sizer-flip
+   * drawdown-framework recalibration diagnostic (see printDrawdownCalibrationSection).
+   * Uses 30 series-entries (trading days for the equity 1d candles), not
+   * 30 calendar days — absolute SDs differ from the live framework by a
+   * constant ≈ sqrt(30/21), which CANCELS in the SIZER/LEGACY ratio.
+   */
+  trail30dCumPctSeries: number[];
+}
+
+/**
+ * Trailing-30-entry cumulative P&L (% of capital) over the cross-token-summed
+ * daily P&L series. Sliding window via running sum: O(n) per cell.
+ *
+ *   trail30[t] = sum(pnl[max(0, t-29)..t]) / capital
+ *
+ * Returns a series of length === dailyPnlByDay.size (one value per day with
+ * activity). Empty input returns empty series. SPEC: drawdown-framework
+ * recalibration RESEARCH (s74).
+ */
+function computeTrailing30dCumPctSeries(
+  dailyPnlByDay: Map<string, number>,
+  capital: number,
+): number[] {
+  const sortedDays = Array.from(dailyPnlByDay.keys()).sort();
+  const series: number[] = [];
+  const buf: number[] = [];
+  let runningSum = 0;
+  for (const day of sortedDays) {
+    const pnl = dailyPnlByDay.get(day)!;
+    buf.push(pnl);
+    runningSum += pnl;
+    if (buf.length > 30) {
+      runningSum -= buf.shift()!;
+    }
+    series.push(runningSum / capital);
+  }
+  return series;
 }
 
 interface CellRow {
@@ -316,7 +355,129 @@ function computeCellMetrics(
     ? (tokensWithAnyTrade / perTokenResults.length) * 100
     : 0;
 
-  return { n, meanPct, wr, worst, portDD, ptMedDD, sharpe, deployRate };
+  const trail30dCumPctSeries = computeTrailing30dCumPctSeries(dailyPnlByDay, CAPITAL);
+
+  return { n, meanPct, wr, worst, portDD, ptMedDD, sharpe, deployRate, trail30dCumPctSeries };
+}
+
+/**
+ * Drawdown framework recalibration diagnostic — quantifies the SIZER/LEGACY
+ * compression on the framework's actual input metric (trailing-30d cum P&L
+ * as % of capital). Output drives the RESEARCH-stage rescale-factor decision
+ * for the s73 sizer-flip drawdown-framework recalibration slice.
+ *
+ * What we measure:
+ *   1. Pooled SD across all 15 cells × variant (parameter-sensitivity-weighted).
+ *   2. Deployed-cell SD only (mr_v1 / RSI 30,60 — most production-relevant).
+ *   3. Per-cell SIZER/LEGACY ratio distribution (median + min + max for robustness).
+ *
+ * Why per-cell ratio matters: a single deployed-cell ratio could be an outlier;
+ * the cross-cell median is the more defensible point estimate for a SPEC-stage
+ * rescale recommendation.
+ *
+ * Caveats (documented in output):
+ *   - mr_v1 only. trend_v1 is a separate sweep / follow-up.
+ *   - Trading-day windows ≠ calendar-day (factor cancels in ratio; affects
+ *     absolute SD only).
+ *   - Single-cell pooled equity; two-cell production portfolio SD is
+ *     ~1/sqrt(2) lower if cells are uncorrelated. Conservative-bias OK
+ *     for a stopgap rescale (the 90d empirical retune via SPEC §12 is
+ *     the canonical fix).
+ *   - Level 5 (-20%) is byte-pinned to A5_KILL_THRESHOLD_PCT and is treated
+ *     as a separate decision slice (see RESEARCH note: A5 hard kill may be
+ *     defunct under sizer; deferred until SD numbers in hand).
+ */
+function printDrawdownCalibrationSection(
+  legacyRows: CellRow[],
+  sizerRows: CellRow[],
+): void {
+  console.log('='.repeat(132));
+  console.log('  Drawdown framework recalibration diagnostic — trailing-30d cum P&L SD shift');
+  console.log('  (s73 sizer-flip impact on docs/specs/drawdown-response-framework.md thresholds)');
+  console.log('='.repeat(132));
+  console.log();
+
+  const poolSeries = (rows: CellRow[]): number[] => {
+    const pool: number[] = [];
+    for (const r of rows) pool.push(...r.metrics.trail30dCumPctSeries);
+    return pool;
+  };
+  const legacyPool = poolSeries(legacyRows);
+  const sizerPool = poolSeries(sizerRows);
+  const legacyPoolSD = pearsonStd(legacyPool);
+  const sizerPoolSD = pearsonStd(sizerPool);
+  const poolRatio = legacyPoolSD > 0 ? sizerPoolSD / legacyPoolSD : NaN;
+
+  console.log('  (1) Pooled across all 15 cells (parameter-sensitivity-weighted):');
+  console.log(`      LEGACY pool SD: ${(legacyPoolSD * 100).toFixed(3)}%  (n=${legacyPool.length})`);
+  console.log(`      SIZER  pool SD: ${(sizerPoolSD * 100).toFixed(3)}%  (n=${sizerPool.length})`);
+  console.log(`      Rescale ratio (SIZER/LEGACY): ${poolRatio.toFixed(3)}`);
+  console.log();
+
+  const deployedLegacy = legacyRows.find(r => r.entry === 30 && r.exit === 60);
+  const deployedSizer = sizerRows.find(r => r.entry === 30 && r.exit === 60);
+  const deployedLegacySD = deployedLegacy ? pearsonStd(deployedLegacy.metrics.trail30dCumPctSeries) : NaN;
+  const deployedSizerSD = deployedSizer ? pearsonStd(deployedSizer.metrics.trail30dCumPctSeries) : NaN;
+  const deployedRatio = deployedLegacySD > 0 ? deployedSizerSD / deployedLegacySD : NaN;
+
+  console.log('  (2) Deployed cell only (mr_v1 / RSI 30,60 — production input):');
+  console.log(`      LEGACY SD: ${(deployedLegacySD * 100).toFixed(3)}%  (n=${deployedLegacy?.metrics.trail30dCumPctSeries.length ?? 0})`);
+  console.log(`      SIZER  SD: ${(deployedSizerSD * 100).toFixed(3)}%  (n=${deployedSizer?.metrics.trail30dCumPctSeries.length ?? 0})`);
+  console.log(`      Rescale ratio (SIZER/LEGACY): ${deployedRatio.toFixed(3)}`);
+  console.log();
+
+  const perCellRatios: number[] = [];
+  for (let i = 0; i < legacyRows.length; i++) {
+    const lSD = pearsonStd(legacyRows[i].metrics.trail30dCumPctSeries);
+    const sSD = pearsonStd(sizerRows[i].metrics.trail30dCumPctSeries);
+    if (lSD > 0) perCellRatios.push(sSD / lSD);
+  }
+  const medianRatio = median(perCellRatios);
+  const minRatio = perCellRatios.length > 0 ? Math.min(...perCellRatios) : NaN;
+  const maxRatio = perCellRatios.length > 0 ? Math.max(...perCellRatios) : NaN;
+
+  console.log('  (3) Per-cell rescale ratio distribution (15 cells):');
+  console.log(`      median = ${medianRatio.toFixed(3)}  |  min = ${minRatio.toFixed(3)}  |  max = ${maxRatio.toFixed(3)}`);
+  console.log();
+
+  // Recommended rescale factor: per-cell median is more robust than either
+  // pool SD or deployed-cell SD alone. Pool SD weights parameter sensitivity
+  // disproportionately; deployed-cell SD is a single point estimate that
+  // could be an outlier. Median across cells dampens both.
+  const recommendedRescale = medianRatio;
+  const currentEntry = { 1: -0.03, 2: -0.07, 3: -0.12, 4: -0.18 };
+  const currentExit = { 1: -0.02, 2: -0.05, 3: -0.10, 4: -0.15 };
+
+  console.log('  (4) Suggested rescaled thresholds (Levels 1-4; recommended rescale = per-cell median):');
+  console.log(`      Rescale factor: ${recommendedRescale.toFixed(3)}`);
+  console.log();
+  console.log('      ENTRY thresholds (level enters when dd ≤ threshold):');
+  console.log('      Level | Current  | Rescaled   | Rounded (nearest 0.5%)');
+  console.log('      ' + '─'.repeat(60));
+  for (const [lvl, curr] of Object.entries(currentEntry)) {
+    const rescaled = curr * recommendedRescale;
+    const rounded = Math.round(rescaled * 200) / 200;
+    console.log(`        ${lvl}   | ${(curr * 100).toFixed(2).padStart(6)}%  | ${(rescaled * 100).toFixed(3).padStart(8)}%  | ${(rounded * 100).toFixed(2).padStart(6)}%`);
+  }
+  console.log();
+  console.log('      EXIT thresholds (level exits when dd > threshold for N days):');
+  console.log('      Level | Current  | Rescaled   | Rounded (nearest 0.5%)');
+  console.log('      ' + '─'.repeat(60));
+  for (const [lvl, curr] of Object.entries(currentExit)) {
+    const rescaled = curr * recommendedRescale;
+    const rounded = Math.round(rescaled * 200) / 200;
+    console.log(`        ${lvl}   | ${(curr * 100).toFixed(2).padStart(6)}%  | ${(rescaled * 100).toFixed(3).padStart(8)}%  | ${(rounded * 100).toFixed(2).padStart(6)}%`);
+  }
+  console.log();
+  console.log('  (5) Caveats:');
+  console.log('      - Based on mr_v1 only. trend_v1 calibration is a follow-up sweep.');
+  console.log('      - Pooled equity is single-cell; production 2-cell portfolio SD is ');
+  console.log('        ~1/sqrt(2) lower if uncorrelated. Conservative bias is OK for stopgap;');
+  console.log('        the 90d empirical retune via SPEC §12 is the canonical fix.');
+  console.log('      - Level 5 (-20%) is byte-pinned to A5_KILL_THRESHOLD_PCT. Separate slice:');
+  console.log('        under sizer the hard-kill may be defunct (worst observed sizer cell DD');
+  console.log('        ~-15%). Decide rescale vs accept-defunct after SD numbers reviewed.');
+  console.log();
 }
 
 function printSurface(variant: Variant, rows: CellRow[]): void {
@@ -422,6 +583,8 @@ async function main() {
   console.log();
   printPlateauAnalysis('legacy', resultsByVariant.legacy);
   printPlateauAnalysis('sizer', resultsByVariant.sizer);
+
+  printDrawdownCalibrationSection(resultsByVariant.legacy, resultsByVariant.sizer);
 
   // §9 step 4 verdict: Spearman rank correlation of Sharpe across the 15
   // cells between legacy and sizer. The threshold for "rankings preserved"

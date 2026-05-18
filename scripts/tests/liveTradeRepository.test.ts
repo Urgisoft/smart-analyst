@@ -470,9 +470,13 @@ describe('Repository constructor — requiredConfigVersion pin', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       fake as any,
       'quantlab.live_trades_test',
-      // Bumped 2026-05-16 → 2026-05-17 in session 54 with the drawdown-
-      // framework landing — see capitalDeploymentConfig.test.ts header.
-      { requiredConfigVersion: 'ADR-039:Proposed:2026-05-17' },
+      // Bump history:
+      //   s47 → 'ADR-039:Proposed:2026-05-16'
+      //   s54 → 'ADR-039:Proposed:2026-05-17' (framework landed)
+      //   s74 → 'ADR-039:Accepted:2026-05-17+s74-drawdown-rescale'
+      //         (catches s73 ratification + s74 §4.1 L1-L4 + stage3.failDrawdown rescale)
+      //   See capitalDeploymentConfig.test.ts header for full history.
+      { requiredConfigVersion: 'ADR-039:Accepted:2026-05-17+s74-drawdown-rescale' },
     ));
   });
 

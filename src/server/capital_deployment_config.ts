@@ -55,13 +55,22 @@
 /**
  * Identifies which version of the deployment policy is active. Bump this
  * string when ADR-039 status flips, OR when a superseding ADR (e.g. ADR-040)
- * changes the ramp. Format: `ADR-NNN:<status>:<YYYY-MM-DD>`.
+ * changes the ramp, OR when a framework SPEC amendment changes a value
+ * pinned in this config (e.g. stage3.failDrawdown follows
+ * DRAWDOWN_LEVEL_ENTRY_THRESHOLDS[3]). Format: `ADR-NNN:<status>:<YYYY-MM-DD>`
+ * with optional `+<amendment-tag>` suffix.
  *
  * Downstream code patterns:
- *   assertConfigVersion('ADR-039:Proposed:2026-05-16')  // tests, repo wire-up
- *   if (CONFIG_VERSION.startsWith('ADR-039:Proposed')) { warn(...) }
+ *   assertConfigVersion('ADR-039:Accepted:2026-05-17+s74-drawdown-rescale')
+ *   if (CONFIG_VERSION.startsWith('ADR-039:Accepted')) { ... }
+ *
+ * Bump history:
+ *   - 2026-05-16: ADR-039:Proposed:2026-05-16 (initial)
+ *   - 2026-05-17 (s54): ADR-039:Proposed:2026-05-17 (framework landed; stage3.failDrawdown flipped from null to -0.12)
+ *   - 2026-05-17 (s73): ratified by Pejman (Proposed → Accepted) but CONFIG_VERSION not bumped at the time
+ *   - 2026-05-17 (s74): ADR-039:Accepted:2026-05-17+s74-drawdown-rescale (catches s73 ratification + s74 framework §4.1 rescale of L1-L4 + stage3.failDrawdown)
  */
-export const CONFIG_VERSION = 'ADR-039:Proposed:2026-05-17';
+export const CONFIG_VERSION = 'ADR-039:Accepted:2026-05-17+s74-drawdown-rescale';
 
 export type DeploymentStage = 'paper' | 'stage1' | 'stage2' | 'stage3' | 'stage4';
 
@@ -164,14 +173,15 @@ export const DEPLOYMENT_STAGES: Readonly<Record<DeploymentStage, Readonly<StageC
     passMaxDrawdown: null, // "within graduated response framework" — surfaced by the framework's morning-brief panel
     requiresKillCriteriaPass: true,
     entryRequiresPriorStagesValidatedDays: null,
-    // -0.12 = Level-3 entry threshold per drawdown-response-framework.md §3.
+    // -0.035 = Level-3 entry threshold per drawdown-response-framework.md §3
+    // (rescaled 2026-05-17 session 74 per SPEC §4.1; pre-rescale value -0.12).
     // Operational semantics: stage 3 fails on a Level-3 ENTRY EVENT detected
     // by `isLevel3EntryEvent(priorLevel, currentLevel)`, NOT on a per-eval
-    // `drawdown_30d_pct <= -0.12` check. The numeric value pinned here
+    // `drawdown_30d_pct <= -0.035` check. The numeric value pinned here
     // mirrors the framework constant for audit-trail clarity AND so
     // drift-detection tests catch desynchronisation. The stage state
     // machine MUST consume the event predicate, not the raw number.
-    failDrawdown: -0.12,
+    failDrawdown: -0.035,
   }),
   stage4: Object.freeze({
     stage: 'stage4',

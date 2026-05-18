@@ -79,54 +79,58 @@ function mkPriorRow(opts: {
 
 // ── computeLevel (tests #1–#8) ───────────────────────────────────────────────
 
-describe('computeLevel (SPEC §11 #1-#8)', () => {
-  it('#1 dd=-0.02, prev=0 → 0 (above L1 entry)', () => {
-    assert.equal(computeLevel(0, -0.02, 0), 0);
+describe('computeLevel (SPEC §11 #1-#8; post-s74 §4.1 rescale)', () => {
+  // Inputs rescaled by ratio ~0.297 (the §4.1 sizer-regime factor) to keep
+  // each test in the same logical band under the new thresholds. The PATTERN
+  // (boundary semantics, sticky-down, one-step recovery) is unchanged.
+  it('#1 dd=-0.005, prev=0 → 0 (above L1 entry -0.01)', () => {
+    assert.equal(computeLevel(0, -0.005, 0), 0);
   });
 
-  it('#2 dd=-0.04, prev=0 → 1', () => {
-    assert.equal(computeLevel(0, -0.04, 0), 1);
+  it('#2 dd=-0.015, prev=0 → 1 (between L1 -0.01 and L2 -0.02)', () => {
+    assert.equal(computeLevel(0, -0.015, 0), 1);
   });
 
-  it('#3 dd=-0.08, prev=0 → 2 (skip-down OK)', () => {
-    assert.equal(computeLevel(0, -0.08, 0), 2);
+  it('#3 dd=-0.025, prev=0 → 2 (skip-down OK; between L2 -0.02 and L3 -0.035)', () => {
+    assert.equal(computeLevel(0, -0.025, 0), 2);
   });
 
-  it('#4 dd=-0.21, prev=0 → 5 (multi-level skip)', () => {
+  it('#4 dd=-0.21, prev=0 → 5 (multi-level skip; L5 unchanged at -0.20)', () => {
     assert.equal(computeLevel(0, -0.21, 0), 5);
   });
 
-  it('#5 dd=-0.04, prev=2, recovery=0 → 2 (sticky down)', () => {
-    assert.equal(computeLevel(2, -0.04, 0), 2);
+  it('#5 dd=-0.013, prev=2, recovery=0 → 2 (sticky down; above L2 exit -0.015 but no recovery days)', () => {
+    assert.equal(computeLevel(2, -0.013, 0), 2);
   });
 
-  it('#6 dd=-0.04, prev=2, recovery=5 → 1 (one-step up)', () => {
-    assert.equal(computeLevel(2, -0.04, 5), 1);
+  it('#6 dd=-0.013, prev=2, recovery=5 → 1 (one-step up; above L2 exit -0.015 + 5 days)', () => {
+    assert.equal(computeLevel(2, -0.013, 5), 1);
   });
 
-  it('#7 dd=-0.01, prev=2, recovery=5 → 1 (one-step up only, NOT 0)', () => {
-    // Even though -0.01 is fully recovered, the SPEC §3 rule "skip-up is
-    // not allowed" forces one-step-at-a-time recovery.
-    assert.equal(computeLevel(2, -0.01, 5), 1);
+  it('#7 dd=-0.003, prev=2, recovery=5 → 1 (one-step up only, NOT 0)', () => {
+    // Even though -0.003 is fully recovered (above L1 entry -0.01), the SPEC
+    // §3 rule "skip-up is not allowed" forces one-step-at-a-time recovery.
+    assert.equal(computeLevel(2, -0.003, 5), 1);
   });
 
-  it('#8 dd=-0.01, prev=5, recovery=100 → 5 (terminal — operator clears)', () => {
-    assert.equal(computeLevel(5, -0.01, 100), 5);
+  it('#8 dd=-0.003, prev=5, recovery=100 → 5 (terminal — operator clears)', () => {
+    assert.equal(computeLevel(5, -0.003, 100), 5);
   });
 
   it('extra: level unchanged when drawdown still in current-level band', () => {
-    // dd=-0.06 is below L1 entry (-0.03) but above L2 entry (-0.07). At
-    // prev=2 the naturalDownLevel is 1 (recovery candidate) but exit
-    // threshold (-0.05) is not yet met → sticky at 2.
-    assert.equal(computeLevel(2, -0.06, 100), 2);
+    // dd=-0.018 is below L1 entry (-0.01) but above L2 entry (-0.02). At
+    // prev=2 the naturalDownLevel is 1 (recovery candidate) but L2 exit
+    // threshold (-0.015) is not yet met (since -0.018 < -0.015) → sticky at 2.
+    assert.equal(computeLevel(2, -0.018, 100), 2);
   });
 
   it('extra: dd=-0.21 at prev=4 → 5 (down-transition immediate)', () => {
     assert.equal(computeLevel(4, -0.21, 0), 5);
   });
 
-  it('extra: same-level returns same level (prev=3, dd=-0.13)', () => {
-    assert.equal(computeLevel(3, -0.13, 0), 3);
+  it('extra: same-level returns same level (prev=3, dd=-0.045)', () => {
+    // -0.045 is between L3 entry (-0.035) and L4 entry (-0.055) → natural L3.
+    assert.equal(computeLevel(3, -0.045, 0), 3);
   });
 });
 
@@ -148,10 +152,10 @@ describe('evaluateDrawdownState (SPEC §11 #9-#18)', () => {
     assert.equal(r.partialWindow, false);
   });
 
-  it('#10 single trade -$200 in window, capital 10000 → dd -0.02, level 0', () => {
+  it('#10 single trade -$50 in window, capital 10000 → dd -0.005, level 0', () => {
     const trade = mkTrade({
       exitTs: new Date(ASOF.getTime() - 5 * MS_PER_DAY),
-      pnlUsd: -200,
+      pnlUsd: -50,
     });
     const r = evaluateDrawdownState({
       closedTrades: [trade],
@@ -162,15 +166,15 @@ describe('evaluateDrawdownState (SPEC §11 #9-#18)', () => {
       priorHistory: [],
       regimeRedDays30: 0,
     });
-    assert.equal(r.drawdown30dPct, -0.02);
+    assert.equal(r.drawdown30dPct, -0.005);
     assert.equal(r.level, 0);
   });
 
-  it('#11 trades summing -$800 in window, capital 10000 → dd -0.08, level 2', () => {
+  it('#11 trades summing -$250 in window, capital 10000 → dd -0.025, level 2', () => {
     const trades = [
-      mkTrade({ exitTs: new Date(ASOF.getTime() - 20 * MS_PER_DAY), pnlUsd: -300 }),
-      mkTrade({ exitTs: new Date(ASOF.getTime() - 10 * MS_PER_DAY), pnlUsd: -300 }),
-      mkTrade({ exitTs: new Date(ASOF.getTime() - 5 * MS_PER_DAY), pnlUsd: -200 }),
+      mkTrade({ exitTs: new Date(ASOF.getTime() - 20 * MS_PER_DAY), pnlUsd: -100 }),
+      mkTrade({ exitTs: new Date(ASOF.getTime() - 10 * MS_PER_DAY), pnlUsd: -100 }),
+      mkTrade({ exitTs: new Date(ASOF.getTime() - 5 * MS_PER_DAY), pnlUsd: -50 }),
     ];
     const r = evaluateDrawdownState({
       closedTrades: trades,
@@ -181,14 +185,14 @@ describe('evaluateDrawdownState (SPEC §11 #9-#18)', () => {
       priorHistory: [],
       regimeRedDays30: 0,
     });
-    assert.equal(r.drawdown30dPct, -0.08);
+    assert.equal(r.drawdown30dPct, -0.025);
     assert.equal(r.level, 2);
   });
 
   it('#12 trades exit_ts outside 30d window are not summed', () => {
     const trades = [
       // Inside the window — should count.
-      mkTrade({ exitTs: new Date(ASOF.getTime() - 5 * MS_PER_DAY), pnlUsd: -200 }),
+      mkTrade({ exitTs: new Date(ASOF.getTime() - 5 * MS_PER_DAY), pnlUsd: -50 }),
       // Outside the window (older than 30 days) — should NOT count.
       mkTrade({ exitTs: new Date(ASOF.getTime() - 45 * MS_PER_DAY), pnlUsd: -1000 }),
     ];
@@ -201,8 +205,8 @@ describe('evaluateDrawdownState (SPEC §11 #9-#18)', () => {
       priorHistory: [],
       regimeRedDays30: 0,
     });
-    // Only the -200 trade summed → drawdown -0.02, NOT -0.12.
-    assert.equal(r.drawdown30dPct, -0.02);
+    // Only the -50 trade summed → drawdown -0.005, NOT -0.105.
+    assert.equal(r.drawdown30dPct, -0.005);
     assert.equal(r.level, 0);
   });
 
@@ -241,8 +245,9 @@ describe('evaluateDrawdownState (SPEC §11 #9-#18)', () => {
   });
 
   it('#14 regimeRedDays30 ≥ 14, level 2 entry → regimeExplained=true', () => {
+    // -$250 / $10000 = -0.025 → ≤ L2 entry (-0.02), > L3 entry (-0.035) → level 2.
     const trades = [
-      mkTrade({ exitTs: new Date(ASOF.getTime() - 5 * MS_PER_DAY), pnlUsd: -800 }),
+      mkTrade({ exitTs: new Date(ASOF.getTime() - 5 * MS_PER_DAY), pnlUsd: -250 }),
     ];
     const r = evaluateDrawdownState({
       closedTrades: trades,
@@ -259,7 +264,7 @@ describe('evaluateDrawdownState (SPEC §11 #9-#18)', () => {
 
   it('#15 regimeRedDays30 = 7, level 2 entry → regimeExplained=false', () => {
     const trades = [
-      mkTrade({ exitTs: new Date(ASOF.getTime() - 5 * MS_PER_DAY), pnlUsd: -800 }),
+      mkTrade({ exitTs: new Date(ASOF.getTime() - 5 * MS_PER_DAY), pnlUsd: -250 }),
     ];
     const r = evaluateDrawdownState({
       closedTrades: trades,
@@ -275,9 +280,9 @@ describe('evaluateDrawdownState (SPEC §11 #9-#18)', () => {
   });
 
   it('#16 regimeRedDays30 = 30, level 4 entry → regimeExplained=false (always L≥4)', () => {
-    // -$1850 / $10000 = -0.185 → ≤ -0.18 → level 4.
+    // -$600 / $10000 = -0.06 → ≤ L4 entry (-0.055), > L5 entry (-0.20) → level 4.
     const trades = [
-      mkTrade({ exitTs: new Date(ASOF.getTime() - 5 * MS_PER_DAY), pnlUsd: -1850 }),
+      mkTrade({ exitTs: new Date(ASOF.getTime() - 5 * MS_PER_DAY), pnlUsd: -600 }),
     ];
     const r = evaluateDrawdownState({
       closedTrades: trades,
@@ -295,14 +300,14 @@ describe('evaluateDrawdownState (SPEC §11 #9-#18)', () => {
   it('#17 level unchanged → levelEnteredAt copied from prior row', () => {
     const yesterdayEntryAt = new Date(ASOF.getTime() - 3 * MS_PER_DAY);
     const yesterdayEvalAt = new Date(ASOF.getTime() - 1 * MS_PER_DAY);
-    // Today's window: -$800 → level 2. Prior row also at level 2.
+    // Today's window: -$250 → dd -0.025 → level 2. Prior row also at level 2.
     const trades = [
-      mkTrade({ exitTs: new Date(ASOF.getTime() - 5 * MS_PER_DAY), pnlUsd: -800 }),
+      mkTrade({ exitTs: new Date(ASOF.getTime() - 5 * MS_PER_DAY), pnlUsd: -250 }),
     ];
     const priorHistory: DrawdownStateRow[] = [
       mkPriorRow({
         level: 2,
-        drawdown30dPct: -0.08,
+        drawdown30dPct: -0.025,
         evaluatedAt: yesterdayEvalAt,
         levelEnteredAt: yesterdayEntryAt,
       }),
@@ -321,9 +326,9 @@ describe('evaluateDrawdownState (SPEC §11 #9-#18)', () => {
   });
 
   it('#18 level transition → levelEnteredAt = asOf', () => {
-    // Today's window: -$800 → level 2. Prior was at level 0.
+    // Today's window: -$250 → dd -0.025 → level 2. Prior was at level 0.
     const trades = [
-      mkTrade({ exitTs: new Date(ASOF.getTime() - 5 * MS_PER_DAY), pnlUsd: -800 }),
+      mkTrade({ exitTs: new Date(ASOF.getTime() - 5 * MS_PER_DAY), pnlUsd: -250 }),
     ];
     const priorHistory: DrawdownStateRow[] = [
       mkPriorRow({
@@ -360,19 +365,19 @@ describe('sizingMultiplierForLevel (SPEC §11 #19)', () => {
 });
 
 describe('threshold constants byte-pinned (SPEC §11 #20)', () => {
-  it('entry thresholds match SPEC §9.2 verbatim', () => {
-    assert.equal(DRAWDOWN_LEVEL_ENTRY_THRESHOLDS[1], -0.03);
-    assert.equal(DRAWDOWN_LEVEL_ENTRY_THRESHOLDS[2], -0.07);
-    assert.equal(DRAWDOWN_LEVEL_ENTRY_THRESHOLDS[3], -0.12);
-    assert.equal(DRAWDOWN_LEVEL_ENTRY_THRESHOLDS[4], -0.18);
+  it('entry thresholds match SPEC §9.2 verbatim (post-s74 §4.1 rescale; L5 unchanged)', () => {
+    assert.equal(DRAWDOWN_LEVEL_ENTRY_THRESHOLDS[1], -0.01);
+    assert.equal(DRAWDOWN_LEVEL_ENTRY_THRESHOLDS[2], -0.02);
+    assert.equal(DRAWDOWN_LEVEL_ENTRY_THRESHOLDS[3], -0.035);
+    assert.equal(DRAWDOWN_LEVEL_ENTRY_THRESHOLDS[4], -0.055);
     assert.equal(DRAWDOWN_LEVEL_ENTRY_THRESHOLDS[5], -0.20);
   });
 
-  it('exit thresholds match SPEC §9.2 verbatim', () => {
-    assert.deepEqual({ ...DRAWDOWN_LEVEL_EXIT_THRESHOLDS[1] }, { pct: -0.02, days: 5 });
-    assert.deepEqual({ ...DRAWDOWN_LEVEL_EXIT_THRESHOLDS[2] }, { pct: -0.05, days: 5 });
-    assert.deepEqual({ ...DRAWDOWN_LEVEL_EXIT_THRESHOLDS[3] }, { pct: -0.10, days: 5 });
-    assert.deepEqual({ ...DRAWDOWN_LEVEL_EXIT_THRESHOLDS[4] }, { pct: -0.15, days: 10 });
+  it('exit thresholds match SPEC §9.2 verbatim (post-s74 §4.1 rescale; day counts unchanged)', () => {
+    assert.deepEqual({ ...DRAWDOWN_LEVEL_EXIT_THRESHOLDS[1] }, { pct: -0.005, days: 5 });
+    assert.deepEqual({ ...DRAWDOWN_LEVEL_EXIT_THRESHOLDS[2] }, { pct: -0.015, days: 5 });
+    assert.deepEqual({ ...DRAWDOWN_LEVEL_EXIT_THRESHOLDS[3] }, { pct: -0.03, days: 5 });
+    assert.deepEqual({ ...DRAWDOWN_LEVEL_EXIT_THRESHOLDS[4] }, { pct: -0.045, days: 10 });
   });
 
   it('threshold objects are frozen (drift requires source edit)', () => {
@@ -458,25 +463,26 @@ describe('evaluateDrawdownState — recovery walks rows AT prevLevel only (SPEC 
   // the recovery counter.
 
   it('L3 recovery counter restarts after an L4→L3 transition (prior L4 rows ignored)', () => {
+    // Post-s74 §4.1 rescale: L3 entry -0.035, L3 exit -0.03, L4 entry -0.055.
     // Scenario: we just transitioned L4 → L3 today. Prior rows are 4 days of
-    // L4 with drawdowns of -0.13 (above L3's exit -0.10 but at L4). The L3
+    // L4 with drawdowns of -0.04 (above L3's exit -0.03 but at L4). The L3
     // recovery counter MUST start at 1 today, not 5. So sticky at L3 (need
-    // 5 consecutive L3 days above -0.10 to step up to L2).
+    // 5 consecutive L3 days above -0.03 to step up to L2).
     const trades = [
-      // dd today = -0.07 → naturalDownLevel=2, prevLevel=3 → recovery candidate
-      mkTrade({ exitTs: new Date(ASOF.getTime() - 5 * MS_PER_DAY), pnlUsd: -700 }),
+      // dd today = -0.025 → naturalDownLevel=2, prevLevel=3 → recovery candidate
+      mkTrade({ exitTs: new Date(ASOF.getTime() - 5 * MS_PER_DAY), pnlUsd: -250 }),
     ];
     const priorHistory: DrawdownStateRow[] = [
-      mkPriorRow({ level: 4, drawdown30dPct: -0.18, evaluatedAt: new Date(ASOF.getTime() - 4 * MS_PER_DAY) }),
-      mkPriorRow({ level: 4, drawdown30dPct: -0.13, evaluatedAt: new Date(ASOF.getTime() - 3 * MS_PER_DAY) }),
-      mkPriorRow({ level: 4, drawdown30dPct: -0.13, evaluatedAt: new Date(ASOF.getTime() - 2 * MS_PER_DAY) }),
-      mkPriorRow({ level: 4, drawdown30dPct: -0.13, evaluatedAt: new Date(ASOF.getTime() - 1 * MS_PER_DAY) }),
+      mkPriorRow({ level: 4, drawdown30dPct: -0.07, evaluatedAt: new Date(ASOF.getTime() - 4 * MS_PER_DAY) }),
+      mkPriorRow({ level: 4, drawdown30dPct: -0.06, evaluatedAt: new Date(ASOF.getTime() - 3 * MS_PER_DAY) }),
+      mkPriorRow({ level: 4, drawdown30dPct: -0.06, evaluatedAt: new Date(ASOF.getTime() - 2 * MS_PER_DAY) }),
+      mkPriorRow({ level: 4, drawdown30dPct: -0.06, evaluatedAt: new Date(ASOF.getTime() - 1 * MS_PER_DAY) }),
       // Today's pre-eval prior is L3 (the just-transitioned row would be
       // written at end of today, so priorHistory here ends at yesterday's L4).
       // Simulate the case where today we're EVALUATING from prevLevel=3
       // (post a prior end-of-day transition). Insert one L3 row to force
-      // prevLevel=3.
-      mkPriorRow({ level: 3, drawdown30dPct: -0.11, evaluatedAt: new Date(ASOF.getTime() - 0.5 * MS_PER_DAY) }),
+      // prevLevel=3, with dd BELOW L3 exit (-0.03) so the walk breaks at 1.
+      mkPriorRow({ level: 3, drawdown30dPct: -0.04, evaluatedAt: new Date(ASOF.getTime() - 0.5 * MS_PER_DAY) }),
     ];
     const r = evaluateDrawdownState({
       closedTrades: trades,
@@ -487,25 +493,25 @@ describe('evaluateDrawdownState — recovery walks rows AT prevLevel only (SPEC 
       priorHistory,
       regimeRedDays30: 0,
     });
-    // Today's dd is -0.07 → above L3's exit (-0.10). But prior L3 row's
-    // dd=-0.11 is BELOW L3 exit, so the recovery walk count=1 (today only).
+    // Today's dd is -0.025 → above L3's exit (-0.03). But prior L3 row's
+    // dd=-0.04 is BELOW L3 exit, so the recovery walk count=1 (today only).
     // Required: 5 days. So sticky-down at L3.
-    assert.equal(r.drawdown30dPct, -0.07);
+    assert.equal(r.drawdown30dPct, -0.025);
     assert.equal(r.level, 3);
   });
 
   it('L3 recovery fires after 5 consecutive L3-AND-above-exit days (no L4 inflation)', () => {
     const trades = [
-      mkTrade({ exitTs: new Date(ASOF.getTime() - 5 * MS_PER_DAY), pnlUsd: -700 }),
+      mkTrade({ exitTs: new Date(ASOF.getTime() - 5 * MS_PER_DAY), pnlUsd: -250 }),
     ];
-    // Five prior L3 rows all above L3 exit (-0.10).
+    // Five prior L3 rows all above L3 exit (-0.03 post-s74-rescale).
     const priorHistory: DrawdownStateRow[] = [
-      mkPriorRow({ level: 4, drawdown30dPct: -0.13, evaluatedAt: new Date(ASOF.getTime() - 6 * MS_PER_DAY) }), // stops walk
-      mkPriorRow({ level: 3, drawdown30dPct: -0.09, evaluatedAt: new Date(ASOF.getTime() - 5 * MS_PER_DAY) }),
-      mkPriorRow({ level: 3, drawdown30dPct: -0.08, evaluatedAt: new Date(ASOF.getTime() - 4 * MS_PER_DAY) }),
-      mkPriorRow({ level: 3, drawdown30dPct: -0.08, evaluatedAt: new Date(ASOF.getTime() - 3 * MS_PER_DAY) }),
-      mkPriorRow({ level: 3, drawdown30dPct: -0.08, evaluatedAt: new Date(ASOF.getTime() - 2 * MS_PER_DAY) }),
-      mkPriorRow({ level: 3, drawdown30dPct: -0.08, evaluatedAt: new Date(ASOF.getTime() - 1 * MS_PER_DAY) }),
+      mkPriorRow({ level: 4, drawdown30dPct: -0.06, evaluatedAt: new Date(ASOF.getTime() - 6 * MS_PER_DAY) }), // stops walk
+      mkPriorRow({ level: 3, drawdown30dPct: -0.028, evaluatedAt: new Date(ASOF.getTime() - 5 * MS_PER_DAY) }),
+      mkPriorRow({ level: 3, drawdown30dPct: -0.025, evaluatedAt: new Date(ASOF.getTime() - 4 * MS_PER_DAY) }),
+      mkPriorRow({ level: 3, drawdown30dPct: -0.025, evaluatedAt: new Date(ASOF.getTime() - 3 * MS_PER_DAY) }),
+      mkPriorRow({ level: 3, drawdown30dPct: -0.025, evaluatedAt: new Date(ASOF.getTime() - 2 * MS_PER_DAY) }),
+      mkPriorRow({ level: 3, drawdown30dPct: -0.025, evaluatedAt: new Date(ASOF.getTime() - 1 * MS_PER_DAY) }),
     ];
     const r = evaluateDrawdownState({
       closedTrades: trades,
@@ -517,20 +523,20 @@ describe('evaluateDrawdownState — recovery walks rows AT prevLevel only (SPEC 
       regimeRedDays30: 0,
     });
     // 5 prior L3 rows + today's L3-eligible day = 6 days ≥ 5 → step up to L2.
-    assert.equal(r.drawdown30dPct, -0.07);
+    assert.equal(r.drawdown30dPct, -0.025);
     assert.equal(r.level, 2);
   });
 
   it('a single below-exit day in the L3 streak resets the counter', () => {
     const trades = [
-      mkTrade({ exitTs: new Date(ASOF.getTime() - 5 * MS_PER_DAY), pnlUsd: -700 }),
+      mkTrade({ exitTs: new Date(ASOF.getTime() - 5 * MS_PER_DAY), pnlUsd: -250 }),
     ];
     const priorHistory: DrawdownStateRow[] = [
-      mkPriorRow({ level: 3, drawdown30dPct: -0.08, evaluatedAt: new Date(ASOF.getTime() - 5 * MS_PER_DAY) }),
-      mkPriorRow({ level: 3, drawdown30dPct: -0.08, evaluatedAt: new Date(ASOF.getTime() - 4 * MS_PER_DAY) }),
-      mkPriorRow({ level: 3, drawdown30dPct: -0.11, evaluatedAt: new Date(ASOF.getTime() - 3 * MS_PER_DAY) }), // BELOW exit → break
-      mkPriorRow({ level: 3, drawdown30dPct: -0.08, evaluatedAt: new Date(ASOF.getTime() - 2 * MS_PER_DAY) }),
-      mkPriorRow({ level: 3, drawdown30dPct: -0.08, evaluatedAt: new Date(ASOF.getTime() - 1 * MS_PER_DAY) }),
+      mkPriorRow({ level: 3, drawdown30dPct: -0.025, evaluatedAt: new Date(ASOF.getTime() - 5 * MS_PER_DAY) }),
+      mkPriorRow({ level: 3, drawdown30dPct: -0.025, evaluatedAt: new Date(ASOF.getTime() - 4 * MS_PER_DAY) }),
+      mkPriorRow({ level: 3, drawdown30dPct: -0.04, evaluatedAt: new Date(ASOF.getTime() - 3 * MS_PER_DAY) }), // BELOW exit (-0.03) → break
+      mkPriorRow({ level: 3, drawdown30dPct: -0.025, evaluatedAt: new Date(ASOF.getTime() - 2 * MS_PER_DAY) }),
+      mkPriorRow({ level: 3, drawdown30dPct: -0.025, evaluatedAt: new Date(ASOF.getTime() - 1 * MS_PER_DAY) }),
     ];
     const r = evaluateDrawdownState({
       closedTrades: trades,
@@ -541,7 +547,7 @@ describe('evaluateDrawdownState — recovery walks rows AT prevLevel only (SPEC 
       priorHistory,
       regimeRedDays30: 0,
     });
-    // Walking back: today=1, day-1=-0.08 ✓ (2), day-2=-0.08 ✓ (3), day-3=-0.11 ✗ break.
+    // Walking back: today=1, day-1=-0.025 ✓ (2), day-2=-0.025 ✓ (3), day-3=-0.04 ✗ break.
     // count=3 < 5 → sticky at L3.
     assert.equal(r.level, 3);
   });
@@ -555,14 +561,16 @@ describe('evaluateDrawdownState — L3 7-day entry pause boundary (SPEC §3 + §
   // levelEnteredAt (level unchanged from prior); newEntriesAllowed is gated
   // on (asOf - levelEnteredAt) ≥ 7 days.
   function evalL3WithDaysAtLevel(daysAtLevel: number) {
+    // Post-s74 §4.1 rescale: L3 entry -0.035, L4 entry -0.055.
+    // -$400 / $10000 = -0.04 → ≤ -0.035 (L3 entry) and > -0.055 (L4 entry) → L3.
     const trades = [
-      mkTrade({ exitTs: new Date(ASOF.getTime() - 5 * MS_PER_DAY), pnlUsd: -1300 }), // dd -0.13 → L3
+      mkTrade({ exitTs: new Date(ASOF.getTime() - 5 * MS_PER_DAY), pnlUsd: -400 }),
     ];
     const enteredAt = new Date(ASOF.getTime() - daysAtLevel * MS_PER_DAY);
     const priorHistory: DrawdownStateRow[] = [
       mkPriorRow({
         level: 3,
-        drawdown30dPct: -0.13,
+        drawdown30dPct: -0.04,
         evaluatedAt: new Date(ASOF.getTime() - 1 * MS_PER_DAY),
         levelEnteredAt: enteredAt,
       }),
