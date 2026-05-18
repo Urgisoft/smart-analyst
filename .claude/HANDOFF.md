@@ -1,6 +1,6 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-05-18 (session 82 close — **Phase C migration APPLIED + post-apply DOC sweep + commit consolidation + L5/A5+stage1/2/4 doctrine close**: operator ran `npm run migrate:drawdown-state-history-per-strategy:apply` (9→9 row parity; atomic RENAME; `drawdown_state_history_v0_backup` retained pending ≥24h verification). Post-apply DOC sweep added [SPEC §8.5 operator playbook](../docs/specs/strategy-tagged-drawdown-state.md) and closed the s78 `calibration-on-the-shelf` framing across 3 files. Commit consolidation landed 3 topical commits: `f9e22cc` s75-77 framework rescale, `33779cd` s78-79 put/call retune, `da6fd46` s80-82 strategy-tagged dd_state. **Doctrine close (Pejman explicit):** L5/A5 σ-band rescale + stage1/2/4 ADR-039 amendment open items closed as **status quo affirmed** in [parent SPEC §4.3](../docs/specs/drawdown-response-framework.md) — σ-band math documented but doctrine question deemed canon-thin; "hard kill is system-failure marker, not graduated tier" verdict. No code change; no byte-pin moves; no CONFIG_VERSION bump.)
+Last updated: 2026-05-18 (session 82 close — **Phase C migration APPLIED + post-apply DOC sweep + commit consolidation + doctrine close + LIVE VERIFICATION + bug fix**: operator ran `npm run migrate:drawdown-state-history-per-strategy:apply` (9→9 row parity; atomic RENAME; `drawdown_state_history_v0_backup` retained pending ≥24h verification). Post-apply DOC sweep added [SPEC §8.5 operator playbook](../docs/specs/strategy-tagged-drawdown-state.md) and closed the s78 `calibration-on-the-shelf` framing across 3 files. Commit consolidation landed 4 topical commits: `f9e22cc` s75-77 framework rescale, `33779cd` s78-79 put/call retune, `da6fd46` s80-82 strategy-tagged dd_state, `c00ed03` doctrine close. **Doctrine close (Pejman explicit):** L5/A5 + stage1/2/4 = status quo affirmed in [SPEC §4.3](../docs/specs/drawdown-response-framework.md). **LIVE VERIFICATION (this beat):** ingested fresh data (macro:ingest + fred:ingest + cboe:ingest — CBOE 403 expected; DataShop-gated), classified 2026-05-18 (`regime=yellow firing=1` hyg_spy_divergence=1), ran `npm run daemon:daily` — **per-strategy flip confirmed LIVE**: daemon log emitted 3 `[drawdown-state ...]` lines (portfolio + mean_reversion_v1 + trend_v1), Telegram sent, 31.9s total. **Bug fix:** `npm run brief:morning` initially failed with CH ILLEGAL_AGGREGATION (code 184) on `loadLatestAllScopes` — `argMax(source, evaluated_at) AS source` collided with the WHERE clause's `source` name resolution; fixed by wrapping the FROM in a subquery (`a52c964`). Post-fix the brief renders the per-strategy panel cleanly with both strategy rows. SPEC §8.5 signals 1+2 now both verified; ≥24h wall-clock still gates `--drop-backup`.)
 
 ## What this session delivered
 
@@ -135,6 +135,8 @@ All sessions 41-81 lock-ins preserved unchanged. See git history and prior hando
 - ~~Commit consolidation for s75-s82 working tree~~ — landed as 3 topical commits: `f9e22cc` s75-77 framework rescale, `33779cd` s78-79 put/call retune, `da6fd46` s80-82 strategy-tagged dd_state. Working tree post-commit is clean except editor state.
 - ~~L5/A5 σ-band rescale decision~~ — closed as **status quo affirmed** in [parent SPEC §4.3](../docs/specs/drawdown-response-framework.md). σ-band math documented (-3% would be the proportional rescale); doctrine question identified as canon-thin and resolved per Pejman: "hard kill is system-failure marker, not graduated tier." L5/A5 stay at -0.20 / -20.
 - ~~stage1/stage2/stage4.failDrawdown rescale~~ — closed as **status quo affirmed** in [parent SPEC §4.3](../docs/specs/drawdown-response-framework.md). Same doctrine logic; ADR-039 §1 originals preserved. No ADR-039 amendment filed.
+- ~~SPEC §8.5 verification signals 1+2~~ — both confirmed live this session. Signal 1: daemon emitted `[drawdown-state strategy=mean_reversion_v1]` + `[drawdown-state strategy=trend_v1]` log lines on first run post-apply. Signal 2: morning brief renders the per-strategy panel with rows for both strategies. ≥24h wall-clock pre-condition still gates `--drop-backup` (apply happened ~hours ago in this session).
+- ~~CH brief query bug (`loadLatestAllScopes` ILLEGAL_AGGREGATION)~~ — surfaced on first live brief render post-apply; fixed by wrapping the FROM in a subquery so the WHERE filter doesn't collide with the `argMax(...) AS source` SELECT alias. Commit `a52c964`. Tests pass identically; brief renders cleanly. **The 28 s81 Phase B unit tests didn't catch this** — `FakeClickHouse` records query strings for regex assertions but does NOT parse SQL against CH's grammar; the production CH run was the first time the query was actually executed.
 
 ## Next stage
 
@@ -185,7 +187,8 @@ Daily `npm run daemon:daily` continues. Defaults: retargeting ON, useRiskConfig 
 - [docs/specs/macro-regime-classifier-phase1_v3.md](../docs/specs/macro-regime-classifier-phase1_v3.md) — EDITED (DOC sweep beat): §2.3 footnote (a) calibration-on-the-shelf framing closed.
 - [docs/obsidian/04 - Regime Classifier (phase1_v3).md](../docs/obsidian/04%20-%20Regime%20Classifier%20%28phase1_v3%29.md) — EDITED (DOC sweep beat): threshold table caption for `PUT_CALL_COMPLACENCY_LOW`.
 - [docs/specs/drawdown-response-framework.md](../docs/specs/drawdown-response-framework.md) — EDITED (doctrine close beat): added §4.3 "L5/A5 + stage1/2/4 doctrine close — status quo affirmed". σ-band math documented; doctrine question identified as canon-thin and resolved status-quo per Pejman.
-- [.claude/HANDOFF.md](./HANDOFF.md) — REWRITE (apply beat + DOC sweep + commit consolidation + doctrine close).
+- [src/server/drawdown_state_repository.ts](../src/server/drawdown_state_repository.ts) — EDITED (verification beat): fixed `loadLatestAllScopes` ILLEGAL_AGGREGATION (CH code 184) by wrapping the FROM in a subquery so WHERE doesn't see the `argMax(...) AS source` SELECT alias. Commit `a52c964`. Tests 1333/0/6 unchanged.
+- [.claude/HANDOFF.md](./HANDOFF.md) — REWRITE (apply beat + DOC sweep + commit consolidation + doctrine close + verification + bug fix).
 
 ### UNCHANGED but reference (carried from s73-s81)
 
@@ -237,13 +240,13 @@ npm run check:help             green
 
 ## Watch-outs
 
-### NEW from apply beat (session 82)
+### NEW from verification beat (session 82)
 
-- **The daemon's next run is the first live exercise of the s81 per-strategy code path against the real schema.** Unit tests covered the construction, dispatch, and write paths individually but the end-to-end "bootstrap probe → repository construction with `bundleIdColumnPresent: true` → portfolio write → per-strategy writes → brief panel render" chain has not been exercised against production CH. Expected signals on next `npm run daemon:daily`:
-  - Daemon log: `[drawdown-state strategy=<bid>]` lines, one per live strategy bundle.
-  - `quantlab.drawdown_state_history` row count grows by `1 + N_live_strategies` per daemon run (was: `1` per run).
-  - Morning brief renders per-strategy panel with one row per live bundle.
-  If any of these fail, the s81 fallback is portfolio-only mode — but the operator should investigate before running `--drop-backup`.
+- **FakeClickHouse doesn't catch CH-grammar bugs.** The `loadLatestAllScopes` ILLEGAL_AGGREGATION bug (CH code 184; `argMax(source, evaluated_at) AS source` collided with WHERE `source = {source:String}`) was NOT caught by the 28 s81 Phase B unit tests, because FakeClickHouse records query strings for regex assertions but doesn't parse SQL against ClickHouse's actual grammar. **Test design implication:** future CH-query code with non-trivial semantics (aggregates, subqueries, FINAL) needs SOME path to grammar validation — either an integration test against a real CH instance or a dedicated CH-syntax linter — or the bugs surface only on production CH execution. For now, the run-against-production-after-shipping cadence is the de-facto integration test. Watch for this on future repository extensions.
+
+- **The per-strategy flip on the first live daemon run worked end-to-end** post-fix: bootstrap probe → repository construction with `bundleIdColumnPresent: true` → portfolio write → per-strategy writes (one per live bundle) → brief panel render. All four hops exercised against real CH this session. The s81 architecture is verified live.
+
+### NEW from apply beat (session 82)
 
 - **`_v0_backup` is the rollback handle and MUST NOT be dropped until ≥24h + healthy-write verification.** A swap-back is `RENAME TABLE quantlab.drawdown_state_history TO quantlab.drawdown_state_history_failed_new, quantlab.drawdown_state_history_v0_backup TO quantlab.drawdown_state_history` (atomic two-table RENAME). After `--drop-backup` runs, the rollback option is gone and any forward fix must come from re-deriving state from `live_trades` + regime history.
 
