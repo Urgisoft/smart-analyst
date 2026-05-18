@@ -807,15 +807,15 @@ describe('evaluateStageState — pipeline ordering (#35-#37)', () => {
 
   it('#36 priorDrawdownLevel=null treated as 0 for isLevel3EntryEvent', () => {
     // Stage3, current level 3, prior=null → treated as 0 < 3 && 3 >= 3 → entry event → rollback.
-    // dd value updated 2026-05-17 (s74) from -0.13 to -0.04 to reflect framework §4.1 rescale
-    // (L3 entry now -0.035; -0.04 is a realistic L3 magnitude). The dd value is incidental
-    // here — the gate fires on isLevel3EntryEvent(prior, current), not on the dd magnitude.
+    // The dd value is incidental — the gate fires on isLevel3EntryEvent(prior, current),
+    // not on the dd magnitude. The mkDrawdown level argument is what drives the predicate.
+    // Numeric history: s73 baseline -0.13 → s74 §4.1 rescale -0.04 → s77 §4.2 round-2 -0.02.
     const r = evaluateStageState(
       baseInputs({
         priorHistory: [
           mkRow({ evaluatedAt: daysAgo(200), decision: 'promote', stageBefore: 'stage2', stageAfter: 'stage3' }),
         ],
-        currentDrawdown: mkDrawdown(3, -0.04),
+        currentDrawdown: mkDrawdown(3, -0.02),
         priorDrawdownLevel: null,
       }),
     );

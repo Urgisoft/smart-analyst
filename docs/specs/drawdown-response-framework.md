@@ -130,6 +130,70 @@ Level 5 entry threshold and A5_KILL_THRESHOLD_PCT both unchanged. Test #26 byte-
 
 ---
 
+## §4.2 · Round-2 blended-portfolio rescale (2026-05-17 amendment — session 77)
+
+> **Status:** AMENDS §4.1 entry/exit thresholds for Levels 1-4 ONLY. Level 5 unchanged. **SUPERSEDES** §4.1's numeric values; §4.1's methodology (proportional rescale against measured SIZER/LEGACY SD ratio) is retained — only the input ratio changes from 0.297 (mr_v1-only) to 0.141 (blended portfolio).
+> **Trigger:** s75 trend_v1 sister sweep ([scripts/_threshold_stability_sweep_trend_v1.ts](../../scripts/_threshold_stability_sweep_trend_v1.ts)) measured trend_v1's per-cell ratio at 0.110 — a ±63% deviation from the s74 ratio 0.297, far outside the §4.1 watch-out's ±20% tolerance band. §4.1's mr_v1-only calibration was therefore not portfolio-representative.
+> **Authority:** Pejman delegation under "we are not live yet → you have the authority"; canon ground per Pardo (2008) §11 σ-band logic, applied to the actual blended portfolio rather than a single strategy.
+
+**Problem.** §4.1 assumed mr_v1's variance compression ratio (0.297) generalised to the deployed portfolio. The s75 trend_v1 sweep disproved that: trend_v1's ratio is 0.110, less than half of mr_v1's. The deployed system runs both strategies in a 50/50 T0 equal-weight blend ([daily_signal_daemon.ts](../../scripts/daily_signal_daemon.ts) under retargeting-on). The framework reads PORTFOLIO drawdown, not per-strategy drawdown, so the relevant ratio is the blended one — neither 0.297 nor 0.110 alone is right.
+
+**Measurement.** [scripts/_threshold_stability_sweep_blended.ts](../../scripts/_threshold_stability_sweep_blended.ts) (s76) directly measured the 50/50 blended SIZER/LEGACY trailing-30d cum-pct SD ratio:
+
+| Cell | mr_v1 SD legacy / sizer | trend_v1 SD legacy / sizer | blend SD legacy / sizer | **blend ratio** | ρ(mr,trend) legacy | ρ(mr,trend) sizer |
+|---|---|---|---|---|---|---|
+| DEPLOYED (mr=30/60, p=30) | 173.0% / 57.9% | 973.0% / 107.0% | 510.0% / 72.0% | **0.141** | 0.172 | 0.422 |
+| tighter (mr=25/55, p=25)   |  99.9% / 30.9% | 905.8% / 102.5% | 462.3% / 58.8% | **0.127** | 0.116 | 0.277 |
+| looser  (mr=35/65, p=35)   | 274.7% / 93.1% | 1068.0% / 118.0% | 590.2% / 93.6% | **0.159** | 0.272 | 0.546 |
+
+Per-strategy SDs reproduce s75 byte-identically on the DEPLOYED cell (mr_v1 173.0%/57.9%, trend_v1 973.0%/107.0%) — methodology continuity confirmed. **Deployed-cell blend ratio = 0.141**; sensitivity bracket 0.127-0.159 (robust to ±5 param drift on both strategies).
+
+Comparison to the s75 analytic uncorrelated bound (0.123): the measurement comes in +14.7% above analytic. The difference is the ρ(mr_v1, trend_v1) term the analytic dropped — ρ is 0.172 under legacy but **0.422 under sizer**, more than 2× higher. Mechanism: the ATR(14)×2.5 stop with 5% floor synchronises tail-clipping across both strategies on common high-vol days (regime changes), creating shared variance under sizer that legacy doesn't have. This is structural; any future strategy added with the same sizer/stop will likely show similar correlation amplification.
+
+**Rescale (Levels 1-4 only):**
+
+| Level | s74 entry (ratio 0.297) | s77 entry (ratio 0.141) | s74 exit | s77 exit |
+|---|---|---|---|---|
+| 1 | -0.01    | **-0.005** | -0.005    | **-0.005** (floor) |
+| 2 | -0.02    | **-0.01**  | -0.015    | **-0.005** (floor) |
+| 3 | -0.035   | **-0.015** | -0.03     | **-0.015** |
+| 4 | -0.055   | **-0.025** | -0.045    | **-0.02**  |
+| 5 | -0.20    | **(unchanged)** | (terminal) | (terminal) |
+
+Values are `pre-s74 × 0.141` rounded to the nearest 0.5%, with an **operational floor at -0.5%** binding for L1 entry, L1 exit, and L2 exit (thresholds tighter than -0.5% generate firing noise without information). Consequences:
+
+- **L1 entry == L1 exit == -0.005**. The L1 hysteresis gap collapses to zero under sizer: any recovery above -0.5% steps L1 → L0 at the next eval (subject to the 5-day recovery requirement). This is a deliberate consequence of the operational floor — the alternative (e.g. L1 entry -0.005 + L1 exit -0.003) was rejected as noise-prone.
+- **L2 exit == L1 entry == -0.005**. An L2 recovery naturally walks down through L1's territory before clearing; the framework's "skip-up is not allowed" rule (§3) preserves the level-by-level cadence regardless.
+- **stage3.failDrawdown → -0.015** (follows L3 entry per §7.2 wire-up; bump history `-0.12 → -0.035 → -0.015`).
+
+**Why Level 5 stays unchanged** (carried from §4.1). The σ-band vs operator-preference question is unresolved; §4.1's stated default of "byte-equality with A5_KILL_THRESHOLD_PCT preserves the §7.1 contract" still applies. Under the sizer + s77 round-2 framework, Level 5 (-20%) is a multi-σ extreme-tail event — effectively a defunct hard-kill — but the framework's L1-L4 carry the operational warning weight, and tightening L5 would also require an A5 rescale (more invasive). Operator-decision deferred to a separate slice.
+
+**Why stage1/stage2/stage4.failDrawdown stay unchanged** (carried from §4.1 watch-out). These are ADR-039 §1 originals, set on operator preference, not framework variance. Under sizer at the blended ratio they are also multi-σ events — effectively dormant auto-rollback gates — and a rescale requires a separate ADR-039 amendment. The framework's L1-L4 + stage3 carry the operational rollback weight; stage1/stage2/stage4 fail-criteria are intentionally retained as "ADR-canonical operator-preference hard floors" pending that amendment.
+
+**Why this is NOT the §12 retune.** §12 still specifies *empirical-quantile* retuning from ≥90 days of paper-trading ledger (~2026-08-29 earliest). §4.2 is a stopgap improvement on §4.1's stopgap — proportional rescale against backtest-derived ratio, using the BLENDED PORTFOLIO measurement rather than mr_v1-only. §12 will measure live-data quantiles directly and supersede whatever §4.2 ships.
+
+**Scope of change (CODE):**
+
+1. `DRAWDOWN_LEVEL_ENTRY_THRESHOLDS` and `DRAWDOWN_LEVEL_EXIT_THRESHOLDS` constants in [src/server/drawdown_state.ts](../../src/server/drawdown_state.ts).
+2. Byte-pin test #20 in [scripts/tests/drawdownState.test.ts](../../scripts/tests/drawdownState.test.ts) updates to new values.
+3. `stage3.failDrawdown` in [src/server/capital_deployment_config.ts](../../src/server/capital_deployment_config.ts) changes from -0.035 to -0.015 (follows new L3 entry per §7.2 wire-up).
+4. `CONFIG_VERSION` bumps to `'ADR-039:Accepted:2026-05-17+s77-drawdown-rescale-round2'`.
+5. Tests asserting the s74 CONFIG_VERSION pin or s74 dd inputs update (drawdownState.test.ts, capitalDeploymentConfig.test.ts, liveTradeRepository.test.ts, stageState.test.ts #36 comment).
+
+Level 5 entry threshold, A5_KILL_THRESHOLD_PCT, stage1/stage2/stage4.failDrawdown all unchanged. Test #26 byte-equality (L5 ↔ A5) remains green.
+
+**What didn't change:** §3 framework structure (six levels, hysteresis, sizing multipliers, kill linkage), §5 measurement, §6 regime-conditional review, §7 integration, §8 persistence, §9 module surface, §10 failure modes, §11 test plan structure, §12 retune protocol. §4.1 itself is preserved verbatim above as the s74 calibration record; §4.2 supersedes only the numeric values.
+
+**Watch-outs:**
+
+- **The deployment ramp is now framework-led.** Under sizer + s77 thresholds, stage3 fail-rollback (-0.015 = L3 entry) is the only auto-rollback gate with a realistic firing probability. stage1/stage2/stage4 are effectively operator-only halts. Operationally this matches the framework's design intent (L1-L4 graduated response is the active warning system, A5/L5 is the hard kill, stage1/stage2/stage4 are coarse operator-preference floors) — but readers expecting "stage1 auto-rolls back at -5%" need to understand it now triggers ~5-6σ under sizer.
+- **L1 entry/exit gap = 0 under the operational floor.** L1's hysteresis is structurally minimal — once a single L1-day passes recovery thresholds (above -0.5% for 5 consec days), L1 → L0. This is fine for the framework's purpose (L1 is "logged in brief" — informational), but morning-brief consumers should not rely on L1-stickiness.
+- **The 50/50 weighting assumption matches T0 equal-weight production**, but if the framework halts one strategy via L4/A5 and the other absorbs its share, the actual portfolio drifts toward 100/0. In that regime the appropriate ratio is the single-strategy ratio (0.297 mr_v1 or 0.110 trend_v1), NOT the blended 0.141 — i.e., the framework would be ~2× too tight on the surviving strategy alone. The design assumes the levels themselves are coarse enough to absorb this drift; if production halts become frequent under s77 thresholds, revisit. The structural fix is specced separately in [`strategy-tagged-drawdown-state.md`](strategy-tagged-drawdown-state.md) (2026-05-18) — per-strategy thresholds calibrated against per-strategy SD ratios (0.297 / 0.110) eliminate the drift entirely.
+- **Sizer doubles cross-strategy correlation** (ρ 0.172 legacy → 0.422 sizer). This is structural to the shared ATR-based stop. The Option (d) per-strategy threshold case (carried Pejman-decision) is slightly weakened by this finding — the strategies share more variance under sizer than per-cell ratios alone suggest. Per-strategy thresholds would still allow independent halts but wouldn't capture the shared-variance reality. §12's live-data retune sidesteps this entirely.
+- **§4.1's mr_v1-only assumption was wrong.** The s75 disconfirmation (trend_v1 at 0.110 vs mr_v1's 0.297) is a load-bearing failure-mode of the §4.1 methodology — any future single-strategy calibration ratio MUST be validated against the actual portfolio composition before being used as the framework's rescale factor. §4.2 institutionalises this by measuring the BLEND directly. Future strategy additions should re-run the blended sweep with the new strategy included.
+
+---
+
 ## §4 · Calibration methodology
 
 The thresholds (-3 / -7 / -12 / -18 / -20) are not derived from theory; they are operator-state-machine design points calibrated against:
@@ -441,7 +505,7 @@ Until the retune ADR ships, the values in §3 are byte-pinned and CI-enforced.
 
 ## §13 · Out of scope
 
-- **Per-strategy drawdown levels.** The framework operates on portfolio-level equity. Per-strategy decay detection is a different problem (`strategy-demotion.md` gap doc).
+- **Per-strategy drawdown levels.** The framework as defined here operates on portfolio-level equity. Per-strategy drawdown state is specced in [`strategy-tagged-drawdown-state.md`](strategy-tagged-drawdown-state.md) (2026-05-18) — it extends the same six-level state machine to a SECOND scope (per-bundleId) that runs alongside the portfolio scope without changing the portfolio's existing wire-ups. Long-run per-strategy decay detection is still a separate problem (`strategy-demotion.md` gap doc); the per-strategy SPEC produces the signal demotion would consume.
 - **Intraday / minute-bar state evaluation.** Daemon cadence is daily; the framework matches it.
 - **Drawdown-conditional regime-classifier reweighting.** Drawdown does not alter the regime classifier inputs or output; only the response operational layer.
 - **Cross-portfolio aggregation** (multiple operator accounts). Single-account scope.

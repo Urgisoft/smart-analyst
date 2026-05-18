@@ -68,9 +68,10 @@
  *   - 2026-05-16: ADR-039:Proposed:2026-05-16 (initial)
  *   - 2026-05-17 (s54): ADR-039:Proposed:2026-05-17 (framework landed; stage3.failDrawdown flipped from null to -0.12)
  *   - 2026-05-17 (s73): ratified by Pejman (Proposed → Accepted) but CONFIG_VERSION not bumped at the time
- *   - 2026-05-17 (s74): ADR-039:Accepted:2026-05-17+s74-drawdown-rescale (catches s73 ratification + s74 framework §4.1 rescale of L1-L4 + stage3.failDrawdown)
+ *   - 2026-05-17 (s74): ADR-039:Accepted:2026-05-17+s74-drawdown-rescale (s73 ratification + s74 framework §4.1 rescale of L1-L4 + stage3.failDrawdown at mr_v1-only ratio 0.297)
+ *   - 2026-05-17 (s77): ADR-039:Accepted:2026-05-17+s77-drawdown-rescale-round2 (round-2 framework §4.2 rescale of L1-L4 + stage3.failDrawdown at blended-portfolio ratio 0.141; stage1/stage2/stage4.failDrawdown intentionally unchanged — see §4.2 watch-out)
  */
-export const CONFIG_VERSION = 'ADR-039:Accepted:2026-05-17+s74-drawdown-rescale';
+export const CONFIG_VERSION = 'ADR-039:Accepted:2026-05-17+s77-drawdown-rescale-round2';
 
 export type DeploymentStage = 'paper' | 'stage1' | 'stage2' | 'stage3' | 'stage4';
 
@@ -173,15 +174,16 @@ export const DEPLOYMENT_STAGES: Readonly<Record<DeploymentStage, Readonly<StageC
     passMaxDrawdown: null, // "within graduated response framework" — surfaced by the framework's morning-brief panel
     requiresKillCriteriaPass: true,
     entryRequiresPriorStagesValidatedDays: null,
-    // -0.035 = Level-3 entry threshold per drawdown-response-framework.md §3
-    // (rescaled 2026-05-17 session 74 per SPEC §4.1; pre-rescale value -0.12).
+    // -0.015 = Level-3 entry threshold per drawdown-response-framework.md §3
+    // (rescaled 2026-05-17 session 77 per SPEC §4.2 round-2; bump history:
+    //   pre-s74 -0.12 → s74 -0.035 → s77 -0.015).
     // Operational semantics: stage 3 fails on a Level-3 ENTRY EVENT detected
     // by `isLevel3EntryEvent(priorLevel, currentLevel)`, NOT on a per-eval
-    // `drawdown_30d_pct <= -0.035` check. The numeric value pinned here
+    // `drawdown_30d_pct <= -0.015` check. The numeric value pinned here
     // mirrors the framework constant for audit-trail clarity AND so
     // drift-detection tests catch desynchronisation. The stage state
     // machine MUST consume the event predicate, not the raw number.
-    failDrawdown: -0.035,
+    failDrawdown: -0.015,
   }),
   stage4: Object.freeze({
     stage: 'stage4',
@@ -347,7 +349,8 @@ export function assertConfigVersion(expected: string): void {
  *    deliberate choice — paper-stage halt is operator-only per HANDOFF
  *    kill-switch protocol. Do not "fix" this to a finite value without an
  *    ADR; it would auto-halt the shakedown on noise.
- *  - stage3.failDrawdown is -0.12 — the Level-3 entry threshold from the
+ *  - stage3.failDrawdown is -0.015 (s77 round-2 rescale; pre-s74 -0.12 →
+ *    s74 -0.035 → s77 -0.015) — the Level-3 entry threshold from the
  *    drawdown-response framework. The consumer (stage state machine) must
  *    fire on the Level-3 ENTRY EVENT via `isLevel3EntryEvent(prior, current)`,
  *    NOT on `drawdown <= failDrawdown`. Hard-coding a `<=` check would
@@ -355,6 +358,15 @@ export function assertConfigVersion(expected: string): void {
  *    event-based semantics deliberately distinguish "just entered L3" from
  *    "still at L3." The numeric value here is for audit + drift detection;
  *    framework code is the source of truth for the firing condition.
+ *  - stage1.failDrawdown=-0.05, stage2.failDrawdown=-0.10, stage4.failDrawdown=-0.20
+ *    are ADR-039 §1 originals and are NOT rescaled by the s77 round-2 framework
+ *    amendment. Under sizer they are now extreme-tail events relative to the
+ *    blended-portfolio variance — effectively dormant auto-rollback gates.
+ *    Rescaling them is a separate ADR-039 amendment with its own operator
+ *    decision (σ-band vs operator-preference); SPEC §4.2 explicitly defers
+ *    that. Until that amendment ships, the framework's L1-L4 + stage3 carry
+ *    the operational rollback weight under sizer. Do NOT silently "fix" these
+ *    to match the framework — the choice to leave them is deliberate.
  *  - feeReserve is exported but currently unused by sizePositionFixedRisk.
  *    SPEC §3A implies fees should be reserved from cellCapital; not yet
  *    implemented. When implemented, the sizer signature must take a
