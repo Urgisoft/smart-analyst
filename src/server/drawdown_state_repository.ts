@@ -405,6 +405,9 @@ export class DrawdownStateRepository {
     }
     // For each (source, bundle_id) pair, take the row with the largest
     // evaluated_at. argMax keeps every column tied to the same winning row.
+    // The WHERE source filter sits inside a subquery so CH's name resolution
+    // does not see it against the `argMax(...) AS source` SELECT alias (that
+    // path triggers ILLEGAL_AGGREGATION, code 184 — aggregate-in-WHERE).
     const q = await this.ch.query({
       query: `
         SELECT
@@ -418,8 +421,11 @@ export class DrawdownStateRepository {
           toUnixTimestamp64Milli(argMax(level_entered_at, evaluated_at))     AS level_entered_at_ms,
           argMax(regime_red_days_30, evaluated_at)                           AS regime_red_days_30,
           argMax(config_version, evaluated_at)                               AS config_version
-        FROM ${this.table} FINAL
-        WHERE source = {source:String}
+        FROM (
+          SELECT *
+          FROM ${this.table} FINAL
+          WHERE source = {source:String}
+        )
         GROUP BY bundle_id
       `,
       query_params: { source: opts.source },
