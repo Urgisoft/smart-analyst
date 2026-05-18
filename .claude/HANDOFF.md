@@ -1,6 +1,6 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-05-18 (session 82 close — **Phase C migration APPLIED to production ClickHouse + post-apply DOC sweep**: operator ran `npm run migrate:drawdown-state-history-per-strategy:apply`; 9→9 row parity check passed; atomic RENAME completed; canonical `quantlab.drawdown_state_history` now has `bundle_id LowCardinality(String) DEFAULT ''` + ORDER BY `(source, bundle_id, evaluated_at)`; `drawdown_state_history_v0_backup` retained pending ≥24h verification window; daemon flips to N+1 per-strategy evaluation on next run via the s81 bootstrap probe. **Post-apply DOC sweep:** (1) added §8.5 "Operator playbook — post-apply verification and drop-backup" to [`docs/specs/strategy-tagged-drawdown-state.md`](../docs/specs/strategy-tagged-drawdown-state.md) covering pre-conditions / verification commands / drop-backup procedure / rollback procedure / post-drop terminal state; (2) closed the s78 `calibration-on-the-shelf` framing in [`src/server/macro_regime_v3.ts`](../src/server/macro_regime_v3.ts) docstring + [`docs/specs/macro-regime-classifier-phase1_v3.md`](../docs/specs/macro-regime-classifier-phase1_v3.md) §2.3 footnote (a) + [`docs/obsidian/04 - Regime Classifier (phase1_v3).md`](../docs/obsidian/04%20-%20Regime%20Classifier%20%28phase1_v3%29.md) threshold table — all three now correctly state gate (a) closed by s79 backfill, gate (b) DataShop 2019-present still open. No test/tsc impact.)
+Last updated: 2026-05-18 (session 82 close — **Phase C migration APPLIED + post-apply DOC sweep + commit consolidation + L5/A5+stage1/2/4 doctrine close**: operator ran `npm run migrate:drawdown-state-history-per-strategy:apply` (9→9 row parity; atomic RENAME; `drawdown_state_history_v0_backup` retained pending ≥24h verification). Post-apply DOC sweep added [SPEC §8.5 operator playbook](../docs/specs/strategy-tagged-drawdown-state.md) and closed the s78 `calibration-on-the-shelf` framing across 3 files. Commit consolidation landed 3 topical commits: `f9e22cc` s75-77 framework rescale, `33779cd` s78-79 put/call retune, `da6fd46` s80-82 strategy-tagged dd_state. **Doctrine close (Pejman explicit):** L5/A5 σ-band rescale + stage1/2/4 ADR-039 amendment open items closed as **status quo affirmed** in [parent SPEC §4.3](../docs/specs/drawdown-response-framework.md) — σ-band math documented but doctrine question deemed canon-thin; "hard kill is system-failure marker, not graduated tier" verdict. No code change; no byte-pin moves; no CONFIG_VERSION bump.)
 
 ## What this session delivered
 
@@ -73,9 +73,9 @@ Session 82 closed both the BUILD and the APPLY of the s80 SPEC §8.1 destructive
 | Strategy-tagged dd_state Phase C migration BUILD | ✓ s82 build beat |
 | **Strategy-tagged dd_state Phase C APPLY (destructive RENAME against production CH)** | **✓ s82 apply beat — 9→9 parity** |
 | Phase C `--drop-backup` | ☐ pending — operator-authorized; gated on ≥24h healthy-write window |
-| CBOE DataShop subscription (2019-present coverage) | ☐ deferred — Pejman-decision (paid) |
-| L5/A5 σ-band rescale decision | ☐ deferred — operator-decision per parent SPEC §4.2 |
-| stage1/stage2/stage4.failDrawdown rescale | ☐ deferred — separate ADR-039 amendment slice |
+| CBOE DataShop subscription (2019-present coverage) | ☐ deferred — Pejman-decision (paid; "we'll decide later") |
+| L5/A5 σ-band rescale decision | ✓ s82 doctrine close — status quo affirmed (parent SPEC §4.3); reopens at §12 retune or operator doctrine pivot |
+| stage1/stage2/stage4.failDrawdown rescale | ✓ s82 doctrine close — status quo affirmed (parent SPEC §4.3); reopens at §12 retune or ADR-039 amendment ratifying doctrine pivot |
 | Drawdown framework §12 90d empirical retune | ☐ scheduled — sizer-mode data when it fires (~2026-08-29 earliest); §12 of s80 SPEC mandates per-strategy retune ALONGSIDE portfolio retune in the same ADR |
 | s78 docstring/spec cleanup (calibration-on-the-shelf framing) | ✓ s82 post-apply DOC sweep |
 | Phase C operator playbook (§8.5) | ✓ s82 post-apply DOC sweep |
@@ -107,13 +107,13 @@ All sessions 41-81 lock-ins preserved unchanged. See git history and prior hando
 
 1. **`--drop-backup` timing.** Recommended: ≥24h after the apply AND after the operator has eyeballed at least one daemon cycle's `[drawdown-state strategy=<bid>]` log lines + the morning brief's per-strategy panel render. The drop-backup mode is idempotent and a single npm alias — no further preparation needed when greenlit.
 
-2. **L5/A5 rescale decision** — carried from s74-s81.
+2. ~~**L5/A5 rescale decision**~~ — ✓ closed s82 doctrine close (status quo affirmed per parent SPEC §4.3).
 
-3. **stage1/stage2/stage4.failDrawdown rescale** — carried from s74-s81.
+3. ~~**stage1/stage2/stage4.failDrawdown rescale**~~ — ✓ closed s82 doctrine close (status quo affirmed per parent SPEC §4.3).
 
-4. **Commit strategy for s74-s82 working tree.** Now carries 9 sessions of unstaged work. Natural packaging options: (a) per-session (9 commits), (b) 3-bundle by feature group (s74-77 = round-2 rescale; s78-79 = put/call retune; s80-82 = strategy-tagged dd_state — note s82 is a self-contained Phase C beat that bundles cleanly), (c) 1 mega-commit. s82 alone is a coherent "Phase C migration BUILD + APPLY" beat.
+4. ~~**Commit strategy for s74-s82 working tree**~~ — ✓ closed s82 (3 commits landed: `f9e22cc` s75-77, `33779cd` s78-79, `da6fd46` s80-82). Working tree now carries only the s82 doctrine-close SPEC §4.3 amendment + this HANDOFF update.
 
-5. **CBOE DataShop subscription decision** — carried from s73-s81.
+5. **CBOE DataShop subscription decision** — carried from s73-s81; Pejman directed "we'll decide later."
 
 ### CARRIED HIGH (unchanged from s73-s81)
 
@@ -132,6 +132,9 @@ All sessions 41-81 lock-ins preserved unchanged. See git history and prior hando
 - ~~SPEC §11 test #26 (`--apply` against fresh table produces correct end state)~~ — exercised against production in this session's apply beat; row-count parity confirmed end state correct.
 - ~~Phase C operator playbook~~ — added as SPEC §8.5 in [`docs/specs/strategy-tagged-drawdown-state.md`](../docs/specs/strategy-tagged-drawdown-state.md) covering pre-conditions, verification commands, drop-backup procedure, rollback procedure, and post-drop terminal state.
 - ~~s78 docstring/spec cleanup (calibration-on-the-shelf framing)~~ — closed in [`src/server/macro_regime_v3.ts`](../src/server/macro_regime_v3.ts) docstring + [`docs/specs/macro-regime-classifier-phase1_v3.md`](../docs/specs/macro-regime-classifier-phase1_v3.md) §2.3 footnote (a) + [`docs/obsidian/04 - Regime Classifier (phase1_v3).md`](../docs/obsidian/04%20-%20Regime%20Classifier%20%28phase1_v3%29.md) threshold table. All three now correctly state gate (a) closed by s79 backfill, gate (b) DataShop 2019-present still open. ADR-038 amendment in [`docs/decisions/README.md`](../docs/decisions/README.md) preserved as historical record.
+- ~~Commit consolidation for s75-s82 working tree~~ — landed as 3 topical commits: `f9e22cc` s75-77 framework rescale, `33779cd` s78-79 put/call retune, `da6fd46` s80-82 strategy-tagged dd_state. Working tree post-commit is clean except editor state.
+- ~~L5/A5 σ-band rescale decision~~ — closed as **status quo affirmed** in [parent SPEC §4.3](../docs/specs/drawdown-response-framework.md). σ-band math documented (-3% would be the proportional rescale); doctrine question identified as canon-thin and resolved per Pejman: "hard kill is system-failure marker, not graduated tier." L5/A5 stay at -0.20 / -20.
+- ~~stage1/stage2/stage4.failDrawdown rescale~~ — closed as **status quo affirmed** in [parent SPEC §4.3](../docs/specs/drawdown-response-framework.md). Same doctrine logic; ADR-039 §1 originals preserved. No ADR-039 amendment filed.
 
 ## Next stage
 
@@ -150,8 +153,8 @@ All sessions 41-81 lock-ins preserved unchanged. See git history and prior hando
 | Commit s74-s82 work | DECISION-ACT | ~15 min | 9 sessions + DOC sweep unstaged; assistant can stage + commit per Pejman direction (NOT autonomous) |
 | ~~s78 docstring cleanup~~ | ~~DOC~~ | — | ✓ closed in s82 post-apply DOC sweep |
 | ~~Operator playbook doc for `--drop-backup`~~ | ~~DOC~~ | — | ✓ closed in s82 post-apply DOC sweep as SPEC §8.5 |
-| L5/A5 σ-band rescale | SPEC + CODE | ~1 hr | Canon-thin — NOT autonomous |
-| stage1/2/4 ADR-039 amendment | RESEARCH + SPEC + CODE | ~2 hr | Same canon-thin question — NOT autonomous |
+| ~~L5/A5 σ-band rescale~~ | ~~SPEC + CODE~~ | — | ✓ closed s82 doctrine close (status quo affirmed; SPEC §4.3) |
+| ~~stage1/2/4 ADR-039 amendment~~ | ~~RESEARCH + SPEC + CODE~~ | — | ✓ closed s82 doctrine close (status quo affirmed; SPEC §4.3) |
 
 ### Bucket 3 candidates (post-s82)
 
@@ -181,7 +184,8 @@ Daily `npm run daemon:daily` continues. Defaults: retargeting ON, useRiskConfig 
 - [src/server/macro_regime_v3.ts](../src/server/macro_regime_v3.ts) — EDITED (DOC sweep beat): docstring cleanup on `PUT_CALL_COMPLACENCY_LOW` (gate (a) closed framing). Comment-only; no tsc/test impact.
 - [docs/specs/macro-regime-classifier-phase1_v3.md](../docs/specs/macro-regime-classifier-phase1_v3.md) — EDITED (DOC sweep beat): §2.3 footnote (a) calibration-on-the-shelf framing closed.
 - [docs/obsidian/04 - Regime Classifier (phase1_v3).md](../docs/obsidian/04%20-%20Regime%20Classifier%20%28phase1_v3%29.md) — EDITED (DOC sweep beat): threshold table caption for `PUT_CALL_COMPLACENCY_LOW`.
-- [.claude/HANDOFF.md](./HANDOFF.md) — REWRITE (apply beat + DOC sweep close-out).
+- [docs/specs/drawdown-response-framework.md](../docs/specs/drawdown-response-framework.md) — EDITED (doctrine close beat): added §4.3 "L5/A5 + stage1/2/4 doctrine close — status quo affirmed". σ-band math documented; doctrine question identified as canon-thin and resolved status-quo per Pejman.
+- [.claude/HANDOFF.md](./HANDOFF.md) — REWRITE (apply beat + DOC sweep + commit consolidation + doctrine close).
 
 ### UNCHANGED but reference (carried from s73-s81)
 
@@ -323,8 +327,8 @@ npx tsx scripts/_threshold_stability_sweep_blended.ts         # blended (s76) �
 
 - `npm run migrate:drawdown-state-history-per-strategy:drop-backup` (destructive DROP — gated on ≥24h healthy-write verification).
 - CBOE DataShop subscription (paid).
-- L5/A5 σ-band rescale (touches A5_KILL_THRESHOLD_PCT; canon-thin).
-- stage1/2/4 ADR-039 amendment (canon-thin operator-preference call).
+- ~~L5/A5 σ-band rescale~~ — closed s82 (status quo). Reopen only on Pejman doctrine pivot or §12 retune surfacing a different verdict.
+- ~~stage1/2/4 ADR-039 amendment~~ — closed s82 (status quo). Reopen only on Pejman doctrine pivot or §12 retune.
 - All carried items from s73-s81 handoff.
 
 ## Important framing for the next chat

@@ -194,6 +194,48 @@ Level 5 entry threshold, A5_KILL_THRESHOLD_PCT, stage1/stage2/stage4.failDrawdow
 
 ---
 
+## §4.3 · L5/A5 + stage1/2/4 doctrine close — status quo affirmed (2026-05-18 amendment — session 82)
+
+> **Status:** CLOSES the §4.1 / §4.2 deferred operator-decisions on L5 (-0.20 entry), A5_KILL_THRESHOLD_PCT (-20), and the stage1/stage2/stage4.failDrawdown gates. **No code change.** No threshold constant moves; no byte-pin test moves; no CONFIG_VERSION bump.
+> **Trigger:** Pejman delegation under "you have the authority to move other than the paid one." The §4.2 framing explicitly tagged these as operator-decision questions; this amendment records the doctrine analysis and the operator's status-quo verdict so the open items can close cleanly rather than dangle.
+> **Authority:** Pejman explicit choice (session 82) after surfacing the σ-band derivation + the canon-thin nature of the doctrine question. Vector Core canon-thin-ambiguity stop honored before any byte-pin moved.
+
+**The σ-band derivation (for the record).** Applied mechanically to the s77 round-2 blended ratio 0.141, a proportional rescale of L5 yields:
+
+- L5 entry: `-0.20 × 0.141 = -0.0282` → round to nearest 0.5% → **-3%**.
+- A5_KILL_THRESHOLD_PCT would move in lockstep (test #26 byte-pin).
+- Per-strategy L5 would also move in lockstep (strategy-tagged-drawdown-state.md §4.4 + cross-SPEC byte-pin test).
+- Stage1/stage2/stage4.failDrawdown, by the same proportional rescale: stage1 `-0.05 × 0.141 ≈ -0.007` → -0.5%; stage2 `-0.07 × 0.141 ≈ -0.01` → -1%; stage4 `-0.15 × 0.141 ≈ -0.021` → -2%. These would compress to near-L1/L2/L3 territory.
+
+The math is straightforward. The doctrine question is whether to apply it.
+
+**Why the canon doesn't pick.** Pardo (2008) §11 σ-band logic informs *graduated behavioral changes* (the L1-L4 cascade where the framework needs operationally meaningful firing rates). It says **nothing** about where the kill floor or auto-rollback gates belong. Bouchaud (2020) gives drawdown tail probabilities at fixed levels but doesn't prescribe a kill placement. AFML doesn't address kill thresholds. The choice between "hard kill as defunct-but-canonical floor" vs "hard kill as operative tier" is a risk-doctrine question, not a derivable one.
+
+**The doctrine decision (status quo).** L5/A5 stay at -0.20 / -20. Stage1/stage2/stage4.failDrawdown stay at ADR-039 §1 originals. Rationale:
+
+- **The L4 → L5 pre-kill warning band is load-bearing.** §4 calibration methodology line 202 explicitly designs L4 as "a 2pp pre-kill warning band wide enough for the operator to see 'we are about to halt' in the morning brief before the halt actually fires." Under s77, L4 entry is -0.025. A σ-band-consistent L5 at -0.03 collapses that warning band to 0.5pp — operationally insufficient for review-then-act. Option C (-5%) would preserve a 2.5pp band but is not canon-derived; it's a constructed compromise.
+- **The hard kill's job is "system failure marker," not "next-tier warning."** Under sizer + s77, L1-L4 carry the operational warning weight (L1 informational; L2 mild sizing reduction; L3 stage3 rollback; L4 pre-kill operator review). The kill exists as a final safety net for genuinely catastrophic state — a regime the framework's own variance assumptions no longer describe. Tightening the kill to be reachable under "normal" sizer variance changes its semantic from "system failure" to "graduated final tier." That doctrine pivot is not requested by the framework's design intent.
+- **The same logic applies to stage1/stage2/stage4.failDrawdown.** §4.2's watch-out already noted these are "ADR-canonical operator-preference hard floors" — coarse multi-σ gates that the framework's L1-L4 + stage3 cascade renders dormant under sizer by design. Tightening them via σ-band rescale would convert auto-rollback from "ADR-canonical operator-preference" to "framework-derived statistical gate," which is a different category of guarantee than ADR-039 §1 specified. That would need a full ADR-039 amendment ratifying the doctrine change, not just a numeric rescale.
+
+**What didn't change (CODE).** Confirmed unchanged by this amendment:
+
+- `DRAWDOWN_LEVEL_ENTRY_THRESHOLDS[5] = -0.20` in [src/server/drawdown_state.ts](../../src/server/drawdown_state.ts).
+- `A5_KILL_THRESHOLD_PCT = -20` in [src/server/paper_trading_kill_criteria.ts](../../src/server/paper_trading_kill_criteria.ts).
+- `stage1.failDrawdown`, `stage2.failDrawdown`, `stage4.failDrawdown` in [src/server/capital_deployment_config.ts](../../src/server/capital_deployment_config.ts) — all ADR-039 §1 originals.
+- Per-strategy L5 entry (-0.20) in [strategy-tagged-drawdown-state.md](strategy-tagged-drawdown-state.md) §4.4 + the cross-SPEC byte-pin test in [scripts/tests/drawdownStateStrategy.test.ts](../../scripts/tests/drawdownStateStrategy.test.ts).
+- Test #26 byte-equality (`A5_KILL_THRESHOLD_PCT / 100 === DRAWDOWN_LEVEL_ENTRY_THRESHOLDS[5]`).
+- `CONFIG_VERSION` unchanged; tests pass identically; tsc baseline preserved.
+
+**Reopen conditions.** Status quo holds until:
+
+1. The §12 90d empirical retune fires (~2026-08-29 earliest) — that retune covers the full threshold table including L5/A5 against live data, not backtest variance, and may surface a doctrine-different verdict. §12 mandates per-strategy retune in the same ADR.
+2. A regime shift makes the framework's own L1-L4 firing rates implausible (e.g. L4 firing weekly suggests the kill-as-defunct-floor assumption needs revisiting).
+3. Pejman explicit reopens with a doctrine pivot ("I want the kill operative under sizer variance" or "I want stage1/2/4 auto-rollback gates tightened to fire under normal volatility").
+
+**What's NOT this amendment.** This is NOT an ADR-039 amendment. ADR-039 §1 stage definitions are preserved verbatim; this SPEC §4.3 documents that the framework's analysis confirmed no amendment is warranted under current canon. If a future doctrine pivot reopens the question, a proper ADR-039 amendment ratifying the new gate values would be required.
+
+---
+
 ## §4 · Calibration methodology
 
 The thresholds (-3 / -7 / -12 / -18 / -20) are not derived from theory; they are operator-state-machine design points calibrated against:
