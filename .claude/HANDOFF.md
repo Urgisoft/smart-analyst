@@ -1,10 +1,12 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-05-19 (session 84 close — **C-12 Phase A FULLY CLOSED**: all 6 code units shipped + migration APPLIED to production CH. Operator green-lit the apply; `ALTER TABLE quantlab.strategies ADD COLUMN asset_class LowCardinality(String) DEFAULT 'equity' AFTER family` ran in **23ms**; post-check verified column present + default expression matches. Re-running dry-run now correctly reports "already migrated — no-op". **Tests: 1392/0/6 unchanged post-apply (+54 over s83's 1338, 0 regressions). tsc: 13-error baseline. check:help green.** Phase A is the foundation everything else routes through; Phase B (AlpacaAdapter) is now unblocked pending operator Alpaca-account onboarding.)
+Last updated: 2026-05-19 (session 85 — **market-cycle-position Phase A 3/6 units shipped (A1+A2+A3); SPEC revised post-operator-PUSHBACK on validation approach.** All 4 SPEC open questions LOCKED. A1 = FRED ingest extension (9 default series now). A2 = src/server/cycle_position.ts pure-function composite with Estrella-Mishkin 1998 logit + SPEC §6/§7 mappings (42 tests). A3 = migration script `scripts/migrate_create_cycle_position_snapshots.ts` + 17 tests; dry-run verified GREEN against live CH. **Tests: 1451/0/6 (+59 over s84 baseline; 0 regressions). tsc: 13-error baseline. check:help green.** Phase A remaining: A4 (repository + daemon hook), A5 (morning-brief panel), A6 (dashboard React panel) + the migration apply (operator green-light). C-12 Phase A FULLY CLOSED from s84; C-12 Phase B (AlpacaAdapter) PAUSED INDEFINITELY at operator direction.)
 
 ## What this session delivered
 
-Session 84 executed C-12 Phase A end-to-end per the SPEC at [docs/specs/live-trade-broker-integration.md](../docs/specs/live-trade-broker-integration.md) §3.1 (units 1-6). All six units shipped autonomously after the operator green-light at session start ("we can go with 1 for now... we go with the order you described"). One PUSHBACK applied mid-flow: the SPEC's blanket "s82-pattern: dry-run + apply + drop-backup, 19 tests" for the migration script was wrong — the underlying CH operation (ALTER TABLE ADD COLUMN with DEFAULT) is fundamentally simpler than s82's mid-tuple ORDER BY change, so the migration ships as dry-run + apply only (no drop-backup, no row-count parity) with 14 tests instead of 19. Documented in the script docstring.
+Session 85 (this beat): operator pivoted away from C-12 Phase B onboarding ("no live trading hook up yet. please move to gaps integration"). Triaged the 13 gaps into buckets (5 buildable today / 7 blocked on data subscriptions / 1 already done). Operator selected market-cycle-position as the first gap. Wrote the SPEC at [docs/specs/market-cycle-position.md](../docs/specs/market-cycle-position.md) — 12 sections covering scope, decisions, component diagram, phased plan, schema, function signatures, composite weighting, test plan, watch-outs, open questions. **3 open questions block Phase A code start; operator must answer before code begins.**
+
+Session 84 (carried, this same dated session): executed C-12 Phase A end-to-end per the SPEC at [docs/specs/live-trade-broker-integration.md](../docs/specs/live-trade-broker-integration.md) §3.1 (units 1-6). All six units shipped autonomously after operator green-light. One PUSHBACK applied mid-flow: the SPEC's blanket "s82-pattern: dry-run + apply + drop-backup, 19 tests" for the migration script was wrong — the underlying CH operation (ALTER TABLE ADD COLUMN with DEFAULT) is fundamentally simpler than s82's mid-tuple ORDER BY change, so the migration ships as dry-run + apply only (no drop-backup, no row-count parity) with 14 tests instead of 19. Documented in the script docstring.
 
 ### Verdict
 
@@ -78,16 +80,25 @@ The Phase A code is complete and tests are green; the only step left in Phase A 
 | All s73-s83 lock-ins | ✓ as documented in prior handoffs |
 | **C-12 Phase A — code (6 units + 54 tests)** | **✓ s84 — see headline table above** |
 | **C-12 Phase A — schema migration APPLY** | **✓ s84 — applied to production CH in 23ms; post-check verified; idempotent re-run** |
-| **C-12 Phase B — AlpacaAdapter** | **☐ blocks ONLY on: Alpaca account + API keys + cash/margin choice (Phase A apply complete)** |
-| C-12 Phase C — daemon wiring + fill reconciliation | ☐ blocks on Phase B |
-| C-12 Phase D — morning brief paper+live split | ☐ blocks on Phase C |
-| C-12 Phase E — real-money flip | ☐ blocks on Phase D + paper-trading verdict + ADR sign-off (gated; Pejman decision) |
+| **C-12 Phase B — AlpacaAdapter** | **⏸ s85 INDEFINITELY PAUSED at operator direction ("no live trading hook up yet"). Blocks on operator decision to resume + Alpaca onboarding.** |
+| C-12 Phase C — daemon wiring + fill reconciliation | ⏸ paused via Phase B pause |
+| C-12 Phase D — morning brief paper+live split | ⏸ paused via Phase B pause |
+| C-12 Phase E — real-money flip | ⏸ paused via Phase B pause (was already blocked on paper-trading verdict regardless) |
+| **market-cycle-position gap — SPEC** | **✓ s85 — [docs/specs/market-cycle-position.md](../docs/specs/market-cycle-position.md); revised post-PUSHBACK for backtest-not-calendar validation** |
+| **market-cycle-position Phase A1 — FRED ingest extension** | **✓ s85 — 9 default series (T10Y3M primary)** |
+| **market-cycle-position Phase A2 — composite pure function** | **✓ s85 — 42 tests; Estrella-Mishkin 1998 logit; SPEC §7 mappings** |
+| **market-cycle-position Phase A3 — CH migration script** | **✓ s85 — 17 tests; dry-run GREEN against live CH; npm aliases registered** |
+| **market-cycle-position Phase A3 — migration APPLY** | **☐ awaiting operator green-light (`npm run migrate:create-cycle-position-snapshots:apply`); CREATE TABLE IF NOT EXISTS — idempotent, low risk** |
+| **market-cycle-position Phase A4 — repository + daemon hook** | **☐ next beat — needs the migration applied first to write into the table** |
+| **market-cycle-position Phase A5 — morning-brief panel** | **☐ next beat — depends on A4** |
+| **market-cycle-position Phase A6 — dashboard React panel** | **☐ next beat or follow-up — depends on A4** |
+| **market-cycle-position Phase B validation** | **☐ ~1 week, after Phase A fully closes** |
 | Strategy-tagged dd_state (s80-s82) | ✓ shipped |
 | FakeClickHouse grammar-validation gap (drawdown repo) | ✓ s83 |
-| FakeClickHouse grammar-validation sweep (other 5 test files) | ☐ deferred — lower priority than C-12 |
+| FakeClickHouse grammar-validation sweep (other 5 test files) | ☐ deferred |
 | CBOE DataShop subscription (2019-present coverage) | ☐ deferred — Pejman-decision (paid) |
 | Drawdown framework §12 90d empirical retune | ☐ scheduled — ~2026-08-29 earliest |
-| 12 Phase 9+ gap inventory items | ☐ FROZEN per s63 + operator s83 direction until C-12 ships + data subscriptions decided |
+| 12 Phase 9+ gap inventory items | ☐ PARTIALLY UNFROZEN at s85 operator direction — market-cycle-position opened; other 12 still gated on subscriptions / priority |
 
 ## Decisions locked in
 
@@ -121,14 +132,15 @@ All sessions 41-82 lock-ins preserved unchanged.
 
 ### HIGH (Pejman decisions pending — block subsequent phases)
 
-1. **C-12 Phase B — Alpaca account onboarding** (HIGHEST priority — the only remaining blocker on Phase B start):
+1. ~~**market-cycle-position SPEC §11**~~ — **ALL LOCKED s85.** Q1 skip ISM in v1; Q2 both score + label; Q3 bundle dashboard into Phase A. Plus an operator PUSHBACK on Q4 (90-day window): collapsed to ~1 week of backtest validation against NBER instead of calendar observation. SPEC updated. **Phase A is UNBLOCKED.**
+
+2. **C-12 Phase B resume** (when ready): Alpaca account onboarding. INDEFINITELY PAUSED at s85 operator direction; no rush.
    - Create Alpaca paper-trading account at app.alpaca.markets.
    - Generate API key + secret.
-   - Decide cash vs. margin account (cash = simpler, no PDT exposure; margin = allows shorts).
-   - Set `ALPACA_API_KEY` + `ALPACA_API_SECRET` + `ALPACA_BASE_URL` env vars (paper sandbox URL initially).
-   - SPEC §3.2 + §8 lay out the questions.
+   - Decide cash vs. margin account (recommendation in [docs/teach/2026-05-19-alpaca-onboarding.md](../docs/teach/2026-05-19-alpaca-onboarding.md): cash).
+   - Set `ALPACA_API_KEY` + `ALPACA_API_SECRET` + `ALPACA_BASE_URL` env vars.
 
-2. **CBOE DataShop subscription decision** — carried; Pejman directed "we'll decide later." Independent of C-12.
+3. **CBOE DataShop subscription decision** — carried; Pejman directed "we'll decide later." Independent of C-12 and cycle-position.
 
 ### CARRIED HIGH (unchanged from s73-s83)
 
@@ -154,7 +166,16 @@ All sessions 41-82 lock-ins preserved unchanged.
 
 ### Immediate next step
 
-**Phase B — AlpacaAdapter implementation.** Per SPEC §3.2. Blocked ONLY on operator Alpaca onboarding (account + keys + cash/margin choice). Once those land, Phase B is autonomous-safe; estimated 2-3 sessions.
+**Operator green-light the CH migration apply.** `npm run migrate:create-cycle-position-snapshots:apply` — CREATE TABLE IF NOT EXISTS; idempotent; low risk. Dry-run verified GREEN. After apply, Phase A4 (repository + daemon hook) is unblocked and can ship autonomously.
+
+### Next session work (after migration apply)
+
+- **A4**: `src/server/cycle_position_repository.ts` + daemon hook to compute + write snapshots once per cycle. Reads FRED values from `quantlab.macro_indicators_fred` (the new series ingested in A1).
+- **A5**: morning-brief panel — extends `src/server/operator_brief.ts` with cycle-position section.
+- **A6**: dashboard React panel — `src/components/CyclePositionPanel.tsx` (biggest unit; needs to align with existing dashboard structure).
+- **FRED backfill**: run `npm run fred:ingest` once to backfill the 8 new series. Operator-side; idempotent.
+
+**C-12 Phase B is paused, not deleted.** When the operator chooses to resume, the SPEC is intact and Phase A's substrate is ready.
 
 ### Alternative dev slice (lower priority — deferred from earlier in s83)
 
