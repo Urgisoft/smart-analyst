@@ -28,6 +28,7 @@ import {
   DEFAULT_PRIOR_HISTORY_LIMIT,
 } from '../../src/server/drawdown_state_repository.js';
 import type { DrawdownLevel } from '../../src/server/drawdown_state.js';
+import { assertCHGrammar } from './_chGrammarCheck.js';
 
 interface InsertCall {
   table: string;
@@ -569,5 +570,69 @@ describe('drawdownStateHasBundleIdColumn', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const present = await drawdownStateHasBundleIdColumn(fake as any);
     assert.equal(present, false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// CH grammar validation (s83 follow-up to a52c964)
+//
+// FakeClickHouse records the query string for byte-pin regex tests but
+// does NOT parse SQL — CH-specific semantic bugs (e.g. the aggregate-in-
+// WHERE name-resolution rule that caused the loadLatestAllScopes
+// ILLEGAL_AGGREGATION CH code 184) pass the byte-pin tier and only surface
+// at production runtime. This describe block sends each emitted SELECT
+// through `EXPLAIN PLAN` against the local CH, which runs the same
+// parser + analyser path that raises code 184 — i.e. would have caught
+// a52c964 the moment the test ran. Skip-if-unavailable preserves the
+// fresh-clone baseline (see scripts/tests/_chGrammarCheck.ts for the why).
+// ─────────────────────────────────────────────────────────────────────────
+describe('DrawdownStateRepository — CH grammar validation (EXPLAIN PLAN)', () => {
+  const TABLE_SUBS = [
+    { from: 'quantlab.drawdown_state_history_test', to: 'quantlab.drawdown_state_history' },
+  ];
+
+  it('loadPriorHistory (pre-migration) — subquery + DESC inner + ASC outer parses clean', async (t) => {
+    const { repo, fake } = makeRepo();
+    fake.nextRows = [];
+    await repo.loadPriorHistory({ source: 'paper' });
+    const verdict = await assertCHGrammar({ queries: fake.queries, tableSubstitutions: TABLE_SUBS });
+    if (verdict.skipped) return t.skip('CH unreachable — see _chGrammarCheck.ts warning');
+    if (!verdict.ok) assert.fail(`EXPLAIN PLAN rejected query:\n${verdict.failure?.error}\n---\n${verdict.failure?.query}`);
+  });
+
+  it('loadPriorHistory (post-migration, per-strategy) — bundle_id filter parses clean', async (t) => {
+    const { repo, fake } = makeRepo({ bundleIdColumnPresent: true });
+    fake.nextRows = [];
+    await repo.loadPriorHistoryPerStrategy({ source: 'paper', bundleId: 'mean_reversion_v1' });
+    const verdict = await assertCHGrammar({ queries: fake.queries, tableSubstitutions: TABLE_SUBS });
+    if (verdict.skipped) return t.skip('CH unreachable — see _chGrammarCheck.ts warning');
+    if (!verdict.ok) assert.fail(`EXPLAIN PLAN rejected query:\n${verdict.failure?.error}\n---\n${verdict.failure?.query}`);
+  });
+
+  it('loadLatest (pre-migration) — simple SELECT parses clean', async (t) => {
+    const { repo, fake } = makeRepo();
+    fake.nextRows = [];
+    await repo.loadLatest({ source: 'paper' });
+    const verdict = await assertCHGrammar({ queries: fake.queries, tableSubstitutions: TABLE_SUBS });
+    if (verdict.skipped) return t.skip('CH unreachable — see _chGrammarCheck.ts warning');
+    if (!verdict.ok) assert.fail(`EXPLAIN PLAN rejected query:\n${verdict.failure?.error}\n---\n${verdict.failure?.query}`);
+  });
+
+  it('loadLatestPerStrategy (post-migration) — bundle_id WHERE filter parses clean', async (t) => {
+    const { repo, fake } = makeRepo({ bundleIdColumnPresent: true });
+    fake.nextRows = [];
+    await repo.loadLatestPerStrategy({ source: 'paper', bundleId: 'trend_v1' });
+    const verdict = await assertCHGrammar({ queries: fake.queries, tableSubstitutions: TABLE_SUBS });
+    if (verdict.skipped) return t.skip('CH unreachable — see _chGrammarCheck.ts warning');
+    if (!verdict.ok) assert.fail(`EXPLAIN PLAN rejected query:\n${verdict.failure?.error}\n---\n${verdict.failure?.query}`);
+  });
+
+  it('loadLatestAllScopes (post-migration) — argMax composite parses clean (regression cover for a52c964)', async (t) => {
+    const { repo, fake } = makeRepo({ bundleIdColumnPresent: true });
+    fake.nextRows = [];
+    await repo.loadLatestAllScopes({ source: 'paper' });
+    const verdict = await assertCHGrammar({ queries: fake.queries, tableSubstitutions: TABLE_SUBS });
+    if (verdict.skipped) return t.skip('CH unreachable — see _chGrammarCheck.ts warning');
+    if (!verdict.ok) assert.fail(`EXPLAIN PLAN rejected query:\n${verdict.failure?.error}\n---\n${verdict.failure?.query}`);
   });
 });
