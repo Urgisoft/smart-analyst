@@ -47,6 +47,11 @@ import {
 } from './stage_state_repository.js';
 import type { StageStateRow } from './stage_state.js';
 import { killCriteriaDailyTableExists } from './kill_criteria_daily_repository.js';
+import {
+  CyclePositionRepository,
+  cyclePositionSnapshotsTableExists,
+} from './cycle_position_repository.js';
+import type { CyclePositionSnapshot } from './cycle_position.js';
 import { DEPLOYMENT_STAGES } from './capital_deployment_config.js';
 import {
   computePerCellCapital,
@@ -60,6 +65,7 @@ import { resolve } from 'node:path';
 import type {
   MorningBrief,
   BriefAnomaly,
+  BriefCyclePositionSection,
   BriefDaemonSection,
   BriefDrawdownSection,
   BriefDrawdownStrategyRow,
@@ -176,6 +182,14 @@ export interface BriefDeps {
    */
   haltSentinelPresent?: () => boolean;
   /**
+   * Market-cycle-position composite reader. Defaults to
+   * `CyclePositionRepository.loadLatestSnapshot()`, returning null when
+   * `quantlab.cycle_position_snapshots` is absent or empty. SPEC:
+   * docs/specs/market-cycle-position.md §3. Tests stub to drive the panel
+   * deterministically.
+   */
+  fetchLatestCyclePosition?: () => Promise<CyclePositionSnapshot | null>;
+  /**
    * Kill-criteria daily history probe — true iff
    * `quantlab.kill_criteria_daily` exists. Drives the brief stage panel's
    * "streak source" warning (SPEC docs/specs/kill-criteria-daily-history.md
@@ -220,6 +234,8 @@ export async function composeMorningBrief(deps?: Partial<BriefDeps>): Promise<Mo
     deps?.fetchLatestStageState ?? fetchLatestStageStateFromCH;
   const haltSentinelPresent =
     deps?.haltSentinelPresent ?? (() => existsSync(resolve(process.cwd(), '.stage_halt')));
+  const fetchLatestCyclePosition =
+    deps?.fetchLatestCyclePosition ?? fetchLatestCyclePositionFromCH;
   // Critic H-2 (SPEC docs/specs/kill-criteria-daily-history.md §10) — probe
   // the table at compose time so the stage panel can surface "streak source"
   // when the daemon falls back to the rolling-asOf shortcut. Defaulted via
@@ -230,7 +246,7 @@ export async function composeMorningBrief(deps?: Partial<BriefDeps>): Promise<Mo
     deps?.fetchCellWeightsForBrief ?? defaultFetchCellWeightsForBrief;
   const now = deps?.now ?? (() => new Date());
 
-  const [regime, paper, lastRun, allowlists, closedTrades, latestDrawdown, latestDrawdownPerStrategy, latestStage, killCritDailyPresent] = await Promise.all([
+  const [regime, paper, lastRun, allowlists, closedTrades, latestDrawdown, latestDrawdownPerStrategy, latestStage, killCritDailyPresent, latestCyclePosition] = await Promise.all([
     fetchRegime({ asOf: null, lookbackDays: LOOKBACK_DAYS_DEFAULT }),
     fetchPaper({ runHistoryLimit: 14 }),
     fetchDaemon(),
@@ -240,6 +256,7 @@ export async function composeMorningBrief(deps?: Partial<BriefDeps>): Promise<Mo
     fetchLatestDrawdownPerStrategy(),
     fetchLatestStage(),
     killCriteriaDailyTablePresent(),
+    fetchLatestCyclePosition(),
   ]);
 
   if (!regime.biasNote || !regime.biasNote.body) {
@@ -282,6 +299,7 @@ export async function composeMorningBrief(deps?: Partial<BriefDeps>): Promise<Mo
     killCriteriaSource: killCritDailyPresent ? 'history' : 'rolling-asof-shortcut',
     cellWeights,
   });
+  const cyclePosition = buildCyclePositionSection(latestCyclePosition);
 
   return {
     generatedAt: now().toISOString().slice(0, 19) + 'Z',
@@ -296,7 +314,51 @@ export async function composeMorningBrief(deps?: Partial<BriefDeps>): Promise<Mo
     watchlist,
     drawdown,
     stage,
+    cyclePosition,
   };
+}
+
+/**
+ * Build the morning-brief cycle-position section from the repository
+ * snapshot. Returns null when no snapshot exists yet (pre-first-daemon-
+ * cycle state); the renderer handles null with a friendly "not yet
+ * evaluated" message.
+ */
+export function buildCyclePositionSection(
+  snapshot: CyclePositionSnapshot | null,
+): BriefCyclePositionSection | null {
+  if (snapshot === null) return null;
+  return {
+    evaluatedAt: snapshot.asOf.toISOString(),
+    snapshotDate: snapshot.asOf.toISOString().slice(0, 10),
+    score: snapshot.score,
+    phaseLabel: snapshot.phaseLabel,
+    recessionProbPct: snapshot.recessionProbPct,
+    contributions: {
+      yieldCurve: snapshot.contributions.yieldCurve,
+      credit: snapshot.contributions.credit,
+      employment: snapshot.contributions.employment,
+    },
+    inputsPresent: snapshot.inputsPresent,
+    compositeVersion: snapshot.compositeVersion,
+  };
+}
+
+/**
+ * Default fetcher for the morning-brief cycle-position section. Returns
+ * null when the snapshots table is absent (pre-A3-migration) OR empty
+ * (post-migration, pre-first-daemon-cycle). Failures degrade to null
+ * gracefully — the brief renders "not yet evaluated" rather than
+ * crashing on a transient CH read error.
+ */
+async function fetchLatestCyclePositionFromCH(): Promise<CyclePositionSnapshot | null> {
+  try {
+    if (!(await cyclePositionSnapshotsTableExists())) return null;
+    const repo = new CyclePositionRepository();
+    return await repo.loadLatestSnapshot();
+  } catch {
+    return null;
+  }
 }
 
 /**

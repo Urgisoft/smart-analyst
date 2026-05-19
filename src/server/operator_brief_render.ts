@@ -219,6 +219,42 @@ export interface MorningBrief {
    * protection on sections 1-5.
    */
   stage: BriefStageSection | null;
+  /**
+   * Market-cycle-position composite — informational Layer-0 context.
+   * SPEC: docs/specs/market-cycle-position.md §3 (brief panel) + Option A
+   * (cycle-position does NOT fire a regime category in v1; pure context).
+   * `null` when the table is absent or empty (pre-A4-daemon-cycle state).
+   * APPENDED as section #7 to preserve byte-equal-stdout protection on
+   * sections 1-6.
+   */
+  cyclePosition: BriefCyclePositionSection | null;
+}
+
+/**
+ * Market-cycle-position panel — informational Layer-0 context.
+ * SPEC: docs/specs/market-cycle-position.md §3, §5, §6, §7.
+ */
+export interface BriefCyclePositionSection {
+  /** Composite computation timestamp (ISO 8601). */
+  evaluatedAt: string;
+  /** Snapshot date (YYYY-MM-DD). */
+  snapshotDate: string;
+  /** 0..1; 0 = late-cycle/contraction, 1 = early-cycle/recovery. */
+  score: number;
+  /** Discrete phase label derived from score via SPEC §6 bands. */
+  phaseLabel: 'early' | 'mid' | 'late' | 'contraction' | 'unknown';
+  /** 0..100; Estrella-Mishkin local logit on T10Y3M unless NY Fed series passed through. */
+  recessionProbPct: number;
+  /** Per-bucket [0,1] contributions to the score. null when bucket inputs missing. */
+  contributions: {
+    yieldCurve: number | null;
+    credit: number | null;
+    employment: number | null;
+  };
+  /** Bitmask of input flags present this snapshot. See cycle_position.ts INPUT_*. */
+  inputsPresent: number;
+  /** Composite version stamp ('cycle_v1' in v1). */
+  compositeVersion: string;
 }
 
 /** Render the brief as operator-facing markdown. Pure. */
@@ -237,6 +273,8 @@ export function renderBriefMarkdown(brief: MorningBrief): string {
   parts.push(renderDrawdownSection(brief));
   parts.push('');
   parts.push(renderStageSection(brief));
+  parts.push('');
+  parts.push(renderCyclePositionSection(brief));
   parts.push('');
   return parts.join('\n');
 }
@@ -593,6 +631,77 @@ function fmtPct(n: number): string {
 function truncate(s: string, max: number): string {
   if (s.length <= max) return s;
   return s.slice(0, max - 1) + '…';
+}
+
+/**
+ * Section #7 — market-cycle-position composite. Informational only in v1
+ * (Option A per SPEC §2 lock). Shows score + phase + recession-prob +
+ * per-bucket contributions, with explicit handling for missing-input
+ * buckets so the operator can read the confidence at a glance.
+ */
+function renderCyclePositionSection(b: MorningBrief): string {
+  const lines: string[] = [];
+  if (b.cyclePosition === null) {
+    lines.push(`## 7. Market cycle position — not yet evaluated`);
+    lines.push(``);
+    lines.push(
+      `\`quantlab.cycle_position_snapshots\` is empty (or absent). ` +
+      `Apply \`npm run migrate:create-cycle-position-snapshots:apply\` and run ` +
+      `\`npm run daemon:daily\` to populate. ` +
+      `SPEC: docs/specs/market-cycle-position.md §3.`,
+    );
+    return lines.join('\n');
+  }
+  const c = b.cyclePosition;
+  const phaseUpper = c.phaseLabel.toUpperCase();
+  const scoreStr = c.score.toFixed(3);
+  const probStr = c.recessionProbPct.toFixed(1);
+  lines.push(`## 7. Market cycle position — ${phaseUpper} (score ${scoreStr})`);
+  lines.push(``);
+  lines.push(`**Score:** ${scoreStr} / 1.00 (0 = late-cycle/contraction, 1 = early-cycle)`);
+  lines.push(`**Phase:** ${c.phaseLabel}`);
+  lines.push(`**12-month recession probability:** ${probStr}%`);
+  lines.push(``);
+  lines.push(`### Per-bucket contributions`);
+  lines.push(``);
+  lines.push(`| Bucket | Contribution | Reading |`);
+  lines.push(`|---|---|---|`);
+  lines.push(renderCycleBucketRow('Yield curve', c.contributions.yieldCurve));
+  lines.push(renderCycleBucketRow('Credit', c.contributions.credit));
+  lines.push(renderCycleBucketRow('Employment', c.contributions.employment));
+  lines.push(``);
+  // Inputs-present sanity line so the operator can spot a degraded snapshot.
+  const inputsCount = popcount(c.inputsPresent);
+  lines.push(
+    `_Inputs present: ${inputsCount}/8 (bitmask 0b${c.inputsPresent.toString(2).padStart(8, '0')}). ` +
+    `Composite: \`${c.compositeVersion}\`. ` +
+    `INFORMATIONAL — does NOT fire a regime category in v1 (SPEC Option A)._`,
+  );
+  lines.push(``);
+  lines.push(
+    `_Last evaluated: \`${c.evaluatedAt}\` · snapshot date: \`${c.snapshotDate}\`._`,
+  );
+  return lines.join('\n');
+}
+
+function renderCycleBucketRow(label: string, contribution: number | null): string {
+  if (contribution === null) {
+    return `| ${label} | — | inputs missing |`;
+  }
+  const c = contribution.toFixed(3);
+  const reading =
+    contribution >= 0.65 ? 'expansionary' :
+    contribution >= 0.40 ? 'neutral' :
+    contribution >= 0.20 ? 'softening' :
+    'stressed';
+  return `| ${label} | ${c} | ${reading} |`;
+}
+
+function popcount(n: number): number {
+  let count = 0;
+  let x = n;
+  while (x > 0) { count += x & 1; x = x >>> 1; }
+  return count;
 }
 
 /**

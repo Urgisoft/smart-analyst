@@ -1,6 +1,6 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-05-19 (session 85 — **market-cycle-position Phase A 4/6 units shipped (A1+A2+A3+A4) + Phase A3 migration APPLIED + FRED backfill complete + end-to-end smoke against live CH GREEN.** All 4 SPEC open questions LOCKED. A1 = FRED ingest extension (9 default series). A2 = src/server/cycle_position.ts pure-function composite with Estrella-Mishkin 1998 logit (42 tests). A3 = migration script (17 tests) + APPLIED in 20ms (quantlab.cycle_position_snapshots live with 18/18 columns). A3 FRED backfill = 9 series, 41,521 rows. **A4 = src/server/cycle_position_repository.ts + daemon hook + 25 tests; end-to-end smoke produced first live snapshot (score=0.720, phase=early, recession_prob=13.3% as of 2026-05-19).** **Tests: 1476/0/6 (+25 over A3 baseline of 1451; +84 over s84). tsc: 13-error baseline. check:help green.** Phase A remaining: A5 (morning-brief panel), A6 (dashboard React panel). C-12 Phase A FULLY CLOSED from s84; C-12 Phase B (AlpacaAdapter) PAUSED INDEFINITELY at operator direction.)
+Last updated: 2026-05-19 (session 85 — **market-cycle-position Phase A 5/6 units shipped (A1+A2+A3+A4+A5).** A5 = morning-brief cycle-position panel: new `BriefCyclePositionSection` interface in operator_brief_render.ts + render function (section #7, appended for byte-equal protection); `buildCyclePositionSection` builder + default fetcher (`fetchLatestCyclePositionFromCH`) + `fetchLatestCyclePosition` injection point in operator_brief.ts; 12 new tests (7 render + 5 compose-wiring). **End-to-end live brief render verified: `npm run brief:morning` now displays cycle position (EARLY, score 0.720, 13.3% recession prob, per-bucket contributions) against the live data from the A4 daemon-hook smoke.** **Tests: 1488/0/6 (+12 over A4 baseline of 1476; +96 over s84). tsc: 13-error baseline. check:help green.** Phase A remaining: A6 (dashboard React panel). Phase A's substrate chain (FRED ingest → composite → CH persistence → daemon hook → operator-visible brief panel) is fully operational. C-12 Phase A FULLY CLOSED from s84; C-12 Phase B (AlpacaAdapter) PAUSED INDEFINITELY at operator direction.)
 
 ## What this session delivered
 
@@ -91,8 +91,8 @@ The Phase A code is complete and tests are green; the only step left in Phase A 
 | **market-cycle-position Phase A3 — migration APPLY** | **✓ s85 — applied in 20ms; post-check 18/18 columns; quantlab.cycle_position_snapshots live (0 rows, awaiting A4 daemon writes)** |
 | **market-cycle-position Phase A3 — FRED backfill** | **✓ s85 — 9 series, 41,521 total rows ingested. Coverage 1996-present except HY OAS (~3y FRED limit confirmed; composite handles gracefully via missing-input degradation)** |
 | **market-cycle-position Phase A4 — repository + daemon hook** | **✓ s85 — src/server/cycle_position_repository.ts + 25 tests; daemon hook wired at scripts/daily_signal_daemon.ts step 1d (after macro-classify-v3, non-fatal); end-to-end smoke against live CH GREEN (first snapshot: score=0.720, phase=early, recession_prob=13.3%)** |
-| **market-cycle-position Phase A5 — morning-brief panel** | **☐ next beat — depends on A4 (now complete)** |
-| **market-cycle-position Phase A6 — dashboard React panel** | **☐ next beat or follow-up — depends on A4 (now complete)** |
+| **market-cycle-position Phase A5 — morning-brief panel** | **✓ s85 — BriefCyclePositionSection + render + buildCyclePositionSection + 12 new tests; `npm run brief:morning` shows section #7 live against the A4 snapshot** |
+| **market-cycle-position Phase A6 — dashboard React panel** | **☐ next beat — last Phase A unit; depends on A4 (complete)** |
 | **market-cycle-position Phase B validation** | **☐ ~1 week, after Phase A fully closes** |
 | Strategy-tagged dd_state (s80-s82) | ✓ shipped |
 | FakeClickHouse grammar-validation gap (drawdown repo) | ✓ s83 |
@@ -167,16 +167,15 @@ All sessions 41-82 lock-ins preserved unchanged.
 
 ### Immediate next step
 
-**Phase A5 — morning-brief panel.** Extends `src/server/operator_brief.ts` with a cycle-position section. Reads via `repo.loadLatestSnapshot()`; renders today's score + phase + recession-prob + 30/90/365-day sparkline. Autonomous-safe; ~80 LOC + tests.
+**Phase A6 — dashboard React panel** (last Phase A unit). New `src/components/CyclePositionPanel.tsx` aligned with the existing dashboard structure: 365-day score trend + per-bucket contribution stack + (optional) NBER recession bands overlay. Biggest single Phase A unit; needs a survey of the existing dashboard route + component patterns before code starts. Autonomous-safe.
 
-### Next session work after A5
+### Next session work after A6
 
-- **A6**: dashboard React panel — `src/components/CyclePositionPanel.tsx` (biggest unit; needs to align with existing dashboard structure). Autonomous-safe but a larger lift than A5.
 - **Phase B**: backtest validation against NBER + independence test against `phase1_v3` (~1 week). Operates against historical FRED data — composite already supports this via the existing repository.
 
-### Daemon now writes cycle-position snapshots automatically
+### Daemon writes snapshots automatically; brief renders them
 
-Every `npm run daemon:daily` cycle (without `--no-macro` / `--dry-run`) computes + writes one snapshot row to `quantlab.cycle_position_snapshots` after the macro-regime classify step. First snapshot from the A4 smoke run is already in the table.
+Every `npm run daemon:daily` cycle (without `--no-macro` / `--dry-run`) computes + writes one snapshot row to `quantlab.cycle_position_snapshots` after the macro-regime classify step. Every `npm run brief:morning` displays the latest snapshot as section #7. Verified live this session against today's FRED data.
 
 **C-12 Phase B is paused, not deleted.** When the operator chooses to resume, the SPEC is intact and Phase A's substrate is ready.
 

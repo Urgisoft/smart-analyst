@@ -61,6 +61,7 @@ function brief(overrides?: Partial<MorningBrief>): MorningBrief {
     watchlist: [],
     drawdown: null,
     stage: null,
+    cyclePosition: null,
     ...overrides,
   };
 }
@@ -686,5 +687,133 @@ describe('renderBriefMarkdown — cell-weights weighting line (ADR-040 SPEC §10
       },
     }));
     assert.doesNotMatch(md, /\*\*Weighting:\*\*/);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Section #7 — market-cycle-position (s85 A5).
+// SPEC: docs/specs/market-cycle-position.md §3 (brief panel) + Option A
+// (informational, does NOT fire a regime category in v1).
+// ─────────────────────────────────────────────────────────────────────────
+describe('renderBriefMarkdown — market-cycle-position panel (SPEC §3 + Option A)', () => {
+  it('renders "not yet evaluated" with the migration-alias hint when cyclePosition is null', () => {
+    const md = renderBriefMarkdown(brief({ cyclePosition: null }));
+    assert.match(md, /## 7\. Market cycle position — not yet evaluated/);
+    assert.match(md, /quantlab\.cycle_position_snapshots/);
+    assert.match(md, /npm run migrate:create-cycle-position-snapshots:apply/);
+  });
+
+  it('renders score + phase + recession-prob in the section header', () => {
+    const md = renderBriefMarkdown(brief({
+      cyclePosition: {
+        evaluatedAt: '2026-05-19T13:30:00.123Z',
+        snapshotDate: '2026-05-19',
+        score: 0.72,
+        phaseLabel: 'early',
+        recessionProbPct: 13.3,
+        contributions: { yieldCurve: 0.4, credit: 0.95, employment: 0.81 },
+        inputsPresent: 0b01111111,
+        compositeVersion: 'cycle_v1',
+      },
+    }));
+    assert.match(md, /## 7\. Market cycle position — EARLY \(score 0\.720\)/);
+    assert.match(md, /\*\*Score:\*\* 0\.720 \/ 1\.00/);
+    assert.match(md, /\*\*Phase:\*\* early/);
+    assert.match(md, /\*\*12-month recession probability:\*\* 13\.3%/);
+  });
+
+  it('renders all three bucket rows with [0,1] readings', () => {
+    const md = renderBriefMarkdown(brief({
+      cyclePosition: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        score: 0.5,
+        phaseLabel: 'mid',
+        recessionProbPct: 30.0,
+        contributions: { yieldCurve: 0.7, credit: 0.5, employment: 0.25 },
+        inputsPresent: 0b01111111,
+        compositeVersion: 'cycle_v1',
+      },
+    }));
+    assert.match(md, /\| Yield curve \| 0\.700 \| expansionary \|/);
+    assert.match(md, /\| Credit \| 0\.500 \| neutral \|/);
+    assert.match(md, /\| Employment \| 0\.250 \| softening \|/);
+  });
+
+  it('renders "—" + "inputs missing" when a bucket contribution is null', () => {
+    const md = renderBriefMarkdown(brief({
+      cyclePosition: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        score: 0.35,
+        phaseLabel: 'late',
+        recessionProbPct: 45.0,
+        contributions: { yieldCurve: 0.35, credit: null, employment: null },
+        inputsPresent: 0b00000001, // only T10Y3M
+        compositeVersion: 'cycle_v1',
+      },
+    }));
+    assert.match(md, /\| Credit \| — \| inputs missing \|/);
+    assert.match(md, /\| Employment \| — \| inputs missing \|/);
+  });
+
+  it('renders the inputs-present bitmask line + Option A informational caveat', () => {
+    const md = renderBriefMarkdown(brief({
+      cyclePosition: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        score: 0.72,
+        phaseLabel: 'early',
+        recessionProbPct: 13.3,
+        contributions: { yieldCurve: 0.4, credit: 0.95, employment: 0.81 },
+        inputsPresent: 0b01111111, // 7 of 8 inputs
+        compositeVersion: 'cycle_v1',
+      },
+    }));
+    assert.match(md, /Inputs present: 7\/8 \(bitmask 0b01111111\)/);
+    assert.match(md, /Composite: `cycle_v1`/);
+    assert.match(md, /INFORMATIONAL — does NOT fire a regime category in v1/);
+  });
+
+  it('renders the evaluatedAt + snapshotDate footer', () => {
+    const md = renderBriefMarkdown(brief({
+      cyclePosition: {
+        evaluatedAt: '2026-05-19T13:30:00.123Z',
+        snapshotDate: '2026-05-19',
+        score: 0.5,
+        phaseLabel: 'mid',
+        recessionProbPct: 30.0,
+        contributions: { yieldCurve: 0.5, credit: 0.5, employment: 0.5 },
+        inputsPresent: 0b01111111,
+        compositeVersion: 'cycle_v1',
+      },
+    }));
+    assert.match(md, /Last evaluated: `2026-05-19T13:30:00\.123Z`/);
+    assert.match(md, /snapshot date: `2026-05-19`/);
+  });
+
+  it('phase label appears uppercased in the header (matches drawdown/stage convention)', () => {
+    const md = renderBriefMarkdown(brief({
+      cyclePosition: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        score: 0.15,
+        phaseLabel: 'contraction',
+        recessionProbPct: 55.0,
+        contributions: { yieldCurve: 0.0, credit: 0.2, employment: 0.25 },
+        inputsPresent: 0b01111111,
+        compositeVersion: 'cycle_v1',
+      },
+    }));
+    assert.match(md, /## 7\. Market cycle position — CONTRACTION/);
+  });
+
+  it('section ordering: cycle-position renders AFTER stage section (byte-equal protection)', () => {
+    const md = renderBriefMarkdown(brief({ cyclePosition: null }));
+    const stageIdx = md.indexOf('## 6.');
+    const cycleIdx = md.indexOf('## 7.');
+    assert.ok(stageIdx > -1, 'expected stage section');
+    assert.ok(cycleIdx > -1, 'expected cycle-position section');
+    assert.ok(cycleIdx > stageIdx, 'cycle-position must render after stage section');
   });
 });

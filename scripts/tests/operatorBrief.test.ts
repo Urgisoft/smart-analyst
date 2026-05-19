@@ -417,3 +417,77 @@ function mkPos(symbol: string, unrealizedPct: number, barsHeld: number) {
     barsHeld,
   };
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// buildCyclePositionSection + composeMorningBrief wiring (s85 A5).
+// SPEC: docs/specs/market-cycle-position.md §3.
+// ─────────────────────────────────────────────────────────────────────────
+describe('buildCyclePositionSection', () => {
+  it('returns null when snapshot is null', async () => {
+    const { buildCyclePositionSection } = await import('../../src/server/operator_brief.js');
+    assert.equal(buildCyclePositionSection(null), null);
+  });
+
+  it('maps CyclePositionSnapshot fields into the brief section', async () => {
+    const { buildCyclePositionSection } = await import('../../src/server/operator_brief.js');
+    const asOf = new Date('2026-05-19T13:30:00.123Z');
+    const section = buildCyclePositionSection({
+      asOf,
+      score: 0.72,
+      phaseLabel: 'early',
+      recessionProbPct: 13.3,
+      contributions: { yieldCurve: 0.4, credit: 0.95, employment: 0.81 },
+      inputsPresent: 0b01111111,
+      compositeVersion: 'cycle_v1',
+    });
+    assert.ok(section !== null);
+    assert.equal(section!.evaluatedAt, '2026-05-19T13:30:00.123Z');
+    assert.equal(section!.snapshotDate, '2026-05-19');
+    assert.equal(section!.score, 0.72);
+    assert.equal(section!.phaseLabel, 'early');
+    assert.equal(section!.recessionProbPct, 13.3);
+    assert.deepEqual(section!.contributions, { yieldCurve: 0.4, credit: 0.95, employment: 0.81 });
+    assert.equal(section!.inputsPresent, 0b01111111);
+    assert.equal(section!.compositeVersion, 'cycle_v1');
+  });
+});
+
+describe('composeMorningBrief — cycle-position section wiring', () => {
+  it('cyclePosition=null when fetchLatestCyclePosition returns null', async () => {
+    const brief = await composeMorningBrief({
+      fetchRegimeState: async () => stubRegime(),
+      fetchPaperTradingState: async () => stubPaper(),
+      fetchLastDaemonRun: async () => stubDaemonRow(),
+      fetchCellAllowlists: async () => new Map(),
+      fetchClosedTrades: async () => [],
+      fetchLatestCyclePosition: async () => null,
+      now: () => FIXED_NOW,
+    });
+    assert.equal(brief.cyclePosition, null);
+  });
+
+  it('cyclePosition populated when fetchLatestCyclePosition returns a snapshot', async () => {
+    const brief = await composeMorningBrief({
+      fetchRegimeState: async () => stubRegime(),
+      fetchPaperTradingState: async () => stubPaper(),
+      fetchLastDaemonRun: async () => stubDaemonRow(),
+      fetchCellAllowlists: async () => new Map(),
+      fetchClosedTrades: async () => [],
+      fetchLatestCyclePosition: async () => ({
+        asOf: new Date('2026-05-19T13:30:00Z'),
+        score: 0.42,
+        phaseLabel: 'late',
+        recessionProbPct: 35.6,
+        contributions: { yieldCurve: 0.4, credit: 0.5, employment: 0.36 },
+        inputsPresent: 0b01111111,
+        compositeVersion: 'cycle_v1',
+      }),
+      now: () => FIXED_NOW,
+    });
+    assert.ok(brief.cyclePosition !== null);
+    assert.equal(brief.cyclePosition!.score, 0.42);
+    assert.equal(brief.cyclePosition!.phaseLabel, 'late');
+    assert.equal(brief.cyclePosition!.snapshotDate, '2026-05-19');
+    assert.equal(brief.cyclePosition!.compositeVersion, 'cycle_v1');
+  });
+});
