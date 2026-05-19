@@ -1,68 +1,73 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-05-18 (session 82 close — **Phase C migration APPLIED + post-apply DOC sweep + commit consolidation + doctrine close + LIVE VERIFICATION + bug fix**: operator ran `npm run migrate:drawdown-state-history-per-strategy:apply` (9→9 row parity; atomic RENAME; `drawdown_state_history_v0_backup` retained pending ≥24h verification). Post-apply DOC sweep added [SPEC §8.5 operator playbook](../docs/specs/strategy-tagged-drawdown-state.md) and closed the s78 `calibration-on-the-shelf` framing across 3 files. Commit consolidation landed 4 topical commits: `f9e22cc` s75-77 framework rescale, `33779cd` s78-79 put/call retune, `da6fd46` s80-82 strategy-tagged dd_state, `c00ed03` doctrine close. **Doctrine close (Pejman explicit):** L5/A5 + stage1/2/4 = status quo affirmed in [SPEC §4.3](../docs/specs/drawdown-response-framework.md). **LIVE VERIFICATION (this beat):** ingested fresh data (macro:ingest + fred:ingest + cboe:ingest — CBOE 403 expected; DataShop-gated), classified 2026-05-18 (`regime=yellow firing=1` hyg_spy_divergence=1), ran `npm run daemon:daily` — **per-strategy flip confirmed LIVE**: daemon log emitted 3 `[drawdown-state ...]` lines (portfolio + mean_reversion_v1 + trend_v1), Telegram sent, 31.9s total. **Bug fix:** `npm run brief:morning` initially failed with CH ILLEGAL_AGGREGATION (code 184) on `loadLatestAllScopes` — `argMax(source, evaluated_at) AS source` collided with the WHERE clause's `source` name resolution; fixed by wrapping the FROM in a subquery (`a52c964`). Post-fix the brief renders the per-strategy panel cleanly with both strategy rows. SPEC §8.5 signals 1+2 now both verified; ≥24h wall-clock still gates `--drop-backup`.)
+Last updated: 2026-05-18 (session 82 close — **Phase C lifecycle FULLY CLOSED: --drop-backup executed (gate waived) + terminal CH state verified**: operator waived the ≥24h verification gate (with full disclosure of risk — rollback handle removed), assistant ran `npm run migrate:drawdown-state-history-per-strategy:drop-backup` — `quantlab.drawdown_state_history_v0_backup` dropped in 16ms. Post-drop dry-run confirms terminal state: canonical table only, `_v0_backup` absent, no `_new`, no pending mutations. **No code changes** (CH-only state change). Tests baseline unchanged (1333/0/6, tsc 13-error baseline). The s80 SPEC §8.1 destructive migration is now fully complete end-to-end: SPEC → Phase A pure functions → Phase B repository+daemon+brief → Phase C build → Phase C apply (9→9 parity) → live verification (per-strategy daemon flip confirmed + brief panel render confirmed + `loadLatestAllScopes` ILLEGAL_AGGREGATION bug found and fixed) → Phase C drop-backup. **All forward fixes from this point are forward-only — no rollback to v0 schema possible.**)
 
 ## What this session delivered
 
-Session 82 took the s81 handoff's recommended default-next slice — Phase C migration BUILD — and shipped it autonomously per full-delegation posture, then the operator executed `--apply` against production CH to close out the destructive step. The build side delivered the script + 19 unit tests + 3 npm aliases; the apply side flipped the production schema in ~63 ms of total DDL/DML work (29ms CREATE + 19ms INSERT-SELECT + 15ms RENAME) with row-count parity holding at 9 rows on both sides. No code changes accompanied the apply itself — the script was already shipped in build form.
+Session 82 ran the full Phase C lifecycle — build, apply, live verification, post-apply DOC sweep, doctrine close, bug fix, and finally the destructive drop-backup. The drop-backup ran with operator-explicit waiver of the ≥24h verification gate (assistant pushed back with the gate's rationale; operator overrode after the verification signals fired healthy on the first post-apply daemon cycle).
 
 ### Verdict
 
-Phase C is functionally complete from the system's perspective. Remaining operator action: ≥24h watch for healthy per-strategy daemon writes, then run `--drop-backup`. Highlights:
+The strategy-tagged drawdown-state architecture (s80 SPEC → s81 Phase B → s82 Phase C) is now production-live with no migration artifacts remaining. The daemon writes one portfolio row + one per-strategy row per live bundle per cycle; the brief renders the per-strategy panel; CH schema is canonical-only. Highlights:
 
-- **Migration script delivered and exercised against production** ([`scripts/migrate_drawdown_state_history_per_strategy.ts`](../scripts/migrate_drawdown_state_history_per_strategy.ts)): six pre-checks all passed; three planned steps executed in order; pre/post row counts both 9 (FINAL on source); backup table retained per design.
-- **Production CH schema is now post-Phase-C**: canonical `quantlab.drawdown_state_history` engine = ReplacingMergeTree(evaluated_at), ORDER BY `(source, bundle_id, evaluated_at)`, `bundle_id` column present with DEFAULT ''. The pre-migration 9 rows are all portfolio-aggregate (sentinel `bundle_id = ''`) by definition.
-- **Daemon behavior flips on next run automatically**: the s81 bootstrap probe will now see `bundle_id` column present → constructs the repository with `bundleIdColumnPresent: true` → after the portfolio evaluation, `runDaemonStrategyDrawdownEvaluations` runs and writes per-strategy rows. Morning brief's per-strategy panel begins rendering. **No additional operator action is needed for the flip itself.**
-- **Backup table is the rollback handle**: `quantlab.drawdown_state_history_v0_backup` is intact; a swap-back via `RENAME TABLE` is the rollback path if the next daemon run surfaces a problem.
-- **Tests + tsc + check:help unchanged** by the apply: apply does not touch TS code. Baseline 1333/0/6, tsc 13-error baseline, check:help green.
+- **`--drop-backup` executed in 16ms**: `DROP TABLE IF EXISTS quantlab.drawdown_state_history_v0_backup` — atomic, no daemon contention (idle window).
+- **Post-drop pre-check shape**: canonical table present + post-migration ORDER BY `(source, bundle_id, evaluated_at)` + `bundle_id` column present + `_new` absent + `_v0_backup` absent + 0 pending mutations.
+- **Tests baseline unchanged** by the drop (no code path was touched): 1333 pass / 0 fail / 6 skipped; tsc 13-error baseline; `check:help` green.
+- **Working tree change from this beat**: HANDOFF.md only (this rewrite). The drop-backup itself is a CH state change, not a code change.
 
 ### Headline result table
 
 | Element | Status |
 | --- | --- |
-| **Migration script — dry-run / apply / drop-backup modes** | **✓ shipped s82** |
-| **Migration tests — 19 unit tests** | **✓ shipped s82** |
-| **npm aliases + help entries** | **✓ shipped s82** |
+| **Migration script — dry-run / apply / drop-backup modes** | **✓ shipped s82 build beat** |
+| **Migration tests — 19 unit tests** | **✓ shipped s82 build beat** |
+| **npm aliases + help entries** | **✓ shipped s82 build beat** |
 | **Phase C migration APPLY (destructive RENAME against production CH)** | **✓ APPLIED s82 — 9→9 parity, ~63ms total** |
-| Phase C `--drop-backup` (destructive DROP of `_v0_backup`) | ☐ pending — operator-authorized; gated on ≥24h healthy-write verification |
+| **Phase C `--drop-backup` (destructive DROP of `_v0_backup`)** | **✓ EXECUTED s82 close beat — 16ms (gate waived; full disclosure)** |
 | Phase A SPEC + pure-function surface (s80) | ✓ preserved |
 | Phase B CODE (repository + daemon + brief) (s81) | ✓ preserved |
-| Tests | **1333 pass / 0 fail / 6 skipped** (no change from build-time beat) |
+| Tests | **1333 pass / 0 fail / 6 skipped** (unchanged from s82 build beat) |
 | npx tsc --noEmit | 13 errors (unchanged baseline) |
 | npm run check:help | ✓ green |
 
-### Test baseline (unchanged by apply)
+### Test baseline (unchanged by drop)
 
 ```text
-npm test                       1333 pass / 0 fail / 6 skipped   (unchanged from s82 build beat)
-npx tsc --noEmit               13 errors (IDENTICAL to baseline; no new errors)
+npm test                       1333 pass / 0 fail / 6 skipped   (unchanged)
+npx tsc --noEmit               13 errors (IDENTICAL to baseline)
 npm run check:help             green
 .venv/Scripts/python.exe -m pytest scripts/tests   164/164  (Python untouched this session)
 ```
 
-### Concrete state changes (this session in total — build + apply)
+### Concrete state changes (full session — including this close beat)
 
-1. **[scripts/migrate_drawdown_state_history_per_strategy.ts](../scripts/migrate_drawdown_state_history_per_strategy.ts)** — NEW (build beat). ~280 lines. Exports `DDL_NEW_TABLE`, `DML_INSERT_SELECT`, `DDL_RENAME`, `DDL_DROP_BACKUP`, `planMigrationSteps`, `verifyPreState`, `rowCount`, `DATABASE`, `CANONICAL_TABLE`, `NEW_TABLE`, `BACKUP_TABLE`, `EXPECTED_OLD_KEY`, `EXPECTED_NEW_KEY`, `help`. `main()` orchestrates dry-run / apply / drop-backup paths.
-2. **[scripts/tests/migrateDrawdownStateHistoryPerStrategy.test.ts](../scripts/tests/migrateDrawdownStateHistoryPerStrategy.test.ts)** — NEW (build beat). 19 tests across 3 describe blocks.
-3. **[package.json](../package.json)** — EDITED (build beat). Added 3 npm scripts.
-4. **Production CH schema** — APPLIED (apply beat). `quantlab.drawdown_state_history` now has new ORDER BY + `bundle_id` column; `quantlab.drawdown_state_history_v0_backup` is the pre-migration snapshot (9 rows, old ORDER BY `(source, evaluated_at)`, no `bundle_id`).
-5. **[.claude/HANDOFF.md](./HANDOFF.md)** — REWRITE. This document.
+1. **[scripts/migrate_drawdown_state_history_per_strategy.ts](../scripts/migrate_drawdown_state_history_per_strategy.ts)** — NEW (build beat). ~280 lines.
+2. **[scripts/tests/migrateDrawdownStateHistoryPerStrategy.test.ts](../scripts/tests/migrateDrawdownStateHistoryPerStrategy.test.ts)** — NEW (build beat). 19 tests.
+3. **[package.json](../package.json)** — EDITED (build beat). 3 new npm scripts.
+4. **Production CH schema** — APPLIED (apply beat). Canonical table flipped to new ORDER BY + `bundle_id`.
+5. **[docs/specs/strategy-tagged-drawdown-state.md](../docs/specs/strategy-tagged-drawdown-state.md)** — EDITED (DOC sweep beat). Added §8.5 operator playbook.
+6. **[src/server/macro_regime_v3.ts](../src/server/macro_regime_v3.ts)** — EDITED (DOC sweep beat). s78 calibration-on-the-shelf docstring cleanup.
+7. **[docs/specs/macro-regime-classifier-phase1_v3.md](../docs/specs/macro-regime-classifier-phase1_v3.md)** — EDITED (DOC sweep beat). §2.3 footnote.
+8. **[docs/obsidian/04 - Regime Classifier (phase1_v3).md](../docs/obsidian/04%20-%20Regime%20Classifier%20%28phase1_v3%29.md)** — EDITED (DOC sweep beat). Threshold table caption.
+9. **[docs/specs/drawdown-response-framework.md](../docs/specs/drawdown-response-framework.md)** — EDITED (doctrine close beat). Added §4.3 L5/A5 + stage1/2/4 status-quo affirmation.
+10. **[src/server/drawdown_state_repository.ts](../src/server/drawdown_state_repository.ts)** — EDITED (verification beat). Fixed `loadLatestAllScopes` ILLEGAL_AGGREGATION (CH code 184).
+11. **Production CH schema** — DROP-BACKUP (close beat). `quantlab.drawdown_state_history_v0_backup` removed. Canonical table is now the only artifact.
+12. **[.claude/HANDOFF.md](./HANDOFF.md)** — REWRITE. This document.
 
 ### What is NOT changed this session
 
-- **No code changes accompanied the apply.** The destructive step ran against the build that already shipped earlier in the session; the daemon, repository, and brief modules from s81 are unchanged.
-- **No CONFIG_VERSION bump.** The daemon's bootstrap probe is what flips behavior; no config rev was required by the apply step.
-- **No s80/s81 code changes.** The pure-function surface (s80 Phase A) + repository / daemon / brief wire-up (s81 Phase B) are unchanged.
-- **No CBOE arm changes.** s78 put/call retune + s79 backfill unchanged.
-- **No daemon-default flips.** Retargeting ON, useRiskConfig ON, halt enforce-mode ON — all unchanged.
-- **Working tree from s74-s81 still unstaged**; s82 adds 3 files to the working set. Commit packaging Pejman-decision still pending (Open Questions #4).
+- **No code changes accompanied the drop-backup.** Pure CH state change.
+- **No CONFIG_VERSION bump.**
+- **No s80/s81 code changes** beyond the s82 verification-beat repository bug fix.
+- **No CBOE arm changes.**
+- **No daemon-default flips.**
 
 ## Where we are
 
-Session 82 closed both the BUILD and the APPLY of the s80 SPEC §8.1 destructive migration. Next concrete events:
+Session 82 closed the full Phase C lifecycle. There is no remaining destructive op pending for the strategy-tagged drawdown-state architecture. Next concrete events:
 
-1. **Next daily daemon run (~within 24h)** — bootstrap probe sees `bundle_id` column present → daemon writes one portfolio row + one row per live strategy bundle. Brief begins rendering the per-strategy panel.
-2. **~24h after the apply** — operator verifies daemon `[drawdown-state strategy=<bid>]` log lines fired + morning brief renders per-strategy panel + no anomalies, then runs `npm run migrate:drawdown-state-history-per-strategy:drop-backup` to drop `quantlab.drawdown_state_history_v0_backup`.
+1. **Future daemon cycles** — continue writing per-strategy rows automatically (s81 bootstrap probe sees `bundle_id` column present → constructs repository with `bundleIdColumnPresent: true` → calls `runDaemonStrategyDrawdownEvaluations`). No further operator action required.
+2. **§12 90d empirical retune** — earliest 2026-08-29 (sizer-mode data window); §12 of s80 SPEC mandates per-strategy retune ALONGSIDE portfolio retune in the same ADR.
 
 | Bucket | Status |
 | --- | --- |
@@ -71,31 +76,36 @@ Session 82 closed both the BUILD and the APPLY of the s80 SPEC §8.1 destructive
 | Strategy-tagged dd_state Phase A CODE (pure-function surface) | ✓ s80 |
 | Strategy-tagged dd_state Phase B CODE (repository + daemon + brief) | ✓ s81 |
 | Strategy-tagged dd_state Phase C migration BUILD | ✓ s82 build beat |
-| **Strategy-tagged dd_state Phase C APPLY (destructive RENAME against production CH)** | **✓ s82 apply beat — 9→9 parity** |
-| Phase C `--drop-backup` | ☐ pending — operator-authorized; gated on ≥24h healthy-write window |
+| Strategy-tagged dd_state Phase C APPLY | ✓ s82 apply beat — 9→9 parity |
+| **Strategy-tagged dd_state Phase C DROP-BACKUP** | **✓ s82 close beat — 16ms; gate waived; no rollback handle remaining** |
 | CBOE DataShop subscription (2019-present coverage) | ☐ deferred — Pejman-decision (paid; "we'll decide later") |
-| L5/A5 σ-band rescale decision | ✓ s82 doctrine close — status quo affirmed (parent SPEC §4.3); reopens at §12 retune or operator doctrine pivot |
-| stage1/stage2/stage4.failDrawdown rescale | ✓ s82 doctrine close — status quo affirmed (parent SPEC §4.3); reopens at §12 retune or ADR-039 amendment ratifying doctrine pivot |
-| Drawdown framework §12 90d empirical retune | ☐ scheduled — sizer-mode data when it fires (~2026-08-29 earliest); §12 of s80 SPEC mandates per-strategy retune ALONGSIDE portfolio retune in the same ADR |
+| L5/A5 σ-band rescale decision | ✓ s82 doctrine close — status quo affirmed (parent SPEC §4.3) |
+| stage1/stage2/stage4.failDrawdown rescale | ✓ s82 doctrine close — status quo affirmed (parent SPEC §4.3) |
+| Drawdown framework §12 90d empirical retune | ☐ scheduled — sizer-mode data when it fires (~2026-08-29 earliest) |
 | s78 docstring/spec cleanup (calibration-on-the-shelf framing) | ✓ s82 post-apply DOC sweep |
 | Phase C operator playbook (§8.5) | ✓ s82 post-apply DOC sweep |
-| Commit consolidation (s74-s82) | ☐ Pejman-decision — working tree now carries 9 sessions unstaged + this DOC sweep |
+| Commit consolidation (s74-s82 code) | ✓ s82 — 4 topical commits landed (`f9e22cc`, `33779cd`, `da6fd46`, `c00ed03`) + `a52c964` bug fix + `53f1672` handoff update |
 
 ## Decisions locked in
 
-### Session 82 apply beat (this beat)
+### Session 82 close beat (this beat)
 
-**A1. The `--apply` ran against production with the daemon in an idle window.** Pre-checks confirmed engine = ReplacingMergeTree, current ORDER BY = `(source, evaluated_at)`, `bundle_id` absent, no leftover `_new` or `_v0_backup`, no pending mutations, source `count(*) FROM ... FINAL = 9`. All six s82 build-time architectural decisions held in production exactly as designed: CREATE-NEW + INSERT-SELECT (FINAL on source) + atomic two-table RENAME; INSERT enumerated columns and omitted `bundle_id` so DEFAULT '' fired; row-count parity (9 = 9) verified BEFORE the RENAME; backup retained after RENAME for the verification window.
-`Why:` no surprise — the script was unit-test-pinned to this exact behavior and the production CH state matched the pre-check expectations cleanly.
-`How to apply:` future destructive migrations follow the same template — pre-check verdict → planned steps printout → row-count parity BEFORE swap → post-checks → backup retained until operator-driven cleanup.
+**C1. The ≥24h `--drop-backup` gate was waived with full disclosure of risk.** Assistant pushed back per [PUSHBACK]: gate exists not as procedure but because the verification beat exercised only one post-apply daemon cycle, and the `loadLatestAllScopes` ILLEGAL_AGGREGATION bug surfaced on the FIRST post-apply brief render — direct evidence that production CH execution catches issues that unit tests don't. Operator overrode after assessing that signals 1+2 (daemon per-strategy log lines + brief panel render) had fired healthy in the verification beat. Rollback handle is now gone; any future issue with per-strategy schema interaction must be fixed forward.
+`Why:` operator-explicit decision — verified functional correctness was deemed sufficient to retire the rollback handle; no concrete pre-drop concern emerged in the verification beat.
+`How to apply:` for future destructive migrations following this CREATE-NEW + RENAME pattern, the ≥24h gate remains the default SPEC §8.5 recommendation — waivers require explicit operator green-light with disclosure of the rollback-handle-removal cost. The s80 SPEC §8.5 wording is not amended; the precedent here is "operator may waive on explicit override, not on assistant initiative."
 
-**A2. `_v0_backup` is the rollback handle for the verification window.** A swap-back via `RENAME TABLE quantlab.drawdown_state_history TO quantlab.drawdown_state_history_new_failed, quantlab.drawdown_state_history_v0_backup TO quantlab.drawdown_state_history` returns the system to pre-migration state.
-`Why:` if the first per-strategy daemon write surfaces a problem we didn't catch in s81 unit tests, this is the no-data-loss escape hatch.
-`How to apply:` DO NOT run `--drop-backup` until the operator has observed ≥1 daemon cycle with healthy `[drawdown-state strategy=<bid>]` log lines + a clean morning brief render. The Phase C-apply rollback option only exists while `_v0_backup` is present.
+**C2. Phase C lifecycle is fully closed.** Build, apply, verification, drop-backup all complete in s82. No further migration-related operator action pending for strategy-tagged drawdown-state. Future state lives entirely in canonical `quantlab.drawdown_state_history`.
+`Why:` natural lifecycle close — the s80 SPEC §8 destructive migration sequence ran end-to-end without rollback.
+`How to apply:` future schema migrations for this table (e.g., §12 retune may add columns or change defaults) start from the post-Phase-C baseline. The pre-Phase-C v0 schema is no longer recoverable; any historical reference must come from git history of the SPEC file or scripts.
 
-### Session 82 build beat (carried from earlier in this session)
+### Session 82 apply beat (carried from earlier in this session)
 
-**1-6.** Six architectural decisions documented in the build-beat handoff that this rewrite supersedes. All six held in production during the apply beat — see git history of `.claude/HANDOFF.md` for the original wording.
+**A1.** The `--apply` ran against production with the daemon in an idle window. Pre-checks all green; CREATE-NEW + INSERT-SELECT + atomic RENAME pattern held; 9→9 row-count parity confirmed before swap.
+**A2.** `_v0_backup` was the rollback handle during the verification window. **As of this close beat, A2 is superseded — the rollback handle no longer exists.**
+
+### Session 82 build beat (carried)
+
+**1-6.** Six architectural decisions documented in build-beat handoff. All held in production during apply + close beats. See git history of `.claude/HANDOFF.md`.
 
 ### Carried locked decisions (sessions 41-81)
 
@@ -105,13 +115,13 @@ All sessions 41-81 lock-ins preserved unchanged. See git history and prior hando
 
 ### HIGH (Pejman decisions pending — but not blocking)
 
-1. **`--drop-backup` timing.** Recommended: ≥24h after the apply AND after the operator has eyeballed at least one daemon cycle's `[drawdown-state strategy=<bid>]` log lines + the morning brief's per-strategy panel render. The drop-backup mode is idempotent and a single npm alias — no further preparation needed when greenlit.
+1. ~~**`--drop-backup` timing**~~ — ✓ closed s82 close beat (gate waived; executed). No rollback handle remaining.
 
 2. ~~**L5/A5 rescale decision**~~ — ✓ closed s82 doctrine close (status quo affirmed per parent SPEC §4.3).
 
-3. ~~**stage1/stage2/stage4.failDrawdown rescale**~~ — ✓ closed s82 doctrine close (status quo affirmed per parent SPEC §4.3).
+3. ~~**stage1/stage2/stage4.failDrawdown rescale**~~ — ✓ closed s82 doctrine close.
 
-4. ~~**Commit strategy for s74-s82 working tree**~~ — ✓ closed s82 (3 commits landed: `f9e22cc` s75-77, `33779cd` s78-79, `da6fd46` s80-82). Working tree now carries only the s82 doctrine-close SPEC §4.3 amendment + this HANDOFF update.
+4. ~~**Commit strategy for s74-s82 working tree**~~ — ✓ closed s82.
 
 5. **CBOE DataShop subscription decision** — carried from s73-s81; Pejman directed "we'll decide later."
 
@@ -126,43 +136,33 @@ All sessions 41-81 lock-ins preserved unchanged. See git history and prior hando
 
 ### Closed this session
 
-- ~~Phase C migration BUILD~~ — shipped s82 build beat.
-- ~~Phase C migration apply window~~ — operator ran `--apply` against production this session.
-- ~~SPEC §11 test #25 (`--dry-run` prints planned steps without execution)~~ — shipped s82 build beat (planMigrationSteps byte-pin tests + dry-run is the default mode).
-- ~~SPEC §11 test #26 (`--apply` against fresh table produces correct end state)~~ — exercised against production in this session's apply beat; row-count parity confirmed end state correct.
-- ~~Phase C operator playbook~~ — added as SPEC §8.5 in [`docs/specs/strategy-tagged-drawdown-state.md`](../docs/specs/strategy-tagged-drawdown-state.md) covering pre-conditions, verification commands, drop-backup procedure, rollback procedure, and post-drop terminal state.
-- ~~s78 docstring/spec cleanup (calibration-on-the-shelf framing)~~ — closed in [`src/server/macro_regime_v3.ts`](../src/server/macro_regime_v3.ts) docstring + [`docs/specs/macro-regime-classifier-phase1_v3.md`](../docs/specs/macro-regime-classifier-phase1_v3.md) §2.3 footnote (a) + [`docs/obsidian/04 - Regime Classifier (phase1_v3).md`](../docs/obsidian/04%20-%20Regime%20Classifier%20%28phase1_v3%29.md) threshold table. All three now correctly state gate (a) closed by s79 backfill, gate (b) DataShop 2019-present still open. ADR-038 amendment in [`docs/decisions/README.md`](../docs/decisions/README.md) preserved as historical record.
-- ~~Commit consolidation for s75-s82 working tree~~ — landed as 3 topical commits: `f9e22cc` s75-77 framework rescale, `33779cd` s78-79 put/call retune, `da6fd46` s80-82 strategy-tagged dd_state. Working tree post-commit is clean except editor state.
-- ~~L5/A5 σ-band rescale decision~~ — closed as **status quo affirmed** in [parent SPEC §4.3](../docs/specs/drawdown-response-framework.md). σ-band math documented (-3% would be the proportional rescale); doctrine question identified as canon-thin and resolved per Pejman: "hard kill is system-failure marker, not graduated tier." L5/A5 stay at -0.20 / -20.
-- ~~stage1/stage2/stage4.failDrawdown rescale~~ — closed as **status quo affirmed** in [parent SPEC §4.3](../docs/specs/drawdown-response-framework.md). Same doctrine logic; ADR-039 §1 originals preserved. No ADR-039 amendment filed.
-- ~~SPEC §8.5 verification signals 1+2~~ — both confirmed live this session. Signal 1: daemon emitted `[drawdown-state strategy=mean_reversion_v1]` + `[drawdown-state strategy=trend_v1]` log lines on first run post-apply. Signal 2: morning brief renders the per-strategy panel with rows for both strategies. ≥24h wall-clock pre-condition still gates `--drop-backup` (apply happened ~hours ago in this session).
-- ~~CH brief query bug (`loadLatestAllScopes` ILLEGAL_AGGREGATION)~~ — surfaced on first live brief render post-apply; fixed by wrapping the FROM in a subquery so the WHERE filter doesn't collide with the `argMax(...) AS source` SELECT alias. Commit `a52c964`. Tests pass identically; brief renders cleanly. **The 28 s81 Phase B unit tests didn't catch this** — `FakeClickHouse` records query strings for regex assertions but does NOT parse SQL against CH's grammar; the production CH run was the first time the query was actually executed.
+- ~~Phase C migration BUILD~~ — s82 build beat.
+- ~~Phase C migration APPLY~~ — s82 apply beat.
+- ~~Phase C `--drop-backup`~~ — s82 close beat (this beat).
+- ~~SPEC §11 test #25 / #26~~ — exercised against production.
+- ~~Phase C operator playbook~~ — SPEC §8.5 (s82 post-apply DOC sweep).
+- ~~s78 docstring/spec cleanup~~ — s82 post-apply DOC sweep.
+- ~~Commit consolidation~~ — 4 topical commits (`f9e22cc` / `33779cd` / `da6fd46` / `c00ed03`) + `a52c964` bug fix + `53f1672` handoff.
+- ~~L5/A5 σ-band rescale decision~~ — s82 doctrine close.
+- ~~stage1/2/4 ADR-039 amendment~~ — s82 doctrine close.
+- ~~SPEC §8.5 verification signals 1+2~~ — both confirmed live this session.
+- ~~CH brief query bug (`loadLatestAllScopes` ILLEGAL_AGGREGATION)~~ — fixed in `a52c964`.
 
 ## Next stage
 
-### Operator-side default (recommended)
+### No pending operator-side action for Phase C
 
-**Wait for next daemon cycle, then verify, then `--drop-backup`.** No assistant action required for the daemon flip itself — it's automatic via the s81 bootstrap probe. After the next `npm run daemon:daily` completes:
-
-- Inspect daemon log for `[drawdown-state strategy=<bid>]` lines (one per live strategy bundle, plus one portfolio line).
-- Run `npm run brief:morning` and verify the per-strategy panel renders with rows for each live bundle.
-- If both signals are healthy → run `npm run migrate:drawdown-state-history-per-strategy:drop-backup` (≥24h after apply) to remove `quantlab.drawdown_state_history_v0_backup`.
+The Phase C migration is fully complete end-to-end. The daemon writes per-strategy rows automatically each cycle; the brief renders the per-strategy panel; no further migration step is queued.
 
 ### Alternative dev slices (assistant can run autonomously)
 
-| Option | Stage | Effort | Note |
-| --- | --- | --- | --- |
-| Commit s74-s82 work | DECISION-ACT | ~15 min | 9 sessions + DOC sweep unstaged; assistant can stage + commit per Pejman direction (NOT autonomous) |
-| ~~s78 docstring cleanup~~ | ~~DOC~~ | — | ✓ closed in s82 post-apply DOC sweep |
-| ~~Operator playbook doc for `--drop-backup`~~ | ~~DOC~~ | — | ✓ closed in s82 post-apply DOC sweep as SPEC §8.5 |
-| ~~L5/A5 σ-band rescale~~ | ~~SPEC + CODE~~ | — | ✓ closed s82 doctrine close (status quo affirmed; SPEC §4.3) |
-| ~~stage1/2/4 ADR-039 amendment~~ | ~~RESEARCH + SPEC + CODE~~ | — | ✓ closed s82 doctrine close (status quo affirmed; SPEC §4.3) |
+The handoff currently has no autonomous-safe dev slice queued. The next substantive work is **either** operator-direction-driven (CBOE DataShop subscription, broader doctrine pivots) **or** time-driven (§12 90d empirical retune ~2026-08-29 earliest).
 
 ### Bucket 3 candidates (post-s82)
 
-1. **Phase C `--drop-backup`** — operator-authorized; ~1 min when greenlit; idempotent. Operator playbook in [`docs/specs/strategy-tagged-drawdown-state.md`](../docs/specs/strategy-tagged-drawdown-state.md) §8.5.
-2. **Drawdown framework §12 90d empirical retune** — sizer-mode data when it fires (~2026-08-29 earliest); §12 of s80 SPEC mandates per-strategy retune in the same ADR.
-3. **CBOE DataShop subscription decision** — Pejman call.
+1. **Drawdown framework §12 90d empirical retune** — sizer-mode data when it fires (~2026-08-29 earliest); §12 of s80 SPEC mandates per-strategy retune in the same ADR.
+2. **CBOE DataShop subscription decision** — Pejman call.
+3. **FakeClickHouse CH-grammar validation path** — surfaced as a watch-out from the verification beat; bugs like `loadLatestAllScopes` ILLEGAL_AGGREGATION pass FakeClickHouse but fail production CH. Candidate solutions: (a) thin SQL parser/linter in test harness, (b) integration tests against a real CH instance, (c) post-deploy smoke tests against production. Not yet scoped; canon-thin.
 
 ### Bucket 2 — FROZEN until 2026-06-29 per s63 directive
 
@@ -170,66 +170,57 @@ All sessions 41-81 lock-ins preserved unchanged. See git history and prior hando
 
 ### Track A — background
 
-Daily `npm run daemon:daily` continues. Defaults: retargeting ON, useRiskConfig ON, halt enforce-mode ON, drawdown framework with s77-rescaled L1-L4 + s77-rescaled stage3.failDrawdown. CBOE arm live for 2008-2019 corpus (s79 backfill). **Next daemon run flips to N+1 per-strategy evaluation automatically** via the s81 bootstrap probe (which now sees `bundle_id` column present). No further code change required for the flip.
+Daily `npm run daemon:daily` continues. Defaults: retargeting ON, useRiskConfig ON, halt enforce-mode ON, drawdown framework with s77-rescaled L1-L4 + s77-rescaled stage3.failDrawdown. CBOE arm live for 2008-2019 corpus (s79 backfill). **Daemon writes per-strategy rows every cycle automatically** via the s81 bootstrap probe (which sees `bundle_id` column present).
 
 ## Files / code state
 
-### NEW this session (session 82 — build beat)
+### EDITED this beat (close beat — drop-backup)
 
-- [scripts/migrate_drawdown_state_history_per_strategy.ts](../scripts/migrate_drawdown_state_history_per_strategy.ts) — NEW.
-- [scripts/tests/migrateDrawdownStateHistoryPerStrategy.test.ts](../scripts/tests/migrateDrawdownStateHistoryPerStrategy.test.ts) — NEW.
+- [.claude/HANDOFF.md](./HANDOFF.md) — REWRITE. This document.
 
-### EDITED this session
+### NEW from earlier s82 beats
 
-- [package.json](../package.json) — EDITED (build beat): 3 new npm aliases.
-- [docs/specs/strategy-tagged-drawdown-state.md](../docs/specs/strategy-tagged-drawdown-state.md) — EDITED (DOC sweep beat): added §8.5 "Operator playbook — post-apply verification and drop-backup".
-- [src/server/macro_regime_v3.ts](../src/server/macro_regime_v3.ts) — EDITED (DOC sweep beat): docstring cleanup on `PUT_CALL_COMPLACENCY_LOW` (gate (a) closed framing). Comment-only; no tsc/test impact.
-- [docs/specs/macro-regime-classifier-phase1_v3.md](../docs/specs/macro-regime-classifier-phase1_v3.md) — EDITED (DOC sweep beat): §2.3 footnote (a) calibration-on-the-shelf framing closed.
-- [docs/obsidian/04 - Regime Classifier (phase1_v3).md](../docs/obsidian/04%20-%20Regime%20Classifier%20%28phase1_v3%29.md) — EDITED (DOC sweep beat): threshold table caption for `PUT_CALL_COMPLACENCY_LOW`.
-- [docs/specs/drawdown-response-framework.md](../docs/specs/drawdown-response-framework.md) — EDITED (doctrine close beat): added §4.3 "L5/A5 + stage1/2/4 doctrine close — status quo affirmed". σ-band math documented; doctrine question identified as canon-thin and resolved status-quo per Pejman.
-- [src/server/drawdown_state_repository.ts](../src/server/drawdown_state_repository.ts) — EDITED (verification beat): fixed `loadLatestAllScopes` ILLEGAL_AGGREGATION (CH code 184) by wrapping the FROM in a subquery so WHERE doesn't see the `argMax(...) AS source` SELECT alias. Commit `a52c964`. Tests 1333/0/6 unchanged.
-- [.claude/HANDOFF.md](./HANDOFF.md) — REWRITE (apply beat + DOC sweep + commit consolidation + doctrine close + verification + bug fix).
+- [scripts/migrate_drawdown_state_history_per_strategy.ts](../scripts/migrate_drawdown_state_history_per_strategy.ts) — NEW (build beat).
+- [scripts/tests/migrateDrawdownStateHistoryPerStrategy.test.ts](../scripts/tests/migrateDrawdownStateHistoryPerStrategy.test.ts) — NEW (build beat).
+
+### EDITED from earlier s82 beats
+
+- [package.json](../package.json) — 3 npm aliases.
+- [docs/specs/strategy-tagged-drawdown-state.md](../docs/specs/strategy-tagged-drawdown-state.md) — §8.5 operator playbook.
+- [src/server/macro_regime_v3.ts](../src/server/macro_regime_v3.ts) — s78 calibration-on-the-shelf docstring cleanup.
+- [docs/specs/macro-regime-classifier-phase1_v3.md](../docs/specs/macro-regime-classifier-phase1_v3.md) — §2.3 footnote.
+- [docs/obsidian/04 - Regime Classifier (phase1_v3).md](../docs/obsidian/04%20-%20Regime%20Classifier%20%28phase1_v3%29.md) — threshold table caption.
+- [docs/specs/drawdown-response-framework.md](../docs/specs/drawdown-response-framework.md) — §4.3 L5/A5 + stage1/2/4 status-quo affirmation.
+- [src/server/drawdown_state_repository.ts](../src/server/drawdown_state_repository.ts) — `loadLatestAllScopes` ILLEGAL_AGGREGATION fix.
 
 ### UNCHANGED but reference (carried from s73-s81)
 
 - [src/server/drawdown_state.ts](../src/server/drawdown_state.ts) — s80 Phase A pure-function surface.
-- [src/server/drawdown_state_repository.ts](../src/server/drawdown_state_repository.ts) — s81 Phase B repository; the script's `--apply` makes this module's `bundleIdColumnPresent: true` path live on the next daemon run.
 - [src/server/daemon_live_trades.ts](../src/server/daemon_live_trades.ts) — s81 Phase B daemon helpers.
 - [scripts/daily_signal_daemon.ts](../scripts/daily_signal_daemon.ts) — s81 Phase B bootstrap probe + per-cell dispatch.
 - [src/server/operator_brief.ts](../src/server/operator_brief.ts) + [operator_brief_render.ts](../src/server/operator_brief_render.ts) — s81 Phase B per-strategy panel.
-- [src/server/macro_regime_v3.ts](../src/server/macro_regime_v3.ts) — s78 retune.
-- [src/server/capital_deployment_config.ts](../src/server/capital_deployment_config.ts) — s77 stage3.
-- [src/server/regime_dashboard.ts](../src/server/regime_dashboard.ts) — s79 ADR_038_BASELINE.
 - [scripts/_threshold_stability_sweep*.ts](../scripts/) — s74-s76 sweeps.
-- [docs/specs/strategy-tagged-drawdown-state.md](../docs/specs/strategy-tagged-drawdown-state.md) — s80 SPEC.
 - [scripts/migrate_drawdown_state_history.ts](../scripts/migrate_drawdown_state_history.ts) — s67 original DDL.
 
-### Working-tree status
+### Working-tree status (post-close-beat)
 
-Working tree carries (unstaged, pending Pejman commit direction):
+```text
+M docs/obsidian/.obsidian/workspace.json   (editor state — ignore)
+M .claude/HANDOFF.md                       (this rewrite — commit after read-back)
+```
 
-- s74: framework §4.1 mr_v1 rescale + tests.
-- s75: trend_v1 sister sweep + handoff.
-- s76: blended-portfolio sweep + handoff.
-- s77: framework round-2 rescale + SPEC §4.2 + test updates + handoff.
-- s78: CBOE put/call retune + diagnostic + SPEC §2.3 footnote + tests/obsidian/handoff updates.
-- s79: macro_regimes rerun + `ADR_038_BASELINE` re-pin + test #9b update + ADR-038 amendment + probe script + handoff.
-- s80: strategy-tagged dd_state SPEC + parent SPEC cross-links + gap-doc dependency + Phase A pure-function code + Phase A tests (27) + handoff.
-- s81: Phase B code (repository + daemon + brief) + Phase B tests (+28) + handoff.
-- **s82: Phase C migration script + tests (+19) + 3 npm aliases + handoff (build + apply beats) + post-apply DOC sweep (SPEC §8.5 operator playbook + s78 calibration-on-the-shelf cleanup across 3 files).**
+All s74-s82 code work is committed. Working tree is clean modulo editor state + this handoff rewrite.
 
-9 sessions of unstaged work. s82 is now a coherent "Phase C build + apply + DOC sweep" commit and can land on its own. **The apply itself is NOT in the working tree** — it's a production CH state change, not a code change.
-
-### CH state (POST-APPLY — changed this session)
+### CH state (POST-DROP — changed this beat)
 
 | Table | Status |
 | --- | --- |
 | `quantlab.macro_regimes` (phase1_v3) | 4,622 rows; distribution `{131,359,1473,2659}`; s79 backfill live |
-| `quantlab.drawdown_state_history` | **POST-PHASE-C**: ReplacingMergeTree(evaluated_at), ORDER BY `(source, bundle_id, evaluated_at)`, `bundle_id LowCardinality(String) DEFAULT ''` present. 9 pre-migration rows preserved with sentinel `bundle_id = ''`. Daemon flips to N+1 per-strategy writes on next run. |
-| `quantlab.drawdown_state_history_v0_backup` | **NEW (pre-migration snapshot)**: 9 rows, old ORDER BY `(source, evaluated_at)`, no `bundle_id`. Drop via `--drop-backup` after ≥24h healthy-write verification. |
+| `quantlab.drawdown_state_history` | Post-Phase-C TERMINAL: ReplacingMergeTree(evaluated_at), ORDER BY `(source, bundle_id, evaluated_at)`, `bundle_id LowCardinality(String) DEFAULT ''` present. **9 pre-migration rows + N per-strategy rows accumulating each daemon cycle.** Sole `drawdown_state_history*` artifact. |
+| ~~`quantlab.drawdown_state_history_v0_backup`~~ | **DROPPED this beat.** No rollback handle remaining. |
 | All other tables | unchanged from s79 |
 
-### Tests (post-s82 apply — unchanged)
+### Tests (post-s82 close beat — unchanged)
 
 ```text
 npm test                       1333 pass / 0 fail / 6 skipped
@@ -240,25 +231,23 @@ npm run check:help             green
 
 ## Watch-outs
 
-### NEW from verification beat (session 82)
+### NEW from close beat (session 82)
 
-- **FakeClickHouse doesn't catch CH-grammar bugs.** The `loadLatestAllScopes` ILLEGAL_AGGREGATION bug (CH code 184; `argMax(source, evaluated_at) AS source` collided with WHERE `source = {source:String}`) was NOT caught by the 28 s81 Phase B unit tests, because FakeClickHouse records query strings for regex assertions but doesn't parse SQL against ClickHouse's actual grammar. **Test design implication:** future CH-query code with non-trivial semantics (aggregates, subqueries, FINAL) needs SOME path to grammar validation — either an integration test against a real CH instance or a dedicated CH-syntax linter — or the bugs surface only on production CH execution. For now, the run-against-production-after-shipping cadence is the de-facto integration test. Watch for this on future repository extensions.
+- **ROLLBACK HANDLE GONE.** As of this beat, the v0 schema is no longer recoverable from a single RENAME. Any future issue with the per-strategy schema must be fixed forward — re-derive state from `live_trades` + regime history if needed, or write a remediation script that backfills from those sources. The s80 SPEC §8.5 documented this cost; the operator's gate-waiver explicitly accepted it.
 
-- **The per-strategy flip on the first live daemon run worked end-to-end** post-fix: bootstrap probe → repository construction with `bundleIdColumnPresent: true` → portfolio write → per-strategy writes (one per live bundle) → brief panel render. All four hops exercised against real CH this session. The s81 architecture is verified live.
+- **The `_v0_backup` precedent.** This is the first destructive migration in the codebase to have run the full CREATE-NEW + RENAME + drop-backup lifecycle in a single session. Future migrations following this pattern can reference the s82 timeline as evidence that the script is production-tested end-to-end, BUT the gate-waiver was operator-explicit and should NOT be treated as the new default. SPEC §8.5 ≥24h gate remains the default recommendation.
 
-### NEW from apply beat (session 82)
+### NEW from verification beat (carried)
 
-- **`_v0_backup` is the rollback handle and MUST NOT be dropped until ≥24h + healthy-write verification.** A swap-back is `RENAME TABLE quantlab.drawdown_state_history TO quantlab.drawdown_state_history_failed_new, quantlab.drawdown_state_history_v0_backup TO quantlab.drawdown_state_history` (atomic two-table RENAME). After `--drop-backup` runs, the rollback option is gone and any forward fix must come from re-deriving state from `live_trades` + regime history.
+- **FakeClickHouse doesn't catch CH-grammar bugs.** The `loadLatestAllScopes` ILLEGAL_AGGREGATION bug was NOT caught by the 28 s81 Phase B unit tests. FakeClickHouse records query strings for regex assertions but doesn't parse SQL against ClickHouse's actual grammar. **Test design implication:** future CH-query code with non-trivial semantics needs SOME grammar validation path. For now, the run-against-production-after-shipping cadence is the de-facto integration test. Watch for this on future repository extensions.
 
-- **The pre-migration 9 rows all carry sentinel `bundle_id = ''`** by design (DEFAULT '' on the new column fires for the INSERT-SELECT). This is the correct portfolio-aggregate sentinel and tools that read the table must treat empty-string `bundle_id` as "portfolio scope" — not as a missing value or a strategy ID. The s80 spec §3.2 codifies this; the s81 repository code reads via this convention.
+- **The per-strategy flip works end-to-end live.** All four hops exercised: bootstrap probe → repository construction → portfolio write → per-strategy writes → brief panel render. The s81 architecture is verified live.
 
-### NEW from build beat (session 82)
+### NEW from apply beat (carried)
 
-- **`--apply` is destructive and was run during a daemon-idle window.** Atomic RENAME completed in 15ms; no daemon was mid-write. If a future re-apply (e.g. another schema migration) needs to run, the same idle-window posture applies.
-
-- **The script is testable but the end-to-end apply was first exercised against production this session.** The 19 unit tests covered plan-shape + pre-check verdicts + row-count probing against a FakeClickHouse. The first real apply (9→9 rows) succeeded cleanly; future migrations following this template can rely on the precedent but should still pre-check + parity-check before the swap.
-
-- **The script's row-count parity check uses `FINAL` on the source.** If a future change makes a non-FINAL count the right comparison, the parity check needs to update in lockstep. The unit test byte-pins `FROM quantlab.drawdown_state_history FINAL` literally.
+- **`--apply` is destructive and was run during a daemon-idle window.** Same posture applies to future migrations.
+- **The script is testable but end-to-end apply was first exercised against production this session.** Unit tests cover plan-shape + pre-check verdicts + row-count probing against a FakeClickHouse.
+- **The script's row-count parity check uses `FINAL` on the source.** Future changes to the parity-check semantics must update the byte-pin unit test in lockstep.
 
 ### CARRIED load-bearing (unchanged from sessions 41-81)
 
@@ -266,21 +255,21 @@ All session 41-81 watch-outs preserved unchanged.
 
 ## Pre-loaded operational reminders
 
-### Phase C migration aliases
+### Phase C migration aliases (all terminal-state now)
 
 ```text
-npm run migrate:drawdown-state-history-per-strategy                 # dry-run; now reports "already migrated" — safe to re-run for sanity check
-npm run migrate:drawdown-state-history-per-strategy:apply           # ALREADY APPLIED — re-run would no-op via pre-check verdict
-npm run migrate:drawdown-state-history-per-strategy:drop-backup     # OPERATOR-AUTHORIZED — destructive (after ≥24h healthy-write verify)
+npm run migrate:drawdown-state-history-per-strategy                 # dry-run; reports "already migrated" terminal state — safe for sanity check
+npm run migrate:drawdown-state-history-per-strategy:apply           # ALREADY APPLIED + DROP-BACKUP DONE — re-run no-ops via pre-check verdict
+npm run migrate:drawdown-state-history-per-strategy:drop-backup     # ALREADY EXECUTED — re-run no-ops (backup table absent)
 ```
 
 ### Day-glance trio
 
 ```text
-npm run daemon:daily          # external — Telegram. Next run will flip to N+1 per-strategy evaluation automatically.
+npm run daemon:daily          # external — Telegram. Writes per-strategy rows automatically every cycle.
 npm run audit:positions       # stdout-only — re-run weekly
 npx tsx scripts/_paper_trading_review.ts   # stdout-only
-npm run brief:morning         # stdout-only markdown — next run begins rendering per-strategy panel
+npm run brief:morning         # stdout-only markdown — renders per-strategy panel
 ```
 
 ### Tests + dev
@@ -313,30 +302,26 @@ npx tsx scripts/_threshold_stability_sweep_blended.ts         # blended (s76) �
 
 **Pejman directions needed (NOT bottlenecks):**
 
-- **`--drop-backup` green-light** — ≥24h after apply + healthy-write verification; ~1 min idempotent destructive DROP.
 - **CBOE DataShop subscription** — Pejman call; unblocks 2019-present CBOE arm.
-- **L5/A5 rescale, stage1/2/4 ADR-039 amendment** — operator-preference σ-band-vs-circuit-breaker calls.
-- **Commit strategy** — working tree carries 9 sessions unstaged.
+- **Any new feature/architecture direction.** The s80→s82 strategy-tagged drawdown-state arc is closed; no successor work is queued unless directed.
 
 **Recommended dev work if no Pejman activity:**
 
-- Both autonomous-safe doc slices (operator playbook §8.5 + s78 docstring cleanup) closed in s82 post-apply sweep. No further autonomous DOC work queued; remaining candidates are canon-thin and require Pejman direction.
+- No autonomous-safe slice is currently queued. Candidates surfaced as watch-outs (FakeClickHouse grammar-validation path) require scoping with Pejman before commitment. The drawdown framework §12 90d empirical retune is calendar-gated to ~2026-08-29 earliest.
 
 **Background (runs without dev attention):**
 
-- Next `npm run daemon:daily` flips to N+1 per-strategy evaluation automatically. Inspect log for `[drawdown-state strategy=<bid>]` lines + brief for per-strategy panel render.
+- Every `npm run daemon:daily` writes per-strategy rows automatically. Daemon log shows `[drawdown-state strategy=<bid>]` lines + portfolio line per cycle.
 
 **DO NOT auto-open without explicit operator green-light:**
 
-- `npm run migrate:drawdown-state-history-per-strategy:drop-backup` (destructive DROP — gated on ≥24h healthy-write verification).
 - CBOE DataShop subscription (paid).
-- ~~L5/A5 σ-band rescale~~ — closed s82 (status quo). Reopen only on Pejman doctrine pivot or §12 retune surfacing a different verdict.
-- ~~stage1/2/4 ADR-039 amendment~~ — closed s82 (status quo). Reopen only on Pejman doctrine pivot or §12 retune.
 - All carried items from s73-s81 handoff.
+- §12 90d empirical retune (calendar-gated, not yet ready).
 
 ## Important framing for the next chat
 
-Session 82 closed both the BUILD and the APPLY of the s80 SPEC §8.1 destructive migration. The production CH schema is now post-Phase-C; the daemon's behavior flips to N+1 per-strategy evaluation automatically on the next run via the s81 bootstrap probe. No further assistant action is needed for the flip itself.
+Session 82 closed the full Phase C lifecycle (BUILD + APPLY + DROP-BACKUP) plus DOC sweep + doctrine close + bug fix + commit consolidation. The production CH schema is now in terminal post-Phase-C state with no migration artifacts remaining. The daemon's per-strategy evaluation runs every cycle automatically. **There is no rollback handle for the v0 schema; all future fixes are forward-only.**
 
 The chain through s82:
 
@@ -353,9 +338,15 @@ S82 NPM ALIASES               ✓ 3 new aliases + check:help green
 S82 npm test                  ✓ 1333/0/6
 S82 npx tsc --noEmit          ✓ 13 errors (unchanged baseline)
 S82 PHASE C APPLY (operator)  ✓ 9→9 parity; atomic RENAME; backup retained
+S82 LIVE VERIFICATION         ✓ daemon per-strategy flip confirmed + brief render confirmed
+S82 BUG FIX                   ✓ loadLatestAllScopes ILLEGAL_AGGREGATION (a52c964)
+S82 DOC SWEEP                 ✓ SPEC §8.5 operator playbook + s78 calibration-on-the-shelf cleanup
+S82 DOCTRINE CLOSE            ✓ SPEC §4.3 L5/A5 + stage1/2/4 status quo affirmed
+S82 COMMIT CONSOLIDATION      ✓ 4 topical commits + bug fix + handoff
+S82 PHASE C DROP-BACKUP       ✓ 16ms; gate waived; rollback handle gone
 S82 HANDOFF                   ✓ this document
-  → next: wait for daemon flip on next cycle; verify; ≥24h later run --drop-backup
-  → background: daemon flips to N+1 per-strategy evaluation automatically on next run
+  → next: no operator action pending; daemon runs continue automatically
+  → background: daemon writes per-strategy rows every cycle
 ```
 
 **Parallel-tracks posture continues.** No hard deadlines. All 12 remaining Phase 9+ gaps frozen until 2026-06-29. §12 90d empirical retune (~2026-08-29 earliest) will supersede s77 portfolio thresholds AND s80 per-strategy thresholds in the same ADR. Test baseline 1333/0/6.
