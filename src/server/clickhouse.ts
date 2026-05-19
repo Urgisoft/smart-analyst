@@ -956,6 +956,15 @@ export interface StrategyBundle {
   bundleId: string;
   name: string;
   family: 'momentum' | 'mean_reversion' | 'trend_following' | 'custom';
+  /**
+   * Which venue family this strategy trades on. Drives broker-adapter
+   * resolution in the C-12 router (SPEC: live-trade-broker-integration.md §3).
+   * Pre-Phase-A-migration: the column doesn't exist on `quantlab.strategies`
+   * yet; reads synthesize 'equity' (both production-running strategies are
+   * equity per operator direction). Post-migration: the column has DEFAULT
+   * 'equity', so existing rows continue to resolve to 'equity' transparently.
+   */
+  assetClass?: 'equity' | 'crypto';
   entryLogic: string;
   exitLogic: string;
   paramMin?: number;
@@ -979,12 +988,43 @@ export interface StrategyBundle {
   updatedAt?: string;
 }
 
+/**
+ * Probe whether the s84 Phase A `asset_class` column has been added to
+ * `quantlab.strategies`. Used by fetchStrategies / upsertStrategy to
+ * route pre- vs post-migration code paths. Same defensive pattern as
+ * s81's `drawdownStateHasBundleIdColumn` for the bundle_id rollout.
+ * SPEC: live-trade-broker-integration.md §4.
+ */
+export async function strategiesHasAssetClassColumn(
+  ch: ClickHouseClient = getClickHouse(),
+): Promise<boolean> {
+  try {
+    const r = await ch.query({
+      query:
+        `SELECT count() AS n FROM system.columns ` +
+        `WHERE database = 'quantlab' AND table = 'strategies' AND name = 'asset_class'`,
+      format: 'JSONEachRow',
+    });
+    const [{ n }] = await r.json<{ n: string | number }>();
+    return Number(n) > 0;
+  } catch {
+    // Mirrors the s81 graceful-degrade idiom: any CH read failure resolves
+    // to "column absent", which routes callers to the pre-migration path.
+    return false;
+  }
+}
+
 export async function fetchStrategies(includeArchived: boolean = false): Promise<StrategyBundle[]> {
   const ch = getClickHouse();
+  const hasAssetClass = await strategiesHasAssetClassColumn(ch);
+  // Pre-migration: column doesn't exist; synthesize 'equity' in the
+  // SELECT so the downstream mapper sees a uniform shape. Post-migration:
+  // read the real column.
+  const assetClassSelect = hasAssetClass ? 'asset_class' : "'equity' AS asset_class";
   const r = await ch.query({
     query: `
       SELECT
-        bundle_id, name, family, entry_logic, exit_logic,
+        bundle_id, name, family, ${assetClassSelect}, entry_logic, exit_logic,
         param_min, param_max, param_step,
         e_min, e_max, e_step, x_min, x_max, x_step,
         position_size_pct, stop_loss_pct, take_profit_pct,
@@ -1003,6 +1043,7 @@ export async function fetchStrategies(includeArchived: boolean = false): Promise
     bundleId: r.bundle_id,
     name: r.name,
     family: r.family,
+    assetClass: (r.asset_class === 'crypto' ? 'crypto' : 'equity') as 'equity' | 'crypto',
     entryLogic: r.entry_logic,
     exitLogic: r.exit_logic,
     paramMin: Number(r.param_min),
@@ -1027,34 +1068,54 @@ export async function upsertStrategy(b: StrategyBundle): Promise<void> {
   if (!b.bundleId || !/^[a-zA-Z0-9_]+$/.test(b.bundleId)) {
     throw new Error('bundle_id must be alphanumeric / underscores only');
   }
-  await getClickHouse().insert({
+  const ch = getClickHouse();
+  const hasAssetClass = await strategiesHasAssetClassColumn(ch);
+  // Loud-fail if the caller is trying to register a crypto strategy
+  // before the migration has run: silent column-drop would leave the
+  // row stamped 'equity' via DEFAULT, which is a wrong-routing bug
+  // waiting to happen (SPEC §3 — router resolves adapter from assetClass).
+  if (!hasAssetClass && b.assetClass === 'crypto') {
+    throw new Error(
+      'upsertStrategy: assetClass=\'crypto\' requested but the asset_class column ' +
+      'has not been added to quantlab.strategies yet. Run ' +
+      '`npm run migrate:strategies-add-asset-class:apply` first.',
+    );
+  }
+  const row: Record<string, unknown> = {
+    bundle_id: b.bundleId,
+    name: b.name,
+    family: b.family,
+    entry_logic: b.entryLogic,
+    exit_logic: b.exitLogic,
+    param_min: b.paramMin ?? 5,
+    param_max: b.paramMax ?? 100,
+    param_step: b.paramStep ?? 5,
+    e_min: b.eMin ?? 0,
+    e_max: b.eMax ?? 0,
+    e_step: b.eStep ?? 0,
+    x_min: b.xMin ?? 0,
+    x_max: b.xMax ?? 0,
+    x_step: b.xStep ?? 0,
+    position_size_pct: b.positionSizePct ?? null,
+    stop_loss_pct: b.stopLossPct ?? null,
+    take_profit_pct: b.takeProfitPct ?? null,
+    fee_pct_per_side: b.feePctPerSide ?? 0.6,
+    walk_forward: b.walkForward ? 1 : 0,
+    split_pct: b.splitPct ?? 70,
+    notes: b.notes ?? '',
+    archived: b.archived ? 1 : 0,
+    // Always bump updated_at so ReplacingMergeTree picks this row over older ones.
+    updated_at: new Date().toISOString().slice(0, 19).replace('T', ' '),
+  };
+  if (hasAssetClass) {
+    // Default to 'equity' so a caller that omits assetClass still gets
+    // explicit attribution rather than relying on the CH-side DEFAULT
+    // (which would be the same value but harder to audit).
+    row.asset_class = b.assetClass ?? 'equity';
+  }
+  await ch.insert({
     table: 'quantlab.strategies',
-    values: [{
-      bundle_id: b.bundleId,
-      name: b.name,
-      family: b.family,
-      entry_logic: b.entryLogic,
-      exit_logic: b.exitLogic,
-      param_min: b.paramMin ?? 5,
-      param_max: b.paramMax ?? 100,
-      param_step: b.paramStep ?? 5,
-      e_min: b.eMin ?? 0,
-      e_max: b.eMax ?? 0,
-      e_step: b.eStep ?? 0,
-      x_min: b.xMin ?? 0,
-      x_max: b.xMax ?? 0,
-      x_step: b.xStep ?? 0,
-      position_size_pct: b.positionSizePct ?? null,
-      stop_loss_pct: b.stopLossPct ?? null,
-      take_profit_pct: b.takeProfitPct ?? null,
-      fee_pct_per_side: b.feePctPerSide ?? 0.6,
-      walk_forward: b.walkForward ? 1 : 0,
-      split_pct: b.splitPct ?? 70,
-      notes: b.notes ?? '',
-      archived: b.archived ? 1 : 0,
-      // Always bump updated_at so ReplacingMergeTree picks this row over older ones.
-      updated_at: new Date().toISOString().slice(0, 19).replace('T', ' '),
-    }],
+    values: [row],
     format: 'JSONEachRow',
   });
 }

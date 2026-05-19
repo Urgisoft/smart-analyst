@@ -79,6 +79,8 @@
     "migrate:drawdown-state-history-per-strategy": "tsx scripts/migrate_drawdown_state_history_per_strategy.ts",
     "migrate:drawdown-state-history-per-strategy:apply": "tsx scripts/migrate_drawdown_state_history_per_strategy.ts --apply",
     "migrate:drawdown-state-history-per-strategy:drop-backup": "tsx scripts/migrate_drawdown_state_history_per_strategy.ts --drop-backup",
+    "migrate:strategies-add-asset-class": "tsx scripts/migrate_strategies_add_asset_class.ts",
+    "migrate:strategies-add-asset-class:apply": "tsx scripts/migrate_strategies_add_asset_class.ts --apply",
     "migrate:stage-state-history": "tsx scripts/migrate_stage_state_history.ts",
     "migrate:stage-state-history:apply": "tsx scripts/migrate_stage_state_history.ts --apply",
     "migrate:kill-criteria-daily": "tsx scripts/migrate_kill_criteria_daily.ts",
