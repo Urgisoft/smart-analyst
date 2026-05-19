@@ -187,6 +187,26 @@ function arg(name: string): string | undefined {
 const DRY_RUN = arg('dry-run') === 'true';
 const NO_TELEGRAM = arg('no-telegram') === 'true';
 const NO_FETCH = arg('no-fetch') === 'true';
+
+/**
+ * C-12 Phase A `--source` flag. Routes the daemon's live_trades writes
+ * between paper-mode synthetic fills and real broker-routed fills.
+ *
+ * Phase A status:
+ *   - 'paper' (default): existing behavior — synthetic fills via the
+ *     current daemon path. No code-path change.
+ *   - 'live': NOT yet wired to a BrokerAdapter. The preflight check in
+ *     main() fails-loud rather than silently degrading to paper. Phase B
+ *     ships AlpacaAdapter; Phase C wires it into this code path.
+ *
+ * SPEC: docs/specs/live-trade-broker-integration.md §3.1 unit 6, §9 sequencing.
+ */
+const SOURCE_RAW = arg('source') ?? 'paper';
+if (SOURCE_RAW !== 'paper' && SOURCE_RAW !== 'live') {
+  console.error(`[--source] invalid value '${SOURCE_RAW}'. Must be 'paper' or 'live'.`);
+  process.exit(1);
+}
+const SOURCE: 'paper' | 'live' = SOURCE_RAW;
 /** Skip the macro candle refresh (VIX/VIX3M/HYG/SPY/LQD/TLT) and the
  *  v3 regime-classify step. Use for fast iteration when debugging strategy
  *  logic; not for production. */
@@ -691,7 +711,26 @@ async function main() {
   console.log(`  run_id  : ${runId}`);
   console.log(`  date    : ${dateStr}`);
   console.log(`  dry-run : ${DRY_RUN}  no-telegram: ${NO_TELEGRAM}  no-fetch: ${NO_FETCH}`);
+  console.log(`  source  : ${SOURCE}`);
   console.log();
+
+  // SPEC live-trade-broker-integration.md §3.1 unit 6 — fail-loud when
+  // --source=live is requested but no BrokerAdapter is wired for the
+  // strategies' assetClasses. Phase A intentionally has no live adapter
+  // wired; Phase B ships AlpacaAdapter and Phase C makes this preflight
+  // check resolve adapters from the strategy registry instead of
+  // refusing outright. Silent fall-back to paper would be the worst-of-
+  // both-worlds outcome — operator thinks they're trading live, daemon
+  // is synthesising fills.
+  if (SOURCE === 'live') {
+    console.error(
+      `[--source=live] refusing to run: no live BrokerAdapter is wired yet (C-12 Phase A).\n` +
+      `  Phase B ships AlpacaAdapter; until then --source=live is a no-op refuse.\n` +
+      `  Re-run with --source=paper (or omit the flag) to continue paper-trading.\n` +
+      `  SPEC: docs/specs/live-trade-broker-integration.md §3.1 unit 6 + §9.`,
+    );
+    process.exit(1);
+  }
 
   // SPEC: docs/specs/position-sizing-and-kill-switch.md §9 step 7 — pre-flight
   // halt sentinel check. Runs BEFORE pingClickHouse so a filesystem halt is
@@ -964,7 +1003,7 @@ async function main() {
         liveTradesRepo,
         asOf: new Date(t0),
         deployedCapitalUsd: CAPITAL,
-        source: 'paper',
+        source: SOURCE,
         stage: 'paper',
         configVersion: CONFIG_VERSION,
       });
@@ -987,7 +1026,7 @@ async function main() {
             liveTradesRepo,
             asOf: new Date(t0),
             deployedCapitalUsd: CAPITAL,
-            source: 'paper',
+            source: SOURCE,
             stage: 'paper',
             regimeRedDays30: ddResult.regimeRedDays30,
             configVersion: CONFIG_VERSION,
@@ -1047,7 +1086,7 @@ async function main() {
         drawdownRepo: drawdownRepo!,
         liveTradesRepo,
         asOf: new Date(t0),
-        source: 'paper',
+        source: SOURCE,
         currentDrawdown: currentDrawdownResult,
         paperState,
         liquidBucketUsd: CAPITAL,
@@ -1267,7 +1306,7 @@ async function main() {
           maxRiskPerTrade: DEFAULT_RISK_CONFIG.maxRiskPerTrade,
           atrMultiple: DEFAULT_RISK_CONFIG.atrMultiple,
           fixedPctFloor: DEFAULT_RISK_CONFIG.fixedPctFloor,
-          source: 'paper',
+          source: SOURCE,
           stage: perCellCapital.stage,
           regimeAtEntry: todaysRegime,
           allowlistOk: allowed !== null,
@@ -1430,7 +1469,7 @@ async function main() {
   try {
     const paperState = await fetchPaperTradingState({ runHistoryLimit: 14 });
     const closedTrades = liveTradesRepo
-      ? await liveTradesRepo.listClosedTrades({ source: 'paper' })
+      ? await liveTradesRepo.listClosedTrades({ source: SOURCE })
       : undefined;
     const haltObs = await runDaemonHaltObservation({
       state: paperState,
