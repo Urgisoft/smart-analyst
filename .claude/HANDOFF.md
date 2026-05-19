@@ -1,6 +1,6 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-05-19 (session 85 — **market-cycle-position Phase A 3/6 units shipped (A1+A2+A3); SPEC revised post-operator-PUSHBACK on validation approach.** All 4 SPEC open questions LOCKED. A1 = FRED ingest extension (9 default series now). A2 = src/server/cycle_position.ts pure-function composite with Estrella-Mishkin 1998 logit + SPEC §6/§7 mappings (42 tests). A3 = migration script `scripts/migrate_create_cycle_position_snapshots.ts` + 17 tests; dry-run verified GREEN against live CH. **Tests: 1451/0/6 (+59 over s84 baseline; 0 regressions). tsc: 13-error baseline. check:help green.** Phase A remaining: A4 (repository + daemon hook), A5 (morning-brief panel), A6 (dashboard React panel) + the migration apply (operator green-light). C-12 Phase A FULLY CLOSED from s84; C-12 Phase B (AlpacaAdapter) PAUSED INDEFINITELY at operator direction.)
+Last updated: 2026-05-19 (session 85 — **market-cycle-position Phase A 4/6 units shipped (A1+A2+A3+A4) + Phase A3 migration APPLIED + FRED backfill complete + end-to-end smoke against live CH GREEN.** All 4 SPEC open questions LOCKED. A1 = FRED ingest extension (9 default series). A2 = src/server/cycle_position.ts pure-function composite with Estrella-Mishkin 1998 logit (42 tests). A3 = migration script (17 tests) + APPLIED in 20ms (quantlab.cycle_position_snapshots live with 18/18 columns). A3 FRED backfill = 9 series, 41,521 rows. **A4 = src/server/cycle_position_repository.ts + daemon hook + 25 tests; end-to-end smoke produced first live snapshot (score=0.720, phase=early, recession_prob=13.3% as of 2026-05-19).** **Tests: 1476/0/6 (+25 over A3 baseline of 1451; +84 over s84). tsc: 13-error baseline. check:help green.** Phase A remaining: A5 (morning-brief panel), A6 (dashboard React panel). C-12 Phase A FULLY CLOSED from s84; C-12 Phase B (AlpacaAdapter) PAUSED INDEFINITELY at operator direction.)
 
 ## What this session delivered
 
@@ -88,10 +88,11 @@ The Phase A code is complete and tests are green; the only step left in Phase A 
 | **market-cycle-position Phase A1 — FRED ingest extension** | **✓ s85 — 9 default series (T10Y3M primary)** |
 | **market-cycle-position Phase A2 — composite pure function** | **✓ s85 — 42 tests; Estrella-Mishkin 1998 logit; SPEC §7 mappings** |
 | **market-cycle-position Phase A3 — CH migration script** | **✓ s85 — 17 tests; dry-run GREEN against live CH; npm aliases registered** |
-| **market-cycle-position Phase A3 — migration APPLY** | **☐ awaiting operator green-light (`npm run migrate:create-cycle-position-snapshots:apply`); CREATE TABLE IF NOT EXISTS — idempotent, low risk** |
-| **market-cycle-position Phase A4 — repository + daemon hook** | **☐ next beat — needs the migration applied first to write into the table** |
-| **market-cycle-position Phase A5 — morning-brief panel** | **☐ next beat — depends on A4** |
-| **market-cycle-position Phase A6 — dashboard React panel** | **☐ next beat or follow-up — depends on A4** |
+| **market-cycle-position Phase A3 — migration APPLY** | **✓ s85 — applied in 20ms; post-check 18/18 columns; quantlab.cycle_position_snapshots live (0 rows, awaiting A4 daemon writes)** |
+| **market-cycle-position Phase A3 — FRED backfill** | **✓ s85 — 9 series, 41,521 total rows ingested. Coverage 1996-present except HY OAS (~3y FRED limit confirmed; composite handles gracefully via missing-input degradation)** |
+| **market-cycle-position Phase A4 — repository + daemon hook** | **✓ s85 — src/server/cycle_position_repository.ts + 25 tests; daemon hook wired at scripts/daily_signal_daemon.ts step 1d (after macro-classify-v3, non-fatal); end-to-end smoke against live CH GREEN (first snapshot: score=0.720, phase=early, recession_prob=13.3%)** |
+| **market-cycle-position Phase A5 — morning-brief panel** | **☐ next beat — depends on A4 (now complete)** |
+| **market-cycle-position Phase A6 — dashboard React panel** | **☐ next beat or follow-up — depends on A4 (now complete)** |
 | **market-cycle-position Phase B validation** | **☐ ~1 week, after Phase A fully closes** |
 | Strategy-tagged dd_state (s80-s82) | ✓ shipped |
 | FakeClickHouse grammar-validation gap (drawdown repo) | ✓ s83 |
@@ -166,14 +167,16 @@ All sessions 41-82 lock-ins preserved unchanged.
 
 ### Immediate next step
 
-**Operator green-light the CH migration apply.** `npm run migrate:create-cycle-position-snapshots:apply` — CREATE TABLE IF NOT EXISTS; idempotent; low risk. Dry-run verified GREEN. After apply, Phase A4 (repository + daemon hook) is unblocked and can ship autonomously.
+**Phase A5 — morning-brief panel.** Extends `src/server/operator_brief.ts` with a cycle-position section. Reads via `repo.loadLatestSnapshot()`; renders today's score + phase + recession-prob + 30/90/365-day sparkline. Autonomous-safe; ~80 LOC + tests.
 
-### Next session work (after migration apply)
+### Next session work after A5
 
-- **A4**: `src/server/cycle_position_repository.ts` + daemon hook to compute + write snapshots once per cycle. Reads FRED values from `quantlab.macro_indicators_fred` (the new series ingested in A1).
-- **A5**: morning-brief panel — extends `src/server/operator_brief.ts` with cycle-position section.
-- **A6**: dashboard React panel — `src/components/CyclePositionPanel.tsx` (biggest unit; needs to align with existing dashboard structure).
-- **FRED backfill**: run `npm run fred:ingest` once to backfill the 8 new series. Operator-side; idempotent.
+- **A6**: dashboard React panel — `src/components/CyclePositionPanel.tsx` (biggest unit; needs to align with existing dashboard structure). Autonomous-safe but a larger lift than A5.
+- **Phase B**: backtest validation against NBER + independence test against `phase1_v3` (~1 week). Operates against historical FRED data — composite already supports this via the existing repository.
+
+### Daemon now writes cycle-position snapshots automatically
+
+Every `npm run daemon:daily` cycle (without `--no-macro` / `--dry-run`) computes + writes one snapshot row to `quantlab.cycle_position_snapshots` after the macro-regime classify step. First snapshot from the A4 smoke run is already in the table.
 
 **C-12 Phase B is paused, not deleted.** When the operator chooses to resume, the SPEC is intact and Phase A's substrate is ready.
 

@@ -105,6 +105,12 @@ import {
   killCriteriaDailyTableExists,
 } from '../src/server/kill_criteria_daily_repository.js';
 import {
+  CyclePositionRepository,
+  cyclePositionSnapshotsTableExists,
+  runDaemonCyclePositionEvaluation,
+} from '../src/server/cycle_position_repository.js';
+import { CLASSIFIER_VERSION_V3 } from '../src/server/macro_regime_v3.js';
+import {
   formatEvaluatorCapitalLogLine,
   formatEvaluatorRiskConfigLogLine,
   resolveCellWeightsForRun,
@@ -926,6 +932,43 @@ async function main() {
         `firing=${row.categories_firing} firing_5d=${row.categories_firing_5d} ` +
         `inputs_missing=${row.inputs_missing} | ${r.seconds.toFixed(1)}s`,
       );
+    }
+  }
+
+  // 1d. Cycle-position evaluation (informational Layer-0 input).
+  //     SPEC: docs/specs/market-cycle-position.md §3 component diagram —
+  //     runs AFTER macro-classify-v3 (consumes the FRED values that the
+  //     regime step just refreshed) and BEFORE any other consumer. The
+  //     output is informational only in v1 (Option A); it is logged +
+  //     surfaced in the morning brief but does NOT fire a regime
+  //     category. Promotion to Option B (direct classifier input) gates
+  //     on the Phase B backtest verdict.
+  //
+  //     Non-fatal: any failure here warns and skips cycle-position for
+  //     the run. The composite is informational; it must NEVER block
+  //     the daemon's primary path.
+  if (NO_MACRO || DRY_RUN) {
+    console.log(`[cycle-position] skipped (${NO_MACRO ? '--no-macro' : '--dry-run'})`);
+  } else if (!(await cyclePositionSnapshotsTableExists(ch))) {
+    console.log(
+      '[cycle-position] table absent (`quantlab.cycle_position_snapshots`) — ' +
+      'skipped. Run `npm run migrate:create-cycle-position-snapshots:apply` to enable.',
+    );
+  } else {
+    try {
+      const cycleRepo = new CyclePositionRepository({ ch });
+      const cycleResult = await runDaemonCyclePositionEvaluation({
+        repo: cycleRepo,
+        asOf: new Date(t0),
+        classifierVersion: CLASSIFIER_VERSION_V3,
+      });
+      console.log(cycleResult.summaryLine);
+    } catch (e) {
+      console.warn(`[cycle-position] evaluation failed (non-fatal): ${(e as Error).message}`);
+      anomalies.push({
+        severity: 'info',
+        message: `cycle-position evaluation failed: ${(e as Error).message}`,
+      });
     }
   }
 
