@@ -70,6 +70,12 @@ import {
   fetchRegimeState,
   RegimeDashboardError,
 } from "./src/server/regime_dashboard.js";
+import {
+  parseQuery as parseCyclePositionQuery,
+  isQueryFailure as isCyclePositionQueryFailure,
+  fetchCyclePositionState,
+  CyclePositionDashboardError,
+} from "./src/server/cycle_position_dashboard.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -594,6 +600,29 @@ async function startServer() {
         return res.status(e.status).json({ error: e.error, detail: e.detail });
       }
       console.error('regime state error', e);
+      return res.status(503).json({ error: 'clickhouse_unavailable', detail: (e as Error).message });
+    }
+  });
+
+  // Powers /#/cycle-position — market-cycle-position Phase A6. Read-only view
+  // of `quantlab.cycle_position_snapshots`. Returns the latest snapshot plus
+  // a `lookbackDays`-window of history for the trend + per-bucket contribution
+  // panels. Returns hasData=false (not 503) when no snapshot exists yet so the
+  // dashboard can render a friendly "awaiting first daemon cycle" state.
+  // SPEC: docs/specs/market-cycle-position.md §3 (component diagram).
+  app.get("/api/cycle-position", async (req, res) => {
+    const parsed = parseCyclePositionQuery({ lookbackDays: req.query.lookbackDays });
+    if (isCyclePositionQueryFailure(parsed)) {
+      return res.status(parsed.status).json({ error: parsed.error, detail: parsed.detail });
+    }
+    try {
+      const response = await fetchCyclePositionState({ lookbackDays: parsed.lookbackDays });
+      return res.json(response);
+    } catch (e) {
+      if (e instanceof CyclePositionDashboardError) {
+        return res.status(e.status).json({ error: e.error, detail: e.detail });
+      }
+      console.error('cycle-position state error', e);
       return res.status(503).json({ error: 'clickhouse_unavailable', detail: (e as Error).message });
     }
   });

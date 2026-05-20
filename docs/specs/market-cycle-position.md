@@ -311,17 +311,18 @@ New from this SPEC:
 2. ~~**S-MCP-Q2 (output shape)**~~ — LOCKED s85: both score + discrete phase label.
 3. ~~**S-MCP-Q3 (dashboard panel timing)**~~ — LOCKED s85: bundle into Phase A.
 4. ~~**S-MCP-Q4 (validation approach)**~~ — LOCKED s85 via operator PUSHBACK: quantitative backtest against NBER (Phase B), not 90-day live observation.
+5. ~~**S-MCP-Q5 (Phase C path after Phase B verdict)**~~ — **LOCKED s85 (this session): accept Phase A as terminal at `cycle_v1`.** Phase B reported 0/8 NBER lead-time hits at the SPEC §6 0.40 threshold AND 0% false-positive precision; the independence test passed clean (Pearson ρ = -0.19). Per Vector Core "fewer features, robustly" + SPEC §10 anti-result-shopping: redesigning the composite (cycle_v2 with non-linear bucket aggregation OR yield-curve-only Phase C promotion OR threshold re-pin) in response to an unflattering backtest is feature-additive without independent evidence the redesign would predict recessions. `cycle_v1` stays informational (Option A) permanently. Operator-facing surfaces (morning brief section #7 + `/#/cycle-position` dashboard + Layer 5 LLM context) remain live; `cycle_v1` does NOT fire a `phase1_v3+` category. Future composite-style features should be a separate arc with a separate SPEC, not `cycle_v2`. Report: [docs/analysis/cycle-position-validation-2026-05.md](../analysis/cycle-position-validation-2026-05.md).
 
-No open questions remain. Phase A is unblocked.
+No open questions remain. Phases A + B closed; no Phase C work authorized.
 
 ---
 
 ## 12. Sequencing summary
 
-| Phase | What | Duration | Blocks on |
+| Phase | What | Duration | Status |
 |---|---|---|---|
-| **A** | FRED ingest expansion + composite + persistence + brief panel + dashboard panel | ~1 week | Nothing — §11 LOCKED |
-| **B** | NBER backfill + historical composite + backtest validation + independence test + report | ~1 week | Phase A complete |
-| **C** | Option B promotion to direct classifier input (own SPEC) | Open | Phase B validates AND operator green-lights |
+| **A** | FRED ingest expansion + composite + persistence + brief panel + dashboard panel | ~1 week | ✓ shipped s85 (A1-A6) |
+| **B** | NBER backfill + historical composite + backtest validation + independence test + report | ~1 week | ✓ shipped s85 (B1-B5) |
+| **C** | ~~Option B promotion to direct classifier input~~ | — | ⛔ **LOCKED NOT STARTED** per S-MCP-Q5 (cycle_v1 stays informational permanently). |
 
-**Net arc: ~2 weeks** (was 2-3 months in the original SPEC; collapsed by replacing calendar observation with backtest validation per S-MCP-Q4). Phase A and Phase B are both autonomous-safe; Phase C is operator-gated by Phase B verdict.
+**Net arc: ~2 weeks of code.** Phase A + B ran autonomously after each unit's go-ahead; Phase C was operator-decision territory after the B verdict and is now closed at "not authorized" via S-MCP-Q5.

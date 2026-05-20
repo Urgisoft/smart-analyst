@@ -20,6 +20,10 @@ const PaperTradingApp = lazy(() => import('./components/paperTrading/PaperTradin
 // `quantlab.macro_regimes` under classifier_version='phase1_v2' with ADR-037
 // bias-quarantine banner.
 const RegimeApp = lazy(() => import('./components/regime/RegimeApp.tsx'));
+// Lazy-load the market-cycle-position dashboard — Phase A6 of the gaps-integration arc.
+// Read-only view of `quantlab.cycle_position_snapshots`. INFORMATIONAL only in v1
+// (Option A); does NOT fire a regime category. SPEC: docs/specs/market-cycle-position.md.
+const CyclePositionApp = lazy(() => import('./components/cyclePosition/CyclePositionApp.tsx'));
 
 function Router() {
   const [hash, setHash] = useState(window.location.hash);
@@ -86,6 +90,17 @@ function Router() {
         </div>
       }>
         <RegimeApp />
+      </Suspense>
+    );
+  }
+  if (path === '#/cycle-position' || path.startsWith('#/cycle-position/')) {
+    return (
+      <Suspense fallback={
+        <div className="min-h-screen bg-[#050505] text-cyan-400/70 flex items-center justify-center text-[10px] font-mono uppercase tracking-widest">
+          loading cycle-position dashboard…
+        </div>
+      }>
+        <CyclePositionApp />
       </Suspense>
     );
   }

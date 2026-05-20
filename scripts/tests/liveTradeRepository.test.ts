@@ -24,6 +24,7 @@ import {
   _resetMonotonicClockForTests,
   type LiveTradeRow,
 } from '../../src/server/live_trade_repository.js';
+import { assertCHGrammar } from './_chGrammarCheck.js';
 
 interface InsertCall {
   table: string;
@@ -491,5 +492,49 @@ describe('Repository constructor — requiredConfigVersion pin', () => {
       ),
       /version mismatch/,
     );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// CH grammar validation (s85 follow-up to a52c964) — extends the s83
+// coverage to the live-trade repository. FakeClickHouse pins the query
+// shape via regex but does not parse SQL; EXPLAIN PLAN catches the
+// CH-specific semantic bug class (alias shadowing, aggregate-in-WHERE).
+// Skip-if-unavailable per _chGrammarCheck.ts.
+// ─────────────────────────────────────────────────────────────────────────
+describe('LiveTradeRepository — CH grammar validation (EXPLAIN PLAN)', () => {
+  const TABLE_SUBS = [
+    { from: 'quantlab.live_trades_test', to: 'quantlab.live_trades' },
+  ];
+
+  it('listClosedTrades emits an EXPLAIN-clean query', async (t) => {
+    const { repo, fake } = makeRepo();
+    fake.nextRows = [];
+    await repo.listClosedTrades({});
+    const verdict = await assertCHGrammar({ queries: fake.queries, tableSubstitutions: TABLE_SUBS });
+    if (verdict.skipped) return t.skip('CH unreachable — see _chGrammarCheck.ts warning');
+    if (!verdict.ok) assert.fail(`EXPLAIN PLAN rejected:\n${verdict.failure?.error}\n---\n${verdict.failure?.query}`);
+  });
+
+  it('listClosedTrades with all filters emits an EXPLAIN-clean query', async (t) => {
+    const { repo, fake } = makeRepo();
+    fake.nextRows = [];
+    await repo.listClosedTrades({
+      source: 'paper',
+      cellKey: 'k=1',
+      sinceTs: new Date('2026-01-01T00:00:00Z'),
+    });
+    const verdict = await assertCHGrammar({ queries: fake.queries, tableSubstitutions: TABLE_SUBS });
+    if (verdict.skipped) return t.skip('CH unreachable — see _chGrammarCheck.ts warning');
+    if (!verdict.ok) assert.fail(`EXPLAIN PLAN rejected:\n${verdict.failure?.error}\n---\n${verdict.failure?.query}`);
+  });
+
+  it('listOpenTrades emits an EXPLAIN-clean query', async (t) => {
+    const { repo, fake } = makeRepo();
+    fake.nextRows = [];
+    await repo.listOpenTrades({ source: 'paper' });
+    const verdict = await assertCHGrammar({ queries: fake.queries, tableSubstitutions: TABLE_SUBS });
+    if (verdict.skipped) return t.skip('CH unreachable — see _chGrammarCheck.ts warning');
+    if (!verdict.ok) assert.fail(`EXPLAIN PLAN rejected:\n${verdict.failure?.error}\n---\n${verdict.failure?.query}`);
   });
 });

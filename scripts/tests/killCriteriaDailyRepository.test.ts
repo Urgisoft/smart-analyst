@@ -30,6 +30,7 @@ import {
 } from '../../src/server/kill_criteria_daily_repository.js';
 import type { KillCriterionVerdict } from '../../src/server/paper_trading_kill_criteria.js';
 import type { KillCriterionCode } from '../../src/server/stage_state.js';
+import { assertCHGrammar } from './_chGrammarCheck.js';
 
 interface InsertCall {
   table: string;
@@ -436,5 +437,26 @@ describe('killCriteriaDailyTableExists', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const present = await killCriteriaDailyTableExists(fake as any);
     assert.equal(present, false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// CH grammar validation (s85 follow-up to a52c964) — extends the s83
+// coverage. EXPLAIN PLAN catches the CH-specific semantic bug class
+// (alias shadowing, aggregate-in-WHERE) that FakeClickHouse can't see.
+// Skip-if-unavailable per _chGrammarCheck.ts.
+// ─────────────────────────────────────────────────────────────────────────
+describe('KillCriteriaDailyRepository — CH grammar validation (EXPLAIN PLAN)', () => {
+  const TABLE_SUBS = [
+    { from: 'quantlab.kill_criteria_daily_test', to: 'quantlab.kill_criteria_daily' },
+  ];
+
+  it('loadTrailing30 emits an EXPLAIN-clean query', async (t) => {
+    const { repo, fake } = makeRepo();
+    fake.nextRows = [];
+    await repo.loadTrailing30({ source: 'paper', asOf: new Date('2026-05-19T00:00:00Z') });
+    const verdict = await assertCHGrammar({ queries: fake.queries, tableSubstitutions: TABLE_SUBS });
+    if (verdict.skipped) return t.skip('CH unreachable — see _chGrammarCheck.ts warning');
+    if (!verdict.ok) assert.fail(`EXPLAIN PLAN rejected:\n${verdict.failure?.error}\n---\n${verdict.failure?.query}`);
   });
 });

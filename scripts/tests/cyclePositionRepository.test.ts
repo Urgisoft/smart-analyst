@@ -423,6 +423,136 @@ describe('CH grammar validation (EXPLAIN PLAN)', () => {
   });
 });
 
+// ───── loadHistory: window query + row parsing ────────────────────────
+
+describe('loadHistory', () => {
+  it('returns an empty array when lookbackDays <= 0 (no query emitted)', async () => {
+    const { repo, fake } = makeRepo();
+    const out = await repo.loadHistory(DATE, 0);
+    assert.deepEqual(out, []);
+    assert.equal(fake.queries.length, 0);
+  });
+
+  it('binds start + asOf as Date params spanning the requested window', async () => {
+    const { repo, fake } = makeRepo();
+    fake.route(_ => true, []);
+    await repo.loadHistory(DATE, 30);
+    const params = fake.queries[0].query_params ?? {};
+    assert.equal(params.asOf, '2026-05-19');
+    // 2026-05-19 minus 30 days = 2026-04-19.
+    assert.equal(params.start, '2026-04-19');
+  });
+
+  it('emits an ASC ORDER BY snapshot_date query against FINAL', async () => {
+    const { repo, fake } = makeRepo();
+    fake.route(_ => true, []);
+    await repo.loadHistory(DATE, 365);
+    const sql = fake.queries[0].query;
+    assert.match(sql, /FROM \S+ FINAL/);
+    assert.match(sql, /WHERE snapshot_date >= \{start:Date\}/);
+    assert.match(sql, /AND snapshot_date <= \{asOf:Date\}/);
+    assert.match(sql, /ORDER BY snapshot_date ASC/);
+  });
+
+  it('uses subquery-around-FINAL so the toString(snapshot_date) alias never shadows the Date column in WHERE / ORDER BY (regression against the a52c964 type-supertype bug class)', async () => {
+    const { repo, fake } = makeRepo();
+    fake.route(_ => true, []);
+    await repo.loadHistory(DATE, 365);
+    const sql = fake.queries[0].query;
+    // FINAL must sit inside a subquery, NOT at the outer SELECT level.
+    assert.match(sql, /FROM \(\s*SELECT[\s\S]+FROM \S+ FINAL[\s\S]+WHERE/,
+      'expected subquery-around-FINAL shape');
+    // The toString(snapshot_date) alias must appear in the OUTER SELECT,
+    // not next to the WHERE clause.
+    const final = sql.indexOf('FINAL');
+    const where = sql.indexOf('WHERE');
+    const toStringIdx = sql.indexOf('toString(snapshot_date)');
+    assert.ok(toStringIdx < final, 'toString alias must precede the inner FINAL');
+    assert.ok(toStringIdx < where, 'toString alias must precede the WHERE');
+  });
+
+  it('parses raw column shapes into CyclePositionHistoryRow', async () => {
+    const { repo, fake } = makeRepo();
+    fake.route(_ => true, [
+      {
+        snapshot_date: '2026-05-19',
+        score: '0.42',
+        phase_label: 'late',
+        recession_prob_pct: '35.6',
+        inputs_present: 127,
+        contrib_yield_curve: '0.40',
+        contrib_credit: 0.5,
+        contrib_employment: null,
+        t10y3m: '1.50', t10y2y: '1.20', baa10y: '2.00',
+        hy_oas: '4.50', unrate: '4.00', unrate_12m_chg: '0.10',
+        claims_4w_ma_zscore: '-0.30',
+        composite_version: 'cycle_v1',
+      },
+    ]);
+    const out = await repo.loadHistory(DATE, 365);
+    assert.equal(out.length, 1);
+    const r = out[0];
+    assert.equal(r.snapshotDate, '2026-05-19');
+    assert.equal(r.score, 0.42);
+    assert.equal(r.phaseLabel, 'late');
+    assert.equal(r.recessionProbPct, 35.6);
+    assert.equal(r.inputsPresent, 127);
+    assert.equal(r.contributions.yieldCurve, 0.4);
+    assert.equal(r.contributions.credit, 0.5);
+    assert.equal(r.contributions.employment, null);
+    assert.equal(r.inputs.t10y3m, 1.5);
+    assert.equal(r.inputs.hyOas, 4.5);
+    assert.equal(r.inputs.claims4wMaZscore, -0.3);
+    assert.equal(r.compositeVersion, 'cycle_v1');
+  });
+
+  it('preserves row order from CH (ASC by snapshot_date)', async () => {
+    const { repo, fake } = makeRepo();
+    fake.route(_ => true, [
+      { snapshot_date: '2026-05-17', score: 0.5, phase_label: 'mid', recession_prob_pct: 20,
+        inputs_present: 127, contrib_yield_curve: 0.5, contrib_credit: 0.5, contrib_employment: 0.5,
+        t10y3m: 1, t10y2y: 1, baa10y: 2, hy_oas: 4, unrate: 4, unrate_12m_chg: 0,
+        claims_4w_ma_zscore: 0, composite_version: 'cycle_v1' },
+      { snapshot_date: '2026-05-18', score: 0.6, phase_label: 'mid', recession_prob_pct: 18,
+        inputs_present: 127, contrib_yield_curve: 0.6, contrib_credit: 0.6, contrib_employment: 0.6,
+        t10y3m: 1.2, t10y2y: 1.1, baa10y: 1.9, hy_oas: 4, unrate: 4, unrate_12m_chg: 0,
+        claims_4w_ma_zscore: 0, composite_version: 'cycle_v1' },
+      { snapshot_date: '2026-05-19', score: 0.7, phase_label: 'early', recession_prob_pct: 15,
+        inputs_present: 127, contrib_yield_curve: 0.7, contrib_credit: 0.7, contrib_employment: 0.7,
+        t10y3m: 1.4, t10y2y: 1.2, baa10y: 1.8, hy_oas: 4, unrate: 4, unrate_12m_chg: 0,
+        claims_4w_ma_zscore: 0, composite_version: 'cycle_v1' },
+    ]);
+    const out = await repo.loadHistory(DATE, 30);
+    assert.deepEqual(out.map(r => r.snapshotDate), ['2026-05-17', '2026-05-18', '2026-05-19']);
+    assert.deepEqual(out.map(r => r.score), [0.5, 0.6, 0.7]);
+  });
+
+  it('drops non-finite scalar inputs to null (defensive against CH null/NaN)', async () => {
+    const { repo, fake } = makeRepo();
+    fake.route(_ => true, [
+      { snapshot_date: '2026-05-19', score: 0.5, phase_label: 'mid', recession_prob_pct: 20,
+        inputs_present: 7, contrib_yield_curve: 0.5, contrib_credit: null, contrib_employment: null,
+        t10y3m: 'NaN', t10y2y: null, baa10y: null, hy_oas: null, unrate: null,
+        unrate_12m_chg: null, claims_4w_ma_zscore: null, composite_version: 'cycle_v1' },
+    ]);
+    const out = await repo.loadHistory(DATE, 30);
+    assert.equal(out[0].inputs.t10y3m, null);
+    assert.equal(out[0].inputs.baa10y, null);
+    assert.equal(out[0].contributions.credit, null);
+  });
+});
+
+describe('CH grammar validation — loadHistory', () => {
+  it('loadHistory emits an EXPLAIN-clean query', async (t) => {
+    const { repo, fake } = makeRepo();
+    fake.route(_ => true, []);
+    await repo.loadHistory(DATE, 365);
+    const verdict = await assertCHGrammar({ queries: fake.queries });
+    if (verdict.skipped) return t.skip('CH unreachable — see _chGrammarCheck.ts warning');
+    if (!verdict.ok) assert.fail(`EXPLAIN PLAN rejected:\n${verdict.failure?.error}\n---\n${verdict.failure?.query}`);
+  });
+});
+
 // ───── CYCLE_FRED_SERIES byte-pin ─────────────────────────────────────
 
 describe('CYCLE_FRED_SERIES — byte-pin', () => {

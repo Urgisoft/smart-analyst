@@ -62,6 +62,9 @@ function brief(overrides?: Partial<MorningBrief>): MorningBrief {
     drawdown: null,
     stage: null,
     cyclePosition: null,
+    volStructure: null,
+    sectorRotation: null,
+    crossAsset: null,
     ...overrides,
   };
 }
@@ -815,5 +818,497 @@ describe('renderBriefMarkdown — market-cycle-position panel (SPEC §3 + Option
     assert.ok(stageIdx > -1, 'expected stage section');
     assert.ok(cycleIdx > -1, 'expected cycle-position section');
     assert.ok(cycleIdx > stageIdx, 'cycle-position must render after stage section');
+  });
+});
+
+// ───── vol-structure panel (SPEC docs/specs/expanded-vol-structure.md §3) ─────
+
+describe('renderBriefMarkdown — vol-structure panel', () => {
+  it('renders the "not yet evaluated" panel when volStructure is null', () => {
+    const md = renderBriefMarkdown(brief({ volStructure: null }));
+    assert.match(md, /## 8\. Vol structure — not yet evaluated/);
+    assert.match(md, /quantlab\.vol_structure_snapshots.*empty/);
+  });
+
+  it('renders the regime flag uppercased in the header', () => {
+    const md = renderBriefMarkdown(brief({
+      volStructure: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        regimeFlag: 'severe_stress',
+        monotonicBackwardation: true,
+        curveSteepnessZ: -2.5,
+        inversionDepth: 8.0,
+        vixZ: 2.1,
+        vvixZ: 2.5,
+        vvixVixDivergence: false,
+        inputsPresent: 0b11111,
+        compositeVersion: 'vol_struct_v1',
+      },
+    }));
+    assert.match(md, /## 8\. Vol structure — SEVERE_STRESS/);
+  });
+
+  it('renders monotonic backwardation flag + VVIX divergence flag', () => {
+    const md = renderBriefMarkdown(brief({
+      volStructure: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        regimeFlag: 'event_risk',
+        monotonicBackwardation: false,
+        curveSteepnessZ: 0.5,
+        inversionDepth: 0,
+        vixZ: -0.3,
+        vvixZ: 1.5,
+        vvixVixDivergence: true,
+        inputsPresent: 0b11111,
+        compositeVersion: 'vol_struct_v1',
+      },
+    }));
+    assert.match(md, /Monotonic backwardation:\*\* no/);
+    assert.match(md, /VVIX\/VIX divergence:\*\* yes — event risk/);
+  });
+
+  it('renders the indicator table with readings derived from each value', () => {
+    const md = renderBriefMarkdown(brief({
+      volStructure: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        regimeFlag: 'severe_stress',
+        monotonicBackwardation: true,
+        curveSteepnessZ: -2.5,
+        inversionDepth: 8.0,
+        vixZ: -0.3,
+        vvixZ: 1.2, // < 1.5 → "elevated"
+        vvixVixDivergence: false,
+        inputsPresent: 0b11111,
+        compositeVersion: 'vol_struct_v1',
+      },
+    }));
+    assert.match(md, /\| Curve steepness \(z\) \| -2\.500 \| severely backwardated \|/);
+    assert.match(md, /\| Inversion depth \| 8\.000 \| severe \|/);
+    assert.match(md, /\| VIX z-score \| -0\.300 \| normal \|/);
+    assert.match(md, /\| VVIX z-score \| 1\.200 \| elevated \|/);
+  });
+
+  it('renders "—" + "inputs missing" when an indicator value is null', () => {
+    const md = renderBriefMarkdown(brief({
+      volStructure: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        regimeFlag: 'normal',
+        monotonicBackwardation: false,
+        curveSteepnessZ: null,
+        inversionDepth: null,
+        vixZ: null,
+        vvixZ: null,
+        vvixVixDivergence: false,
+        inputsPresent: 0b00010, // only VIX
+        compositeVersion: 'vol_struct_v1',
+      },
+    }));
+    assert.match(md, /\| Curve steepness \(z\) \| — \| inputs missing \|/);
+    assert.match(md, /\| VIX z-score \| — \| inputs missing \|/);
+  });
+
+  it('renders the inputs-present bitmask + S-VOL-2 informational caveat', () => {
+    const md = renderBriefMarkdown(brief({
+      volStructure: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        regimeFlag: 'normal',
+        monotonicBackwardation: false,
+        curveSteepnessZ: 0.3,
+        inversionDepth: 0,
+        vixZ: -0.1,
+        vvixZ: -0.7,
+        vvixVixDivergence: false,
+        inputsPresent: 0b11111,
+        compositeVersion: 'vol_struct_v1',
+      },
+    }));
+    assert.match(md, /Inputs present: 5\/5 \(bitmask 0b11111\)/);
+    assert.match(md, /Composite: `vol_struct_v1`/);
+    assert.match(md, /INFORMATIONAL — does NOT fire a regime category in v1 \(SPEC S-VOL-2\)/);
+  });
+
+  it('renders the evaluatedAt + snapshotDate footer', () => {
+    const md = renderBriefMarkdown(brief({
+      volStructure: {
+        evaluatedAt: '2026-05-19T13:30:00.123Z',
+        snapshotDate: '2026-05-19',
+        regimeFlag: 'normal',
+        monotonicBackwardation: false,
+        curveSteepnessZ: 0.3,
+        inversionDepth: 0,
+        vixZ: -0.1,
+        vvixZ: -0.7,
+        vvixVixDivergence: false,
+        inputsPresent: 0b11111,
+        compositeVersion: 'vol_struct_v1',
+      },
+    }));
+    assert.match(md, /Last evaluated: `2026-05-19T13:30:00\.123Z`/);
+    assert.match(md, /snapshot date: `2026-05-19`/);
+  });
+
+  it('section ordering: vol-structure renders AFTER cycle-position (byte-equal protection)', () => {
+    const md = renderBriefMarkdown(brief({ cyclePosition: null, volStructure: null }));
+    const cycleIdx = md.indexOf('## 7.');
+    const volIdx   = md.indexOf('## 8.');
+    assert.ok(cycleIdx > -1, 'expected cycle-position section');
+    assert.ok(volIdx > -1, 'expected vol-structure section');
+    assert.ok(volIdx > cycleIdx, 'vol-structure must render after cycle-position section');
+  });
+});
+
+// ───── sector-rotation panel (SPEC docs/specs/sector-rotation.md §3) ─────
+
+describe('renderBriefMarkdown — sector-rotation panel', () => {
+  it('renders the "not yet evaluated" panel when sectorRotation is null', () => {
+    const md = renderBriefMarkdown(brief({ sectorRotation: null }));
+    assert.match(md, /## 9\. Sector rotation — not yet evaluated/);
+    assert.match(md, /quantlab\.sector_rotation_snapshots.*empty/);
+  });
+
+  it('renders the regime flag uppercased in the header', () => {
+    const md = renderBriefMarkdown(brief({
+      sectorRotation: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        regimeFlag: 'severe_rotation',
+        defensiveCyclicalSpread: 0.04,
+        defensiveCyclicalSpreadZ: 1.5,
+        topSectorSymbol: 'XLK',
+        topSectorVolumeShare: 0.3,
+        topSectorVolumeShareZ: 1.7,
+        spyPctOff52wHigh: -0.02,
+        spyWithin5PctOf52wHigh: true,
+        growthValueSpread: 0.03,
+        defensiveLeadActive: true,
+        concentrationExtremeActive: true,
+        inputsPresent: 0b111111,
+        compositeVersion: 'sector_rot_v1',
+      },
+    }));
+    assert.match(md, /## 9\. Sector rotation — SEVERE_ROTATION/);
+  });
+
+  it('renders top-sector + active-flag header fields', () => {
+    const md = renderBriefMarkdown(brief({
+      sectorRotation: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        regimeFlag: 'defensive_leadership',
+        defensiveCyclicalSpread: 0.02,
+        defensiveCyclicalSpreadZ: 1.3,
+        topSectorSymbol: 'XLK',
+        topSectorVolumeShare: 0.18,
+        topSectorVolumeShareZ: 0.5,
+        spyPctOff52wHigh: -0.01,
+        spyWithin5PctOf52wHigh: true,
+        growthValueSpread: 0,
+        defensiveLeadActive: true,
+        concentrationExtremeActive: false,
+        inputsPresent: 0b111111,
+        compositeVersion: 'sector_rot_v1',
+      },
+    }));
+    assert.match(md, /Defensive lead active:\*\* yes/);
+    assert.match(md, /Concentration extreme:\*\* no/);
+    assert.match(md, /Top sector:\*\* XLK/);
+    assert.match(md, /SPY vs 52w high:\*\* -1\.00%/);
+  });
+
+  it('renders the indicator table with readings derived from each value', () => {
+    const md = renderBriefMarkdown(brief({
+      sectorRotation: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        regimeFlag: 'severe_rotation',
+        defensiveCyclicalSpread: 0.04,    // → "defensives leading sharply"
+        defensiveCyclicalSpreadZ: 1.4,    // → "elevated" (z<1.5 boundary)
+        topSectorSymbol: 'XLK',
+        topSectorVolumeShare: 0.30,       // → "extreme concentration"
+        topSectorVolumeShareZ: 1.7,       // → "unusually high"
+        spyPctOff52wHigh: -0.02,
+        spyWithin5PctOf52wHigh: true,
+        growthValueSpread: 0.05,          // → "growth leading sharply"
+        defensiveLeadActive: true,
+        concentrationExtremeActive: true,
+        inputsPresent: 0b111111,
+        compositeVersion: 'sector_rot_v1',
+      },
+    }));
+    assert.match(md, /\| Defensive − cyclical spread \(20d\) \| 4\.00% \| defensives leading sharply \|/);
+    assert.match(md, /\| Defensive − cyclical spread z \| 1\.400 \| elevated \|/);
+    assert.match(md, /\| Top sector volume share \| 30\.0% \| extreme concentration \|/);
+    assert.match(md, /\| Top sector volume share z \| 1\.700 \| unusually high \|/);
+    assert.match(md, /\| Growth − value spread \(20d\) \| 5\.00% \| growth leading sharply \|/);
+  });
+
+  it('renders "—" + "inputs missing" when an indicator value is null', () => {
+    const md = renderBriefMarkdown(brief({
+      sectorRotation: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        regimeFlag: 'unknown',
+        defensiveCyclicalSpread: null,
+        defensiveCyclicalSpreadZ: null,
+        topSectorSymbol: '',
+        topSectorVolumeShare: null,
+        topSectorVolumeShareZ: null,
+        spyPctOff52wHigh: null,
+        spyWithin5PctOf52wHigh: false,
+        growthValueSpread: null,
+        defensiveLeadActive: false,
+        concentrationExtremeActive: false,
+        inputsPresent: 0b000000,
+        compositeVersion: 'sector_rot_v1',
+      },
+    }));
+    assert.match(md, /\| Defensive − cyclical spread \(20d\) \| — \| inputs missing \|/);
+    assert.match(md, /\| Top sector volume share \| — \| inputs missing \|/);
+    assert.match(md, /Top sector:\*\* —/);
+  });
+
+  it('renders the inputs-present bitmask + S-SR-2 informational caveat', () => {
+    const md = renderBriefMarkdown(brief({
+      sectorRotation: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        regimeFlag: 'normal',
+        defensiveCyclicalSpread: 0,
+        defensiveCyclicalSpreadZ: 0,
+        topSectorSymbol: 'XLK',
+        topSectorVolumeShare: 0.18,
+        topSectorVolumeShareZ: 0,
+        spyPctOff52wHigh: -0.01,
+        spyWithin5PctOf52wHigh: true,
+        growthValueSpread: 0,
+        defensiveLeadActive: false,
+        concentrationExtremeActive: false,
+        inputsPresent: 0b111111,
+        compositeVersion: 'sector_rot_v1',
+      },
+    }));
+    assert.match(md, /Inputs present: 6\/6 \(bitmask 0b111111\)/);
+    assert.match(md, /Composite: `sector_rot_v1`/);
+    assert.match(md, /INFORMATIONAL — does NOT fire a regime category in v1 \(SPEC S-SR-2\)/);
+  });
+
+  it('renders the evaluatedAt + snapshotDate footer', () => {
+    const md = renderBriefMarkdown(brief({
+      sectorRotation: {
+        evaluatedAt: '2026-05-19T13:30:00.123Z',
+        snapshotDate: '2026-05-19',
+        regimeFlag: 'normal',
+        defensiveCyclicalSpread: 0,
+        defensiveCyclicalSpreadZ: 0,
+        topSectorSymbol: 'XLK',
+        topSectorVolumeShare: 0.18,
+        topSectorVolumeShareZ: 0,
+        spyPctOff52wHigh: -0.01,
+        spyWithin5PctOf52wHigh: true,
+        growthValueSpread: 0,
+        defensiveLeadActive: false,
+        concentrationExtremeActive: false,
+        inputsPresent: 0b111111,
+        compositeVersion: 'sector_rot_v1',
+      },
+    }));
+    assert.match(md, /Last evaluated: `2026-05-19T13:30:00\.123Z`/);
+    assert.match(md, /snapshot date: `2026-05-19`/);
+  });
+
+  it('section ordering: sector-rotation renders AFTER vol-structure (byte-equal protection)', () => {
+    const md = renderBriefMarkdown(brief({
+      cyclePosition: null, volStructure: null, sectorRotation: null,
+    }));
+    const volIdx    = md.indexOf('## 8.');
+    const sectorIdx = md.indexOf('## 9.');
+    assert.ok(volIdx > -1, 'expected vol-structure section');
+    assert.ok(sectorIdx > -1, 'expected sector-rotation section');
+    assert.ok(sectorIdx > volIdx, 'sector-rotation must render after vol-structure section');
+  });
+});
+
+// ───── cross-asset panel (SPEC docs/specs/cross-asset-signals.md §3) ─────
+
+describe('renderBriefMarkdown — cross-asset panel', () => {
+  it('renders the "not yet evaluated" panel when crossAsset is null', () => {
+    const md = renderBriefMarkdown(brief({ crossAsset: null }));
+    assert.match(md, /## 10\. Cross-asset signals — not yet evaluated/);
+    assert.match(md, /quantlab\.cross_asset_snapshots.*empty/);
+  });
+
+  it('renders the regime flag uppercased in the header', () => {
+    const md = renderBriefMarkdown(brief({
+      crossAsset: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        regimeFlag: 'severe_cross_asset_stress',
+        activeFlagCount: 3,
+        dxy20dChangePct: 0.05,
+        realRate10y20dChangeBps: 80,
+        copperGoldRatio20dChangePct: -0.08,
+        creditInternalsDiffZ: 2.1,
+        invertedSegmentCount: 0,
+        dxyStrengthActive: true,
+        realRateSpikeActive: true,
+        commodityGrowthCollapseActive: true,
+        creditInternalsDivergenceActive: false,
+        curveDistortionActive: false,
+        inputsPresent: 0b111111,
+        compositeVersion: 'cross_asset_v1',
+      },
+    }));
+    assert.match(md, /## 10\. Cross-asset signals — SEVERE_CROSS_ASSET_STRESS/);
+  });
+
+  it('renders flag states + active-count + curve segment count in header', () => {
+    const md = renderBriefMarkdown(brief({
+      crossAsset: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        regimeFlag: 'curve_distortion',
+        activeFlagCount: 1,
+        dxy20dChangePct: 0.005,
+        realRate10y20dChangeBps: 10,
+        copperGoldRatio20dChangePct: 0.005,
+        creditInternalsDiffZ: 0.4,
+        invertedSegmentCount: 2,
+        dxyStrengthActive: false,
+        realRateSpikeActive: false,
+        commodityGrowthCollapseActive: false,
+        creditInternalsDivergenceActive: false,
+        curveDistortionActive: true,
+        inputsPresent: 0b111111,
+        compositeVersion: 'cross_asset_v1',
+      },
+    }));
+    assert.match(md, /Active indicator flags:\*\* 1\/5/);
+    assert.match(md, /DXY strength:\*\* no/);
+    assert.match(md, /Real-rate spike:\*\* no/);
+    assert.match(md, /Commodity collapse:\*\* no/);
+    assert.match(md, /Credit internals divergence:\*\* no/);
+    assert.match(md, /Curve distortion:\*\* active/);
+    assert.match(md, /inverted segments: 2\/2/);
+  });
+
+  it('renders the indicator table with readings derived from each value', () => {
+    const md = renderBriefMarkdown(brief({
+      crossAsset: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        regimeFlag: 'severe_cross_asset_stress',
+        activeFlagCount: 3,
+        dxy20dChangePct: 0.05,           // → "dollar shock"
+        realRate10y20dChangeBps: 80,     // → "real-rate spike"
+        copperGoldRatio20dChangePct: -0.08, // → "growth-collapse signal"
+        creditInternalsDiffZ: 2.1,       // → "unusually high"
+        invertedSegmentCount: 0,
+        dxyStrengthActive: true,
+        realRateSpikeActive: true,
+        commodityGrowthCollapseActive: true,
+        creditInternalsDivergenceActive: false,
+        curveDistortionActive: false,
+        inputsPresent: 0b111111,
+        compositeVersion: 'cross_asset_v1',
+      },
+    }));
+    assert.match(md, /\| DXY 20d change \| 5\.00% \| dollar shock \|/);
+    assert.match(md, /\| Real rate 10y 20d change \| 80\.0 bps \| real-rate spike \|/);
+    assert.match(md, /\| Copper\/Gold ratio 20d change \| -8\.00% \| growth-collapse signal \|/);
+    assert.match(md, /\| Credit internals \(HY-IG\) z \| 2\.100 \| unusually high \|/);
+  });
+
+  it('renders "—" + "inputs missing" when an indicator value is null', () => {
+    const md = renderBriefMarkdown(brief({
+      crossAsset: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        regimeFlag: 'unknown',
+        activeFlagCount: 0,
+        dxy20dChangePct: null,
+        realRate10y20dChangeBps: null,
+        copperGoldRatio20dChangePct: null,
+        creditInternalsDiffZ: null,
+        invertedSegmentCount: 0,
+        dxyStrengthActive: false,
+        realRateSpikeActive: false,
+        commodityGrowthCollapseActive: false,
+        creditInternalsDivergenceActive: false,
+        curveDistortionActive: false,
+        inputsPresent: 0,
+        compositeVersion: 'cross_asset_v1',
+      },
+    }));
+    assert.match(md, /\| DXY 20d change \| — \| inputs missing \|/);
+    assert.match(md, /\| Real rate 10y 20d change \| — \| inputs missing \|/);
+    assert.match(md, /\| Copper\/Gold ratio 20d change \| — \| inputs missing \|/);
+    assert.match(md, /\| Credit internals \(HY-IG\) z \| — \| inputs missing \|/);
+  });
+
+  it('renders the inputs-present bitmask + S-CA-2 informational caveat', () => {
+    const md = renderBriefMarkdown(brief({
+      crossAsset: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        regimeFlag: 'normal',
+        activeFlagCount: 0,
+        dxy20dChangePct: 0.005,
+        realRate10y20dChangeBps: 10,
+        copperGoldRatio20dChangePct: 0.003,
+        creditInternalsDiffZ: 0.4,
+        invertedSegmentCount: 0,
+        dxyStrengthActive: false,
+        realRateSpikeActive: false,
+        commodityGrowthCollapseActive: false,
+        creditInternalsDivergenceActive: false,
+        curveDistortionActive: false,
+        inputsPresent: 0b111111,
+        compositeVersion: 'cross_asset_v1',
+      },
+    }));
+    assert.match(md, /Inputs present: 6\/6 \(bitmask 0b111111\)/);
+    assert.match(md, /Composite: `cross_asset_v1`/);
+    assert.match(md, /INFORMATIONAL — does NOT fire a regime category in v1 \(SPEC S-CA-2\)/);
+  });
+
+  it('renders the evaluatedAt + snapshotDate footer', () => {
+    const md = renderBriefMarkdown(brief({
+      crossAsset: {
+        evaluatedAt: '2026-05-19T13:30:00.456Z',
+        snapshotDate: '2026-05-19',
+        regimeFlag: 'normal',
+        activeFlagCount: 0,
+        dxy20dChangePct: 0.005,
+        realRate10y20dChangeBps: 10,
+        copperGoldRatio20dChangePct: 0.003,
+        creditInternalsDiffZ: 0.4,
+        invertedSegmentCount: 0,
+        dxyStrengthActive: false,
+        realRateSpikeActive: false,
+        commodityGrowthCollapseActive: false,
+        creditInternalsDivergenceActive: false,
+        curveDistortionActive: false,
+        inputsPresent: 0b111111,
+        compositeVersion: 'cross_asset_v1',
+      },
+    }));
+    assert.match(md, /Last evaluated: `2026-05-19T13:30:00\.456Z`/);
+    assert.match(md, /snapshot date: `2026-05-19`/);
+  });
+
+  it('section ordering: cross-asset renders AFTER sector-rotation (byte-equal protection)', () => {
+    const md = renderBriefMarkdown(brief({
+      cyclePosition: null, volStructure: null, sectorRotation: null, crossAsset: null,
+    }));
+    const sectorIdx = md.indexOf('## 9.');
+    const crossIdx  = md.indexOf('## 10.');
+    assert.ok(sectorIdx > -1, 'expected sector-rotation section');
+    assert.ok(crossIdx > -1, 'expected cross-asset section');
+    assert.ok(crossIdx > sectorIdx, 'cross-asset must render after sector-rotation section');
   });
 });

@@ -280,6 +280,58 @@ export class CyclePositionRepository {
   }
 
   /**
+   * Read up to `lookbackDays` snapshots ending at `asOf` (inclusive) in
+   * ASC order. Used by the dashboard panel (A6) to plot a trend.
+   *
+   * Returns the snapshot core + the per-input raw values so the panel can
+   * surface readings without needing a second query. Empty array when no
+   * rows match. Idempotent reads via FINAL.
+   *
+   * Query shape: subquery-around-FINAL with the WHERE/ORDER BY in the
+   * inner SELECT, then the toString alias in the outer SELECT. This
+   * avoids the a52c964 bug class (CH binding a WHERE/ORDER BY reference
+   * to a String-typed SELECT alias instead of the Date column, producing
+   * "no supertype for String and Date" errors during analysis).
+   */
+  async loadHistory(
+    asOf: Date,
+    lookbackDays: number,
+  ): Promise<CyclePositionHistoryRow[]> {
+    if (lookbackDays <= 0) return [];
+    const asOfStr = asOf.toISOString().slice(0, 10);
+    const startStr = new Date(asOf.getTime() - lookbackDays * 24 * 60 * 60 * 1000)
+      .toISOString().slice(0, 10);
+    const q = await this.ch.query({
+      query: `
+        SELECT
+          toString(snapshot_date) AS snapshot_date,
+          score, phase_label, recession_prob_pct, inputs_present,
+          contrib_yield_curve, contrib_credit, contrib_employment,
+          t10y3m, t10y2y, baa10y, hy_oas,
+          unrate, unrate_12m_chg, claims_4w_ma_zscore,
+          composite_version
+        FROM (
+          SELECT
+            snapshot_date,
+            score, phase_label, recession_prob_pct, inputs_present,
+            contrib_yield_curve, contrib_credit, contrib_employment,
+            t10y3m, t10y2y, baa10y, hy_oas,
+            unrate, unrate_12m_chg, claims_4w_ma_zscore,
+            composite_version
+          FROM ${this.snapshotsTable} FINAL
+          WHERE snapshot_date >= {start:Date}
+            AND snapshot_date <= {asOf:Date}
+          ORDER BY snapshot_date ASC
+        )
+      `,
+      query_params: { start: startStr, asOf: asOfStr },
+      format: 'JSONEachRow',
+    });
+    const rows = await q.json<CyclePositionHistoryRowRaw>();
+    return rows.map(parseHistoryRow);
+  }
+
+  /**
    * Read the most recent snapshot (any date). Used by the morning brief
    * (A5) and by tests that need to verify a write landed.
    */
@@ -332,6 +384,81 @@ export class CyclePositionRepository {
 function formatDateTime64(d: Date): string {
   const iso = d.toISOString(); // 'YYYY-MM-DDTHH:MM:SS.mmmZ'
   return iso.slice(0, 23).replace('T', ' ');
+}
+
+/** Per-day shape returned by loadHistory; mirrors the SPEC §5 column set
+ *  the dashboard panel needs (contributions + raw inputs + score/phase). */
+export interface CyclePositionHistoryRow {
+  snapshotDate: string;
+  score: number;
+  phaseLabel: CyclePhaseLabel;
+  recessionProbPct: number;
+  inputsPresent: number;
+  contributions: {
+    yieldCurve: number | null;
+    credit: number | null;
+    employment: number | null;
+  };
+  inputs: {
+    t10y3m: number | null;
+    t10y2y: number | null;
+    baa10y: number | null;
+    hyOas: number | null;
+    unrate: number | null;
+    unrate12mChange: number | null;
+    claims4wMaZscore: number | null;
+  };
+  compositeVersion: string;
+}
+
+interface CyclePositionHistoryRowRaw {
+  snapshot_date: string;
+  score: string | number;
+  phase_label: string;
+  recession_prob_pct: string | number;
+  inputs_present: string | number;
+  contrib_yield_curve: string | number | null;
+  contrib_credit: string | number | null;
+  contrib_employment: string | number | null;
+  t10y3m: string | number | null;
+  t10y2y: string | number | null;
+  baa10y: string | number | null;
+  hy_oas: string | number | null;
+  unrate: string | number | null;
+  unrate_12m_chg: string | number | null;
+  claims_4w_ma_zscore: string | number | null;
+  composite_version: string;
+}
+
+function nullableNum(v: string | number | null | undefined): number | null {
+  if (v == null) return null;
+  const n = typeof v === 'string' ? parseFloat(v) : v;
+  return Number.isFinite(n) ? n : null;
+}
+
+function parseHistoryRow(r: CyclePositionHistoryRowRaw): CyclePositionHistoryRow {
+  return {
+    snapshotDate: r.snapshot_date,
+    score: Number(r.score),
+    phaseLabel: r.phase_label as CyclePhaseLabel,
+    recessionProbPct: Number(r.recession_prob_pct),
+    inputsPresent: Number(r.inputs_present),
+    contributions: {
+      yieldCurve: nullableNum(r.contrib_yield_curve),
+      credit: nullableNum(r.contrib_credit),
+      employment: nullableNum(r.contrib_employment),
+    },
+    inputs: {
+      t10y3m: nullableNum(r.t10y3m),
+      t10y2y: nullableNum(r.t10y2y),
+      baa10y: nullableNum(r.baa10y),
+      hyOas: nullableNum(r.hy_oas),
+      unrate: nullableNum(r.unrate),
+      unrate12mChange: nullableNum(r.unrate_12m_chg),
+      claims4wMaZscore: nullableNum(r.claims_4w_ma_zscore),
+    },
+    compositeVersion: r.composite_version,
+  };
 }
 
 /**

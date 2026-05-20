@@ -31,6 +31,7 @@ import {
   rowCount,
   verifyPreState,
 } from '../migrate_drawdown_state_history_per_strategy.js';
+import { assertCHGrammar } from './_chGrammarCheck.js';
 
 // ───── FakeClickHouse: route responses by query content ─────
 
@@ -295,5 +296,38 @@ describe('rowCount', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const n = await rowCount(fake as any, NEW_TABLE);
     assert.equal(n, 0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// CH grammar validation (s85 follow-up to a52c964) — extends the s83
+// coverage to this migration script. The pre-check + rowCount queries
+// reference real catalog tables (system.tables, system.columns,
+// system.mutations) and the canonical migration target, so EXPLAIN PLAN
+// runs against production schemas without substitution needed.
+// Skip-if-unavailable per _chGrammarCheck.ts.
+// ─────────────────────────────────────────────────────────────────────────
+describe('migrate_drawdown_state_history_per_strategy — CH grammar validation (EXPLAIN PLAN)', () => {
+  it('verifyPreState queries are EXPLAIN-clean', async (t) => {
+    const fake = new FakeClickHouse();
+    wirePreCheck(fake, {
+      canonical: { engine: 'ReplacingMergeTree', sorting_key: EXPECTED_OLD_KEY },
+      bundleIdColumnPresent: true,
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await verifyPreState(fake as any);
+    const verdict = await assertCHGrammar({ queries: fake.queries });
+    if (verdict.skipped) return t.skip('CH unreachable — see _chGrammarCheck.ts warning');
+    if (!verdict.ok) assert.fail(`EXPLAIN PLAN rejected:\n${verdict.failure?.error}\n---\n${verdict.failure?.query}`);
+  });
+
+  it('rowCount query is EXPLAIN-clean against the canonical table', async (t) => {
+    const fake = new FakeClickHouse();
+    fake.route(q => q.includes('count()'), [{ n: 0 }]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await rowCount(fake as any, CANONICAL_TABLE);
+    const verdict = await assertCHGrammar({ queries: fake.queries });
+    if (verdict.skipped) return t.skip('CH unreachable — see _chGrammarCheck.ts warning');
+    if (!verdict.ok) assert.fail(`EXPLAIN PLAN rejected:\n${verdict.failure?.error}\n---\n${verdict.failure?.query}`);
   });
 });

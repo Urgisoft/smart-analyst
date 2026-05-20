@@ -1340,6 +1340,13 @@ export default function App() {
             >
               Macro regime →
             </a>
+            <a
+              href="#/cycle-position"
+              className="text-[9px] font-black text-cyan-300/80 hover:text-cyan-200 uppercase tracking-[0.2em] border border-cyan-300/30 hover:border-cyan-300 rounded-lg px-3 py-1.5 transition-colors"
+              title="Market cycle-position composite (cycle_v1 · informational only · score + phase + recession probability + per-bucket contributions over time)"
+            >
+              Cycle position →
+            </a>
             <div className="flex flex-col items-end">
               <span className="text-[9px] font-black text-[#444] uppercase tracking-widest leading-none mb-1">System_Status</span>
               <span className="text-[10px] font-mono font-bold tracking-tighter text-emerald-400 leading-none uppercase">

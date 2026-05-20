@@ -23,6 +23,7 @@ import {
   stageStateHistoryTableExists,
   STAGE_DEFAULT_PRIOR_HISTORY_LIMIT,
 } from '../../src/server/stage_state_repository.js';
+import { assertCHGrammar } from './_chGrammarCheck.js';
 
 interface InsertCall {
   table: string;
@@ -300,5 +301,35 @@ describe('stageStateHistoryTableExists', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const exists = await stageStateHistoryTableExists(fake as any);
     assert.equal(exists, false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// CH grammar validation (s85 follow-up to a52c964) — extends the s83
+// coverage. EXPLAIN PLAN catches CH-specific semantic bugs (alias
+// shadowing, aggregate-in-WHERE) that FakeClickHouse's regex pin misses.
+// Skip-if-unavailable per _chGrammarCheck.ts.
+// ─────────────────────────────────────────────────────────────────────────
+describe('StageStateRepository — CH grammar validation (EXPLAIN PLAN)', () => {
+  const TABLE_SUBS = [
+    { from: 'quantlab.stage_state_history_test', to: 'quantlab.stage_state_history' },
+  ];
+
+  it('loadPriorHistory emits an EXPLAIN-clean query', async (t) => {
+    const { repo, fake } = makeRepo();
+    fake.nextRows = [];
+    await repo.loadPriorHistory({ source: 'paper' });
+    const verdict = await assertCHGrammar({ queries: fake.queries, tableSubstitutions: TABLE_SUBS });
+    if (verdict.skipped) return t.skip('CH unreachable — see _chGrammarCheck.ts warning');
+    if (!verdict.ok) assert.fail(`EXPLAIN PLAN rejected:\n${verdict.failure?.error}\n---\n${verdict.failure?.query}`);
+  });
+
+  it('loadLatest emits an EXPLAIN-clean query', async (t) => {
+    const { repo, fake } = makeRepo();
+    fake.nextRows = [];
+    await repo.loadLatest({ source: 'paper' });
+    const verdict = await assertCHGrammar({ queries: fake.queries, tableSubstitutions: TABLE_SUBS });
+    if (verdict.skipped) return t.skip('CH unreachable — see _chGrammarCheck.ts warning');
+    if (!verdict.ok) assert.fail(`EXPLAIN PLAN rejected:\n${verdict.failure?.error}\n---\n${verdict.failure?.query}`);
   });
 });
