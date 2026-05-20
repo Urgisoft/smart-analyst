@@ -114,6 +114,11 @@ import {
   volStructureSnapshotsTableExists,
   runDaemonVolStructureEvaluation,
 } from '../src/server/vol_structure_repository.js';
+import {
+  SectorRotationRepository,
+  sectorRotationSnapshotsTableExists,
+  runDaemonSectorRotationEvaluation,
+} from '../src/server/sector_rotation_repository.js';
 import { CLASSIFIER_VERSION_V3 } from '../src/server/macro_regime_v3.js';
 import {
   formatEvaluatorCapitalLogLine,
@@ -1003,6 +1008,36 @@ async function main() {
       anomalies.push({
         severity: 'info',
         message: `vol-structure evaluation failed: ${(e as Error).message}`,
+      });
+    }
+  }
+
+  // 1f. Sector-rotation evaluation (informational Layer-0 input).
+  //     SPEC: docs/specs/sector-rotation.md §3 component diagram —
+  //     runs AFTER vol-structure (step 1e); consumes the SPDR sector + IWF +
+  //     IWD candles that the macro_regime_ingest step refreshed earlier.
+  //     Output is informational only in v1; does NOT fire a regime category.
+  //     Same non-fatal posture as cycle-position and vol-structure.
+  if (NO_MACRO || DRY_RUN) {
+    console.log(`[sector-rotation] skipped (${NO_MACRO ? '--no-macro' : '--dry-run'})`);
+  } else if (!(await sectorRotationSnapshotsTableExists(ch))) {
+    console.log(
+      '[sector-rotation] table absent (`quantlab.sector_rotation_snapshots`) — ' +
+      'skipped. Run `npm run migrate:create-sector-rotation-snapshots:apply` to enable.',
+    );
+  } else {
+    try {
+      const sectorRepo = new SectorRotationRepository({ ch });
+      const sectorResult = await runDaemonSectorRotationEvaluation({
+        repo: sectorRepo,
+        asOf: new Date(t0),
+      });
+      console.log(sectorResult.summaryLine);
+    } catch (e) {
+      console.warn(`[sector-rotation] evaluation failed (non-fatal): ${(e as Error).message}`);
+      anomalies.push({
+        severity: 'info',
+        message: `sector-rotation evaluation failed: ${(e as Error).message}`,
       });
     }
   }

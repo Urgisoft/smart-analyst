@@ -77,6 +77,13 @@ YF_TICKERS: tuple[str, ...] = (
     # ~2011, ^VIX6M ~2008, ^VVIX 2007. Backfill failures are non-fatal per the
     # per-ticker error handling below — the rest of the ingest continues.
     "^VIX9D", "^VIX6M", "^VVIX",
+    # Sector-rotation additions (SPEC docs/specs/sector-rotation.md §1).
+    # 11 SPDR sector ETFs (XLC 2018+, XLRE 2015+, others 1998+) + Russell 1000
+    # Growth (IWF) + Russell 1000 Value (IWD). All YF; same per-ticker error
+    # handling — failures are non-fatal.
+    "XLK", "XLF", "XLE", "XLV", "XLY", "XLP",
+    "XLU", "XLI", "XLB", "XLRE", "XLC",
+    "IWF", "IWD",
 )
 
 YF_TICKER_TO_ADDR: dict[str, str] = {
@@ -90,6 +97,20 @@ YF_TICKER_TO_ADDR: dict[str, str] = {
     "^VIX9D": "VIX9D_USD",  # 9-day VIX; near-term implied vol
     "^VIX6M": "VIX6M_USD",  # 6-month VIX; structural complacency proxy
     "^VVIX": "VVIX_USD",    # vol-of-vol; option pricing on VIX options
+    # Sector-rotation (SPEC docs/specs/sector-rotation.md §3 ingest unit).
+    "XLK": "XLK_USD",   # technology
+    "XLF": "XLF_USD",   # financials
+    "XLE": "XLE_USD",   # energy
+    "XLV": "XLV_USD",   # healthcare (defensive basket)
+    "XLY": "XLY_USD",   # consumer discretionary (cyclical basket)
+    "XLP": "XLP_USD",   # consumer staples (defensive basket)
+    "XLU": "XLU_USD",   # utilities (defensive basket)
+    "XLI": "XLI_USD",   # industrials
+    "XLB": "XLB_USD",   # materials
+    "XLRE": "XLRE_USD", # real estate (carved out 2015-10)
+    "XLC": "XLC_USD",   # communications (carved out 2018-09)
+    "IWF": "IWF_USD",   # Russell 1000 Growth
+    "IWD": "IWD_USD",   # Russell 1000 Value
 }
 
 # Stooq daily-history CSV for S&P 500 % above 50DMA. Covers ~2007+ through
