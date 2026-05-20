@@ -46,6 +46,8 @@
     "cboe:ingest:dry": ".venv\\Scripts\\python.exe scripts/cboe_putcall_ingest.py --dry-run",
     "fred:ingest": ".venv\\Scripts\\python.exe scripts/fred_ingest.py",
     "fred:ingest:dry": ".venv\\Scripts\\python.exe scripts/fred_ingest.py --dry-run",
+    "finra:short-interest:ingest": ".venv\\Scripts\\python.exe scripts/finra_short_interest_ingest.py --apply",
+    "finra:short-interest:ingest:dry": ".venv\\Scripts\\python.exe scripts/finra_short_interest_ingest.py --dry-run",
     "macro:emit-fixtures": "tsx scripts/_emit_macro_regime_fixtures.ts",
     "macro:phase2:procedure": "tsx scripts/_phase2_realized_stress_procedure.ts",
     "macro:phase2:procedure:dry": "tsx scripts/_phase2_realized_stress_procedure.ts --dry-run",
