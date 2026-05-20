@@ -99,6 +99,8 @@
     "migrate:create-short-interest-snapshots:apply": "tsx scripts/migrate_create_short_interest_snapshots.ts --apply",
     "migrate:create-executive-departure-snapshots": "tsx scripts/migrate_create_executive_departure_snapshots.ts",
     "migrate:create-executive-departure-snapshots:apply": "tsx scripts/migrate_create_executive_departure_snapshots.ts --apply",
+    "migrate:create-etf-flow-snapshots": "tsx scripts/migrate_create_etf_flow_snapshots.ts",
+    "migrate:create-etf-flow-snapshots:apply": "tsx scripts/migrate_create_etf_flow_snapshots.ts --apply",
     "seed:nber-recessions": "tsx scripts/seed_nber_recessions.ts",
     "seed:nber-recessions:apply": "tsx scripts/seed_nber_recessions.ts --apply",
     "backfill:cycle-position-history": "tsx scripts/backfill_cycle_position_history.ts",
