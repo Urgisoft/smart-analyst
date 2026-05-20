@@ -46,6 +46,7 @@ import 'dotenv/config';
 import process from 'node:process';
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import type { ClickHouseClient } from '@clickhouse/client';
 import {
   getClickHouse,
   pingClickHouse,
@@ -119,6 +120,11 @@ import {
   sectorRotationSnapshotsTableExists,
   runDaemonSectorRotationEvaluation,
 } from '../src/server/sector_rotation_repository.js';
+import {
+  CrossAssetSignalsRepository,
+  crossAssetSnapshotsTableExists,
+  runDaemonCrossAssetEvaluation,
+} from '../src/server/cross_asset_signals_repository.js';
 import { CLASSIFIER_VERSION_V3 } from '../src/server/macro_regime_v3.js';
 import {
   formatEvaluatorCapitalLogLine,
@@ -476,42 +482,101 @@ function runYfinanceFetch(): FetchSummary {
 }
 
 // ── Macro fetch + v3 regime classify ───────────────────────────────────────
+
+/** Token addresses the YF macro ingest is expected to populate. Mirrors
+ *  YF_TICKER_TO_ADDR in scripts/macro_regime_ingest.py. The daemon probes
+ *  CH for these and triggers a full backfill if any are under-populated —
+ *  catches the "new ticker added to YF_TICKERS but never backfilled" case
+ *  without requiring operator memory of `npm run macro:ingest`. */
+const REQUIRED_YF_ADDRS = [
+  'VIX_USD', 'VIX3M_USD', 'HYG_USD', 'SPY_USD', 'LQD_USD', 'TLT_USD',
+  // vol-structure (s86)
+  'VIX9D_USD', 'VIX6M_USD', 'VVIX_USD',
+  // sector-rotation (s87)
+  'XLK_USD', 'XLF_USD', 'XLE_USD', 'XLV_USD', 'XLY_USD', 'XLP_USD',
+  'XLU_USD', 'XLI_USD', 'XLB_USD', 'XLRE_USD', 'XLC_USD',
+  'IWF_USD', 'IWD_USD',
+  // cross-asset signals (s88)
+  'GLD_USD', 'COPX_USD', 'USO_USD', 'DBC_USD',
+  'USDJPY_FX', 'EURUSD_FX',
+] as const;
+
+/** Rows below this threshold trigger a full backfill for that address.
+ *  30 is the minimum for stable z-scores; well below any healthy daily
+ *  cadence. Set high enough to also self-heal partial backfills (the
+ *  Ctrl-C-during-ingest case). */
+const MIN_BACKFILL_ROWS = 30;
+
+/** Probe CH for YF addresses that are under-populated. Returns the list
+ *  of addresses that need a full backfill. */
+async function findUnderbackfilledYfAddrs(ch: ClickHouseClient): Promise<string[]> {
+  try {
+    const q = await ch.query({
+      query: `
+        SELECT token_address, count() AS n
+        FROM quantlab.candles FINAL
+        WHERE source = 'yfinance_regime'
+          AND interval = '1d'
+          AND token_address IN ({addrs:Array(String)})
+        GROUP BY token_address
+      `,
+      query_params: { addrs: [...REQUIRED_YF_ADDRS] },
+      format: 'JSONEachRow',
+    });
+    const rows = await q.json<{ token_address: string; n: string | number }>();
+    const counts = new Map<string, number>(rows.map(r => [r.token_address, Number(r.n)]));
+    return REQUIRED_YF_ADDRS.filter(addr => (counts.get(addr) ?? 0) < MIN_BACKFILL_ROWS);
+  } catch {
+    // If the probe itself fails (e.g. CH unreachable), do not crash the
+    // daemon — defer to the existing incremental path which has its own
+    // error handling.
+    return [];
+  }
+}
+
 /**
- * Refresh the macro candles VIX/VIX3M/HYG/SPY/LQD/TLT via
- * `scripts/macro_regime_ingest.py --skip-breadth`. The 60-mid-cap fetch
- * above does NOT cover the macro tickers (only SPY overlaps), so without
- * this step those tickers drift stale and the v3 regime classifier reads
- * incomplete inputs.
+ * Refresh the macro candles VIX/VIX3M/HYG/SPY/LQD/TLT + vol-structure (s86)
+ * + sector-rotation (s87) tickers via `scripts/macro_regime_ingest.py
+ * --skip-breadth`. The 60-mid-cap fetch above does NOT cover the macro
+ * tickers (only SPY overlaps), so without this step those tickers drift
+ * stale and the downstream composites read incomplete inputs.
  *
- * Window: last 14 days (covers long weekends + a few missed runs;
- * ReplacingMergeTree dedupes on re-runs so re-pulling is cheap). The
- * macro_regime_ingest script defaults to 2008-01-01 start which would
- * re-pull ~18y of bars per run — wasteful. Override with a recent start.
+ * Mode auto-selected by the caller:
+ *   - `full`     → `--start 2008-01-01`. Triggered when one or more required
+ *                  addresses have < 30 rows in CH (new ticker or interrupted
+ *                  prior backfill). Idempotent under ReplacingMergeTree.
+ *                  ~3-5 minute runtime for 22 tickers × 18y.
+ *   - `incremental` → last 14 days. Healthy steady-state path; covers long
+ *                     weekends + a couple missed runs without re-pulling 18y.
  *
  * Non-fatal: a failure here logs a warning and pushes an anomaly but does
  * not abort the daemon — strategy evaluation does not require fresh macro
  * inputs to run.
  */
-function runMacroFetch(): { ok: boolean; seconds: number; error?: string } {
+function runMacroFetch(mode: 'full' | 'incremental'): { ok: boolean; seconds: number; error?: string; mode: 'full' | 'incremental' } {
   const t0 = Date.now();
   const py = process.platform === 'win32' ? '.venv/Scripts/python.exe' : '.venv/bin/python';
-  // 14-day window covers long weekends + a couple missed runs without
-  // re-pulling 18y on every run.
-  const startDate = new Date();
-  startDate.setUTCDate(startDate.getUTCDate() - 14);
-  const startIso = startDate.toISOString().slice(0, 10);
+  let startIso: string;
+  if (mode === 'full') {
+    startIso = '2008-01-01';
+  } else {
+    const startDate = new Date();
+    startDate.setUTCDate(startDate.getUTCDate() - 14);
+    startIso = startDate.toISOString().slice(0, 10);
+  }
   const args = ['scripts/macro_regime_ingest.py', '--skip-breadth', '--start', startIso];
   if (DRY_RUN) args.push('--dry-run');
-  // 5 min budget. Healthy run finishes in <15s for 6 tickers × 14d.
-  const result = spawnSync(py, args, { encoding: 'utf8', timeout: 5 * 60_000 });
+  // Full backfill needs more budget (~3-5 min); incremental finishes in <30s.
+  const timeoutMs = mode === 'full' ? 15 * 60_000 : 5 * 60_000;
+  const result = spawnSync(py, args, { encoding: 'utf8', timeout: timeoutMs });
   const seconds = (Date.now() - t0) / 1000;
   if (result.error) {
-    return { ok: false, seconds, error: result.error.message };
+    return { ok: false, seconds, error: result.error.message, mode };
   }
   if (result.status !== 0) {
-    return { ok: false, seconds, error: `exit ${result.status}: ${result.stderr.slice(0, 300)}` };
+    return { ok: false, seconds, error: `exit ${result.status}: ${result.stderr.slice(0, 300)}`, mode };
   }
-  return { ok: true, seconds };
+  return { ok: true, seconds, mode };
 }
 
 /**
@@ -903,20 +968,35 @@ async function main() {
     }
   }
 
-  // 1b. Macro candle refresh (VIX/VIX3M/HYG/SPY/LQD/TLT) — the mid-cap fetch
-  //     above does not cover these. Non-fatal: failure here warns but does
-  //     not abort strategy evaluation.
+  // 1b. Macro candle refresh — VIX family + HYG/SPY/LQD/TLT (phase1_v3) +
+  //     vol-structure tickers (s86) + sector-rotation tickers (s87). The
+  //     daemon probes CH for under-backfilled addresses first and runs a
+  //     full 2008-present backfill automatically when any are missing —
+  //     the operator no longer needs to remember `npm run macro:ingest`
+  //     after adding new tickers OR after an interrupted prior backfill.
+  //     Steady-state path is the 14-day incremental. Non-fatal: failures
+  //     warn but do not abort strategy evaluation.
   if (NO_MACRO || NO_FETCH) {
     console.log(`[macro-fetch] skipped (${NO_MACRO ? '--no-macro' : '--no-fetch'})`);
   } else {
-    const r = runMacroFetch();
+    const underBackfilled = await findUnderbackfilledYfAddrs(ch);
+    const mode: 'full' | 'incremental' = underBackfilled.length > 0 ? 'full' : 'incremental';
+    if (mode === 'full') {
+      console.log(
+        `[macro-fetch] ${underBackfilled.length} ticker(s) under-backfilled ` +
+        `(< ${MIN_BACKFILL_ROWS} rows): ${underBackfilled.join(', ')} — ` +
+        `running FULL backfill (start=2008-01-01). This is a one-time fix; ` +
+        `subsequent runs use the 14-day incremental path.`,
+      );
+    }
+    const r = runMacroFetch(mode);
     if (r.ok) {
-      console.log(`[macro-fetch] OK | ${r.seconds.toFixed(1)}s`);
+      console.log(`[macro-fetch] OK | mode=${r.mode} | ${r.seconds.toFixed(1)}s`);
     } else {
       console.warn(`[macro-fetch] failed (non-fatal): ${r.error}`);
       anomalies.push({
         severity: 'warning',
-        message: `macro candle refresh failed: ${r.error}`,
+        message: `macro candle refresh failed (mode=${r.mode}): ${r.error}`,
       });
     }
   }
@@ -1038,6 +1118,36 @@ async function main() {
       anomalies.push({
         severity: 'info',
         message: `sector-rotation evaluation failed: ${(e as Error).message}`,
+      });
+    }
+  }
+
+  // 1g. Cross-asset signals evaluation (informational Layer-0 input).
+  //     SPEC: docs/specs/cross-asset-signals.md §3 component diagram —
+  //     runs AFTER sector-rotation (step 1f); consumes the FRED rates +
+  //     dollar series + YF currency/commodity candles refreshed earlier.
+  //     Output is informational only in v1; does NOT fire a regime category.
+  //     Same non-fatal posture as cycle-position / vol-structure / sector-rotation.
+  if (NO_MACRO || DRY_RUN) {
+    console.log(`[cross-asset] skipped (${NO_MACRO ? '--no-macro' : '--dry-run'})`);
+  } else if (!(await crossAssetSnapshotsTableExists(ch))) {
+    console.log(
+      '[cross-asset] table absent (`quantlab.cross_asset_snapshots`) — ' +
+      'skipped. Run `npm run migrate:create-cross-asset-snapshots:apply` to enable.',
+    );
+  } else {
+    try {
+      const crossAssetRepo = new CrossAssetSignalsRepository({ ch });
+      const crossAssetResult = await runDaemonCrossAssetEvaluation({
+        repo: crossAssetRepo,
+        asOf: new Date(t0),
+      });
+      console.log(crossAssetResult.summaryLine);
+    } catch (e) {
+      console.warn(`[cross-asset] evaluation failed (non-fatal): ${(e as Error).message}`);
+      anomalies.push({
+        severity: 'info',
+        message: `cross-asset evaluation failed: ${(e as Error).message}`,
       });
     }
   }

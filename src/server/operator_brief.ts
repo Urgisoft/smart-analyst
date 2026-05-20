@@ -52,6 +52,21 @@ import {
   cyclePositionSnapshotsTableExists,
 } from './cycle_position_repository.js';
 import type { CyclePositionSnapshot } from './cycle_position.js';
+import {
+  VolStructureRepository,
+  volStructureSnapshotsTableExists,
+} from './vol_structure_repository.js';
+import type { VolStructureSnapshot } from './vol_structure.js';
+import {
+  SectorRotationRepository,
+  sectorRotationSnapshotsTableExists,
+} from './sector_rotation_repository.js';
+import type { SectorRotationSnapshot } from './sector_rotation.js';
+import {
+  CrossAssetSignalsRepository,
+  crossAssetSnapshotsTableExists,
+} from './cross_asset_signals_repository.js';
+import type { CrossAssetSignalsSnapshot } from './cross_asset_signals.js';
 import { DEPLOYMENT_STAGES } from './capital_deployment_config.js';
 import {
   computePerCellCapital,
@@ -65,11 +80,14 @@ import { resolve } from 'node:path';
 import type {
   MorningBrief,
   BriefAnomaly,
+  BriefCrossAssetSection,
   BriefCyclePositionSection,
   BriefDaemonSection,
   BriefDrawdownSection,
   BriefDrawdownStrategyRow,
+  BriefSectorRotationSection,
   BriefStageSection,
+  BriefVolStructureSection,
   BriefWatchlistItem,
 } from './operator_brief_render.js';
 
@@ -190,6 +208,30 @@ export interface BriefDeps {
    */
   fetchLatestCyclePosition?: () => Promise<CyclePositionSnapshot | null>;
   /**
+   * Vol-structure composite reader. Defaults to
+   * `VolStructureRepository.loadLatestSnapshot()`, returning null when
+   * `quantlab.vol_structure_snapshots` is absent or empty. SPEC:
+   * docs/specs/expanded-vol-structure.md §3. Tests stub to drive the panel
+   * deterministically.
+   */
+  fetchLatestVolStructure?: () => Promise<VolStructureSnapshot | null>;
+  /**
+   * Sector-rotation composite reader. Defaults to
+   * `SectorRotationRepository.loadLatestSnapshot()`, returning null when
+   * `quantlab.sector_rotation_snapshots` is absent or empty. SPEC:
+   * docs/specs/sector-rotation.md §3. Tests stub to drive the panel
+   * deterministically.
+   */
+  fetchLatestSectorRotation?: () => Promise<SectorRotationSnapshot | null>;
+  /**
+   * Cross-asset signals composite reader. Defaults to
+   * `CrossAssetSignalsRepository.loadLatestSnapshot()`, returning null when
+   * `quantlab.cross_asset_snapshots` is absent or empty. SPEC:
+   * docs/specs/cross-asset-signals.md §3. Tests stub to drive the panel
+   * deterministically.
+   */
+  fetchLatestCrossAsset?: () => Promise<CrossAssetSignalsSnapshot | null>;
+  /**
    * Kill-criteria daily history probe — true iff
    * `quantlab.kill_criteria_daily` exists. Drives the brief stage panel's
    * "streak source" warning (SPEC docs/specs/kill-criteria-daily-history.md
@@ -236,6 +278,12 @@ export async function composeMorningBrief(deps?: Partial<BriefDeps>): Promise<Mo
     deps?.haltSentinelPresent ?? (() => existsSync(resolve(process.cwd(), '.stage_halt')));
   const fetchLatestCyclePosition =
     deps?.fetchLatestCyclePosition ?? fetchLatestCyclePositionFromCH;
+  const fetchLatestVolStructure =
+    deps?.fetchLatestVolStructure ?? fetchLatestVolStructureFromCH;
+  const fetchLatestSectorRotation =
+    deps?.fetchLatestSectorRotation ?? fetchLatestSectorRotationFromCH;
+  const fetchLatestCrossAsset =
+    deps?.fetchLatestCrossAsset ?? fetchLatestCrossAssetFromCH;
   // Critic H-2 (SPEC docs/specs/kill-criteria-daily-history.md §10) — probe
   // the table at compose time so the stage panel can surface "streak source"
   // when the daemon falls back to the rolling-asOf shortcut. Defaulted via
@@ -246,7 +294,7 @@ export async function composeMorningBrief(deps?: Partial<BriefDeps>): Promise<Mo
     deps?.fetchCellWeightsForBrief ?? defaultFetchCellWeightsForBrief;
   const now = deps?.now ?? (() => new Date());
 
-  const [regime, paper, lastRun, allowlists, closedTrades, latestDrawdown, latestDrawdownPerStrategy, latestStage, killCritDailyPresent, latestCyclePosition] = await Promise.all([
+  const [regime, paper, lastRun, allowlists, closedTrades, latestDrawdown, latestDrawdownPerStrategy, latestStage, killCritDailyPresent, latestCyclePosition, latestVolStructure, latestSectorRotation, latestCrossAsset] = await Promise.all([
     fetchRegime({ asOf: null, lookbackDays: LOOKBACK_DAYS_DEFAULT }),
     fetchPaper({ runHistoryLimit: 14 }),
     fetchDaemon(),
@@ -257,6 +305,9 @@ export async function composeMorningBrief(deps?: Partial<BriefDeps>): Promise<Mo
     fetchLatestStage(),
     killCriteriaDailyTablePresent(),
     fetchLatestCyclePosition(),
+    fetchLatestVolStructure(),
+    fetchLatestSectorRotation(),
+    fetchLatestCrossAsset(),
   ]);
 
   if (!regime.biasNote || !regime.biasNote.body) {
@@ -300,6 +351,9 @@ export async function composeMorningBrief(deps?: Partial<BriefDeps>): Promise<Mo
     cellWeights,
   });
   const cyclePosition = buildCyclePositionSection(latestCyclePosition);
+  const volStructure = buildVolStructureSection(latestVolStructure);
+  const sectorRotation = buildSectorRotationSection(latestSectorRotation);
+  const crossAsset = buildCrossAssetSection(latestCrossAsset);
 
   return {
     generatedAt: now().toISOString().slice(0, 19) + 'Z',
@@ -315,6 +369,9 @@ export async function composeMorningBrief(deps?: Partial<BriefDeps>): Promise<Mo
     drawdown,
     stage,
     cyclePosition,
+    volStructure,
+    sectorRotation,
+    crossAsset,
   };
 }
 
@@ -355,6 +412,131 @@ async function fetchLatestCyclePositionFromCH(): Promise<CyclePositionSnapshot |
   try {
     if (!(await cyclePositionSnapshotsTableExists())) return null;
     const repo = new CyclePositionRepository();
+    return await repo.loadLatestSnapshot();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Build the morning-brief vol-structure section from the repository
+ * snapshot. Returns null when no snapshot exists yet; the renderer
+ * handles null with a friendly "not yet evaluated" message.
+ */
+export function buildVolStructureSection(
+  snapshot: VolStructureSnapshot | null,
+): BriefVolStructureSection | null {
+  if (snapshot === null) return null;
+  return {
+    evaluatedAt: snapshot.asOf.toISOString(),
+    snapshotDate: snapshot.asOf.toISOString().slice(0, 10),
+    regimeFlag: snapshot.regimeFlag,
+    monotonicBackwardation: snapshot.monotonicBackwardation,
+    curveSteepnessZ: snapshot.curveSteepnessZ,
+    inversionDepth: snapshot.inversionDepth,
+    vixZ: snapshot.vixZ,
+    vvixZ: snapshot.vvixZ,
+    vvixVixDivergence: snapshot.vvixVixDivergence,
+    inputsPresent: snapshot.inputsPresent,
+    compositeVersion: snapshot.compositeVersion,
+  };
+}
+
+/**
+ * Default fetcher for the morning-brief vol-structure section. Mirrors the
+ * cycle-position graceful-degrade posture: null when the table is absent or
+ * empty OR when CH is transiently unreachable. The brief renders "not yet
+ * evaluated" rather than crashing.
+ */
+async function fetchLatestVolStructureFromCH(): Promise<VolStructureSnapshot | null> {
+  try {
+    if (!(await volStructureSnapshotsTableExists())) return null;
+    const repo = new VolStructureRepository();
+    return await repo.loadLatestSnapshot();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Build the morning-brief sector-rotation section from the repository
+ * snapshot. Returns null when no snapshot exists yet; the renderer handles
+ * null with a friendly "not yet evaluated" message.
+ */
+export function buildSectorRotationSection(
+  snapshot: SectorRotationSnapshot | null,
+): BriefSectorRotationSection | null {
+  if (snapshot === null) return null;
+  return {
+    evaluatedAt: snapshot.asOf.toISOString(),
+    snapshotDate: snapshot.asOf.toISOString().slice(0, 10),
+    regimeFlag: snapshot.regimeFlag,
+    defensiveCyclicalSpread: snapshot.defensiveCyclicalSpread,
+    defensiveCyclicalSpreadZ: snapshot.defensiveCyclicalSpreadZ,
+    topSectorSymbol: snapshot.topSectorSymbol,
+    topSectorVolumeShare: snapshot.topSectorVolumeShare,
+    topSectorVolumeShareZ: snapshot.topSectorVolumeShareZ,
+    spyPctOff52wHigh: snapshot.spyPctOff52wHigh,
+    spyWithin5PctOf52wHigh: snapshot.spyWithin5PctOf52wHigh,
+    growthValueSpread: snapshot.growthValueSpread,
+    defensiveLeadActive: snapshot.defensiveLeadActive,
+    concentrationExtremeActive: snapshot.concentrationExtremeActive,
+    inputsPresent: snapshot.inputsPresent,
+    compositeVersion: snapshot.compositeVersion,
+  };
+}
+
+/**
+ * Default fetcher for the morning-brief sector-rotation section. Mirrors the
+ * cycle-position / vol-structure graceful-degrade posture.
+ */
+async function fetchLatestSectorRotationFromCH(): Promise<SectorRotationSnapshot | null> {
+  try {
+    if (!(await sectorRotationSnapshotsTableExists())) return null;
+    const repo = new SectorRotationRepository();
+    return await repo.loadLatestSnapshot();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Build the morning-brief cross-asset signals section from the repository
+ * snapshot. Returns null when no snapshot exists yet; the renderer handles
+ * null with a friendly "not yet evaluated" message.
+ */
+export function buildCrossAssetSection(
+  snapshot: CrossAssetSignalsSnapshot | null,
+): BriefCrossAssetSection | null {
+  if (snapshot === null) return null;
+  return {
+    evaluatedAt: snapshot.asOf.toISOString(),
+    snapshotDate: snapshot.asOf.toISOString().slice(0, 10),
+    regimeFlag: snapshot.regimeFlag,
+    activeFlagCount: snapshot.activeFlagCount,
+    dxy20dChangePct: snapshot.dxy20dChangePct,
+    realRate10y20dChangeBps: snapshot.realRate10y20dChangeBps,
+    copperGoldRatio20dChangePct: snapshot.copperGoldRatio20dChangePct,
+    creditInternalsDiffZ: snapshot.creditInternalsDiffZ,
+    invertedSegmentCount: snapshot.invertedSegmentCount,
+    dxyStrengthActive: snapshot.dxyStrengthActive,
+    realRateSpikeActive: snapshot.realRateSpikeActive,
+    commodityGrowthCollapseActive: snapshot.commodityGrowthCollapseActive,
+    creditInternalsDivergenceActive: snapshot.creditInternalsDivergenceActive,
+    curveDistortionActive: snapshot.curveDistortionActive,
+    inputsPresent: snapshot.inputsPresent,
+    compositeVersion: snapshot.compositeVersion,
+  };
+}
+
+/**
+ * Default fetcher for the morning-brief cross-asset section. Mirrors the
+ * cycle-position / vol-structure / sector-rotation graceful-degrade posture.
+ */
+async function fetchLatestCrossAssetFromCH(): Promise<CrossAssetSignalsSnapshot | null> {
+  try {
+    if (!(await crossAssetSnapshotsTableExists())) return null;
+    const repo = new CrossAssetSignalsRepository();
     return await repo.loadLatestSnapshot();
   } catch {
     return null;

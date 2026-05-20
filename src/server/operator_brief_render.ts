@@ -228,6 +228,33 @@ export interface MorningBrief {
    * sections 1-6.
    */
   cyclePosition: BriefCyclePositionSection | null;
+  /**
+   * Expanded vol-structure composite — informational Layer-0 context.
+   * SPEC: docs/specs/expanded-vol-structure.md §3 (brief panel) + S-VOL-2
+   * (vol-structure does NOT fire a regime category in v1; informational).
+   * `null` when the table is absent or empty (pre-daemon-cycle state).
+   * APPENDED as section #8 to preserve byte-equal-stdout protection on
+   * sections 1-7.
+   */
+  volStructure: BriefVolStructureSection | null;
+  /**
+   * Sector-rotation composite — informational Layer-0 context.
+   * SPEC: docs/specs/sector-rotation.md §3 (brief panel) + S-SR-2
+   * (sector-rotation does NOT fire a regime category in v1; informational).
+   * `null` when the table is absent or empty.
+   * APPENDED as section #9 to preserve byte-equal-stdout protection on
+   * sections 1-8.
+   */
+  sectorRotation: BriefSectorRotationSection | null;
+  /**
+   * Cross-asset signals composite — informational Layer-0 context.
+   * SPEC: docs/specs/cross-asset-signals.md §3 (brief panel) + S-CA-2
+   * (cross-asset does NOT fire a regime category in v1; informational).
+   * `null` when the table is absent or empty.
+   * APPENDED as section #10 to preserve byte-equal-stdout protection on
+   * sections 1-9.
+   */
+  crossAsset: BriefCrossAssetSection | null;
 }
 
 /**
@@ -257,6 +284,120 @@ export interface BriefCyclePositionSection {
   compositeVersion: string;
 }
 
+/**
+ * Vol-structure panel — informational Layer-0 context.
+ * SPEC: docs/specs/expanded-vol-structure.md §§3, 5, 6.
+ */
+export interface BriefVolStructureSection {
+  /** Composite computation timestamp (ISO 8601). */
+  evaluatedAt: string;
+  /** Snapshot date (YYYY-MM-DD). */
+  snapshotDate: string;
+  /** Discrete regime label per SPEC §2 derivation. */
+  regimeFlag: 'severe_stress' | 'moderate_stress' | 'event_risk' | 'complacent' | 'normal' | 'unknown';
+  /** Indicator 1: VIX9D > VIX > VIX3M > VIX6M (all strict). */
+  monotonicBackwardation: boolean;
+  /** Indicator 2: curve steepness z-score against trailing-2y. */
+  curveSteepnessZ: number | null;
+  /** Indicator 3: max(0, VIX9D - VIX6M) when backwardated, else 0. */
+  inversionDepth: number | null;
+  /** Indicator 4 components (z-scores). */
+  vixZ: number | null;
+  vvixZ: number | null;
+  /** Indicator 5: vvixZ > +1 AND vixZ < 0. */
+  vvixVixDivergence: boolean;
+  /** Bitmask of input flags present. See vol_structure.ts INPUT_*. */
+  inputsPresent: number;
+  /** Composite version stamp ('vol_struct_v1' in v1). */
+  compositeVersion: string;
+}
+
+/**
+ * Sector-rotation panel — informational Layer-0 context.
+ * SPEC: docs/specs/sector-rotation.md §§3, 5, 6.
+ */
+export interface BriefSectorRotationSection {
+  /** Composite computation timestamp (ISO 8601). */
+  evaluatedAt: string;
+  /** Snapshot date (YYYY-MM-DD). */
+  snapshotDate: string;
+  /** Discrete regime label per SPEC §2 derivation. */
+  regimeFlag:
+    | 'severe_rotation' | 'concentration_extreme'
+    | 'defensive_leadership' | 'normal' | 'unknown';
+  /** defensive_20d_return − cyclical_20d_return (decimal; 0.03 = 3pp). */
+  defensiveCyclicalSpread: number | null;
+  /** z-score of the above against trailing 1y. */
+  defensiveCyclicalSpreadZ: number | null;
+  /** Argmax sector by 20d-avg $-volume. '' when any sector volume missing. */
+  topSectorSymbol: string;
+  /** Top-sector $-volume / total sector $-volume (0..1). */
+  topSectorVolumeShare: number | null;
+  /** z-score of the above against trailing 1y. */
+  topSectorVolumeShareZ: number | null;
+  /** (spyClose − spy52wHigh) / spy52wHigh. Negative below high. */
+  spyPctOff52wHigh: number | null;
+  /** spyClose ≥ 0.95 × spy52wHigh. */
+  spyWithin5PctOf52wHigh: boolean;
+  /** IWF 20d return − IWD 20d return (informational only). */
+  growthValueSpread: number | null;
+  /** Flag: defensive-cyclical z > 1.0 AND within 5% of 52w high. */
+  defensiveLeadActive: boolean;
+  /** Flag: top-sector volume-share z > 1.5. */
+  concentrationExtremeActive: boolean;
+  /** Bitmask of input flags present. See sector_rotation.ts INPUT_*. */
+  inputsPresent: number;
+  /** Composite version stamp ('sector_rot_v1' in v1). */
+  compositeVersion: string;
+}
+
+/**
+ * Cross-asset signals panel — informational Layer-0 context.
+ * SPEC: docs/specs/cross-asset-signals.md §§3, 5, 6.
+ */
+export interface BriefCrossAssetSection {
+  /** Composite computation timestamp (ISO 8601). */
+  evaluatedAt: string;
+  /** Snapshot date (YYYY-MM-DD). */
+  snapshotDate: string;
+  /** Discrete regime label per SPEC §2 derivation. */
+  regimeFlag:
+    | 'severe_cross_asset_stress'
+    | 'dollar_shock'
+    | 'real_rate_spike'
+    | 'commodity_growth_collapse'
+    | 'credit_internals_divergence'
+    | 'curve_distortion'
+    | 'normal'
+    | 'unknown';
+  /** Sum of the 5 individual flag booleans (0..5). */
+  activeFlagCount: number;
+  /** 20-day percent change of DTWEXBGS (decimal; 0.03 = +3%). */
+  dxy20dChangePct: number | null;
+  /** 20-day change of DFII10 in basis points. */
+  realRate10y20dChangeBps: number | null;
+  /** 20-day percent change of copper/gold ratio (decimal). */
+  copperGoldRatio20dChangePct: number | null;
+  /** Z-score of (HY-OAS − BAA-spread) vs trailing 2y baseline. */
+  creditInternalsDiffZ: number | null;
+  /** Count of inverted segments among {T10Y2Y, T10Y3M}; 0..2. */
+  invertedSegmentCount: number;
+  /** Flag: dxy20dChangePct > +3%. */
+  dxyStrengthActive: boolean;
+  /** Flag: realRate10y20dChangeBps > +50bps. */
+  realRateSpikeActive: boolean;
+  /** Flag: copperGoldRatio20dChangePct < -5%. */
+  commodityGrowthCollapseActive: boolean;
+  /** Flag: creditInternalsDiffZ > +1.5. */
+  creditInternalsDivergenceActive: boolean;
+  /** Flag: invertedSegmentCount ≥ 2. */
+  curveDistortionActive: boolean;
+  /** Bitmask of input flags present. See cross_asset_signals.ts INPUT_*. */
+  inputsPresent: number;
+  /** Composite version stamp ('cross_asset_v1' in v1). */
+  compositeVersion: string;
+}
+
 /** Render the brief as operator-facing markdown. Pure. */
 export function renderBriefMarkdown(brief: MorningBrief): string {
   const parts: string[] = [];
@@ -275,6 +416,12 @@ export function renderBriefMarkdown(brief: MorningBrief): string {
   parts.push(renderStageSection(brief));
   parts.push('');
   parts.push(renderCyclePositionSection(brief));
+  parts.push('');
+  parts.push(renderVolStructureSection(brief));
+  parts.push('');
+  parts.push(renderSectorRotationSection(brief));
+  parts.push('');
+  parts.push(renderCrossAssetSection(brief));
   parts.push('');
   return parts.join('\n');
 }
@@ -702,6 +849,319 @@ function popcount(n: number): number {
   let x = n;
   while (x > 0) { count += x & 1; x = x >>> 1; }
   return count;
+}
+
+/**
+ * Section #8 — vol-structure composite. Informational only in v1 (S-VOL-2).
+ * Shows regime label + curve indicators + z-scores so the operator can
+ * read the full term structure beyond the binary `vix_term_inverted`
+ * category in phase1_v3.
+ */
+function renderVolStructureSection(b: MorningBrief): string {
+  const lines: string[] = [];
+  if (b.volStructure === null) {
+    lines.push(`## 8. Vol structure — not yet evaluated`);
+    lines.push(``);
+    lines.push(
+      `\`quantlab.vol_structure_snapshots\` is empty (or absent). ` +
+      `Apply \`npm run migrate:create-vol-structure-snapshots:apply\` and run ` +
+      `\`npm run daemon:daily\` to populate. ` +
+      `SPEC: docs/specs/expanded-vol-structure.md §3.`,
+    );
+    return lines.join('\n');
+  }
+  const v = b.volStructure;
+  const flagUpper = v.regimeFlag.toUpperCase();
+  lines.push(`## 8. Vol structure — ${flagUpper}`);
+  lines.push(``);
+  lines.push(`**Regime flag:** ${v.regimeFlag}`);
+  lines.push(`**Monotonic backwardation:** ${v.monotonicBackwardation ? 'yes' : 'no'}`);
+  lines.push(`**VVIX/VIX divergence:** ${v.vvixVixDivergence ? 'yes — event risk' : 'no'}`);
+  lines.push(``);
+  lines.push(`### Curve indicators`);
+  lines.push(``);
+  lines.push(`| Indicator | Value | Reading |`);
+  lines.push(`|---|---|---|`);
+  lines.push(renderVolIndicatorRow('Curve steepness (z)', v.curveSteepnessZ, volReadingSteepness));
+  lines.push(renderVolIndicatorRow('Inversion depth', v.inversionDepth, volReadingDepth));
+  lines.push(renderVolIndicatorRow('VIX z-score', v.vixZ, volReadingZ));
+  lines.push(renderVolIndicatorRow('VVIX z-score', v.vvixZ, volReadingZ));
+  lines.push(``);
+  const inputsCount = popcount(v.inputsPresent);
+  lines.push(
+    `_Inputs present: ${inputsCount}/5 (bitmask 0b${v.inputsPresent.toString(2).padStart(5, '0')}). ` +
+    `Composite: \`${v.compositeVersion}\`. ` +
+    `INFORMATIONAL — does NOT fire a regime category in v1 (SPEC S-VOL-2)._`,
+  );
+  lines.push(``);
+  lines.push(
+    `_Last evaluated: \`${v.evaluatedAt}\` · snapshot date: \`${v.snapshotDate}\`._`,
+  );
+  return lines.join('\n');
+}
+
+function renderVolIndicatorRow(
+  label: string,
+  value: number | null,
+  reading: (v: number) => string,
+): string {
+  if (value === null || !Number.isFinite(value)) {
+    return `| ${label} | — | inputs missing |`;
+  }
+  return `| ${label} | ${value.toFixed(3)} | ${reading(value)} |`;
+}
+
+/** Reading bands for curve-steepness z-score. */
+function volReadingSteepness(z: number): string {
+  if (z <= -2.0) return 'severely backwardated';
+  if (z <= -1.0) return 'backwardated';
+  if (z < 1.5)   return 'normal';
+  return 'complacent contango';
+}
+
+/** Reading bands for inversion depth (vol points). */
+function volReadingDepth(d: number): string {
+  if (d <= 0) return 'flat';
+  if (d < 2)  return 'mild';
+  if (d < 5)  return 'moderate';
+  return 'severe';
+}
+
+/** Reading bands for generic z-scores (VIX / VVIX). */
+function volReadingZ(z: number): string {
+  if (z <= -1.5) return 'unusually low';
+  if (z <= -0.5) return 'below average';
+  if (z <  0.5)  return 'normal';
+  if (z <  1.5)  return 'elevated';
+  return 'unusually high';
+}
+
+/**
+ * Section #9 — sector-rotation composite. Informational only in v1 (S-SR-2).
+ * Shows regime label + defensive/cyclical leadership + concentration
+ * structure + growth/value rotation so the operator can read equity-internal
+ * dynamics the broad-market `phase1_v3` classifier doesn't surface.
+ */
+function renderSectorRotationSection(b: MorningBrief): string {
+  const lines: string[] = [];
+  if (b.sectorRotation === null) {
+    lines.push(`## 9. Sector rotation — not yet evaluated`);
+    lines.push(``);
+    lines.push(
+      `\`quantlab.sector_rotation_snapshots\` is empty (or absent). ` +
+      `Apply \`npm run migrate:create-sector-rotation-snapshots:apply\` and run ` +
+      `\`npm run daemon:daily\` to populate. ` +
+      `SPEC: docs/specs/sector-rotation.md §3.`,
+    );
+    return lines.join('\n');
+  }
+  const s = b.sectorRotation;
+  const flagUpper = s.regimeFlag.toUpperCase();
+  lines.push(`## 9. Sector rotation — ${flagUpper}`);
+  lines.push(``);
+  lines.push(`**Regime flag:** ${s.regimeFlag}`);
+  lines.push(`**Defensive lead active:** ${s.defensiveLeadActive ? 'yes' : 'no'}`);
+  lines.push(`**Concentration extreme:** ${s.concentrationExtremeActive ? 'yes' : 'no'}`);
+  lines.push(`**Top sector:** ${s.topSectorSymbol || '—'}`);
+  lines.push(`**SPY vs 52w high:** ${s.spyPctOff52wHigh != null ? (s.spyPctOff52wHigh * 100).toFixed(2) + '%' : '—'}` +
+    ` (within 5%: ${s.spyWithin5PctOf52wHigh ? 'yes' : 'no'})`);
+  lines.push(``);
+  lines.push(`### Rotation indicators`);
+  lines.push(``);
+  lines.push(`| Indicator | Value | Reading |`);
+  lines.push(`|---|---|---|`);
+  lines.push(renderSectorIndicatorRow(
+    'Defensive − cyclical spread (20d)',
+    s.defensiveCyclicalSpread, v => (v * 100).toFixed(2) + '%', sectorReadingSpread,
+  ));
+  lines.push(renderSectorIndicatorRow(
+    'Defensive − cyclical spread z',
+    s.defensiveCyclicalSpreadZ, v => v.toFixed(3), sectorReadingZ,
+  ));
+  lines.push(renderSectorIndicatorRow(
+    'Top sector volume share',
+    s.topSectorVolumeShare, v => (v * 100).toFixed(1) + '%', sectorReadingShare,
+  ));
+  lines.push(renderSectorIndicatorRow(
+    'Top sector volume share z',
+    s.topSectorVolumeShareZ, v => v.toFixed(3), sectorReadingZ,
+  ));
+  lines.push(renderSectorIndicatorRow(
+    'Growth − value spread (20d)',
+    s.growthValueSpread, v => (v * 100).toFixed(2) + '%', sectorReadingGrowthValue,
+  ));
+  lines.push(``);
+  const inputsCount = popcount(s.inputsPresent);
+  lines.push(
+    `_Inputs present: ${inputsCount}/6 (bitmask 0b${s.inputsPresent.toString(2).padStart(6, '0')}). ` +
+    `Composite: \`${s.compositeVersion}\`. ` +
+    `INFORMATIONAL — does NOT fire a regime category in v1 (SPEC S-SR-2)._`,
+  );
+  lines.push(``);
+  lines.push(
+    `_Last evaluated: \`${s.evaluatedAt}\` · snapshot date: \`${s.snapshotDate}\`._`,
+  );
+  return lines.join('\n');
+}
+
+function renderSectorIndicatorRow(
+  label: string,
+  value: number | null,
+  format: (v: number) => string,
+  reading: (v: number) => string,
+): string {
+  if (value === null || !Number.isFinite(value)) {
+    return `| ${label} | — | inputs missing |`;
+  }
+  return `| ${label} | ${format(value)} | ${reading(value)} |`;
+}
+
+/** Reading bands for the defensive-cyclical spread (raw decimal). */
+function sectorReadingSpread(spread: number): string {
+  if (spread >= 0.03)  return 'defensives leading sharply';
+  if (spread >= 0.01)  return 'defensives leading';
+  if (spread > -0.01)  return 'balanced';
+  if (spread > -0.03)  return 'cyclicals leading';
+  return 'cyclicals leading sharply';
+}
+
+/** Reading bands for top-sector volume share (raw fraction). */
+function sectorReadingShare(share: number): string {
+  if (share >= 0.30) return 'extreme concentration';
+  if (share >= 0.22) return 'high concentration';
+  if (share >= 0.15) return 'moderate concentration';
+  return 'diffuse';
+}
+
+/** Reading bands for growth-vs-value spread (raw decimal). */
+function sectorReadingGrowthValue(spread: number): string {
+  if (spread >= 0.03)  return 'growth leading sharply';
+  if (spread >= 0.01)  return 'growth leading';
+  if (spread > -0.01)  return 'balanced';
+  if (spread > -0.03)  return 'value leading';
+  return 'value leading sharply';
+}
+
+/** Reading bands for generic z-scores in the rotation panel. */
+function sectorReadingZ(z: number): string {
+  if (z <= -1.5) return 'unusually low';
+  if (z <= -0.5) return 'below average';
+  if (z <  0.5)  return 'normal';
+  if (z <  1.5)  return 'elevated';
+  return 'unusually high';
+}
+
+/**
+ * Section #10 — cross-asset signals composite. Informational only in v1 (S-CA-2).
+ * Shows regime label + active flag count + the 5 individual indicator values
+ * so the operator can see WHICH cross-asset dynamic is firing.
+ */
+function renderCrossAssetSection(b: MorningBrief): string {
+  const lines: string[] = [];
+  if (b.crossAsset === null) {
+    lines.push(`## 10. Cross-asset signals — not yet evaluated`);
+    lines.push(``);
+    lines.push(
+      `\`quantlab.cross_asset_snapshots\` is empty (or absent). ` +
+      `Apply \`npm run migrate:create-cross-asset-snapshots:apply\` and run ` +
+      `\`npm run daemon:daily\` to populate. ` +
+      `SPEC: docs/specs/cross-asset-signals.md §3.`,
+    );
+    return lines.join('\n');
+  }
+  const x = b.crossAsset;
+  const flagUpper = x.regimeFlag.toUpperCase();
+  lines.push(`## 10. Cross-asset signals — ${flagUpper}`);
+  lines.push(``);
+  lines.push(`**Regime flag:** ${x.regimeFlag}`);
+  lines.push(`**Active indicator flags:** ${x.activeFlagCount}/5`);
+  lines.push(`**DXY strength:** ${x.dxyStrengthActive ? 'active' : 'no'}` +
+    ` · **Real-rate spike:** ${x.realRateSpikeActive ? 'active' : 'no'}` +
+    ` · **Commodity collapse:** ${x.commodityGrowthCollapseActive ? 'active' : 'no'}`);
+  lines.push(`**Credit internals divergence:** ${x.creditInternalsDivergenceActive ? 'active' : 'no'}` +
+    ` · **Curve distortion:** ${x.curveDistortionActive ? 'active' : 'no'}` +
+    ` (inverted segments: ${x.invertedSegmentCount}/2)`);
+  lines.push(``);
+  lines.push(`### Cross-asset indicators`);
+  lines.push(``);
+  lines.push(`| Indicator | Value | Reading |`);
+  lines.push(`|---|---|---|`);
+  lines.push(renderCrossAssetIndicatorRow(
+    'DXY 20d change',
+    x.dxy20dChangePct, v => (v * 100).toFixed(2) + '%', crossAssetReadingDxy,
+  ));
+  lines.push(renderCrossAssetIndicatorRow(
+    'Real rate 10y 20d change',
+    x.realRate10y20dChangeBps, v => v.toFixed(1) + ' bps', crossAssetReadingRealRate,
+  ));
+  lines.push(renderCrossAssetIndicatorRow(
+    'Copper/Gold ratio 20d change',
+    x.copperGoldRatio20dChangePct, v => (v * 100).toFixed(2) + '%', crossAssetReadingCommodity,
+  ));
+  lines.push(renderCrossAssetIndicatorRow(
+    'Credit internals (HY-IG) z',
+    x.creditInternalsDiffZ, v => v.toFixed(3), crossAssetReadingZ,
+  ));
+  lines.push(``);
+  const inputsCount = popcount(x.inputsPresent);
+  lines.push(
+    `_Inputs present: ${inputsCount}/6 (bitmask 0b${x.inputsPresent.toString(2).padStart(6, '0')}). ` +
+    `Composite: \`${x.compositeVersion}\`. ` +
+    `INFORMATIONAL — does NOT fire a regime category in v1 (SPEC S-CA-2)._`,
+  );
+  lines.push(``);
+  lines.push(
+    `_Last evaluated: \`${x.evaluatedAt}\` · snapshot date: \`${x.snapshotDate}\`._`,
+  );
+  return lines.join('\n');
+}
+
+function renderCrossAssetIndicatorRow(
+  label: string,
+  value: number | null,
+  format: (v: number) => string,
+  reading: (v: number) => string,
+): string {
+  if (value === null || !Number.isFinite(value)) {
+    return `| ${label} | — | inputs missing |`;
+  }
+  return `| ${label} | ${format(value)} | ${reading(value)} |`;
+}
+
+/** Reading bands for DXY 20-day percent change (decimal). */
+function crossAssetReadingDxy(chg: number): string {
+  if (chg >= 0.03)  return 'dollar shock';
+  if (chg >= 0.01)  return 'dollar strengthening';
+  if (chg > -0.01)  return 'dollar stable';
+  if (chg > -0.03)  return 'dollar weakening';
+  return 'dollar shock (negative)';
+}
+
+/** Reading bands for 10y real-rate 20-day change in basis points. */
+function crossAssetReadingRealRate(bps: number): string {
+  if (bps >= 50)   return 'real-rate spike';
+  if (bps >= 20)   return 'rates rising';
+  if (bps > -20)   return 'rates stable';
+  if (bps > -50)   return 'rates falling';
+  return 'real-rate plunge';
+}
+
+/** Reading bands for copper/gold ratio 20-day percent change (decimal). */
+function crossAssetReadingCommodity(chg: number): string {
+  if (chg <= -0.05) return 'growth-collapse signal';
+  if (chg <= -0.02) return 'commodity weakness';
+  if (chg < 0.02)   return 'commodity balanced';
+  if (chg < 0.05)   return 'commodity strength';
+  return 'growth-acceleration signal';
+}
+
+/** Reading bands for generic z-scores in the cross-asset panel. */
+function crossAssetReadingZ(z: number): string {
+  if (z <= -1.5) return 'unusually low';
+  if (z <= -0.5) return 'below average';
+  if (z <  0.5)  return 'normal';
+  if (z <  1.5)  return 'elevated';
+  return 'unusually high';
 }
 
 /**

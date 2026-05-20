@@ -67,6 +67,13 @@ DEFAULT_SERIES = (
     # Employment
     "UNRATE",        # Unemployment rate (monthly)
     "ICSA",          # Initial jobless claims (weekly)
+    # Cross-asset signals (SPEC docs/specs/cross-asset-signals.md §3 ingest unit).
+    # Real rates (TIPS-implied) — drive duration-asset discount rates per
+    # Ilmanen 2011 ch. 3. DFII10 history starts 2003-01-02; DFII5 2003-12-31.
+    "DFII10",        # 10y TIPS-implied real yield (PRIMARY real_rate flag input)
+    "DFII5",         # 5y TIPS-implied real yield (informational only)
+    # Broad dollar index (FRED-canonical broad measure). Used for dxy_strength flag.
+    "DTWEXBGS",      # Trade-Weighted U.S. Dollar Index: Broad, Goods and Services
 )
 DEFAULT_START = _dt.date(1996, 1, 1)
 

@@ -84,6 +84,15 @@ YF_TICKERS: tuple[str, ...] = (
     "XLK", "XLF", "XLE", "XLV", "XLY", "XLP",
     "XLU", "XLI", "XLB", "XLRE", "XLC",
     "IWF", "IWD",
+    # Cross-asset signals (SPEC docs/specs/cross-asset-signals.md §3 ingest unit).
+    # Commodities: GLD (gold ETF, 2004+) + COPX (copper-miners ETF, 2009-11-19+)
+    # for the copper/gold ratio flag input. USO (oil ETF, 2006-04-10+) + DBC
+    # (broad-commodity ETF, 2006-02-03+) are informational only.
+    # Currency: JPY=X (USDJPY) + EURUSD=X are YF's daily currency-cross series;
+    # both informational only in v1 — the dxy_strength flag uses FRED's broad
+    # DTWEXBGS index instead.
+    "GLD", "COPX", "USO", "DBC",
+    "JPY=X", "EURUSD=X",
 )
 
 YF_TICKER_TO_ADDR: dict[str, str] = {
@@ -111,6 +120,13 @@ YF_TICKER_TO_ADDR: dict[str, str] = {
     "XLC": "XLC_USD",   # communications (carved out 2018-09)
     "IWF": "IWF_USD",   # Russell 1000 Growth
     "IWD": "IWD_USD",   # Russell 1000 Value
+    # Cross-asset signals (SPEC docs/specs/cross-asset-signals.md §3 ingest unit).
+    "GLD":      "GLD_USD",      # gold ETF (commodity_growth flag input)
+    "COPX":     "COPX_USD",     # copper-miners ETF (commodity_growth flag input)
+    "USO":      "USO_USD",      # oil ETF (informational only)
+    "DBC":      "DBC_USD",      # broad commodity ETF (informational only)
+    "JPY=X":    "USDJPY_FX",    # USDJPY daily (informational only)
+    "EURUSD=X": "EURUSD_FX",    # EURUSD daily (informational only)
 }
 
 # Stooq daily-history CSV for S&P 500 % above 50DMA. Covers ~2007+ through
