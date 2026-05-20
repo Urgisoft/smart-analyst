@@ -1,8 +1,8 @@
-# Cycle-position validation — 2026-05-19
+# Cycle-position validation — 2026-05-20
 
 SPEC: [docs/specs/market-cycle-position.md](../specs/market-cycle-position.md) §4 Phase B.
 
-**Generated:** 2026-05-19T04:52:47.575Z
+**Generated:** 2026-05-20T01:20:27.391Z
 **Cycle-position window:** 2008-01-02 → 2026-05-19
 **Composite version:** `cycle_v1`
 
@@ -10,7 +10,7 @@ SPEC: [docs/specs/market-cycle-position.md](../specs/market-cycle-position.md) �
 
 - **NBER backtest:** 0/8 recessions signaled at ≥1 of {6, 12, 18}-month leads (threshold: score < 0.4).
 - **False-positive precision:** 0.0% (0/506 depressed days followed by an NBER peak within 18 months).
-- **Independence vs `phase1_v3`:** Pearson ρ = -0.189, Spearman ρ = -0.159 (joined on 4623 days; threshold |ρ| > 0.7).
+- **Independence vs `phase1_v3`:** Pearson ρ = -0.189, Spearman ρ = -0.159 (joined on 4624 days; threshold |ρ| > 0.7).
 - **Phase C promotion:** **permitted** by the independence test; verdict still depends on backtest + precision.
 
 ## B3a — NBER lead-time backtest
@@ -63,9 +63,9 @@ Joined on `snapshot_date == trade_date`, excluding `unknown` snapshot rows.
 
 | Statistic | Value |
 |---|---|
-| Joined rows | 4623 |
-| Pearson ρ | -0.1889 |
-| Spearman ρ | -0.1590 |
+| Joined rows | 4624 |
+| Pearson ρ | -0.1888 |
+| Spearman ρ | -0.1589 |
 | SPEC threshold | \|ρ\| > 0.7 = redundant |
 | **Verdict** | **permitted for Phase C** by this test (subject to backtest verdict) |
 
