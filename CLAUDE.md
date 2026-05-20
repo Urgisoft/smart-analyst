@@ -43,6 +43,19 @@ exceptions are enumerated below and nowhere else.
 - **"Continue" means continue.** When the user returns and says "continue," resume
   from HANDOFF's "Next stage" section. Do not re-ask what to do, do not offer a
   menu of options, do not summarize the handoff back. Just start the work.
+- **Canon-thin methodology forks — resolved autonomously.** When facing multiple
+  legitimate methodology paths with no single canon default (e.g., the cycle_v2
+  Path A/B/C choice from s89), pick the path you'd defend on a three-criterion
+  test:
+  1. **Canon foundations** — depth + tier of supporting literature.
+  2. **Methodology rigor** — does the path require in-sample tuning against the
+     same data used in the validation gate? (Selection-bias canon per AFML §11,
+     Bailey-Lopez de Prado 2014, Harvey-Liu-Zhu 2016 rejects this.)
+  3. **Minimum free parameters** — paths with fewer tunable knobs are preferred,
+     all else equal.
+  Document the reasoning in the slice's ADR (the "Why this path over [the others]"
+  section, naming each alternative + why rejected). Surface the decision in
+  HANDOFF.md for operator review at session end. **Do NOT halt to ask.**
 - **Free-data API ingest + free public scraping** — see the data-source policy
   section below for the authorized list.
 
@@ -53,9 +66,9 @@ These reverse the autonomous-default; pause + ask before any action.
 - **Destructive ops** not previously authorized: schema drops, `ALTER ... DELETE`,
   `git reset --hard`, force-push, dependency removals, killing user processes.
 - **Broken builds or failing tests** you cannot tractably fix from current context.
-- **Canon-thin methodology ambiguity** — two legitimate approaches, the canon
-  doesn't pick. Surface the choice, don't pick autonomously.
-- **ADR conflicts** — your action would contradict a ratified ADR.
+- **ADR conflicts** — your action would contradict a ratified (Accepted) ADR.
+  Note: canon-thin methodology forks no longer halt (see Pre-authorized section
+  above); only conflicts with EXISTING Accepted ADRs halt.
 - **Anything affecting real-money execution path** — the live-trade ledger, the
   paper-to-real flip gate, the kill criteria, the deployment-stage machine.
 - **Paid subscriptions or vendor onboarding** — Sharadar, CBOE DataShop, ISM PMI,
