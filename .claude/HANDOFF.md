@@ -1,26 +1,41 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-05-20 (session 93 #4 — **gap #7 EK-A3 DONE** as commit `58cc98f`. Snapshot-table migration `scripts/migrate_create_eight_k_classifier_snapshots.ts` lands per SPEC §6.1 + §9.3: co-bootstraps `quantlab.eight_k_events` (PLANNED_DDL re-exported by import-reference from EK-A1's standalone migration — hard load-time byte-pin) AND `quantlab.eight_k_classifier_snapshots` (Layer-0 idiom — computed_at DateTime64(3) version key, ORDER BY snapshot_date, granularity 8192). 49 new TS tests (T-EKM-1..4 + identity + byte-pins + pre/post-checks + grammar). All gates green (TS 2490/2471 pass +49 vs s93 #3 baseline of 2422, Python 259/259, check:help ✓, tsc 13 errors unchanged baseline). 68 commits ahead of `origin/main`, push still held. **EK-A4 NEXT (repository + daemon step 1k hook)**.)
+Last updated: 2026-05-20 (session 93 #5 — **gap #7 EK-A4 DONE** as commit `39b6024`. Repository `src/server/eight_k_classifier_repository.ts` + 53 TS tests + daemon step 1k hook between step 1j etf-flow and §2 cells/bundles per SPEC §7. Mirrors gap #8 executive_departure_repository.ts pattern byte-for-byte where mechanics align. v1 GICS-sector deferred (sectors empty → `eight_k_cluster_flag` never fires); per-ticker layer fully active. All gates green (TS 2543/2520 pass +53 vs s93 #4 baseline of 2490, Python 259/259 unchanged, check:help ✓, tsc 13 errors unchanged baseline). 69 commits ahead of `origin/main`, push still held. **EK-A5 NEXT (brief section #14)**.)
 
 ## What this turn delivered
 
-Fourth slice of the gap #7 event-driven-filings-processor arc (s93 #4 — Phase EK-A3 migration):
+Fifth slice of the gap #7 event-driven-filings-processor arc (s93 #5 — Phase EK-A4):
 
-1. **Snapshot-table migration** — `scripts/migrate_create_eight_k_classifier_snapshots.ts` (NEW, ~265 LOC). Per SPEC §6.1 + §9.3:
-   - Co-bootstraps `quantlab.eight_k_events` (CREATE IF NOT EXISTS — PLANNED_DDL_SOURCE re-exported by direct import-reference from EK-A1's `migrate_create_eight_k_events.ts`; load-time byte-pin via `=== EK_A1_PLANNED_DDL`) AND `quantlab.eight_k_classifier_snapshots`.
-   - Snapshot DDL Layer-0 deviations from SPEC §6.1: `computed_at DateTime64(3)` (not SPEC's `ingested_at DateTime DEFAULT now()`); `ENGINE = ReplacingMergeTree(computed_at)`; `ORDER BY (snapshot_date)` only (not SPEC's `(snapshot_date, composite_version)`); `composite_version LowCardinality(String)` with no DEFAULT (daemon always writes); `SETTINGS index_granularity = 8192`. Matches exec-departure / etf-flow / cross-asset / short-interest precedents byte-for-byte.
-   - Source DDL preserves SPEC §6.1 source DDL byte-for-byte (granularity 1024, ORDER BY (cik, accession, item_code), source DEFAULT 'sec_edgar_full_text_search') via direct import-reference (not text-duplication).
-   - Pre-check tolerates: snapshot-absent + source-absent (ok=true); source-only-present (ok=true, common after EK-A1 standalone migration); snapshot-only-present (ok=true, atypical); both-present (ok=false but apply still proceeds idempotently). Matches etf-flow A3 logic.
-   - Post-check fingerprint over `system.columns` for both tables; missing-columns lists routed back to caller.
+1. **Repository** — `src/server/eight_k_classifier_repository.ts` (NEW, ~480 LOC). Per SPEC §3 + §5.1-§5.2 + §6.1 + §7 + §9.2. Methods:
+   - `readLatestAcceptedAt(asOf)` — subquery-around-FINAL anti-leak anchor on `accepted_at` (NOT `period_of_report` per load-bearing EDF-5).
+   - `readEventsForTickersInWindow(asOf, tickers, 90d=ROLLING_WINDOW_DAYS)` — narrow read filtered to HIGH_SIGNAL_ITEM_CODES (re-exported by reference from `eight_k_classifier.ts`) + ticker IN; subquery-around-FINAL (a52c964 regression class).
+   - `readSp500ConstituentsPIT(asOf)` — PIT-as-of-D constituent panel via nested-max `effective_date` subquery. Identical shape to gap #8 / #9 / #10.
+   - `readEquityMidcapWatchUniverse()` — candles-table filter on `interval='1d' + match(token_address, '^[A-Z]{1,5}_USD$') + source='yfinance' + max(timestamp) >= now() - 14d`; strips `_USD` suffix. Mirrors gap #8 + short-interest precedents.
+   - `readCikByTicker(tickers)` — one-way ticker → CIK lookup from `quantlab.cik_ticker_map` (gap #8 shared cache); skips empty-CIK rows; subquery-around-FINAL.
+   - `readInputsForCycle(asOf, watchUniverse, constituents)` — composes all composite inputs in parallel via `Promise.all(latestAccepted, cikByTicker, perTickerEvents)`. v1 sectors empty per GICS deferral.
+   - `writeSnapshot(snapshot)` — maps `EightKClassifierSnapshot` → CH columns per EK-A3 schema; `composite_version` written explicitly per S93-24 (no DEFAULT on the column).
+   - `loadLatestSnapshot()` — inverse with malformed-JSON graceful degradation + 1970 sentinel decode; `snapshotDate` reconstructed from `toUnixTimestamp64Milli(computed_at)` for ms-precision daemon-write moment.
+   - `eightKClassifierSnapshotsTableExists` + `eightKEventsTableExists` module-level absent-table-safe probes (mirrors etf-flow's two-gate posture).
+   - `runDaemonEightKClassifierEvaluation` — orchestration entry point; resolves universes from CH when not pre-passed; reads → composes via `evaluateEightKClassifierComposite` → writes one snapshot; emits a `[eight-k] ${asOf} cluster=NO flagged_sectors=N material=N universe=N/N agg=0/N last_edgar=YYYY-MM-DD (Nbd)` summary line.
+   - Exports: `EVENT_WINDOW_DAYS=90`, `BASELINE_CALENDAR_DAYS=730`, `COMPOSITE_ITEM_CODES=HIGH_SIGNAL_ITEM_CODES` (re-export by reference).
 
-2. **Tests** — `scripts/tests/migrateCreateEightKClassifierSnapshots.test.ts` (NEW, ~325 LOC, 49 tests). T-EKM-1..T-EKM-4 all covered:
-   - T-EKM-1 dry-run reports planned DDL without executing.
-   - T-EKM-2 apply mode + idempotent re-apply (CREATE IF NOT EXISTS).
-   - T-EKM-3 PLANNED_DDL_SNAPSHOT byte-pin to SPEC §6.1 columns + Layer-0 deviations.
-   - T-EKM-4 co-bootstrap parity: `PLANNED_DDL_SOURCE === EK_A1_PLANNED_DDL` (strictEqual — same string reference) + `EXPECTED_COLUMNS_SOURCE === EK_A1_EXPECTED_COLUMNS` (strictEqual — same array reference).
-   - Plus identity-constant checks, EXPECTED_COLUMNS_* alignment, FakeClickHouse runPreChecks / runPostChecks coverage, EXPLAIN PLAN grammar gate (skipped when CH unreachable).
+2. **Tests** — `scripts/tests/eightKClassifierRepository.test.ts` (NEW, ~640 LOC, 53 tests). T-EKR-1..T-EKR-Nplus6 per SPEC §9.2:
+   - constants exports + `COMPOSITE_ITEM_CODES === HIGH_SIGNAL_ITEM_CODES` reference-equality (load-time drift catch);
+   - `businessDaysBetween` parity (4 cases);
+   - `readLatestAcceptedAt` shape + 1970-sentinel + null + DateTime parameter binding;
+   - `readEventsForTickersInWindow` subquery-around-FINAL + item-code/ticker filters + group-by-ticker + drop-unparseable + 30d-override;
+   - `readSp500ConstituentsPIT` nested-max-subquery + asOf parameter;
+   - `readEquityMidcapWatchUniverse` `_USD` strip + filter shape;
+   - `readCikByTicker` empty-CIK skip + subquery-around-FINAL;
+   - `readInputsForCycle` end-to-end + empty-universe + empty-CIK-fallback (sector always null in v1);
+   - `writeSnapshot` 10-column mapping + version→composite_version + UInt8 boolean + null/empty encoding + `computed_at` ms-precision format;
+   - `loadLatestSnapshot` round-trip + malformed JSON degradation (both arrays) + 1970 sentinel + cluster-flag round-trip;
+   - `eightKClassifierSnapshotsTableExists` + `eightKEventsTableExists` (true/false/throw paths);
+   - `runDaemonEightKClassifierEvaluation` orchestration + summary-line shape + CH-resolved universes path + null-last-edgar em-dash;
+   - 5 EXPLAIN PLAN grammar regressions (skip-when-table-absent for eight_k_events / sp500_constituents / cik_ticker_map / eight_k_classifier_snapshots).
+   - 49 pass + 4 skipped (EXPLAIN gates correctly defer to when source tables exist).
 
-3. **npm scripts** — `migrate:create-eight-k-classifier-snapshots{:apply}` added to package.json adjacent to the EK-A1 scripts.
+3. **Daemon hook** — `scripts/daily_signal_daemon.ts` edited. Step 1k wired between step 1j (etf-flow) and §2 cells/bundles per SPEC §7. Two-gate posture (source `eight_k_events` + snapshots `eight_k_classifier_snapshots`) absent-table-safe; `NO_MACRO || DRY_RUN` gated; non-fatal anomaly push on evaluation exception. Chain now: `1a → 1b → 1c → 1d cycle → 1e vol → 1f sector → 1g cross-asset → 1h short-interest → 1i exec-departure → 1j etf-flow → 1k eight-k → §2 cells/bundles`.
 
 ## Where we are
 
@@ -36,9 +51,9 @@ Fourth slice of the gap #7 event-driven-filings-processor arc (s93 #4 — Phase 
 | Gap #7 event-driven-filings-processor SPEC + teach-doc | ✓ s93 #1 (`48e0da1`) |
 | Gap #7 EK-A1 (8-K event ingest + helper extraction + migration) | ✓ s93 #2 (`79b3ffa`) |
 | Gap #7 EK-A2 (pure composite `eight_k_classifier_v1`) | ✓ s93 #3 (`1879b32`) |
-| **Gap #7 EK-A3 (snapshot-table migration co-bootstrap)** | **✓ s93 #4 (`58cc98f`)** |
-| **Gap #7 EK-A4 (repository + daemon step 1k hook)** | **☐ NEXT** |
-| Gap #7 EK-A5 (brief section #14) | ☐ queued after EK-A4 |
+| Gap #7 EK-A3 (snapshot-table migration co-bootstrap) | ✓ s93 #4 (`58cc98f`) |
+| **Gap #7 EK-A4 (repository + daemon step 1k hook)** | **✓ s93 #5 (`39b6024`)** |
+| **Gap #7 EK-A5 (brief section #14)** | **☐ NEXT** |
 | Gap #7 F4-A1..A5 (Form 4 ingest → composite → migration → repository+daemon → brief #15) | ☐ queued after EK arc |
 | Gap #8 v2 enhancement — GICS sector mapping activation | ☐ deferred (operator-pickable insertion) |
 | Gap #9 v2 enhancement — ETF.com/issuer-CSV cross-validation | ☐ deferred (operator-pickable insertion) |
@@ -47,35 +62,41 @@ Fourth slice of the gap #7 event-driven-filings-processor arc (s93 #4 — Phase 
 | Phase B for cycle/vol/sector/cross-asset/short-interest/exec-departure/etf-flow | ⏸ deferred — calendar OR backfill arc |
 | #5 capital-deployment-ramp ADR | ☐ operator self-assigned ~1 week; not blocking |
 | Drawdown framework §12 90d empirical retune | ☐ scheduled — earliest 2026-08-29 |
-| Push 68 commits to origin/main | ☐ operator-gated, HOLD |
+| Push 69 commits to origin/main | ☐ operator-gated, HOLD |
 
 ## Decisions locked in
 
-### Session 93 part 4 (this turn, this commit) — EK-A3 implementation forks
+### Session 93 part 5 (this turn, this commit) — EK-A4 implementation forks
 
-**S93-22. Source-table DDL re-exported by direct import-reference, NOT text-duplication.**
-`Why:` Hardest possible byte-pin. The gap #9 etf-flow A3 inlined `PLANNED_DDL_SOURCE` as a separate text literal with a comment promising byte-equality to the A1 Python ingest — but the A1 is Python so there was no compiler-enforceable link. For EK-A3, A1 is also TS, so we CAN do `import { PLANNED_DDL as EK_A1_PLANNED_DDL }` and `export const PLANNED_DDL_SOURCE = EK_A1_PLANNED_DDL`. If EK-A1's constant ever drifts, this constant drifts with it automatically — no possibility of silent text divergence.
-`How to apply:` Test `T-EKM-4` uses `assert.strictEqual(PLANNED_DDL_SOURCE, EK_A1_PLANNED_DDL)` which is a reference-equality check (always passes given the import-reference pattern). The drift catch is moved to EK-A1's PR review (any change to its PLANNED_DDL flows here too). F4-A3 should follow the same import-reference pattern when F4-A1's migration lands.
+**S93-27. GICS sector deferral in EK-A4 mirrors gap #8 exec-departure precedent (v1 sectors empty, v2 separate slice).**
+`Why:` SPEC §5.2 + §6.1 formulate the aggregate signal at GICS-sector slices of the SPY-500 panel. Neither `sp500_constituents` nor `cik_ticker_map` carries a GICS field; `sector_rotation.ts` mapping is at ETF level (XLK/XLF/...), not constituent level. Three-criterion analysis (per CLAUDE.md autonomous canon-thin rule):
 
-**S93-23. Snapshot DDL Layer-0 deviations applied (NOT literal SPEC §6.1).**
-`Why:` SPEC §6.1 calls for `ingested_at DateTime DEFAULT now()` + `ORDER BY (snapshot_date, composite_version)` + (implicit) granularity 8192. The s89-s91 Layer-0 idiom is `computed_at DateTime64(3)` + `ORDER BY (snapshot_date)` + granularity 8192. All 7 prior Layer-0 snapshot migrations (cycle / vol / sector / cross-asset / short-interest / exec-departure / etf-flow) apply the deviations. Consistency across snapshots > literal SPEC compliance for this column-set, because: (a) `computed_at` gives millisecond-resolution dedup; (b) `composite_version` in ORDER BY is unnecessary since LowCardinality + rare version bumps; (c) granularity 8192 is the snapshot-table default.
-`How to apply:` Docstring documents each deviation explicitly. Test T-EKM-3 pins the deviations (asserts `ENGINE = ReplacingMergeTree(computed_at)` + `ORDER BY (snapshot_date)` + granularity 8192). If F4-A3 follows, document the same deviations.
+  1. Canon — equal across alternatives (null-sector, Wikipedia static, SIC→GICS bridge, SPDR scrape). SPEC §11 explicitly punts.
+  2. Methodology rigor — null-sector v1 requires zero ingest-time changes; A4 is standing-precedent that A1 stays immutable within a slice arc.
+  3. Minimum free parameters — null path = 0; per-constituent GICS bridge = 503-row free-parameter table with quarterly rebalance drift.
 
-**S93-24. `composite_version` column has NO DEFAULT clause.**
-`Why:` Daemon ALWAYS writes `composite_version` explicitly (`EIGHT_K_CLASSIFIER_COMPOSITE_VERSION = 'eight_k_classifier_v1'` from `src/server/eight_k_classifier.ts`). Matches exec-departure / etf-flow / cross-asset precedents (none have DEFAULT either). The SPEC §6.1 listed `DEFAULT 'eight_k_classifier_v1'` as a safety net but Layer-0 convention is to make the version explicit at the write site (clearer, harder to silently regress).
-`How to apply:` EK-A4 repository's `writeSnapshot` MUST pass `composite_version` in every row. If a future caller omits it, ClickHouse will store `''` (empty LowCardinality) — recognizable failure mode in the snapshot. Watch-out documented.
+Result: v1 `inputs.sectors` is structurally empty; `eight_k_cluster_flag` cold-start = false forever in v1. v2 deliverable is a dedicated slice that ships `quantlab.gics_sector_map` populated from Wikipedia + daily refresh.
+`How to apply:` EK-A5 brief section #14 renders "GICS sector mapping deferred to v2" footer for the aggregate panel; per-ticker section fully active. Identical brief posture to gap #8 §12. F4-A4 (Form 4 repository) follows same posture (already SPEC'd in §5.4).
 
-**S93-25. Pre-check tolerates source-only-present + snapshot-only-present as ok=true.**
-`Why:` Real operator workflows: (a) operator ran EK-A1 standalone migration earlier (source-only-present); (b) operator manually dropped source table for re-ingest but kept snapshot (snapshot-only-present, atypical but legal). Both states proceed to apply normally (CREATE IF NOT EXISTS for each is idempotent). Only `both-present` returns `ok=false` — and even then, `runApply` logs the reason and proceeds (also idempotent). Matches etf-flow A3 logic exactly.
-`How to apply:` Operator running EK-A3 after EK-A1 sees `source absent: ✗ (already present — apply will no-op)` + `snapshot absent: ✓` + `READY to apply.` — both clear DDLs render, and the source CREATE is a no-op. No spurious failures.
+**S93-28. `inputsAvailablePerTicker` count is structurally always 0 in v1 (composite requires sector != null AND cik != '').**
+`Why:` The EK-A2 composite at `src/server/eight_k_classifier.ts:416` counts `inputsAvailablePerTicker` only when `row.sector != null && row.cik !== ''`. Since v1 always passes `sector: null`, this count is always 0 — even when every ticker has a CIK mapping. Same behavior as gap #8 exec-departure (locked in s91; carried).
+`How to apply:` Do NOT "fix" this in A4 by ignoring the sector check at write-time — that would diverge from EK-A2's locked semantic. The EK-A5 brief that renders SPEC §8.1's `"58/60 mid-cap tickers have current CIK mapping"` line must derive that count INDEPENDENTLY from `perTickerRows.filter(r => r.cik !== '').length`, NOT from `inputsAvailablePerTicker`. (Same workaround pattern used in gap #8 brief render.) Watch-out documented in repository module header.
 
-**S93-26. `EXPECTED_COLUMNS_SOURCE` also re-exported by reference from EK-A1.**
-`Why:` Same drift-catch rationale as PLANNED_DDL_SOURCE. If EK-A1 ever adds a column (e.g. `sector` cache), this constant gains it automatically; both pre/post-checks then enforce it correctly. Test asserts `EXPECTED_COLUMNS_SOURCE === EK_A1_EXPECTED_COLUMNS` (reference equality).
-`How to apply:` Adding a column to EK-A1's source table requires updating EK-A1's PLANNED_DDL + EXPECTED_COLUMNS in one place; EK-A3 picks up the change automatically. EK-A4 repository's `readEventsForCycle` SELECT statement is the THIRD place to update (no automatic link — manual reconciliation). Watch-out documented.
+**S93-29. Repository reuses ticker stored on `eight_k_events` row directly (no per-event `cik_ticker_map` JOIN at read time).**
+`Why:` EK-A1 ingest writes resolved `ticker` into the source row (defaults to '' when CIK→ticker fails). Reading `WHERE ticker IN (...)` is direct + cheaper than CH-side JOIN against `cik_ticker_map`. Matches gap #8 exec-departure precedent. The `readCikByTicker` reverse-lookup is for the daemon's `perTicker[i].cik` field only (where the composite needs CIK adjacent to the event panel for the per-ticker payload).
+`How to apply:` Historical-alias semantics: EK-A1 writes CURRENT ticker into row, so a ticker swap mid-window will see the post-swap ticker in CH. The composite uses `row.ticker` (not row.cik) for `distinct(ticker, accession)` sector-aggregate dedup. v2 enhancement could add a ticker-resolver-at-read-time path; v1 trusts ingest-time resolution. Watch-out documented.
 
-### Sessions 84-93 #1-#3 prior decisions (carried)
+**S93-30. EXPLAIN PLAN gates skip cleanly when source tables absent (no spurious failures on fresh checkouts).**
+`Why:` The 4 skipped tests in the EK-A4 test file are EXPLAIN PLAN grammar regressions that target `eight_k_events`, `cik_ticker_map`, `eight_k_classifier_snapshots`. None of these exist on a fresh checkout (operator-applied migrations). The skip-pattern matches `/Unknown table expression identifier.*<table>/` exactly — the test fails ONLY if CH rejects the query for a DIFFERENT reason (e.g. real grammar bug like a52c964). Matches gap #8 / #9 / #10 EXPLAIN test posture.
+`How to apply:` First time the operator runs `npm run edgar:8k-event:ingest:apply` (which lazy-creates `eight_k_events`), the next test run will UN-skip the 2 EXPLAIN tests that target it. Same for `migrate:create-eight-k-classifier-snapshots:apply` (un-skips the loadLatestSnapshot EXPLAIN test).
 
-All prior decisions preserved unchanged. S93-1..S93-21 + S92-1..S92-18 + S91-7..S91-10 + S89/S90 + earlier carry through.
+**S93-31. Daemon step 1k uses two-gate absent-table-safe posture (matches etf-flow 1j).**
+`Why:` Three legal operator-state cases: (a) EK-A1 ingest never run → no `eight_k_events` table → skip with `npm run edgar:8k-event:ingest` nudge; (b) EK-A3 migration not applied → no `eight_k_classifier_snapshots` table → skip with `npm run migrate:create-eight-k-classifier-snapshots:apply` nudge; (c) both present → run. Single-gate (just the snapshot table) would mis-handle case (a) — daemon would run, get empty composite output, write a noise snapshot. Two-gate matches gap #9 etf-flow 1j exactly.
+`How to apply:` Operator's first activation path (per HANDOFF "Gap #7 8-K classifier activation" section): EK-A1 ingest first (creates source via lazy-create OR `migrate:create-eight-k-events:apply`), THEN `migrate:create-eight-k-classifier-snapshots:apply`, THEN daemon picks up step 1k automatically. Operator can run in either order; daemon skips cleanly until both gates clear.
+
+### Sessions 84-93 #1-#4 prior decisions (carried)
+
+All prior decisions preserved unchanged. S93-1..S93-26 + S92-1..S92-18 + S91-7..S91-10 + S89/S90 + earlier carry through.
 
 ## Open questions
 
@@ -99,47 +120,40 @@ All prior decisions preserved unchanged. S93-1..S93-21 + S92-1..S92-18 + S91-7..
 
 ### Closed this turn
 
-- ~~EK-A3 PLANNED_DDL_SOURCE drift-protection mechanism (text-duplication vs import-reference)~~ — RESOLVED per S93-22: import-reference (hard load-time pin; reference equality assertion in test).
-- ~~EK-A3 snapshot DDL: literal SPEC §6.1 vs Layer-0 idiom~~ — RESOLVED per S93-23: Layer-0 idiom (computed_at DateTime64(3), ORDER BY snapshot_date, granularity 8192). Matches all 7 prior Layer-0 snapshots.
-- ~~EK-A3 composite_version DEFAULT clause~~ — RESOLVED per S93-24: NO DEFAULT (daemon always writes explicitly). Matches exec-departure / etf-flow precedents.
-- ~~EK-A3 pre-check tolerance for partial table presence~~ — RESOLVED per S93-25: source-only-present + snapshot-only-present both ok=true; both-present returns ok=false but apply proceeds idempotently.
+- ~~EK-A4 GICS sector activation: v1 vs v2 path~~ — RESOLVED per S93-27: v1 sectors empty; v2 separate slice. Matches gap #8 exec-departure posture exactly.
+- ~~EK-A4 ticker resolution at read time: CH JOIN vs row.ticker direct~~ — RESOLVED per S93-29: use stored `ticker` column from EK-A1 ingest; reverse `readCikByTicker` only for per-ticker payload `cik` field.
+- ~~EK-A4 daemon gate posture (single vs two-table)~~ — RESOLVED per S93-31: two-gate (source `eight_k_events` + snapshot `eight_k_classifier_snapshots`); matches etf-flow 1j.
+- ~~EK-A4 `inputsAvailablePerTicker` semantic conflict with brief render~~ — RESOLVED per S93-28: composite count stays sector-gated (locked at EK-A2); EK-A5 brief computes its own CIK-only count.
 
 ### Newly opened
 
-- **EK-A4 repository read pattern for `eight_k_events`.** SELECT must use subquery-around-FINAL (a52c964 regression class) when reading from a ReplacingMergeTree source. Read window per SPEC §5.1-§5.2: `accepted_at BETWEEN snapshot_date - 90d AND snapshot_date` (90d rolling). The anti-leak gate: filter on `accepted_at <= snapshot_date_eod` (NOT `period_of_report`).
-- **EK-A4 universe filtering at the repository boundary.** Per S93-21: composite is universe-agnostic. EK-A4 repository owns: (a) per-stock universe filter (`quantlab.equity_midcap` membership); (b) sector-aggregate universe filter (`sp500_constituents` PIT-as-of-D). Repository builds the `EightKClassifierInputs.perTicker[]` + `EightKClassifierInputs.sectors[]` arrays from CH-side joins, then hands them to the pure composite.
-- **EK-A4 daemon step 1k hook position.** Per SPEC §7: between etf-flow (1j) and Form 4 (1l). Absent-table-safe (`eight_k_events` may not exist yet on first run — composite returns empty + per-ticker-empty; gated by `NO_MACRO || DRY_RUN`). Chain: `1a → 1b → 1c → 1d cycle → 1e vol → 1f sector → 1g cross-asset → 1h short-interest → 1i exec-departure → 1j etf-flow → 1k eight-k → 1l form-4 → §2 cells/bundles`.
-- **EK-A4 sector baseline window: how far back to read for the 2y z-score baseline?** SPEC §5.2 says "2y baseline" but doesn't pin the exact lookback. Recommendation: 730 calendar days from snapshot_date (matches gap #8 exec-departure A4 + gap #9 etf-flow A4 patterns). Repository builds per-day sector event-rate panel, hands to composite for z-score computation. Implementation choice for EK-A4.
-- **EK-A4 cik_ticker_map reuse.** Per SPEC §6.1 "`cik_ticker_map` is reused unchanged from gap #8 (DDL preserved byte-for-byte)." Repository should JOIN against `quantlab.cik_ticker_map` to resolve `cik → ticker → sector`. Gap #8's exec-departure ingest populates this table on every apply-run; gap #7 EK-A1 also populates it (same DDL).
-- **EK-A4 cold-start cascade timing.** First daemon run after EK-A4 deploys will have empty `eight_k_events` history → all sector z-scores null → `eight_k_cluster_flag = false`. Phase B validation cannot begin for ~6-8 weeks of ingest history. Matches gap #8 / #9 / #10 cold-start posture.
+- **EK-A5 brief section #14 layout.** Per SPEC §8.1: aggregate header (cluster status + top-N sector z-scores), staleness line, flagged-tickers section (material_event with multi-item rendering "restatement (4.02) 12d ago + auditor change (4.01) 18d ago"), universe coverage footer. Top-N truncation = 5 per side. v1 aggregate renders cold-start one-liner (sectors empty → no z-scores at all). Per-ticker section fully active.
 - **EK-A5 byte-equal stdout protection on sections #1-#13.** Section #14 must append AFTER section #13; sections #1-#13 must render byte-equal under fixture conditions. Carries from gap #9 A5 / gap #8 A5 / s89/s90/s91 protection.
+- **EK-A5 composer wiring** — `composeMorningBrief` threads `eightK` snapshot via `Promise.all`; `fetchLatestEightKClassifierFromCH` graceful-degrades on throw; null pass-through renders "not yet evaluated" footer per SPEC §9.6 T-OB-EK-1..T-OB-EK-3.
+- **EK-A5 universe-coverage line: SPEC §8.1 says "58/60 mid-cap tickers have current CIK mapping" — must compute from `perTickerRows.filter(r => r.cik !== '').length`, NOT `inputsAvailablePerTicker`** (per S93-28). Otherwise renders "0/N" in v1 cold-start which is misleading.
+- **EK-A5 multi-item ticker rendering: "ABCD — restatement (4.02) 12d ago + auditor change (4.01) 18d ago"** per SPEC §8.1 + §9.5 T-OBR-EK-7. Multi-flag rendering joins per-item flags with ` + ` separator; per-item flag → label mapping per `ITEM_CODE_FLAG_NAMES` from EK-A2.
 - **First-apply-run EDGAR Item-filter OR-clause behavior.** S93-15 best-guess (`"Item 1.01" OR "Item 2.01" OR ...` in `q=` param). Operator-action verification deferred. Carries from s93 #2.
+- **Cold-start cascade timing for EK arc end-to-end.** First daemon run after EK-A4 deploys + EK-A1 ingest + EK-A3 migration applies will have empty `eight_k_events` history → all per-ticker flags false. Phase B validation cannot begin for ~6-8 weeks of ingest history. Matches gap #8 / #9 / #10 cold-start posture.
 
 ## Next stage
 
 ### Default on "continue"
 
-**Gap #7 EK-A4 — repository + daemon step 1k hook.** Concrete first move:
+**Gap #7 EK-A5 — brief section #14.** Concrete first move:
 
-1. Read `src/server/etf_flow_repository.ts` end-to-end — anchor the gap #9 A4 pattern (universe filtering at repository + daemon-orchestration entry point + writeSnapshot).
-2. Read `src/server/executive_departure_repository.ts` for the gap #8 A4 pattern (closer mechanically to EK-A4 because it joins against `cik_ticker_map`).
-3. Read `scripts/daily_signal_daemon.ts` end-to-end for step 1i (exec-departure) + 1j (etf-flow) wiring — anchor the step 1k hook position.
-4. Create `src/server/eight_k_classifier_repository.ts` (NEW). Per SPEC §7 + §9.2:
-   - `writeSnapshot(ch, snapshot, computedAtMs)` — INSERT one row into `eight_k_classifier_snapshots`; serializes `flagged_sectors_json` + `per_ticker_json` from the composite output; passes `composite_version` explicitly per S93-24.
-   - `readLatest(ch)` — `SELECT ... FINAL` from `eight_k_classifier_snapshots WHERE snapshot_date = (SELECT max(snapshot_date) ...)` returning the most-recent snapshot row, hydrated back to a typed object; null on empty / parse-error (graceful degradation). Subquery-around-FINAL pattern per a52c964.
-   - `eightKClassifierSnapshotsTableExists(ch)` — `SELECT count() FROM system.tables` check; mirrors gap #8 / #9 / #10 helper.
-   - `readEventsForCycle(ch, asOfDate, lookbackDays, universeTickers)` — JOIN `eight_k_events` to `cik_ticker_map` to resolve cik → ticker; filter to universe; subquery-around-FINAL; returns deduped `EightKEvent[]` per the composite's input shape. Anti-leak gate: `accepted_at <= asOfDate + ' 23:59:59'`.
-   - `readSectorBaselinePanel(ch, asOfDate, lookbackDays=730)` — builds per-day sector event-rate panel for the 2y z-score baseline window.
-   - `runDaemonEightKClassifierEvaluation(ch, asOfDate, ...)` — orchestration entry point called by daemon step 1k. Absent-table-safe (early-return empty snapshot on table-missing). Loads inputs → invokes `evaluateEightKClassifierComposite` → calls `writeSnapshot`.
-5. Create `scripts/tests/eightKClassifierRepository.test.ts` (NEW). Per SPEC §9.2: T-EKR-1..N writeSnapshot round-trip / readLatest correctness / table-exists helper / daemon-orchestration end-to-end / subquery-around-FINAL regression / malformed-JSON graceful-degradation / EXPLAIN PLAN regression (skipped when CH unavailable).
-6. Wire daemon step 1k into `scripts/daily_signal_daemon.ts` between step 1j (etf-flow) and the §2 cells/bundles. Absent-table-safe + `NO_MACRO || DRY_RUN` gate.
-7. Extend daemon test (`scripts/tests/dailySignalDaemon.test.ts` or equivalent) to cover step 1k invocation + graceful-degrade.
+1. Read `src/server/operator_brief.ts` end-to-end — anchor `composeMorningBrief` threading + `fetchLatestEtfFlowFromCH` precedent for gap #9 A5 (etf-flow section #13). Pull EK-A4's `loadLatestSnapshot` + `eightKClassifierSnapshotsTableExists` for the read path.
+2. Read `src/server/operator_brief_render.ts` section #13 (etf-flow render) + section #12 (exec-departure render) end-to-end. Section #12 is mechanically closer (per-ticker layer + cold-start aggregate footer).
+3. Read `scripts/tests/operatorBriefRender.test.ts` for the byte-equal protection test pattern (gap #9 A5 added 6 tests; gap #8 A5 added 5).
+4. Write the section #14 render: aggregate header + cold-start footer (sectors empty), staleness line, flagged-tickers section (material_event with multi-item rendering per ITEM_CODE_FLAG_NAMES), universe-coverage footer (compute CIK-only count per S93-28).
+5. Wire `composeMorningBrief` to thread `eightK: EightKClassifierSnapshot | null` via Promise.all; add `fetchLatestEightKClassifierFromCH` graceful-degrade fetch (mirrors `fetchLatestEtfFlowFromCH`).
+6. Add ~7 tests to `scripts/tests/operatorBriefRender.test.ts` per SPEC §9.5 T-OBR-EK-1..T-OBR-EK-7 (byte-equal section #1-#13 + section #14 layout + top-N truncation + cluster=YES rendering + cold-start fallback + no-flagged fallback + staleness arrow + multi-item rendering).
+7. Add ~3 tests to `scripts/tests/operatorBrief.test.ts` per SPEC §9.6 T-OB-EK-1..T-OB-EK-3 (Promise.all threading + graceful-degrade + null pass-through).
 8. Run `npm test` + `pytest` — both must stay green.
-9. Commit as a single EK-A4 slice.
+9. Commit as a single EK-A5 slice.
 
-### After EK-A4 lands
+### After EK-A5 lands
 
-Standard arc: EK-A5 (brief section #14). Then F4-A1 → F4-A5. Each commits as its own slice.
+Gap #7 EK arc complete end-to-end. Standard arc continues: F4-A1 → F4-A2 → F4-A3 → F4-A4 → F4-A5. Each commits as its own slice.
 
 ### After both EK + F4 arcs ship
 
@@ -156,20 +170,28 @@ Operator-pickable deferred insertions:
 
 ## Files / code state
 
-### NEW this turn (s93 part 4)
+### NEW this turn (s93 part 5)
 
 | Path | Status | Notes |
 | --- | --- | --- |
-| `scripts/migrate_create_eight_k_classifier_snapshots.ts` | NEW (`58cc98f`) | ~265 LOC. Co-bootstrap migration per SPEC §6.1. Exports: `DATABASE`, `SNAPSHOT_TABLE`, `SOURCE_TABLE` (re-export), `PLANNED_DDL_SNAPSHOT`, `PLANNED_DDL_SOURCE` (re-export from EK-A1), `EXPECTED_COLUMNS_SNAPSHOT`, `EXPECTED_COLUMNS_SOURCE` (re-export from EK-A1), `runPreChecks`, `runPostChecks`, `main`. Snapshot DDL: 10 columns (snapshot_date Date, computed_at DateTime64(3), last_edgar_query_at Nullable(DateTime), bd_since_last_query Nullable(Int32), eight_k_cluster_flag UInt8, flagged_sectors_json String, per_ticker_json String, inputs_available_aggregate UInt32, inputs_available_per_ticker UInt32, composite_version LowCardinality(String)); ENGINE = ReplacingMergeTree(computed_at); ORDER BY (snapshot_date); granularity 8192. |
-| `scripts/tests/migrateCreateEightKClassifierSnapshots.test.ts` | NEW (`58cc98f`) | ~325 LOC, 49 tests. T-EKM-1..T-EKM-4 + identity + byte-pins (incl. cross-migration parity) + EXPECTED_COLUMNS alignment + FakeClickHouse pre/post-checks + EXPLAIN PLAN grammar gate. |
-| `package.json` | EDITED (`58cc98f`) | +2 npm scripts: `migrate:create-eight-k-classifier-snapshots{:apply}`. |
-| `.claude/HANDOFF.md` | EDITED (this commit) | Rewritten from scratch for end-of-EK-A3 state. |
+| `src/server/eight_k_classifier_repository.ts` | NEW (`39b6024`) | ~480 LOC. Repository per SPEC §7 + §9.2. Methods: `readLatestAcceptedAt`, `readEventsForTickersInWindow`, `readSp500ConstituentsPIT`, `readEquityMidcapWatchUniverse`, `readCikByTicker`, `readInputsForCycle`, `writeSnapshot`, `loadLatestSnapshot`. Module-level: `eightKClassifierSnapshotsTableExists`, `eightKEventsTableExists`, `businessDaysBetween`, `runDaemonEightKClassifierEvaluation`. Constants: `EVENT_WINDOW_DAYS=90`, `BASELINE_CALENDAR_DAYS=730`, `COMPOSITE_ITEM_CODES=HIGH_SIGNAL_ITEM_CODES` (re-export). |
+| `scripts/tests/eightKClassifierRepository.test.ts` | NEW (`39b6024`) | ~640 LOC, 53 tests. T-EKR-1..T-EKR-Nplus6 + parity helpers + 5 EXPLAIN PLAN grammar gates. 49 pass + 4 skipped (EXPLAIN gates defer when source tables absent). |
+| `scripts/daily_signal_daemon.ts` | EDITED (`39b6024`) | +1 import block (`EightKClassifierRepository` + 2 module probes + orchestrator); +1 step-1k block (~45 LOC) between step 1j etf-flow and §2 cells/bundles. Two-gate absent-table-safe + `NO_MACRO` / `DRY_RUN` gated. |
+| `.claude/HANDOFF.md` | EDITED (this commit) | Rewritten from scratch for end-of-EK-A4 state. |
+
+### From s93 #4 (carried; unchanged)
+
+| Path | Status | Notes |
+| --- | --- | --- |
+| `scripts/migrate_create_eight_k_classifier_snapshots.ts` | EXISTS (`58cc98f`) | ~265 LOC. Co-bootstrap migration per SPEC §6.1. |
+| `scripts/tests/migrateCreateEightKClassifierSnapshots.test.ts` | EXISTS (`58cc98f`) | ~325 LOC, 49 tests. |
+| `package.json` | EDITED (`58cc98f`) | `migrate:create-eight-k-classifier-snapshots{:apply}` scripts. |
 
 ### From s93 #3 (carried; unchanged)
 
 | Path | Status | Notes |
 | --- | --- | --- |
-| `src/server/eight_k_classifier.ts` | EXISTS (`1879b32`) | ~370 LOC. Pure composite `eight_k_classifier_v1`. |
+| `src/server/eight_k_classifier.ts` | EXISTS (`1879b32`) | ~370 LOC. Pure composite `eight_k_classifier_v1`. **Now imported-by-repository for `evaluateEightKClassifierComposite` + `HIGH_SIGNAL_ITEM_CODES` + types.** |
 | `scripts/tests/eightKClassifier.test.ts` | EXISTS (`1879b32`) | ~470 LOC, 58 tests. |
 
 ### From s93 #2 (carried; unchanged)
@@ -178,7 +200,7 @@ Operator-pickable deferred insertions:
 | --- | --- | --- |
 | `scripts/_sec_edgar_helpers.py` | EXISTS (`79b3ffa`) | ~350 LOC. Shared EDGAR helpers per SPEC §2.1 EDF-10. |
 | `scripts/sec_edgar_8k_event_ingest.py` | EXISTS (`79b3ffa`) | ~370 LOC. Broader 8-K item ingest per SPEC §2.2. |
-| `scripts/migrate_create_eight_k_events.ts` | EXISTS (`79b3ffa`) | ~210 LOC. Source-table standalone migration. **Now imported-by-reference from EK-A3.** |
+| `scripts/migrate_create_eight_k_events.ts` | EXISTS (`79b3ffa`) | ~210 LOC. Source-table standalone migration. Imported-by-reference from EK-A3. |
 | `scripts/tests/test_sec_edgar_8k_event_ingest.py` | EXISTS (`79b3ffa`) | 25 tests. |
 | `scripts/sec_edgar_8k_item_5_02_ingest.py` | EXISTS (`79b3ffa`) | Refactored to use helpers; gap-#8 28 tests stay byte-green. |
 | `scripts/help.ts` | EXISTS (`79b3ffa`) | +2 EXTRA_HELP entries. |
@@ -206,8 +228,8 @@ All s91 files (`executive_departure*`, EDGAR ingest, brief section #12) preserve
 - `quantlab.executive_departure_snapshots` — migration script exists; not yet applied.
 - `quantlab.etf_shares_outstanding` — NOT yet created. A1 ingest creates it lazily; A3 migration ALSO creates it idempotently via co-bootstrap.
 - `quantlab.etf_flow_snapshots` — NOT yet created. A3 migration script exists; not yet applied.
-- `quantlab.eight_k_events` — NOT yet created. EK-A1 ingest creates it lazily on first `--apply`; EK-A1 standalone migration also creates it idempotently; **EK-A3 co-bootstrap also creates it idempotently (third entry-point).**
-- **`quantlab.eight_k_classifier_snapshots` — NOT yet created. EK-A3 migration script exists; not yet applied.**
+- `quantlab.eight_k_events` — NOT yet created. EK-A1 ingest creates it lazily on first `--apply`; EK-A1 standalone migration also creates it idempotently; EK-A3 co-bootstrap also creates it idempotently (three entry-points).
+- `quantlab.eight_k_classifier_snapshots` — NOT yet created. EK-A3 migration script exists; not yet applied.
 - `quantlab.insider_trades` — NOT yet created (gap #7 F4-A1 will create).
 - `quantlab.insider_ciks` — NOT yet created (gap #7 F4-A1 will create).
 - `quantlab.form_4_insider_snapshots` — NOT yet created (gap #7 F4-A3 will create).
@@ -215,28 +237,28 @@ All s91 files (`executive_departure*`, EDGAR ingest, brief section #12) preserve
 ### Tests
 
 ```text
-npm test                       2490 / 2471 pass / 0 fail / 19 skipped   ✓ (+49 vs s93 #3 end — all EK-A3 tests are TS)
+npm test                       2543 / 2520 pass / 0 fail / 23 skipped   ✓ (+53 vs s93 #4 end — all EK-A4 tests are TS; 49 pass + 4 skipped EXPLAIN gates)
 npx tsc --noEmit               13 errors (unchanged baseline — pre-existing _-prefixed files)
 npm run check:help             ✓ green
-.venv/Scripts/python.exe -m pytest scripts/tests   259 / 259 (unchanged from s93 #3 end — EK-A3 added 0 Python tests)
+.venv/Scripts/python.exe -m pytest scripts/tests   259 / 259 (unchanged from s93 #4 end — EK-A4 added 0 Python tests)
 ```
 
 ## Watch-outs
 
-### NEW from this turn (s93 #4)
+### NEW from this turn (s93 #5)
 
-- **Source-table DDL `PLANNED_DDL_SOURCE` is re-exported by import-reference from EK-A1's `PLANNED_DDL`.** Per S93-22. Strongest possible drift catch — text divergence is impossible because there's only one string. Any change to EK-A1's PLANNED_DDL flows here automatically. **EK-A4 repository's `readEventsForCycle` SELECT statement is the THIRD reference to the source columns — no automatic link; PR review must reconcile manually if source DDL ever changes.**
-- **`EXPECTED_COLUMNS_SOURCE` also re-exported by reference from EK-A1's `EXPECTED_COLUMNS`.** Per S93-26. Same drift-catch rationale. Reference equality asserted by test.
-- **Snapshot DDL deviates from SPEC §6.1 literal text.** Per S93-23. DDL uses `ENGINE = ReplacingMergeTree(computed_at)` (not `ingested_at`) + `ORDER BY (snapshot_date)` (not `(snapshot_date, composite_version)`) + granularity 8192. Matches s89-s91 Layer-0 idiom across all 7 prior snapshots. **EK-A4 writeSnapshot MUST pass `computed_at` explicitly per write (use `Date.now()` ms-precision DateTime64).**
-- **`composite_version` has NO DEFAULT clause.** Per S93-24. EK-A4 writeSnapshot MUST pass `composite_version` explicitly in every row. If a future caller omits it, ClickHouse stores empty string in the LowCardinality column — silent failure mode. Test fixture for EK-A4 should assert the value is `'eight_k_classifier_v1'` (from `EIGHT_K_CLASSIFIER_COMPOSITE_VERSION` constant).
-- **EK-A3 co-bootstraps `eight_k_events` ALONGSIDE the EK-A1 standalone migration.** Three entry-points now create the source table: (a) Python ingest lazy-create; (b) EK-A1 standalone migration `migrate_create_eight_k_events.ts`; (c) EK-A3 co-bootstrap. All three use CREATE IF NOT EXISTS — idempotent. Operator running EK-A3 after EK-A1 sees source CREATE as a no-op + snapshot CREATE as a real create. Pre-check correctly reports source-only-present + snapshot-absent as `ok=true → READY to apply.`
-- **Pre-check returns `ok=false` only when BOTH tables already present.** Per S93-25. Even in this case, runApply proceeds (logs the reason, then runs CREATE IF NOT EXISTS for both — both no-ops). No spurious failures from re-running the migration. Matches etf-flow A3 logic byte-for-byte.
+- **`inputsAvailablePerTicker` from composite is STRUCTURALLY 0 in v1.** Per S93-28. EK-A5 brief render MUST compute its own "ticker has CIK" count from `perTickerRows.filter(r => r.cik !== '').length` instead of using `inputsAvailablePerTicker`. Otherwise the brief renders "0/60 with CIK mapping" which is misleading (every ticker has a CIK in production cold-start). Documented in repository module header.
+- **Repository reuses `ticker` stored on `eight_k_events` row at read time (no per-event CIK JOIN).** Per S93-29. EK-A1 ingest writes resolved ticker (defaults to '' on resolver failure). The `readCikByTicker` reverse-lookup is for the daemon's per-ticker `cik` payload field only — composite-side filtering uses `row.ticker`. Historical aliases: EK-A1 writes CURRENT ticker, so post-swap tickers see the new symbol; v2 enhancement could add a ticker-resolver-at-read-time path.
+- **Daemon step 1k uses two-gate posture (source + snapshot).** Per S93-31. Operator running EK-A3 migration first (without EK-A1 ingest) sees daemon log `[eight-k] source table absent` — clear nudge to run `npm run edgar:8k-event:ingest`. Running EK-A1 first (without EK-A3 migration) sees `[eight-k] snapshots table absent`. Either order works; both gates close = step 1k fires.
+- **EXPLAIN PLAN tests skip cleanly when source tables absent.** Per S93-30. The 4 skipped tests target `eight_k_events`, `cik_ticker_map`, `eight_k_classifier_snapshots`. Skip-pattern matches `/Unknown table expression identifier.*<table>/` — fails ONLY on a DIFFERENT CH grammar error. First operator-run of `edgar:8k-event:ingest:apply` un-skips 2 tests; `migrate:create-eight-k-classifier-snapshots:apply` un-skips 1.
+- **GICS sector deferral in v1 (sectors empty → eight_k_cluster_flag never fires).** Per S93-27. Per-ticker layer fully active (90d high-signal-item flags + material_event_flag disjunction); aggregate layer cold-start forever in v1. v2 deliverable: separate slice that ships `quantlab.gics_sector_map` + populates `inputs.sectors`. Composite math already implemented + tested.
+- **Repository `composite_version` written explicitly per row (no DDL DEFAULT).** Per S93-24 carried. EK-A4 writeSnapshot passes `snapshot.version` directly into `composite_version` column. Test pins to `'eight_k_classifier_v1'`. If a future caller omits it, CH stores empty LowCardinality string.
 
-### Carried (s89-s93 #1-#3 + earlier)
+### Carried (s89-s93 #1-#4 + earlier)
 
 All prior watch-outs preserved unchanged. Key carry-overs:
 
-- 68 commits ahead of `origin/main`; push is operator-gated.
+- 69 commits ahead of `origin/main`; push is operator-gated.
 - yfinance `get_shares_full` API surface (caught in `ticker_factory` test seam at A1).
 - yfinance `Ticker.info` rate-limit risk on tight loops (21 calls/day fine).
 - `quantlab.daily_bars` does NOT exist; daily OHLCV is in `quantlab.candles`. A1 sidesteps by fetching close directly from yfinance.
@@ -244,10 +266,10 @@ All prior watch-outs preserved unchanged. Key carry-overs:
 - `build_panel` drops pre-first-print rows (no leading carry-forward target).
 - `cycle_v1` composite continues rendering as Layer-5 LLM context only.
 - ADR-041 `yield_curve_inverted` implementation NOT yet started.
-- Repository reads use subquery-around-FINAL pattern (a52c964 regression class) — **EK-A4 MUST follow this pattern for `eight_k_events` reads.**
+- Repository reads use subquery-around-FINAL pattern (a52c964 regression class) — **EK-A4 follows this byte-for-byte for `eight_k_events`, `cik_ticker_map`, `eight_k_classifier_snapshots` reads.**
 - Short-interest Path A4-β shim is in the repository layer ONLY; A2 composite math is dimensionally agnostic.
 - A4 GICS-sector resolution (gap #8) is structurally dormant; v2 activation defined.
-- `accepted_at` vs `period_of_report` is the load-bearing anti-leak gate (gap #8 E-7 + gap #7 EDF-5 + F4-10) — **EK-A4 MUST filter on `accepted_at <= snapshot_date_eod`.**
+- `accepted_at` vs `period_of_report` is the load-bearing anti-leak gate (gap #8 E-7 + gap #7 EDF-5 + F4-10) — **EK-A4 filters on `accepted_at <= asOf` in BOTH `readLatestAcceptedAt` and `readEventsForTickersInWindow`.**
 - Item 5.02 sub-item parsing requires per-filing body fetch (gap #8 A1) — gap #7 EK-A1 does NOT (item-level only per EK-2; cheaper).
 - 8-K storage duplication of 5.02 events between `executive_departures` (gap #8) + `eight_k_events` (gap #7) is INTENTIONAL per EK-5; do not "consolidate."
 - CIK ≠ CUSIP (separate tables; both ReplacingMergeTree).
@@ -255,16 +277,16 @@ All prior watch-outs preserved unchanged. Key carry-overs:
 - Form 4 v1 OMITS Cohen-Malloy-Pomorski opportunistic-vs-routine classifier per F4-1.
 - Form 4 cluster threshold: 3 distinct insiders in 30 calendar days per F4-2.
 - Form 4 transaction-code filter: open-market "P" + "S" only per F4-4.
-- A5 byte-equal protection on sections #1-#13 PLUS planned #14 (8-K) + #15 (Form 4) appended at tail.
+- A5 byte-equal protection on sections #1-#13 (PLUS planned #14 (8-K) + #15 (Form 4) appended at tail).
 - `runFredFetch` is NOT unit-tested directly — only `buildFredFetchArgs` is.
-- F-CADENCE staleness flag (`bd_since_last_query > 3`) lives in A2 composite + threaded by A4 repository + rendered by A5 — **EK-A4 must surface `bd_since_last_query` in the snapshot row.**
+- F-CADENCE staleness flag (`bd_since_last_query > 3`) lives in EK-A2 composite + threaded by EK-A4 repository (via `bdSinceLastQuery`) + rendered by EK-A5 (pending). EK-A4 writes `bdSinceLastQuery` into the snapshot row per CH schema.
 - HYG/JNK/TLT/GLD overlap with cross-asset composite — Phase B independence-testing gate (>0.7 correlation = demote).
 - ETF splits (rare; GLD 1:10 in 2008) — `auto_adjust=True` on yfinance history handles close side.
 - 21-element panel-length invariant: `computeFlowDollar20bd` throws on wrong panel length.
 - Sample vs population stddev split (`computeZ` uses n-1; `computeSectorFlowDispersion` uses N).
 - Cold-start cascade in aggregate: single missing sector ETF → `sector_flow_dispersion = null`.
-- DDL drift between A1 and A3 source-table creation (must stay byte-identical; PR review must catch drift) — **SOLVED at the load-time level for EK-A3 via import-reference (S93-22).** EK-A1 standalone + EK-A3 co-bootstrap both reference the same string literal.
-- `composite_version` vs `version` mapping at the A4 write boundary (load-bearing translation).
+- DDL drift between EK-A1 source-table CREATE and EK-A3 co-bootstrap — SOLVED at load-time level via import-reference (S93-22 carried).
+- `composite_version` vs `version` mapping at the EK-A4 write boundary (load-bearing translation, tested).
 - CREATE IF NOT EXISTS is idempotent BUT silent on schema drift (type-drift not caught; operator must ALTER manually).
 - bdSinceShareUpdate is ingest-staleness proxy not raw-shares-update tracker.
 - Float32 downcast at writeSnapshot boundary (silent until precision matters) — **EK-A4 has no Float scalars on the snapshot row; this watch-out does NOT apply to the EK arc.**
@@ -284,10 +306,10 @@ All prior watch-outs preserved unchanged. Key carry-overs:
 ### Daily-keep-it-fresh
 
 ```text
-npm run daemon:daily                                    # all 7 Layer-0 composites; will gain 8-K + Form 4 hooks at EK-A4 + F4-A4
+npm run daemon:daily                                    # all 7 Layer-0 composites + 8-K classifier (step 1k) when both EK gates clear; will gain Form 4 hook at F4-A4
 npm run audit:positions
 npx tsx scripts/_paper_trading_review.ts
-npm run brief:morning                                   # sections #7-#13 with real data once migrations applied; #14 + #15 added by EK-A5 + F4-A5
+npm run brief:morning                                   # sections #7-#13 with real data once migrations applied; #14 added by EK-A5; #15 added by F4-A5
 ```
 
 ### Gap #9 etf-flow activation (FULLY READY end-to-end)
@@ -323,26 +345,26 @@ npm run daemon:daily       # step 1i fires
 npm run brief:morning      # section #12 renders
 ```
 
-### Gap #7 8-K classifier activation (EK-A1+A2+A3 READY; EK-A4+A5 pending)
+### Gap #7 8-K classifier activation (EK-A1+A2+A3+A4 READY end-to-end; EK-A5 brief pending)
 
 ```text
 # EK-A1 ingest (READY):
 npm run edgar:8k-event:ingest:dry
 npm run edgar:8k-event:ingest
 
-# EK-A1 source-table standalone migration (READY — idempotent):
+# EK-A1 source-table standalone migration (READY — idempotent; optional, ingest lazy-creates):
 npm run migrate:create-eight-k-events
 npm run migrate:create-eight-k-events:apply
 
-# EK-A2 composite (READY — pure-function; no operator-runnable npm script yet):
-# Importable from src/server/eight_k_classifier.ts; EK-A4 daemon hook will call it.
+# EK-A2 composite (READY — pure-function; called by EK-A4 daemon hook):
+# Importable from src/server/eight_k_classifier.ts; no operator-runnable npm script.
 
 # EK-A3 snapshot-table migration co-bootstrap (READY — idempotent; creates BOTH eight_k_events + eight_k_classifier_snapshots):
 npm run migrate:create-eight-k-classifier-snapshots
 npm run migrate:create-eight-k-classifier-snapshots:apply
 
-# EK-A4 (PENDING — daemon step 1k):
-npm run daemon:daily       # step 1k will fire
+# EK-A4 daemon step 1k (READY — both gates absent-table-safe):
+npm run daemon:daily       # step 1k fires once EK-A1 source + EK-A3 snapshot tables present
 
 # EK-A5 (PENDING — brief section #14):
 npm run brief:morning      # section #14 will render
@@ -369,7 +391,7 @@ npm run brief:morning      # section #15 will render
 ### Tests + dev
 
 ```text
-npm test                                                                       # TS — 2490 / 2471 pass / 0 fail / 19 skipped
+npm test                                                                       # TS — 2543 / 2520 pass / 0 fail / 23 skipped
 .venv/Scripts/python.exe -m pytest scripts/tests                               # Python — 259 / 259
 npm run dev                                                                    # http://localhost:3000
 npm run check:help                                                             # FULLY GREEN
@@ -377,14 +399,15 @@ npm run check:help                                                             #
 
 ## For the next session — priority order
 
-**Recommended immediate continuation:** Gap #7 EK-A4 — repository + daemon step 1k hook. Single atomic slice:
+**Recommended immediate continuation:** Gap #7 EK-A5 — brief section #14. Single atomic slice:
 
-1. **(Read)** `src/server/etf_flow_repository.ts` + `src/server/executive_departure_repository.ts` (gap #9 + gap #8 A4 precedents; gap #8 is closer mechanically because of `cik_ticker_map` JOIN).
-2. **(Read)** `scripts/daily_signal_daemon.ts` step 1i + 1j wiring — anchor step 1k hook position.
-3. **(Write)** `src/server/eight_k_classifier_repository.ts` (NEW) per SPEC §7 + §9.2. Methods: `writeSnapshot`, `readLatest`, `eightKClassifierSnapshotsTableExists`, `readEventsForCycle` (subquery-around-FINAL + `accepted_at <= asOfDate EOD` anti-leak), `readSectorBaselinePanel` (730d lookback for 2y z-score baseline), `runDaemonEightKClassifierEvaluation` (absent-table-safe orchestration).
-4. **(Tests)** `scripts/tests/eightKClassifierRepository.test.ts` per SPEC §9.2 T-EKR-1..N+6.
-5. **(Daemon)** Wire step 1k into `daily_signal_daemon.ts` between 1j and §2 cells/bundles. Absent-table-safe + `NO_MACRO || DRY_RUN` gate. Extend daemon test for step 1k.
-6. **(Gates)** `npm test` + `pytest` green; commit as EK-A4 slice.
+1. **(Read)** `src/server/operator_brief.ts` `composeMorningBrief` + `fetchLatestEtfFlowFromCH` precedent.
+2. **(Read)** `src/server/operator_brief_render.ts` section #13 (etf-flow) + section #12 (exec-departure — mechanically closer).
+3. **(Read)** `scripts/tests/operatorBriefRender.test.ts` byte-equal protection pattern (gap #9 A5 + gap #8 A5).
+4. **(Write)** Section #14 render in `operator_brief_render.ts`: aggregate header (cold-start one-liner since sectors empty in v1) + staleness line + flagged-tickers section (multi-item rendering per ITEM_CODE_FLAG_NAMES) + universe-coverage footer (CIK-only count per S93-28).
+5. **(Wire)** `composeMorningBrief` threading via Promise.all; `fetchLatestEightKClassifierFromCH` graceful-degrade.
+6. **(Tests)** ~7 tests for section #14 per SPEC §9.5 T-OBR-EK-1..T-OBR-EK-7; ~3 tests for composer per SPEC §9.6 T-OB-EK-1..T-OB-EK-3.
+7. **(Gates)** `npm test` + `pytest` green; commit as EK-A5 slice (closes gap #7 EK arc).
 
 **Pejman decisions carried + queued:**
 
@@ -394,7 +417,7 @@ npm run check:help                                                             #
 - ADR-041 implementation slot (operator-pickable insertion).
 - Gap #8 v2 enhancement — GICS sector activation (operator-pickable insertion).
 - Gap #9 v2 enhancement — ETF.com / issuer-CSV cross-validation + per-ETF panel threading (operator-pickable insertion).
-- Push 68 commits to origin/main (operator-gated, HOLD).
+- Push 69 commits to origin/main (operator-gated, HOLD).
 
 **Calendar-gated:**
 
@@ -417,13 +440,15 @@ npm run check:help                                                             #
 
 ## Important framing for the next chat
 
-s93 #4 lands the third infrastructure slice of the gap #7 event-driven-filings-processor arc — the snapshot-table migration. Co-bootstrap pattern (gap #9 A3 precedent) creates BOTH `eight_k_events` (source) AND `eight_k_classifier_snapshots` idempotently. PLANNED_DDL_SOURCE is byte-pinned to EK-A1's standalone-migration constant by direct import-reference — strongest possible drift catch (text divergence is impossible because there's only one string in memory). Snapshot DDL applies the s89-s91 Layer-0 idiom deviations (computed_at DateTime64(3) version key, ORDER BY snapshot_date, granularity 8192) consistent with the 7 prior Layer-0 snapshot tables.
+s93 #5 lands the fourth infrastructure slice of the gap #7 event-driven-filings-processor arc — the repository + daemon step 1k hook. The 8-K classifier is now fully runnable end-to-end: EK-A1 ingests events → EK-A2 composite math (pure) → EK-A3 migration schema → EK-A4 repository + daemon orchestration. The brief panel at EK-A5 is the last slice before the EK arc is feature-complete.
 
-**The next session's default behavior on "continue":** read this HANDOFF's "Next stage" section, open EK-A4. Build `src/server/eight_k_classifier_repository.ts` per SPEC §7 + §9.2 — universe-filtering at the repository boundary, subquery-around-FINAL reads, `accepted_at <= asOfDate EOD` anti-leak, 730d sector baseline window, absent-table-safe daemon orchestration. Wire step 1k into `daily_signal_daemon.ts`. Single atomic slice (matches gap #8 / #9 / #10 A4 atomicity).
+v1 GICS-sector deferral mirrors gap #8 exec-departure exactly: `inputs.sectors` structurally empty, `eight_k_cluster_flag` cold-start forever in v1. Per-ticker layer (90d high-signal item flags + material_event_flag disjunction) fully active. v2 GICS activation is a separate slice (operator-pickable insertion after both arcs ship).
+
+**The next session's default behavior on "continue":** read this HANDOFF's "Next stage" section, open EK-A5. Build section #14 render in `operator_brief_render.ts` mirroring gap #8 section #12 closely (per-ticker layer dominant; aggregate cold-start one-liner). Thread the snapshot via `composeMorningBrief` with `fetchLatestEightKClassifierFromCH` graceful-degrade. ~10 new tests. Single atomic slice (matches gap #8 / #9 / #10 A5 atomicity).
 
 **Parallel-tracks posture continues.** s93 did NOT affect C-12 / paper-trading / real-money-flip arcs.
 
-**The chain through s93 #4:**
+**The chain through s93 #5:**
 
 ```text
 ALL S41-S91 WORK                                       ✓ as documented
@@ -439,9 +464,11 @@ S93 #2 HANDOFF rewrite                                 ✓ committed (ca0f20b)
 S93 #3: gap #7 EK-A2 — pure composite                  ✓ committed (1879b32)
 S93 #3 HANDOFF rewrite                                 ✓ committed (ffb4881)
 S93 #4: gap #7 EK-A3 — snapshot-table migration        ✓ committed (58cc98f)
-S93 #4 HANDOFF rewrite (this commit)                   ✓ this commit
-  → next: gap #7 EK-A4 — repository + daemon step 1k hook
-  → gap #7 EK arc: A1 ✓ → A2 ✓ → A3 ✓ → A4 → A5 (brief #14)
+S93 #4 HANDOFF rewrite                                 ✓ committed (449406a)
+S93 #5: gap #7 EK-A4 — repository + daemon step 1k     ✓ committed (39b6024)
+S93 #5 HANDOFF rewrite (this commit)                   ✓ this commit
+  → next: gap #7 EK-A5 — brief section #14 (closes EK arc)
+  → gap #7 EK arc: A1 ✓ → A2 ✓ → A3 ✓ → A4 ✓ → A5
   → gap #7 F4 arc: A1 → A2 → A3 → A4 (daemon 1l) → A5 (brief #15)
   → operator-pickable insertions: ADR-041 impl, gap #8 v2 GICS, gap #9 v2 cross-validation,
                                    gap #7 v2 CMP classifier (calendar-gated),
@@ -449,5 +476,6 @@ S93 #4 HANDOFF rewrite (this commit)                   ✓ this commit
   → background: daemon writes per-cycle snapshots for all 7 Layer-0 composites
                 that have applied migrations (cycle, vol-struct, sector-rot,
                 cross-asset, short-interest, exec-departure, etf-flow);
-                adding 2 more once gap #7 EK + F4 arcs ship (8-K classifier, Form 4 insider)
+                adding 8-K classifier once EK-A1 source + EK-A3 migration applied
+                (step 1k now fires); adding Form 4 insider once F4 arc ships.
 ```
