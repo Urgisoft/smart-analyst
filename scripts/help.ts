@@ -83,6 +83,8 @@ const EXTRA_HELP: HelpEntry[] = [
   { npm: 'fred:ingest:dry',                    category: 'Data ingestion', what: 'Dry-run of `fred:ingest` — fetch without writing.' },
   { npm: 'finra:short-interest:ingest',        category: 'Data ingestion', what: 'FINRA biweekly equity short interest CSV → quantlab.short_interest (+ quantlab.cusip_ticker_map cache). SPEC docs/specs/short-interest-tracking.md §3 + §10 Phase A1. Supports --url / --from-file when the default endpoint 404s. Symbol-keyed; CUSIP optional.' },
   { npm: 'finra:short-interest:ingest:dry',    category: 'Data ingestion', what: 'Dry-run of `finra:short-interest:ingest` — fetch + parse without writing.' },
+  { npm: 'edgar:exec-departure:ingest',        category: 'Data ingestion', what: 'SEC EDGAR 8-K Item 5.02 filings → quantlab.executive_departures (+ quantlab.cik_ticker_map cache). SPEC docs/specs/executive-departure-signal.md §3 + §10 Phase A1. Supports --url / --from-file when the default endpoint 404s; --start-date / --end-date / --snapshot-date / --user-agent flags available.' },
+  { npm: 'edgar:exec-departure:ingest:dry',    category: 'Data ingestion', what: 'Dry-run of `edgar:exec-departure:ingest` — fetch + parse without writing.' },
 
   // Phase 2 behavioral-clustering pipeline (Python)
   { npm: 'features:weekly',                    category: 'Data ingestion', what: 'Phase 2 §5.1 — compute 8-feature point-in-time token features → quantlab.token_features_weekly. Idempotent under (token_address, week_start, feature_version).', example: 'python scripts/compute_token_features_weekly.py --week-start 2026-04-27 --feature-version v1' },
