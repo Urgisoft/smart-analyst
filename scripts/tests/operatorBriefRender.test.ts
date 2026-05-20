@@ -66,6 +66,7 @@ function brief(overrides?: Partial<MorningBrief>): MorningBrief {
     sectorRotation: null,
     crossAsset: null,
     shortInterest: null,
+    executiveDeparture: null,
     ...overrides,
   };
 }
@@ -1603,5 +1604,280 @@ describe('renderBriefMarkdown — short-interest panel', () => {
     assert.ok(crossIdx > -1, 'expected cross-asset section');
     assert.ok(siIdx > -1, 'expected short-interest section');
     assert.ok(siIdx > crossIdx, 'short-interest must render after cross-asset section');
+  });
+});
+
+// ───── executive-departure panel (SPEC docs/specs/executive-departure-signal.md §3) ─────
+
+describe('renderBriefMarkdown — executive-departure panel', () => {
+  it('renders the "not yet evaluated" panel when executiveDeparture is null', () => {
+    const md = renderBriefMarkdown(brief({ executiveDeparture: null }));
+    assert.match(md, /## 12\. Executive departures — not yet evaluated/);
+    assert.match(md, /quantlab\.executive_departure_snapshots.*empty/);
+    assert.match(md, /migrate:create-executive-departure-snapshots:apply/);
+  });
+
+  it('renders CLUSTER header when executiveClusterDeparture is true', () => {
+    const md = renderBriefMarkdown(brief({
+      executiveDeparture: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [{
+          sector: 'Information Technology', sectorSize: 70,
+          departureRateT: 0.057, z: 2.4, baselineSize: 503,
+        }],
+        executiveClusterDeparture: true,
+        perTickerRows: [],
+        inputsAvailableAggregate: 503,
+        inputsAvailablePerTicker: 58,
+        compositeVersion: 'exec_departure_v1',
+      },
+    }));
+    assert.match(md, /## 12\. Executive departures — CLUSTER/);
+  });
+
+  it('renders NORMAL header when executiveClusterDeparture is false', () => {
+    const md = renderBriefMarkdown(brief({
+      executiveDeparture: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        executiveClusterDeparture: false,
+        perTickerRows: [],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 58,
+        compositeVersion: 'exec_departure_v1',
+      },
+    }));
+    assert.match(md, /## 12\. Executive departures — NORMAL/);
+  });
+
+  it('renders the v1 GICS-deferred footer when flaggedSectors is empty', () => {
+    const md = renderBriefMarkdown(brief({
+      executiveDeparture: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        executiveClusterDeparture: false,
+        perTickerRows: [],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 58,
+        compositeVersion: 'exec_departure_v1',
+      },
+    }));
+    assert.match(md, /GICS sector mapping deferred to v2/);
+    assert.match(md, /SPEC §11 OQ-2/);
+  });
+
+  it('renders the flagged-sectors table when sectors are flagged', () => {
+    const md = renderBriefMarkdown(brief({
+      executiveDeparture: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [{
+          sector: 'Information Technology', sectorSize: 70,
+          departureRateT: 0.057, z: 2.4, baselineSize: 503,
+        }, {
+          sector: 'Energy', sectorSize: 23,
+          departureRateT: 0.087, z: -2.1, baselineSize: 503,
+        }],
+        executiveClusterDeparture: true,
+        perTickerRows: [],
+        inputsAvailableAggregate: 503,
+        inputsAvailablePerTicker: 58,
+        compositeVersion: 'exec_departure_v1',
+      },
+    }));
+    assert.match(md, /Information Technology \| 5\.7% \| \+2\.40σ \| 503 \| 70/);
+    assert.match(md, /Energy \| 8\.7% \| -2\.10σ \| 503 \| 23/);
+  });
+
+  it('renders staleness warning when bdSinceLastQuery >= 4', () => {
+    const md = renderBriefMarkdown(brief({
+      executiveDeparture: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-12T13:25:00Z',
+        bdSinceLastQuery: 5,
+        flaggedSectors: [],
+        executiveClusterDeparture: false,
+        perTickerRows: [],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 58,
+        compositeVersion: 'exec_departure_v1',
+      },
+    }));
+    assert.match(md, /stale \(≥4bd\)/);
+  });
+
+  it('omits staleness warning when bdSinceLastQuery < 4', () => {
+    const md = renderBriefMarkdown(brief({
+      executiveDeparture: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        executiveClusterDeparture: false,
+        perTickerRows: [],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 58,
+        compositeVersion: 'exec_departure_v1',
+      },
+    }));
+    assert.doesNotMatch(md, /stale \(≥4bd\)/);
+  });
+
+  it('renders no-EDGAR-data fallback when lastEdgarQueryAt is null', () => {
+    const md = renderBriefMarkdown(brief({
+      executiveDeparture: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: null,
+        bdSinceLastQuery: null,
+        flaggedSectors: [],
+        executiveClusterDeparture: false,
+        perTickerRows: [],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 0,
+        compositeVersion: 'exec_departure_v1',
+      },
+    }));
+    assert.match(md, /Last EDGAR query:\*\* — \(run `npm run edgar:exec-departure:ingest:apply`/);
+  });
+
+  it('renders "No tickers flagged." when no flags fire', () => {
+    const md = renderBriefMarkdown(brief({
+      executiveDeparture: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        executiveClusterDeparture: false,
+        perTickerRows: [
+          { ticker: 'AAPL', cik: '0000320193', sector: null,
+            recentDepartureCount90d: 0, recentAppointmentCount90d: 0,
+            daysSinceLatestDeparture: null,
+            executiveDepartureFlag: false, executiveAppointmentFlag: false },
+        ],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 58,
+        compositeVersion: 'exec_departure_v1',
+      },
+    }));
+    assert.match(md, /No tickers flagged\./);
+  });
+
+  it('renders flagged tickers table with departures + appointments', () => {
+    const md = renderBriefMarkdown(brief({
+      executiveDeparture: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        executiveClusterDeparture: false,
+        perTickerRows: [
+          { ticker: 'ABCD', cik: '0000111111', sector: null,
+            recentDepartureCount90d: 1, recentAppointmentCount90d: 0,
+            daysSinceLatestDeparture: 14,
+            executiveDepartureFlag: true, executiveAppointmentFlag: false },
+          { ticker: 'XYZW', cik: '0000222222', sector: null,
+            recentDepartureCount90d: 0, recentAppointmentCount90d: 1,
+            daysSinceLatestDeparture: null,
+            executiveDepartureFlag: false, executiveAppointmentFlag: true },
+        ],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 58,
+        compositeVersion: 'exec_departure_v1',
+      },
+    }));
+    assert.match(md, /\| executive_departure \| ABCD \| 1 \| 14d ago \|/);
+    assert.match(md, /\| executive_appointment \| XYZW \| 1 \| — \|/);
+  });
+
+  it('truncates flagged tickers at top N=5 per category and notes the remainder', () => {
+    const departureRows = Array.from({ length: 7 }, (_, i) => ({
+      ticker: `D${i}`, cik: `00000${i}`, sector: null,
+      recentDepartureCount90d: 1, recentAppointmentCount90d: 0,
+      daysSinceLatestDeparture: i + 1,
+      executiveDepartureFlag: true, executiveAppointmentFlag: false,
+    }));
+    const md = renderBriefMarkdown(brief({
+      executiveDeparture: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        executiveClusterDeparture: false,
+        perTickerRows: departureRows,
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 58,
+        compositeVersion: 'exec_departure_v1',
+      },
+    }));
+    assert.match(md, /Truncated at top 5 per category/);
+    assert.match(md, /2 more executive_departure/);
+  });
+
+  it('renders the universe coverage line + v1 GICS caveat', () => {
+    const md = renderBriefMarkdown(brief({
+      executiveDeparture: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        executiveClusterDeparture: false,
+        perTickerRows: [],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 58,
+        compositeVersion: 'exec_departure_v1',
+      },
+    }));
+    assert.match(md, /Universe coverage: 58 watch-universe tickers have CIK mapping/);
+    assert.match(md, /v1: always 0 — GICS deferred/);
+    assert.match(md, /Composite: `exec_departure_v1`/);
+    assert.match(md, /INFORMATIONAL — does NOT fire a regime category in v1/);
+  });
+
+  it('renders the evaluatedAt + snapshotDate footer', () => {
+    const md = renderBriefMarkdown(brief({
+      executiveDeparture: {
+        evaluatedAt: '2026-05-19T13:30:00.123Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        executiveClusterDeparture: false,
+        perTickerRows: [],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 0,
+        compositeVersion: 'exec_departure_v1',
+      },
+    }));
+    assert.match(md, /Last evaluated: `2026-05-19T13:30:00\.123Z` · snapshot date: `2026-05-19`/);
+  });
+
+  it('section ordering: executive-departure renders AFTER short-interest (byte-equal protection)', () => {
+    const md = renderBriefMarkdown(brief({
+      cyclePosition: null, volStructure: null, sectorRotation: null,
+      crossAsset: null, shortInterest: null, executiveDeparture: null,
+    }));
+    const siIdx = md.indexOf('## 11.');
+    const edIdx = md.indexOf('## 12.');
+    assert.ok(siIdx > -1, 'expected short-interest section');
+    assert.ok(edIdx > -1, 'expected executive-departure section');
+    assert.ok(edIdx > siIdx, 'executive-departure must render after short-interest section');
   });
 });

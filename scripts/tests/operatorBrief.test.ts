@@ -765,3 +765,76 @@ describe('composeMorningBrief — short-interest section wiring', () => {
     assert.equal(brief.shortInterest, null);
   });
 });
+
+describe('composeMorningBrief — executive-departure section wiring', () => {
+  it('executiveDeparture=null when fetchLatestExecutiveDeparture returns null', async () => {
+    const brief = await composeMorningBrief({
+      fetchRegimeState: async () => stubRegime(),
+      fetchPaperTradingState: async () => stubPaper(),
+      fetchLastDaemonRun: async () => stubDaemonRow(),
+      fetchCellAllowlists: async () => new Map(),
+      fetchClosedTrades: async () => [],
+      fetchLatestExecutiveDeparture: async () => null,
+      now: () => FIXED_NOW,
+    });
+    assert.equal(brief.executiveDeparture, null);
+  });
+
+  it('executiveDeparture populated when fetchLatestExecutiveDeparture returns a snapshot', async () => {
+    const brief = await composeMorningBrief({
+      fetchRegimeState: async () => stubRegime(),
+      fetchPaperTradingState: async () => stubPaper(),
+      fetchLastDaemonRun: async () => stubDaemonRow(),
+      fetchCellAllowlists: async () => new Map(),
+      fetchClosedTrades: async () => [],
+      fetchLatestExecutiveDeparture: async () => ({
+        snapshotDate: new Date('2026-05-19T13:30:00Z'),
+        lastEdgarQueryAt: new Date('2026-05-19T13:25:00Z'),
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        executiveClusterDeparture: false,
+        perTickerRows: [
+          {
+            ticker: 'AAPL', cik: '0000320193', sector: null,
+            recentDepartureCount90d: 1, recentAppointmentCount90d: 1,
+            daysSinceLatestDeparture: 14,
+            executiveDepartureFlag: true, executiveAppointmentFlag: true,
+          },
+        ],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 58,
+        version: 'exec_departure_v1',
+      }),
+      now: () => FIXED_NOW,
+    });
+    assert.ok(brief.executiveDeparture !== null);
+    assert.equal(brief.executiveDeparture!.snapshotDate, '2026-05-19');
+    assert.equal(brief.executiveDeparture!.lastEdgarQueryAt, '2026-05-19T13:25:00.000Z');
+    assert.equal(brief.executiveDeparture!.bdSinceLastQuery, 0);
+    assert.equal(brief.executiveDeparture!.executiveClusterDeparture, false);
+    assert.equal(brief.executiveDeparture!.flaggedSectors.length, 0);
+    assert.equal(brief.executiveDeparture!.perTickerRows.length, 1);
+    assert.equal(brief.executiveDeparture!.perTickerRows[0].ticker, 'AAPL');
+    assert.equal(brief.executiveDeparture!.perTickerRows[0].executiveDepartureFlag, true);
+    assert.equal(brief.executiveDeparture!.compositeVersion, 'exec_departure_v1');
+  });
+
+  it('executiveDeparture=null when the explicit fetcher rejects (graceful degrade)', async () => {
+    const brief = await composeMorningBrief({
+      fetchRegimeState: async () => stubRegime(),
+      fetchPaperTradingState: async () => stubPaper(),
+      fetchLastDaemonRun: async () => stubDaemonRow(),
+      fetchCellAllowlists: async () => new Map(),
+      fetchClosedTrades: async () => [],
+      fetchLatestExecutiveDeparture: async () => {
+        try {
+          throw new Error('simulated CH read failure');
+        } catch {
+          return null;
+        }
+      },
+      now: () => FIXED_NOW,
+    });
+    assert.equal(brief.executiveDeparture, null);
+  });
+});

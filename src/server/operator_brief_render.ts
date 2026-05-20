@@ -264,6 +264,15 @@ export interface MorningBrief {
    * sections 1-10.
    */
   shortInterest: BriefShortInterestSection | null;
+  /**
+   * Executive-departure composite — informational Layer-0 context.
+   * SPEC: docs/specs/executive-departure-signal.md §3 (brief panel) +
+   * §1 non-goal #1 (does NOT fire a regime category in v1; informational).
+   * `null` when the table is absent or empty.
+   * APPENDED as section #12 to preserve byte-equal-stdout protection on
+   * sections 1-11.
+   */
+  executiveDeparture: BriefExecutiveDepartureSection | null;
 }
 
 /**
@@ -462,6 +471,63 @@ export const SHORT_INTEREST_FLAGGED_TOP_N = 5;
 /** Staleness threshold for the bd-since-publication warning (SPEC §8 sample). */
 export const SHORT_INTEREST_STALENESS_BD_THRESHOLD = 14;
 
+/**
+ * Executive-departure panel — informational Layer-0 context.
+ * SPEC: docs/specs/executive-departure-signal.md §§3, 5, 8.
+ *
+ * v1 GICS-sector resolution (SPEC §11 OQ-2 canon-thin fork; see
+ * src/server/executive_departure_repository.ts module header for the
+ * three-criterion analysis): the aggregate-sector layer is structurally
+ * inactive. `flaggedSectors` is always empty in v1; `executiveClusterDeparture`
+ * is always false. The renderer emits a "GICS sector mapping deferred to v2"
+ * footer for the aggregate panel. Per-ticker layer is fully active.
+ */
+export interface BriefExecutiveDepartureSection {
+  /** Composite computation timestamp (ISO 8601). */
+  evaluatedAt: string;
+  /** Snapshot date (YYYY-MM-DD). */
+  snapshotDate: string;
+  /** ISO 8601 of the most-recent EDGAR acceptance ≤ asOf (null pre-ingest). */
+  lastEdgarQueryAt: string | null;
+  /** Business days between lastEdgarQueryAt and asOf (null pre-ingest). */
+  bdSinceLastQuery: number | null;
+  /** Sectors with |z| > 2.0 (v1: always empty — see module note). */
+  flaggedSectors: ReadonlyArray<{
+    sector: string;
+    sectorSize: number;
+    departureRateT: number;
+    z: number;
+    baselineSize: number;
+  }>;
+  /** Flag: ANY sector has |z| > 2.0 (v1: always false — see module note). */
+  executiveClusterDeparture: boolean;
+  /** Per-ticker rows for the watch universe. */
+  perTickerRows: ReadonlyArray<{
+    ticker: string;
+    cik: string;
+    sector: string | null;
+    recentDepartureCount90d: number;
+    recentAppointmentCount90d: number;
+    daysSinceLatestDeparture: number | null;
+    executiveDepartureFlag: boolean;
+    executiveAppointmentFlag: boolean;
+  }>;
+  /** Count of SPY-500 constituents with usable sector mapping (v1: always 0). */
+  inputsAvailableAggregate: number;
+  /** Count of watch-universe tickers with CIK + sector mapping (v1 counts only CIK). */
+  inputsAvailablePerTicker: number;
+  /** Composite version stamp ('exec_departure_v1' in v1). */
+  compositeVersion: string;
+}
+
+/** Top-N flagged tickers shown in section #12 (SPEC §8). */
+export const EXECUTIVE_DEPARTURE_FLAGGED_TOP_N = 5;
+
+/** Staleness threshold for the bd-since-last-query warning. EDGAR is real-
+ *  time (4bd statutory deadline) — a 4bd+ gap means the daemon's ingest is
+ *  stale. */
+export const EXECUTIVE_DEPARTURE_STALENESS_BD_THRESHOLD = 4;
+
 /** Render the brief as operator-facing markdown. Pure. */
 export function renderBriefMarkdown(brief: MorningBrief): string {
   const parts: string[] = [];
@@ -488,6 +554,8 @@ export function renderBriefMarkdown(brief: MorningBrief): string {
   parts.push(renderCrossAssetSection(brief));
   parts.push('');
   parts.push(renderShortInterestSection(brief));
+  parts.push('');
+  parts.push(renderExecutiveDepartureSection(brief));
   parts.push('');
   return parts.join('\n');
 }
@@ -1362,6 +1430,152 @@ function formatShortInterestPct(v: number | null): string {
 function formatShortInterestD2c(v: number | null): string {
   if (v == null || !Number.isFinite(v)) return '—';
   return v.toFixed(1);
+}
+
+/**
+ * Section #12 — executive-departure composite. Informational only in v1
+ * (SPEC §1 non-goal #1).
+ *
+ * v1 GICS-sector deferral: the aggregate-sector panel renders a brief
+ * "deferred to v2" note instead of a flagged-sectors table. Per-ticker
+ * layer renders fully (top-N executive_departure / executive_appointment
+ * flags + universe coverage). See SPEC §11 OQ-2.
+ */
+function renderExecutiveDepartureSection(b: MorningBrief): string {
+  const lines: string[] = [];
+  if (b.executiveDeparture === null) {
+    lines.push(`## 12. Executive departures — not yet evaluated`);
+    lines.push(``);
+    lines.push(
+      `\`quantlab.executive_departure_snapshots\` is empty (or absent). ` +
+      `Apply \`npm run migrate:create-executive-departure-snapshots:apply\` and run ` +
+      `\`npm run daemon:daily\` to populate. ` +
+      `SPEC: docs/specs/executive-departure-signal.md §3.`,
+    );
+    return lines.join('\n');
+  }
+  const s = b.executiveDeparture;
+  const clusterLabel = s.executiveClusterDeparture ? 'CLUSTER' : 'NORMAL';
+  lines.push(`## 12. Executive departures — ${clusterLabel}`);
+  lines.push(``);
+
+  // Aggregate sector panel (v1: deferred).
+  if (s.flaggedSectors.length === 0) {
+    lines.push(
+      `**Aggregate (SPY 500 by GICS sector):** GICS sector mapping deferred ` +
+      `to v2 (SPEC §11 OQ-2). Aggregate-cluster panel inactive in v1; the ` +
+      `composite math is implemented + tested but the sector-slicing input ` +
+      `requires a follow-on slice (either A1-extended SIC capture or a ` +
+      `separate \`quantlab.gics_sector_map\` table).`,
+    );
+  } else {
+    lines.push(`**Aggregate (SPY 500 by GICS sector):** ` +
+      `${s.flaggedSectors.length} sector(s) with |z| > 2.0`);
+    lines.push(``);
+    lines.push(`| Sector | Rate | z | Baseline n | Constituents |`);
+    lines.push(`|---|---|---|---|---|`);
+    for (const f of s.flaggedSectors) {
+      const ratePct = (f.departureRateT * 100).toFixed(1);
+      const zStr = `${f.z >= 0 ? '+' : ''}${f.z.toFixed(2)}σ`;
+      lines.push(`| ${f.sector} | ${ratePct}% | ${zStr} | ${f.baselineSize} | ${f.sectorSize} |`);
+    }
+  }
+  // Staleness indicator.
+  if (s.lastEdgarQueryAt != null) {
+    const bdSince = s.bdSinceLastQuery;
+    const staleSuffix =
+      bdSince != null && bdSince >= EXECUTIVE_DEPARTURE_STALENESS_BD_THRESHOLD
+        ? ` ⚠ stale (≥${EXECUTIVE_DEPARTURE_STALENESS_BD_THRESHOLD}bd)`
+        : '';
+    lines.push(
+      `**Last EDGAR query:** ${s.lastEdgarQueryAt}` +
+      ` (${bdSince != null ? `${bdSince} business days ago` : '—'})${staleSuffix}`,
+    );
+  } else {
+    lines.push(
+      `**Last EDGAR query:** — (run \`npm run edgar:exec-departure:ingest:apply\` to populate)`,
+    );
+  }
+  lines.push(``);
+
+  // Per-ticker flagged rows.
+  const departed = s.perTickerRows
+    .filter(r => r.executiveDepartureFlag)
+    .sort((a, b) => sortByRecency(a.daysSinceLatestDeparture, b.daysSinceLatestDeparture))
+    .slice(0, EXECUTIVE_DEPARTURE_FLAGGED_TOP_N);
+  const appointed = s.perTickerRows
+    .filter(r => r.executiveAppointmentFlag)
+    .sort((a, b) => sortByCount(b.recentAppointmentCount90d, a.recentAppointmentCount90d))
+    .slice(0, EXECUTIVE_DEPARTURE_FLAGGED_TOP_N);
+  const totalDeparted = s.perTickerRows.filter(r => r.executiveDepartureFlag).length;
+  const totalAppointed = s.perTickerRows.filter(r => r.executiveAppointmentFlag).length;
+
+  lines.push(`### Flagged tickers (universe: equity-midcap)`);
+  lines.push(``);
+  if (departed.length === 0 && appointed.length === 0) {
+    lines.push(`No tickers flagged.`);
+  } else {
+    lines.push(`| Flag | Ticker | Count (90d) | Days since latest |`);
+    lines.push(`|---|---|---|---|`);
+    for (const r of departed) {
+      lines.push(
+        `| executive_departure | ${r.ticker} | ${r.recentDepartureCount90d} ` +
+        `| ${formatDaysSince(r.daysSinceLatestDeparture)} |`,
+      );
+    }
+    for (const r of appointed) {
+      lines.push(
+        `| executive_appointment | ${r.ticker} | ${r.recentAppointmentCount90d} | — |`,
+      );
+    }
+    if (totalDeparted > departed.length || totalAppointed > appointed.length) {
+      lines.push(``);
+      const extras: string[] = [];
+      if (totalDeparted > departed.length) {
+        extras.push(`${totalDeparted - departed.length} more executive_departure`);
+      }
+      if (totalAppointed > appointed.length) {
+        extras.push(`${totalAppointed - appointed.length} more executive_appointment`);
+      }
+      lines.push(
+        `_Truncated at top ${EXECUTIVE_DEPARTURE_FLAGGED_TOP_N} per category ` +
+        `(${extras.join(' · ')} not shown — query \`quantlab.executive_departure_snapshots\` for the full list)._`,
+      );
+    }
+  }
+  lines.push(``);
+  lines.push(
+    `_Universe coverage: ${s.inputsAvailablePerTicker} watch-universe tickers ` +
+    `have CIK mapping · ${s.inputsAvailableAggregate} aggregate constituents have ` +
+    `usable sector mapping (v1: always 0 — GICS deferred)._`,
+  );
+  lines.push(
+    `_Composite: \`${s.compositeVersion}\` ` +
+    `(v1 reads SEC EDGAR 8-K Item 5.02(b)/(c) only per SPEC E-2; ` +
+    `aggregate-sector layer dormant per §11 OQ-2). ` +
+    `INFORMATIONAL — does NOT fire a regime category in v1 (SPEC §1 non-goal #1)._`,
+  );
+  lines.push(``);
+  lines.push(
+    `_Last evaluated: \`${s.evaluatedAt}\` · snapshot date: \`${s.snapshotDate}\`._`,
+  );
+  return lines.join('\n');
+}
+
+function sortByRecency(a: number | null, b: number | null): number {
+  if (a == null && b == null) return 0;
+  if (a == null) return 1;   // nulls last
+  if (b == null) return -1;
+  return a - b;              // smaller = more recent
+}
+
+function sortByCount(a: number, b: number): number {
+  return a - b;
+}
+
+function formatDaysSince(v: number | null): string {
+  if (v == null) return '—';
+  return `${v}d ago`;
 }
 
 /**

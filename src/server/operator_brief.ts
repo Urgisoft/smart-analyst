@@ -72,6 +72,11 @@ import {
   shortInterestSnapshotsTableExists,
 } from './short_interest_repository.js';
 import type { ShortInterestSnapshot } from './short_interest.js';
+import {
+  ExecutiveDepartureRepository,
+  executiveDepartureSnapshotsTableExists,
+} from './executive_departure_repository.js';
+import type { ExecutiveDepartureSnapshot } from './executive_departure.js';
 import { DEPLOYMENT_STAGES } from './capital_deployment_config.js';
 import {
   computePerCellCapital,
@@ -90,6 +95,7 @@ import type {
   BriefDaemonSection,
   BriefDrawdownSection,
   BriefDrawdownStrategyRow,
+  BriefExecutiveDepartureSection,
   BriefSectorRotationSection,
   BriefShortInterestSection,
   BriefStageSection,
@@ -246,6 +252,14 @@ export interface BriefDeps {
    */
   fetchLatestShortInterest?: () => Promise<ShortInterestSnapshot | null>;
   /**
+   * Executive-departure composite reader. Defaults to
+   * `ExecutiveDepartureRepository.loadLatestSnapshot()`, returning null
+   * when `quantlab.executive_departure_snapshots` is absent or empty.
+   * SPEC: docs/specs/executive-departure-signal.md §3. Tests stub to drive
+   * the panel deterministically.
+   */
+  fetchLatestExecutiveDeparture?: () => Promise<ExecutiveDepartureSnapshot | null>;
+  /**
    * Kill-criteria daily history probe — true iff
    * `quantlab.kill_criteria_daily` exists. Drives the brief stage panel's
    * "streak source" warning (SPEC docs/specs/kill-criteria-daily-history.md
@@ -300,6 +314,8 @@ export async function composeMorningBrief(deps?: Partial<BriefDeps>): Promise<Mo
     deps?.fetchLatestCrossAsset ?? fetchLatestCrossAssetFromCH;
   const fetchLatestShortInterest =
     deps?.fetchLatestShortInterest ?? fetchLatestShortInterestFromCH;
+  const fetchLatestExecutiveDeparture =
+    deps?.fetchLatestExecutiveDeparture ?? fetchLatestExecutiveDepartureFromCH;
   // Critic H-2 (SPEC docs/specs/kill-criteria-daily-history.md §10) — probe
   // the table at compose time so the stage panel can surface "streak source"
   // when the daemon falls back to the rolling-asOf shortcut. Defaulted via
@@ -310,7 +326,7 @@ export async function composeMorningBrief(deps?: Partial<BriefDeps>): Promise<Mo
     deps?.fetchCellWeightsForBrief ?? defaultFetchCellWeightsForBrief;
   const now = deps?.now ?? (() => new Date());
 
-  const [regime, paper, lastRun, allowlists, closedTrades, latestDrawdown, latestDrawdownPerStrategy, latestStage, killCritDailyPresent, latestCyclePosition, latestVolStructure, latestSectorRotation, latestCrossAsset, latestShortInterest] = await Promise.all([
+  const [regime, paper, lastRun, allowlists, closedTrades, latestDrawdown, latestDrawdownPerStrategy, latestStage, killCritDailyPresent, latestCyclePosition, latestVolStructure, latestSectorRotation, latestCrossAsset, latestShortInterest, latestExecutiveDeparture] = await Promise.all([
     fetchRegime({ asOf: null, lookbackDays: LOOKBACK_DAYS_DEFAULT }),
     fetchPaper({ runHistoryLimit: 14 }),
     fetchDaemon(),
@@ -325,6 +341,7 @@ export async function composeMorningBrief(deps?: Partial<BriefDeps>): Promise<Mo
     fetchLatestSectorRotation(),
     fetchLatestCrossAsset(),
     fetchLatestShortInterest(),
+    fetchLatestExecutiveDeparture(),
   ]);
 
   if (!regime.biasNote || !regime.biasNote.body) {
@@ -372,6 +389,7 @@ export async function composeMorningBrief(deps?: Partial<BriefDeps>): Promise<Mo
   const sectorRotation = buildSectorRotationSection(latestSectorRotation);
   const crossAsset = buildCrossAssetSection(latestCrossAsset);
   const shortInterest = buildShortInterestSection(latestShortInterest);
+  const executiveDeparture = buildExecutiveDepartureSection(latestExecutiveDeparture);
 
   return {
     generatedAt: now().toISOString().slice(0, 19) + 'Z',
@@ -391,6 +409,7 @@ export async function composeMorningBrief(deps?: Partial<BriefDeps>): Promise<Mo
     sectorRotation,
     crossAsset,
     shortInterest,
+    executiveDeparture,
   };
 }
 
@@ -602,6 +621,48 @@ async function fetchLatestShortInterestFromCH(): Promise<ShortInterestSnapshot |
   try {
     if (!(await shortInterestSnapshotsTableExists())) return null;
     const repo = new ShortInterestRepository();
+    return await repo.loadLatestSnapshot();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Build the morning-brief executive-departure section from the repository
+ * snapshot. Returns null when no snapshot exists yet; the renderer handles
+ * null with a friendly "not yet evaluated" message. Mirrors
+ * buildShortInterestSection structurally.
+ */
+export function buildExecutiveDepartureSection(
+  snapshot: ExecutiveDepartureSnapshot | null,
+): BriefExecutiveDepartureSection | null {
+  if (snapshot === null) return null;
+  return {
+    evaluatedAt: snapshot.snapshotDate.toISOString(),
+    snapshotDate: snapshot.snapshotDate.toISOString().slice(0, 10),
+    lastEdgarQueryAt: snapshot.lastEdgarQueryAt != null
+      ? snapshot.lastEdgarQueryAt.toISOString()
+      : null,
+    bdSinceLastQuery: snapshot.bdSinceLastQuery,
+    flaggedSectors: snapshot.flaggedSectors,
+    executiveClusterDeparture: snapshot.executiveClusterDeparture,
+    perTickerRows: snapshot.perTickerRows,
+    inputsAvailableAggregate: snapshot.inputsAvailableAggregate,
+    inputsAvailablePerTicker: snapshot.inputsAvailablePerTicker,
+    compositeVersion: snapshot.version,
+  };
+}
+
+/**
+ * Default fetcher for the morning-brief executive-departure section.
+ * Mirrors the cycle-position / vol-structure / sector-rotation / cross-asset
+ * / short-interest graceful-degrade posture — returns null on absent table
+ * OR any read error.
+ */
+async function fetchLatestExecutiveDepartureFromCH(): Promise<ExecutiveDepartureSnapshot | null> {
+  try {
+    if (!(await executiveDepartureSnapshotsTableExists())) return null;
+    const repo = new ExecutiveDepartureRepository();
     return await repo.loadLatestSnapshot();
   } catch {
     return null;
