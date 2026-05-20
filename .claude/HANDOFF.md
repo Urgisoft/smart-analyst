@@ -1,12 +1,12 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-05-19 (session 92 continued — **gap #9 A2 (pure composite + 57 tests) landed** as commit `e4592fe`. Full TS suite at 2267/2267 pass / 0 fail / 15 skipped (57 new). 52 commits ahead of `origin/main`, push still held. **Slice queue: gap #9 A3 (CH migration for `etf_flow_snapshots` + tests) NEXT**, then A4 (repository + daemon step 1j), A5 (brief section #13), then gap #7 event-driven-filings-processor (Form 4 lands there per gap #8 E-11).)
+Last updated: 2026-05-19 (session 92 continued — **gap #9 A3 (CH migration + 41 tests) landed** as commit `41ab834`. Full TS suite at 2293/2293 pass / 0 fail / 15 skipped (+41 new). 59 commits ahead of `origin/main`, push still held. **Slice queue: gap #9 A4 (repository + daemon step 1j + tests) NEXT**, then A5 (brief section #13), then gap #7 event-driven-filings-processor (Form 4 lands there per gap #8 E-11).)
 
 ## What this turn delivered
 
-Third commit at the head of the gap #9 etf-flow-monitoring arc (s92 #1 was SPEC `20da333`, s92 #2 was A1 ingest `ab724db`, this is s92 #3):
+Fourth slice at the head of the gap #9 etf-flow-monitoring arc (s92 #1 was SPEC `20da333`, s92 #2 was A1 ingest `ab724db`, s92 #3 was A2 composite `e4592fe`, this is s92 #4):
 
-1. **A2 — pure composite** — commit `e4592fe`. `src/server/etf_flow.ts` (~430 LOC) + `scripts/tests/etfFlow.test.ts` (~480 LOC, 57 tests across the 20 SPEC §9.1 T-EF-N items + orchestrator integration + constants sanity). All tests pass; full TS suite 2267/2267 (0 new failures). tsc baseline holds at 13 errors (unchanged, all pre-existing).
+1. **A3 — CH migration for both `etf_flow_snapshots` AND co-bootstrap of `etf_shares_outstanding`** — commit `41ab834`. `scripts/migrate_create_etf_flow_snapshots.ts` (~290 LOC) + `scripts/tests/migrateCreateEtfFlowSnapshots.test.ts` (~310 LOC, 41 tests across SPEC §9.3 T-EFM-1..T-EFM-4 + byte-pins on both DDLs + dual-table runPreChecks/runPostChecks). All tests pass; full TS suite 2293/2293; check:help exit 0.
 
 ## Where we are
 
@@ -20,9 +20,9 @@ Third commit at the head of the gap #9 etf-flow-monitoring arc (s92 #1 was SPEC 
 | Gap #8 executive-departure-signal arc | ✓ DONE end-to-end (s91) |
 | Gap #9 etf-flow-monitoring SPEC + teach-doc | ✓ DONE (s92 commit `20da333`) |
 | Gap #9 A1 (yfinance shares-outstanding ingest) | ✓ DONE (s92 commit `ab724db`) |
-| **Gap #9 A2 (pure composite + 57 tests)** | **✓ DONE (s92 commit `e4592fe`)** |
-| **Gap #9 A3 (CH migration for `etf_flow_snapshots` + tests)** | **☐ NEXT** |
-| Gap #9 A4 (repository + daemon step 1j + tests) | ☐ queued |
+| Gap #9 A2 (pure composite + 57 tests) | ✓ DONE (s92 commit `e4592fe`) |
+| **Gap #9 A3 (CH migration for both tables + 41 tests)** | **✓ DONE (s92 commit `41ab834`)** |
+| **Gap #9 A4 (repository + daemon step 1j + tests)** | **☐ NEXT** |
 | Gap #9 A5 (brief section #13 + tests) | ☐ queued |
 | Gap #7 event-driven-filings-processor | ☐ queued after gap #9 (Form 4 lands here per #8 E-11) |
 | Gap #8 v2 enhancement — GICS sector mapping activation | ☐ deferred (operator-pickable insertion) |
@@ -31,31 +31,23 @@ Third commit at the head of the gap #9 etf-flow-monitoring arc (s92 #1 was SPEC 
 | Phase B for cycle/vol/sector/cross-asset/short-interest/exec-departure/etf-flow | ⏸ deferred — calendar OR backfill arc |
 | #5 capital-deployment-ramp ADR | ☐ operator self-assigned ~1 week; not blocking |
 | Drawdown framework §12 90d empirical retune | ☐ scheduled — earliest 2026-08-29 |
-| Push 52 commits to origin/main | ☐ operator-gated, HOLD |
+| Push 59 commits to origin/main | ☐ operator-gated, HOLD |
 
 ## Decisions locked in
 
-### Session 92 part 3 (this turn, this commit)
+### Session 92 part 4 (this turn, this commit)
 
-**S92-6. Per-ETF input shape: pre-assembled 21-element shares + closes panels.**
-`Why:` The composite needs (a) shares_t, (b) shares_{t-20bd}, (c) the full 20-day daily-flow sum for the BFM 2018 fn 7 attribution-correct dollar flow. All three needs are satisfied by passing one 21-element panel per ETF where index 0 = D-20bd and index 20 = D. Carry-forward (F-CADENCE) is applied at the repository layer BEFORE the input is built — the pure function consumes the post-carry-forward panel. This keeps the composite IO-free + matches the s89/s90/s91 pattern of "repository does data assembly; composite does math only."
-`How to apply:` A4 repository must build exactly 21 elements per ETF after carry-forward. `computeFlowDollar20bd` throws on wrong length (fail-loud per Vector Core canon — a silent mis-attribution would be worse than a crash). A backfill arc that fetches a partial panel will surface the partial-fill via this throw.
+**S92-9. A3 migration creates BOTH tables idempotently (T-EFM-4 compliance).**
+`Why:` SPEC §9.3 T-EFM-4 specifies "Both tables (etf_shares_outstanding, etf_flow_snapshots) created idempotently" — the migration is the canonical single-entry-point for the operator. A1's `ensure_etf_shares_outstanding_table` lazy-creates the source on first ingest run, but having both CREATE IF NOT EXISTS clauses in one migration script means an operator can `npm run migrate:create-etf-flow-snapshots:apply` once and bootstrap the entire gap-#9 storage layer without needing to interleave with the Python ingest run. The source-table DDL is byte-identical to A1's `ensure_etf_shares_outstanding_table` in `scripts/etf_flow_ingest.py:141-153`; if A1 ran first, the migration is a true no-op.
+`How to apply:` `PLANNED_DDL_SNAPSHOT` + `PLANNED_DDL_SOURCE` constants both byte-pinned + tests assert against each independently. `runPreChecks` reports per-table presence; `runPostChecks` per-table column verification. Drift between A1's DDL and the migration's source DDL must be caught at PR review time (no automated cross-check; both are private to gap #9).
 
-**S92-7. Population stddev (divide by N) for `sector_flow_dispersion`; sample stddev (divide by N-1) for `flow_z` z-scoring.**
-`Why:` Semantic split: `sector_flow_dispersion` measures the spread across the 11 SPDR sector ETFs as a CROSS-SECTIONAL property at a single snapshot date — those 11 sectors ARE the population (the SPDR sector ETF universe), not a sample drawn from a larger population. Sample stddev's `n-1` Bessel correction is appropriate for unbiased estimation FROM a sample, which is the wrong framing here. Conversely, `flow_z` z-scoring against the 1y trailing baseline IS a sample-stddev question (the 1y panel is a sample of the population of possible daily prints). The SPEC F-5 threshold (>2.0) is empirically anchored; either choice would shift the threshold marginally but the semantic split is the clean answer.
-`How to apply:` `computeSectorFlowDispersion` divides by N (population). `computeZ` divides by N-1 (sample). Both formulas pinned in `src/server/etf_flow.ts`; test fixtures verify both.
+**S92-10. Snapshot-table DDL follows the s89-s91 Layer-0 idiom over raw SPEC §6.**
+`Why:` Five deviations from raw SPEC §6 inherited from s89/s90/s91 precedent — (a) **Float32 not Float64** for `sector_flow_dispersion` + `aggregate_risk_on_flow` (z-scores typically ±5 range, Float32 ≈7-decimal precision is sufficient, halves storage); (b) **`DateTime64(3) computed_at`** as ReplacingMergeTree version key instead of SPEC's `ingested_at DateTime DEFAULT now()` (millisecond-resolution dedup keys); (c) **`composite_version`** column name not `version` (matches s88-s91); (d) **`ORDER BY (snapshot_date)`** without version in the sort key (composite_version is LowCardinality(String), version bumps are rare); (e) **`index_granularity = 8192`** not SPEC's 1024 (Layer-0 default). Source-table DDL preserves SPEC §6 + A1 byte-identical (index_granularity=1024, source DEFAULT 'yfinance', materialized aum Float64).
+`How to apply:` A4 repository writes will need explicit `composite_version` field (not `version`) when writing to the snapshot table; the A2 `EtfFlowSnapshot.version` TypeScript field will be mapped at the repository write boundary, matching the s91 exec-departure A4 pattern. The Float32 downcast for `sector_flow_dispersion` / `aggregate_risk_on_flow` is implicit (ClickHouse coerces); explicit `toFloat32()` not strictly required but consider for forward-explicit typing.
 
-**S92-8. `flagged_etfs` deduplication via ticker Set; dedup-belt-and-suspenders even though repository delivers one row per ticker.**
-`Why:` An ETF satisfying BOTH the divergence condition AND |flow_z|>2 would appear twice in a naive concat. The SPEC §5.3 `flagged_etfs` shape implies one entry per ticker. The dedupe is also defensive against an accidental duplicate-ticker row from a future repository bug.
-`How to apply:` `flaggedSeen` Set in `evaluateEtfFlowComposite`; first-row-wins on duplicates.
+### Session 92 parts 1-3 (carried)
 
-### Session 92 part 2 (carried — A1 ingest commit `ab724db`)
-
-**S92-3 through S92-5** carried unchanged: yfinance-direct close fetch (not `daily_bars`), `ticker_factory` test-seam pattern, T-EFI-8 partial-failure non-aborting semantics.
-
-### Session 92 part 1 (carried — SPEC commit `20da333`)
-
-**S92-1 and S92-2** carried unchanged: F-DATA-SOURCE = yfinance, F-UNIVERSE = 21 ETFs.
+**S92-1, S92-2** (SPEC: F-DATA-SOURCE=yfinance; F-UNIVERSE=21 ETFs), **S92-3, S92-4, S92-5** (A1: yfinance-direct close fetch; ticker_factory test seam; T-EFI-8 non-aborting partial-failure), **S92-6, S92-7, S92-8** (A2: 21-element pre-assembled panels; population stddev for cross-section + sample stddev for time-series z; flagged_etfs deduplication) — all carried unchanged.
 
 ### Sessions 84-91 prior decisions (carried)
 
@@ -77,40 +69,44 @@ All prior decisions preserved unchanged. S91-7 through S91-10 + S89/S90 + earlie
 - Compounding-live-equity backtest semantic (ADR-class).
 - 78,399 zero-trade sentinels in `bt_runs_regime` (deferred).
 - ADR-041 implementation slot in slice queue — operator-pickable.
-- Push 52 commits to origin/main — operator-gated.
+- Push 59 commits to origin/main — operator-gated.
 - Gap #8 v2 enhancement — GICS sector activation (operator-pickable; see s91 OQ).
 - Gap #9 v2 cross-validation enhancement (ETF.com scrape OR issuer-CSV multi-source) — operator-pickable.
 
 ### Closed this turn
 
-- ~~Gap #9 A2 pure composite + tests~~ — DONE (`e4592fe`).
-- ~~Stddev convention for sector_flow_dispersion vs flow_z~~ — RESOLVED per S92-7 (population for cross-section, sample for time-series-based z).
+- ~~Gap #9 A3 CH migration + tests~~ — DONE (`41ab834`).
+- ~~Snapshot-table DDL deviations from raw SPEC §6~~ — RESOLVED per S92-10 (Layer-0 idiom inherited byte-for-byte from s89-s91).
+- ~~Source-table co-bootstrap vs A1-only creation~~ — RESOLVED per S92-9 (both creation paths exist; CREATE IF NOT EXISTS in both is idempotent; first run wins).
 
 ## Next stage
 
 ### Default on "continue"
 
-**Gap #9 A3 — CH migration for the snapshot table (`scripts/migrate_create_etf_flow_snapshots.ts` + migration tests).** Per the SPEC §10 Phase A3 deliverable + §9.3 T-EFM-1..T-EFM-4.
-
-Note: A1 ingest already creates the SOURCE table (`etf_shares_outstanding`) via `ensure_etf_shares_outstanding_table` (self-contained bootstrap pattern). A3 creates the SNAPSHOT table (`etf_flow_snapshots`) ONLY — and per SPEC §9.3 T-EFM-4 should also be idempotent on the source table (it can co-bootstrap both for operator convenience, with separate idempotent CREATE IF NOT EXISTS clauses).
+**Gap #9 A4 — repository (`src/server/etf_flow_repository.ts`) + daemon step 1j + repository tests.** Per the SPEC §9.2 T-EFR-1..T-EFR-Nplus6 + §7 daemon-hook position.
 
 Concrete first move on "continue":
 
-1. Read s91 sibling migration `scripts/migrate_create_executive_departure_snapshots.ts` for the structural template (dry-run / apply / DDL-assertion test pattern).
-2. Read s89-s90 sibling migration `scripts/migrate_create_short_interest_snapshots.ts` for an additional reference.
-3. Write `scripts/migrate_create_etf_flow_snapshots.ts` per SPEC §6 DDL exactly (both tables: `etf_flow_snapshots` AND idempotent re-create of `etf_shares_outstanding` for operator convenience).
-4. Write `scripts/tests/migrateCreateEtfFlowSnapshots.test.ts` covering SPEC §9.3 T-EFM-1..T-EFM-4.
-5. Add npm scripts to `package.json`: `migrate:create-etf-flow-snapshots` (dry) + `:apply` (apply).
-6. Add EXTRA_HELP entries to `scripts/help.ts`.
-7. Run `npm test` + `npm run check:help`.
-8. Commit as A3 of the gap #9 arc.
+1. Read s91 sibling repository `src/server/executive_departure_repository.ts` for the structural template (writeSnapshot / readLatest / tableExists / runDaemon* / readPanelForCycle pattern, plus the subquery-around-FINAL pattern from a52c964 regression class).
+2. Read s89-s90 sibling repository `src/server/short_interest_repository.ts` for additional reference (CSV-parse + cusip-ticker-map shim pattern).
+3. Read `src/server/etf_flow.ts` (already landed in A2) for the `EtfFlowInputs` / `EtfFlowPerEtfInput` / `EtfFlowSnapshot` types the repository must produce + consume.
+4. Read `scripts/daily_signal_daemon.ts` step 1i (exec-departure) for the daemon-hook insertion point (between 1i and §2 cells/bundles).
+5. Write `src/server/etf_flow_repository.ts`:
+   - `etfFlowSnapshotsTableExists` (absent-table-safe gate) and `etfSharesOutstandingTableExists` (gate before reads).
+   - `readSharesOutstandingForCycle(asOfDate, tickers)`: reads from `quantlab.etf_shares_outstanding` for the v1 21-ETF universe; applies F-CADENCE carry-forward; assembles exactly 21 elements per ETF (D-20bd through D); produces `EtfFlowInputs` for the composite. Use subquery-around-FINAL pattern.
+   - `writeSnapshot(snapshot)`: serializes per-ETF + aggregate JSON; maps `version` → `composite_version`; Float32 coercion for the two aggregate scalars.
+   - `readLatest`: returns most-recent snapshot per `(snapshot_date)` (ORDER BY snapshot_date DESC LIMIT 1 FINAL).
+   - `runDaemonEtfFlowEvaluation`: end-to-end orchestration matching the s91 exec-departure `runDaemonExecutiveDepartureEvaluation` shape — guards on `etfSharesOutstandingTableExists`, calls `readSharesOutstandingForCycle`, runs `evaluateEtfFlowComposite`, writes the snapshot.
+6. Write `scripts/tests/etfFlowRepository.test.ts` covering T-EFR-1..T-EFR-Nplus6 (writeSnapshot round-trip with FakeClickHouse, readLatest, tableExists gates, runDaemon orchestration, subquery-around-FINAL pattern, malformed-JSON graceful degradation, EXPLAIN PLAN regression).
+7. Edit `scripts/daily_signal_daemon.ts`: add step **1j. ETF-flow evaluation** between step 1i (exec-departure) and the cells/bundles section (§2). Same shape as 1i: `NO_MACRO || DRY_RUN`-aware, absent-table-safe, non-fatal.
+8. Run `npm test`, `npm run check:help`, `npx tsc --noEmit`.
+9. Commit as A4 of the gap #9 arc.
 
-### After A3 lands
+### After A4 lands
 
-- **A4** — `src/server/etf_flow_repository.ts` + daemon step 1j + repository tests (per SPEC §9.2 T-EFR-1..T-EFR-Nplus6). Critical: subquery-around-FINAL pattern per a52c964 regression class. Repository assembles the 21-element shares/close panels per ETF after carry-forward; threads through to `evaluateEtfFlowComposite`.
 - **A5** — `src/server/operator_brief.ts` + `operator_brief_render.ts` section #13 + brief tests (per SPEC §9.5 + §9.6 T-OBR-EF-1..6 + T-OB-EF-1..3). Section appended LAST to preserve byte-equal-stdout protection on sections #1-#12.
 
-Estimated ~2-3 working days remaining at the established cadence (one commit per phase; phase boundary = natural model-turn boundary).
+Estimated ~1.5-2 working days remaining at the established cadence.
 
 ### After gap #9 ships
 
@@ -122,23 +118,23 @@ Then deferred-but-on-queue work: gap #8 v2 GICS-sector activation, gap #9 v2 cro
 
 ## Files / code state
 
-### NEW or EDITED this turn (s92 part 3)
+### NEW or EDITED this turn (s92 part 4)
 
 | Path | Status | Notes |
 | --- | --- | --- |
-| `src/server/etf_flow.ts` | NEW (`e4592fe`) | ~430 LOC. Constants (composite version, thresholds, F-UNIVERSE sets). `resolveEtfGroup`. Per-ETF pure funcs (`computeFlowShares20bd`, `computeFlowDollar20bd` with sum-of-daily BFM 2018 fn 7 attribution + length-check throw, `computeFlowPctAum`, `computeReturn20bd`, `computeZ` with sample-stddev). `flagDivergence`. Aggregate pure funcs (`computeSectorFlowDispersion` population-stddev, `computeAggregateRiskOnFlow`, `flagAggregateFlowStress`). Types `EtfFlowPerEtfRow`, `EtfFlowFlaggedEtf`, `EtfFlowPerEtfInput`, `EtfFlowInputs`, `EtfFlowSnapshot`. Orchestrator `evaluateEtfFlowComposite` (builds per-ETF rows, runs aggregate layer, constructs deduplicated `flagged_etfs` list). |
-| `scripts/tests/etfFlow.test.ts` | NEW (`e4592fe`) | ~480 LOC, 57 tests covering T-EF-1..T-EF-20 (all 20 SPEC §9.1 items) + orchestrator integration + constants sanity. All pass; full TS suite 2267/2267. |
-| `.claude/HANDOFF.md` | EDITED (this commit) | Rewritten from scratch for end-of-A2 state. |
+| `scripts/migrate_create_etf_flow_snapshots.ts` | NEW (`41ab834`) | ~290 LOC. Two PLANNED_DDL constants byte-pinned. `runPreChecks` queries `system.tables` with IN-list for both tables; `runPostChecks` reads `system.columns` per-table via shared `readColumns` helper. Dry-run prints both DDLs; apply runs both CREATE IF NOT EXISTS commands sequentially with per-table timing logs. Inline `help` export auto-collected by `scripts/help.ts`. |
+| `scripts/tests/migrateCreateEtfFlowSnapshots.test.ts` | NEW (`41ab834`) | ~310 LOC, 41 tests. PLANNED_DDL_SNAPSHOT byte-pin (11 assertions), PLANNED_DDL_SOURCE byte-pin (9 assertions, byte-identical to A1's DDL), EXPECTED_COLUMNS_* alignment (6 + 3 = 9 assertions), runPreChecks (5 — both-absent/source-only/snapshot-only/both-present/pending-mutations cases), runPostChecks (5 — all-present + each-table-missing + each-table-gap-in-columns), CH grammar EXPLAIN-clean (2). All pass. |
+| `package.json` | EDITED (`41ab834`) | +2 npm scripts: `migrate:create-etf-flow-snapshots` (dry) + `:apply`. |
+| `.claude/HANDOFF.md` | EDITED (this commit) | Rewritten from scratch for end-of-A3 state. |
 
-### From s92 part 2 (carried; unchanged)
+### From s92 parts 1-3 (carried; unchanged)
 
+- `src/server/etf_flow.ts` — A2 pure composite, ~430 LOC.
+- `scripts/tests/etfFlow.test.ts` — 57 tests covering T-EF-1..T-EF-20.
 - `scripts/etf_flow_ingest.py` — A1 ingest, ~370 LOC.
 - `scripts/tests/test_etf_flow_ingest.py` — 24 tests.
-- `package.json` — +2 npm scripts (`etf:flow:ingest` + `etf:flow:ingest:dry`).
-- `scripts/help.ts` — +2 EXTRA_HELP entries.
-
-### From s92 part 1 (carried; unchanged)
-
+- `package.json` — +2 npm scripts (`etf:flow:ingest` + `etf:flow:ingest:dry` from s92#2).
+- `scripts/help.ts` — +2 EXTRA_HELP entries from s92#2.
 - `docs/specs/etf-flow-monitoring.md` — SPEC, ~480 LOC.
 - `docs/teach/2026-05-19-etf-flow-divergence-as-leading-indicator.md` — teach-doc, ~150 LOC.
 
@@ -152,39 +148,37 @@ All s91 files (`executive_departure*`, EDGAR ingest, brief section #12) preserve
 - `quantlab.short_interest_snapshots` — migration script exists; not yet applied.
 - `quantlab.executive_departures` + `quantlab.cik_ticker_map` — NOT yet created (operator-gated EDGAR ingest first run).
 - `quantlab.executive_departure_snapshots` — migration script exists (`c11edb3`); not yet applied.
-- `quantlab.etf_shares_outstanding` — NOT yet created. A1 ingest creates it on first `--apply` run via `ensure_etf_shares_outstanding_table`. Source-table bootstrap, no separate migration.
-- `quantlab.etf_flow_snapshots` — **NOT yet created.** A3 migration (NEXT) will create it.
+- `quantlab.etf_shares_outstanding` — NOT yet created. A1 ingest creates it on first `--apply` run via `ensure_etf_shares_outstanding_table`; A3 migration ALSO creates it idempotently via co-bootstrap. Either creation path is fine (first wins; CREATE IF NOT EXISTS makes the second a no-op).
+- `quantlab.etf_flow_snapshots` — NOT yet created. A3 migration script exists (`41ab834`); not yet applied.
 
 ### Tests
 
 ```text
-npm test                       2267 / 2267 pass / 0 fail / 15 skipped   ✓ (+57 new from this commit)
+npm test                       2293 / 2293 pass / 0 fail / 15 skipped   ✓ (+41 new from this commit)
 npx tsc --noEmit               13 errors (unchanged baseline — pre-existing files)
-npm run check:help             ✓ green (s92 #2 scripts still registered)
-.venv/Scripts/python.exe -m pytest scripts/tests   234 / 234 (unchanged from A1)
+npm run check:help             ✓ green (s92 #4 script registered via inline help export)
+.venv/Scripts/python.exe -m pytest scripts/tests   234 / 234 (unchanged from A2)
 ```
 
 ## Watch-outs
 
-### NEW from this turn (s92 A2)
+### NEW from this turn (s92 A3)
 
-- **21-element panel-length invariant.** `computeFlowDollar20bd` throws on wrong panel length. A4 repository MUST assemble exactly 21 elements per ETF after carry-forward (index 0 = D-20bd; index 20 = D). A backfill arc that fetches a partial panel will hit this throw — that's the correct fail-loud semantic per Vector Core canon, but operator must be ready to handle it on first historical backfill.
-- **Sample vs population stddev split.** `computeZ` uses sample stddev (n-1, baseline-as-sample). `computeSectorFlowDispersion` uses population stddev (N, cross-section-as-population). The split is semantically clean but easy to flip in a refactor. Test fixtures pin both formulas independently. Don't unify without re-running the cross-asset/sector-rotation/short-interest threshold calibrations.
-- **Divergence sign-comparison edge.** Uses `Math.sign` which returns 0 for zero values. The `|z|>1` guard short-circuits before any zero-sign comparison can fire (since `Math.abs(0)` is not `> 1`). Safe at current threshold (1.0); any future relaxation to >0 must re-examine the zero-sign edge.
-- **Cold-start cascade in aggregate.** A single sector ETF missing from `flowZByTicker` (e.g., A4 read returned only 10 of the 11 sector ETFs) drops `sectorFlowDispersion` to null per F-9. Operator sees this via `inputsAvailableAggregateSector < 11` in the snapshot; A5 brief will render a cold-start fallback. Until A4 + A5 land, this state isn't surfaced — but the composite handles it correctly.
-- **`flowZByTicker` dedupe by ticker.** If the input list contains the same ticker twice (mis-assembled by repository), the aggregate-layer Map sees only the second row's flow_z, but `perEtfRows` would contain BOTH duplicates. The `flagged_etfs` list deduplicates as belt-and-suspenders. A4 repository must deliver one row per ticker; a soft-validate could be added in A4 but would fight the pure-function discipline here.
-- **`evaluateEtfFlowComposite` returns mutable arrays.** Output `perEtfRows` and `flaggedEtfs` are typed `ReadonlyArray<...>` but constructed as mutable arrays internally. Don't mutate at consumer sites — TS type system enforces this at compile time only.
+- **DDL drift between A1 and A3 source-table creation.** A1's `ensure_etf_shares_outstanding_table` (in `scripts/etf_flow_ingest.py:141-153`) and A3's `PLANNED_DDL_SOURCE` must stay byte-identical. There is no automated cross-check; PR review must catch drift. If A1 evolves (e.g., adds a new column for v2 cross-validation), A3 must follow in the same commit.
+- **`composite_version` vs `version` mapping at the A4 write boundary.** The A2 `EtfFlowSnapshot.version` TypeScript field is mapped to the DDL's `composite_version` column at the repository write. This is a load-bearing translation; an A4 bug that writes `version` directly will silently produce a DDL-side `ColumnNotFound`. Tests in A4 must pin the mapping.
+- **Float32 downcast at write boundary.** The two aggregate scalars (`sector_flow_dispersion`, `aggregate_risk_on_flow`) are Float32 in the DDL but Float64 in the A2 `EtfFlowSnapshot` type. ClickHouse coerces implicitly on insert, but z-scores typically ±5 lose no useful precision. Explicit `toFloat32()` not strictly required but A4 may choose to do it for forward-explicit typing.
+- **CREATE IF NOT EXISTS is idempotent BUT silent on schema drift.** If `etf_shares_outstanding` already exists with a DIFFERENT schema (e.g., from a future v2 cross-validation column addition), CREATE IF NOT EXISTS does NOT update the existing schema. The `runPostChecks` post-apply column-set check will catch missing columns from the EXPECTED_COLUMNS_* list, but drift in column TYPES (e.g., Int32 vs Int64) is NOT caught. Operator must run ALTER TABLE manually for type drift. Same limitation in s89/s90/s91.
 
-### Carried (s89-s92 part 2 + earlier)
+### Carried (s89-s92 part 3 + earlier)
 
 All prior watch-outs preserved unchanged. Key carry-overs:
 
-- 52 commits ahead of `origin/main`; push is operator-gated.
-- yfinance `get_shares_full` API surface (caught in `ticker_factory` test seam at A1; failure surface is single `RuntimeError` per ticker, easy triage).
-- yfinance `Ticker.info` rate-limit risk on tight loops (21 calls/day fine; back-to-back historical re-ingest could hit 429).
-- `quantlab.daily_bars` does NOT exist; daily OHLCV is in `quantlab.candles`. A1 sidesteps by fetching close directly from yfinance; A2 reads from `etf_shares_outstanding` only (which carries materialized close).
+- 59 commits ahead of `origin/main`; push is operator-gated.
+- yfinance `get_shares_full` API surface (caught in `ticker_factory` test seam at A1).
+- yfinance `Ticker.info` rate-limit risk on tight loops (21 calls/day fine).
+- `quantlab.daily_bars` does NOT exist; daily OHLCV is in `quantlab.candles`. A1 sidesteps by fetching close directly from yfinance.
 - Materialized AUM column stale on back-corrections; A1 re-run with correct `--start-date` is required to refresh.
-- `build_panel` drops pre-first-print rows (no leading carry-forward target). Not a concern for v1 (oldest SPY 1993; youngest XLC 2018) but watch-out for v2 universe expansion.
+- `build_panel` drops pre-first-print rows (no leading carry-forward target).
 - `cycle_v1` composite continues rendering as Layer-5 LLM context only.
 - ADR-041 `yield_curve_inverted` implementation NOT yet started.
 - Repository reads use subquery-around-FINAL pattern (a52c964 regression class).
@@ -195,9 +189,12 @@ All prior watch-outs preserved unchanged. Key carry-overs:
 - CIK ≠ CUSIP (separate tables; both ReplacingMergeTree).
 - A5 byte-equal protection on sections #1-#12; future #13+ MUST append at tail.
 - `runFredFetch` is NOT unit-tested directly — only `buildFredFetchArgs` is.
-- F-CADENCE staleness flag (`bd_since_last_share_update > 3`) lives in A2 composite (now landed: STALENESS_BD_THRESHOLD constant + threaded through `bdSinceLastShareUpdate` max scalar).
+- F-CADENCE staleness flag (`bd_since_last_share_update > 3`) lives in A2 composite + must be threaded by A4 repository.
 - HYG/JNK/TLT/GLD overlap with cross-asset composite — Phase B independence-testing gate (>0.7 correlation = demote).
 - ETF splits (rare; GLD 1:10 in 2008) — `auto_adjust=True` on yfinance history handles close side; shares-outstanding side is also split-adjusted post-event.
+- 21-element panel-length invariant: `computeFlowDollar20bd` throws on wrong panel length; A4 MUST assemble exactly 21 elements per ETF after carry-forward.
+- Sample vs population stddev split (`computeZ` uses n-1; `computeSectorFlowDispersion` uses N).
+- Cold-start cascade in aggregate: single missing sector ETF → `sector_flow_dispersion = null`.
 
 ## Pre-loaded operational reminders
 
@@ -210,14 +207,14 @@ npx tsx scripts/_paper_trading_review.ts
 npm run brief:morning                                   # sections #7-#12 with real data
 ```
 
-### Gap #9 etf-flow activation (PARTIALLY READY — A1+A2 done; pending A3 through A5)
+### Gap #9 etf-flow activation (PARTIALLY READY — A1+A2+A3 done; pending A4 + A5)
 
 ```text
 # A1 ingest (READY now):
 npm run etf:flow:ingest:dry
 npm run etf:flow:ingest
 
-# After A3 lands:
+# A3 migration (READY now — creates both etf_flow_snapshots AND co-bootstraps etf_shares_outstanding):
 npm run migrate:create-etf-flow-snapshots
 npm run migrate:create-etf-flow-snapshots:apply
 
@@ -253,7 +250,7 @@ npm run brief:morning      # section #12 renders the per-ticker flagged-tickers 
 ### Tests + dev
 
 ```text
-npm test                                                                       # TS — 2267 pass / 0 fail / 15 skipped
+npm test                                                                       # TS — 2293 pass / 0 fail / 15 skipped
 .venv/Scripts/python.exe -m pytest scripts/tests                               # Python — 234 / 234
 npm run dev                                                                    # http://localhost:3000
 npm run check:help                                                             # FULLY GREEN
@@ -261,9 +258,9 @@ npm run check:help                                                             #
 
 ## For the next session — priority order
 
-**Recommended immediate continuation:** Gap #9 — A3 CH migration. First commit = `scripts/migrate_create_etf_flow_snapshots.ts` + `scripts/tests/migrateCreateEtfFlowSnapshots.test.ts` (per SPEC §9.3 T-EFM-1..T-EFM-4). Read s91 `migrate_create_executive_departure_snapshots.ts` for the structural template + s89-s90 `migrate_create_short_interest_snapshots.ts` for an additional reference. Plus `package.json` npm scripts + `scripts/help.ts` entries.
+**Recommended immediate continuation:** Gap #9 — A4 repository + daemon step 1j. First commit = `src/server/etf_flow_repository.ts` + `scripts/tests/etfFlowRepository.test.ts` + edit to `scripts/daily_signal_daemon.ts` (insert step 1j between 1i and §2). Read s91 `src/server/executive_departure_repository.ts` for the structural template (writeSnapshot / readLatest / tableExists / runDaemon* shape); read s89-s90 `src/server/short_interest_repository.ts` for additional reference. The A4 repository assembles exactly 21 elements per ETF after F-CADENCE carry-forward, threads into `evaluateEtfFlowComposite` (already in `src/server/etf_flow.ts`), writes the snapshot with `version`→`composite_version` mapping.
 
-After A3 commits, A4 (repository + daemon step 1j), A5 (brief section #13) follow at the established cadence.
+After A4 commits, A5 (brief section #13) follows at the established cadence.
 
 **Pejman decisions carried + queued:**
 
@@ -273,7 +270,7 @@ After A3 commits, A4 (repository + daemon step 1j), A5 (brief section #13) follo
 - ADR-041 implementation slot (operator-pickable insertion).
 - Gap #8 v2 enhancement — GICS sector activation (operator-pickable insertion).
 - Gap #9 v2 enhancement — ETF.com / issuer-CSV cross-validation (operator-pickable insertion).
-- Push 52 commits to origin/main (operator-gated, HOLD).
+- Push 59 commits to origin/main (operator-gated, HOLD).
 
 **Calendar-gated:**
 
@@ -291,13 +288,13 @@ After A3 commits, A4 (repository + daemon step 1j), A5 (brief section #13) follo
 
 ## Important framing for the next chat
 
-s92 continues with gap #9 A2 landed as commit `e4592fe`. The pure composite + 57 tests are in; the composite reads from a 21-element shares/close panel per ETF (assembled by the upcoming A4 repository after carry-forward) and emits per-ETF rows + aggregate scalars + a deduplicated `flagged_etfs` list.
+s92 continues with gap #9 A3 landed as commit `41ab834`. The CH migration script creates BOTH `etf_flow_snapshots` AND co-bootstraps `etf_shares_outstanding` idempotently — the operator now has a single entry-point to bootstrap the gap-#9 storage layer (`npm run migrate:create-etf-flow-snapshots:apply`).
 
-**The next session's default behavior on "continue":** read this HANDOFF's "Next stage" section, open gap #9 A3. Write `scripts/migrate_create_etf_flow_snapshots.ts` + tests per SPEC §9.3. Idempotent CREATE IF NOT EXISTS for both `etf_flow_snapshots` AND `etf_shares_outstanding` (the latter as a co-bootstrap convenience — A1 already creates it but having both in one migration script is operator-friendly). Commit as the fifth commit of the gap #9 arc.
+**The next session's default behavior on "continue":** read this HANDOFF's "Next stage" section, open gap #9 A4. Write `src/server/etf_flow_repository.ts` + `scripts/tests/etfFlowRepository.test.ts` + edit `scripts/daily_signal_daemon.ts` to insert step 1j. Commit as the sixth commit of the gap #9 arc.
 
 **Parallel-tracks posture continues.** s92 did NOT affect C-12 / paper-trading / real-money-flip arcs.
 
-**The chain through s92 part 3:**
+**The chain through s92 part 4:**
 
 ```text
 ALL S41-S91 WORK                               ✓ as documented
@@ -307,10 +304,10 @@ S91: HANDOFF rewrite                           ✓ committed (6e9ffe0)
 S92 #1: gap #9 SPEC + teach-doc                ✓ committed (20da333)
 S92 #2: gap #9 A1 ingest + 24 tests            ✓ committed (ab724db)
 S92 #3: gap #9 A2 composite + 57 tests         ✓ committed (e4592fe)
+S92 #4: gap #9 A3 migration + 41 tests         ✓ committed (41ab834)
 S92 HANDOFF rewrite (this commit)              ✓ this commit
-  → next: gap #9 A3 (CH migration + tests per SPEC §9.3)
-  → after A3: A4 (repository + daemon step 1j + tests) →
-              A5 (brief section #13 + tests)
+  → next: gap #9 A4 (repository + daemon step 1j + tests per SPEC §9.2)
+  → after A4: A5 (brief section #13 + tests)
   → after gap #9 ships: gap #7 event-driven-filings-processor (Form 4 lands here)
   → operator-pickable insertions: ADR-041 impl, gap #8 v2 GICS activation,
                                   gap #9 v2 cross-validation
