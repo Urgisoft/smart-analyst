@@ -130,6 +130,11 @@ import {
   shortInterestSnapshotsTableExists,
   runDaemonShortInterestEvaluation,
 } from '../src/server/short_interest_repository.js';
+import {
+  ExecutiveDepartureRepository,
+  executiveDepartureSnapshotsTableExists,
+  runDaemonExecutiveDepartureEvaluation,
+} from '../src/server/executive_departure_repository.js';
 import { runFredFetch } from '../src/server/daemon_fred_fetch.js';
 import { CLASSIFIER_VERSION_V3 } from '../src/server/macro_regime_v3.js';
 import {
@@ -1220,6 +1225,46 @@ async function main() {
       anomalies.push({
         severity: 'info',
         message: `short-interest evaluation failed: ${(e as Error).message}`,
+      });
+    }
+  }
+
+  // 1i. Executive-departure evaluation (informational Layer-0 input).
+  //     SPEC: docs/specs/executive-departure-signal.md §3 component diagram +
+  //     §7 daemon hook position — runs AFTER short-interest (step 1h);
+  //     consumes the SEC EDGAR 8-K Item 5.02 event rows (from
+  //     `scripts/sec_edgar_8k_item_5_02_ingest.py`) + the SPY-500 PIT
+  //     constituent panel + the equity-midcap watch universe. Output is
+  //     informational only in v1; does NOT fire a regime category. Same
+  //     non-fatal posture as cycle-position / vol-structure / sector-rotation /
+  //     cross-asset / short-interest.
+  //
+  //     v1 GICS-sector resolution (SPEC §11 OQ-2 canon-thin fork): the
+  //     aggregate-sector layer is structurally inactive — `inputs.sectors`
+  //     is empty in v1 and `executive_cluster_departure` never fires. Per-
+  //     ticker layer (binary in-window flag) is fully active. See
+  //     src/server/executive_departure_repository.ts module header for the
+  //     three-criterion analysis + v2 deliverable definition.
+  if (NO_MACRO || DRY_RUN) {
+    console.log(`[exec-departure] skipped (${NO_MACRO ? '--no-macro' : '--dry-run'})`);
+  } else if (!(await executiveDepartureSnapshotsTableExists(ch))) {
+    console.log(
+      '[exec-departure] table absent (`quantlab.executive_departure_snapshots`) — ' +
+      'skipped. Run `npm run migrate:create-executive-departure-snapshots:apply` to enable.',
+    );
+  } else {
+    try {
+      const execDepartureRepo = new ExecutiveDepartureRepository({ ch });
+      const execDepartureResult = await runDaemonExecutiveDepartureEvaluation({
+        repo: execDepartureRepo,
+        asOf: new Date(t0),
+      });
+      console.log(execDepartureResult.summaryLine);
+    } catch (e) {
+      console.warn(`[exec-departure] evaluation failed (non-fatal): ${(e as Error).message}`);
+      anomalies.push({
+        severity: 'info',
+        message: `exec-departure evaluation failed: ${(e as Error).message}`,
       });
     }
   }
