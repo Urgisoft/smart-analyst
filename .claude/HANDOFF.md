@@ -1,22 +1,12 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-05-19 (session 91 close — **gap #8 executive-departure-signal arc DONE end-to-end.** Six commits this session under the autonomous-execution protocol with zero permission pauses (`c04b706` SPEC + `bdd4d4f` A1 + `84e69be` A2 + `c11edb3` A3 + `db2f7b2` A4 + `f96ff5c` A5). Tests grew 2070 → 2210 (+140 TS net new across A2/A3/A4/A5) plus 182 → 210 (+28 pytest from A1). 49 commits ahead of `origin/main`, push still held. Slice queue: **gap #9 etf-flow-monitoring next**, then gap #7 event-driven-filings-processor (Form 4 lands there per E-11).)
+Last updated: 2026-05-19 (session 92 open — **gap #9 etf-flow-monitoring SPEC + teach-doc landed** as commit `20da333`. Single-commit forward tick from the s91-end state. Tests unchanged (no source-code changes this turn). 50 commits ahead of `origin/main`, push still held. **Slice queue: gap #9 A1 (yfinance shares-outstanding ingest) NEXT**, then A2-A5, then gap #7 event-driven-filings-processor (Form 4 lands there per gap #8 E-11).)
 
-## What this session delivered
+## What this turn delivered
 
-Six commits across the gap #8 executive-departure-signal arc:
+One commit at the head of the gap #9 etf-flow-monitoring arc:
 
-1. **SPEC — executive-departure-signal (`exec_departure_v1`)** — commit `c04b706`. `docs/specs/executive-departure-signal.md` (~445 LOC). Sixth Layer-0 informational composite. Three canon-thin forks (E-2, E-5, E-11) resolved autonomously.
-
-2. **A1 — SEC EDGAR 8-K Item 5.02 ingest (Python)** — commit `bdd4d4f`. `scripts/sec_edgar_8k_item_5_02_ingest.py` (~575 LOC) + 28 pytest + `package.json` ingest scripts.
-
-3. **A2 — pure composite + 41 tests** — commit `84e69be`. `src/server/executive_departure.ts` (~330 LOC) + `scripts/tests/executiveDeparture.test.ts` (41 node:test).
-
-4. **A3 — CH snapshot migration + 23 tests** — commit `c11edb3`. `scripts/migrate_create_executive_departure_snapshots.ts` + tests + help/npm registration.
-
-5. **A4 — repository + daemon step 1i + 59 tests** — commit `db2f7b2`. `src/server/executive_departure_repository.ts` (~430 LOC) + `scripts/tests/executiveDepartureRepository.test.ts` (59 node:test) + step 1i wired between 1h (short-interest) and §2 (cells/bundles). Includes the GICS-sector autonomous resolution (SPEC §11 OQ-2): v1 ships with `sector = null` for all per-ticker rows; aggregate-sector layer dormant; per-ticker layer fully active. Three-criterion justification documented in repo + daemon.
-
-6. **A5 — brief section #12 + 17 tests** — commit `f96ff5c`. `src/server/operator_brief_render.ts` BriefExecutiveDepartureSection + renderExecutiveDepartureSection + `src/server/operator_brief.ts` buildExecutiveDepartureSection + fetchLatestExecutiveDepartureFromCH composer wiring. 12 render tests + 3 composer tests + 2 sub-tests.
+1. **SPEC — etf-flow-monitoring (`etf_flow_v1`)** — commit `20da333`. `docs/specs/etf-flow-monitoring.md` (~480 LOC) + `docs/teach/2026-05-19-etf-flow-divergence-as-leading-indicator.md` (~150 LOC). Seventh Phase-9-gap Layer-0 informational composite. One canon-thin fork (F-DATA-SOURCE) resolved autonomously.
 
 ## Where we are
 
@@ -27,40 +17,38 @@ Six commits across the gap #8 executive-departure-signal arc:
 | Autonomous-execution canon-thin fork rule (CLAUDE.md) | ✓ s89c#2 |
 | ADR-041 Accepted (cycle-position v2 = yield-curve-only) | ✓ s89c#2 |
 | Gap #10 short-interest-tracking arc | ✓ DONE end-to-end (s89-s90) |
-| **Gap #8 executive-departure-signal arc** | **✓ DONE end-to-end (s91)** |
-| **Gap #9 etf-flow-monitoring** | **☐ NEXT** |
-| Gap #7 event-driven-filings-processor | ☐ queued after #9 (Form 4 lands here per #8 E-11) |
+| Gap #8 executive-departure-signal arc | ✓ DONE end-to-end (s91) |
+| **Gap #9 etf-flow-monitoring SPEC + teach-doc** | **✓ DONE (s92 commit `20da333`)** |
+| **Gap #9 A1 (yfinance shares-outstanding ingest)** | **☐ NEXT** |
+| Gap #9 A2-A5 | ☐ queued |
+| Gap #7 event-driven-filings-processor | ☐ queued after gap #9 (Form 4 lands here per #8 E-11) |
 | Gap #8 v2 enhancement — GICS sector mapping activation | ☐ deferred (operator-pickable insertion) |
 | C-12 Phase B (AlpacaAdapter) | ⏸ INDEFINITELY PAUSED |
 | ADR-041 implementation (`yield_curve_inverted` category) | ☐ DEFERRED — operator-pickable insertion |
 | Phase B for cycle/vol/sector/cross-asset/short-interest/exec-departure | ⏸ deferred — calendar OR backfill arc |
 | #5 capital-deployment-ramp ADR | ☐ operator self-assigned ~1 week; not blocking |
 | Drawdown framework §12 90d empirical retune | ☐ scheduled — earliest 2026-08-29 |
-| Push 49 commits to origin/main | ☐ operator-gated, HOLD |
+| Push 50 commits to origin/main | ☐ operator-gated, HOLD |
 
 ## Decisions locked in
 
-### Session 91 (this session, this commit)
+### Session 92 (this session, this commit)
 
-**S91-7. Gap #8 A4 GICS-sector resolution (SPEC §11 OQ-2 canon-thin fork): v1 ships with `sector = null` for all per-ticker rows.** The aggregate-sector layer is structurally dormant in v1 — `inputs.sectors` is always an empty array, `executive_cluster_departure` never fires, and the brief panel renders a "GICS sector mapping deferred to v2" footer for the aggregate section. The per-ticker layer (binary in-window flag) is fully active.
-`Why:` Neither the `sp500_constituents` table (ticker + effective_date only) nor the `cik_ticker_map` cache (ticker, CIK, former_tickers, company_name) carries a SIC code or GICS field. The existing SPDR-sector mapping in src/server/sector_rotation.ts is at the ETF level (XLK/XLF/...), not at the constituent level. Three-criterion analysis: (1) canon foundations equal across alternatives (SPEC §11 OQ-2 explicitly punts); (2) null path has zero ingest-time changes (no A1 schema bump, no separate Wikipedia scraper); (3) zero free parameters vs. 11+ for a SIC→GICS bridge or 503+ for a static ticker→sector table.
-`How to apply:` v2 deliverable = a dedicated slice that either extends A1 to capture sicDescription from EDGAR submissions API + a SIC→GICS bridge, OR ships a separate `quantlab.gics_sector_map` table populated from Wikipedia + a daily refresh job. The composite's aggregate-layer math is already implemented + tested; v2 simply populates `inputs.sectors`. Documented in the executive_departure_repository.ts module header + the daemon step 1i comment block + the A5 brief rendering footer.
+**S92-1. Gap #9 F-DATA-SOURCE canon-thin fork: v1 source = yfinance shares-outstanding panel (`yf.Ticker(t).get_shares_full(start, end)`), joined with daily_bars close. ETF.com / ETFdb Playwright scrape and issuer-CSV multi-source paths remain pre-authorized fallbacks per CLAUDE.md but are deferred to v2.**
+`Why:` Three-criterion analysis. (1) **Canon foundations** — Ben-David-Franzoni-Moussawi 2018 JoF §3 constructs ETF flows from the CRSP shares-outstanding panel; yfinance shares-outstanding IS the Yahoo-Finance-sourced equivalent. The methodology matches the load-bearing citation. (2) **Methodology rigor** — yfinance is a single library, schema-pinned (`pip freeze`), well-tested. Scrape requires per-page Playwright orchestration + schema validation + cache-last-good discipline. Issuer CSVs require 4+ parsers (iShares/SPDR/Invesco/Vanguard). (3) **Free parameters** — yfinance = 0 parsers. Scrape = 1 brittle parser + cache TTL. Multi-source CSV = 4+ parsers + 4+ schedules.
+`How to apply:` A1 builds `scripts/etf_flow_ingest.py` against yfinance. v2 cross-validation deliverable can add ETF.com scrape OR issuer-CSV multi-source if Phase B reveals data-quality gaps. Documented in SPEC §2 row F-DATA-SOURCE + §11 OQ-1.
 
-**S91-8. A4 step 1i wiring posture mirrors 1d-1h byte-for-byte.** `NO_MACRO || DRY_RUN`-gated, absent-table-safe (via `executiveDepartureSnapshotsTableExists`), non-fatal try/catch with anomalies push. Standard Layer-0 informational evaluation cadence.
+**S92-2. Gap #9 universe (F-UNIVERSE) = 21 ETFs** in three groups: (a) broad-index (6) SPY/IVV/VOO/QQQ/IWM/DIA; (b) SPDR sector (11) XLK/XLF/XLE/XLV/XLY/XLP/XLU/XLI/XLB/XLRE/XLC; (c) style/risk (4) HYG/JNK/TLT/GLD. Subset of gap-doc list (~30 ETFs) tight enough to keep first-ingest fast (~5300 rows) + cover load-bearing factor exposures.
+`Why:` Universe expansion (country ETFs, factor ETFs, leveraged ETFs) requires a F-10 version bump and a new ADR; deferred to v2.
+`How to apply:` A2 hard-codes the universe as a constant. A1 ingest loops over the 21 tickers. Brief section #13 renders all 21 in the per-ETF table (top-N=5 truncation on the flagged-ETFs sub-section).
+
+**S92-3. Daemon step 1j wiring posture mirrors 1d-1i.** `NO_MACRO || DRY_RUN`-gated, absent-table-safe (via `etfFlowSnapshotsTableExists`), non-fatal try/catch with anomalies push. Standard Layer-0 informational evaluation cadence.
 `Why:` Established pattern; predictable failure surface; no surprises in operator workflow.
-`How to apply:` Same posture should be inherited by gap #9 (etf-flow-monitoring) when its step 1j lands.
+`How to apply:` Same posture as exec-departure A4 step 1i (committed `db2f7b2`). Brief section #13 appended last to preserve byte-equal-stdout protection on #1-#12.
 
-**S91-9. A5 brief section #12 byte-equal protection preserved.** Section #12 renders AFTER section #11 (short-interest); sections #1-#11 are byte-for-byte unchanged. Test `section ordering: executive-departure renders AFTER short-interest` pins this.
-`Why:` Established invariant across the prior five Layer-0 composites. Section-add-at-tail is the operator-visible protection against accidental panel-reordering churn.
-`How to apply:` Gap #9 A5 will append section #13 after #12; same byte-equal-protection test applies.
+### Sessions 84-91 prior decisions (carried)
 
-**S91-10. EXECUTIVE_DEPARTURE_STALENESS_BD_THRESHOLD = 4 bd.** SEC's statutory 4bd filing deadline for Item 5.02 (Sarbanes-Oxley §409; 17 CFR 249.308) is the bright line. A `bdSinceLastQuery >= 4` means the daemon's ingest hasn't caught a filing that SEC has accepted as far back as 4bd — i.e. the ingest path itself is stale, not just the underlying data.
-`Why:` Contrast with short-interest's 14bd threshold: FINRA biweekly publishes every 2 weeks, so 14bd ≈ one missed cycle. EDGAR is real-time → a 4bd threshold catches missed daemon ingest runs.
-`How to apply:` Operator should re-run `npm run edgar:exec-departure:ingest:apply` if the brief shows the staleness warning. The script is idempotent under ReplacingMergeTree.
-
-### Sessions 84-90 + S91 prior decisions (carried)
-
-All prior decisions preserved unchanged. S91-1 through S91-6 (SPEC + A1-A3 lock-ins) are now historical context; the implementation is complete in the source tree + git history.
+All prior decisions preserved unchanged. S91-7 through S91-10 (gap #8 lock-ins) + S89/S90 + earlier carry through. The implementation of those decisions is complete in the source tree + git history.
 
 ## Open questions
 
@@ -78,35 +66,43 @@ All prior decisions preserved unchanged. S91-1 through S91-6 (SPEC + A1-A3 lock-
 - Compounding-live-equity backtest semantic (ADR-class).
 - 78,399 zero-trade sentinels in `bt_runs_regime` (deferred).
 - ADR-041 implementation slot in slice queue — operator-pickable.
-- Push 49 commits to origin/main — operator-gated.
+- Push 50 commits to origin/main — operator-gated.
+- Gap #8 v2 enhancement — GICS sector activation (operator-pickable; see s91 OQ).
 
 ### NEW from this session
 
-1. **Gap #8 v2 enhancement — GICS sector activation.** Operator-pickable insertion. Path α = extend A1 to capture `sicDescription` from EDGAR submissions API + ship a SIC→GICS bridge table (10-15 rows). Path β = separate Wikipedia ingest writing to `quantlab.gics_sector_map`. Path γ = SPDR fund-holdings scrape (most fragile; lowest-priority). All three activate the aggregate-sector panel; composite math + render are ready.
+1. **Gap #9 v2 cross-validation enhancement.** Operator-pickable insertion after v1 ships. Path α = ETF.com Playwright scrape as a flow-figure cross-validator (1 brittle parser + cache TTL). Path β = issuer-CSV multi-source (iShares + SPDR + Invesco + Vanguard, 4+ parsers + 4+ schedules). Activates if Phase B reveals yfinance shares-outstanding data-quality gaps (lag, coverage, or accuracy). v1 is canon-load-bearing and operationally simplest; v2 is hedge against future yfinance API breakage.
 
 ### Closed this session
 
-- ~~Gap #8 SPEC~~ — DONE (`c04b706`).
-- ~~Gap #8 A1 SEC EDGAR ingest~~ — DONE (`bdd4d4f`).
-- ~~Gap #8 A2 pure composite~~ — DONE (`84e69be`).
-- ~~Gap #8 A3 snapshot migration~~ — DONE (`c11edb3`).
-- ~~Gap #8 A4 repository + daemon step 1i~~ — DONE (`db2f7b2`).
-- ~~Gap #8 A5 brief section #12~~ — DONE (`f96ff5c`).
-- ~~SPEC §11 OQ-2 (GICS sector mapping source)~~ — RESOLVED autonomously per S91-7 (v1 ships with sector=null; v2 deliverable defined).
+- ~~Gap #9 SPEC~~ — DONE (`20da333`).
+- ~~F-DATA-SOURCE source-selection fork~~ — RESOLVED autonomously per S92-1.
 
 ## Next stage
 
 ### Default on "continue"
 
-**Gap #9 — etf-flow-monitoring SPEC.** Per the locked queue. The seventh Layer-0 informational composite. Reuses the established template: SPEC (~400-500 LOC) → A1 (ingest from ETF.com / ETF Database public pages via Playwright per CLAUDE.md data-source policy) → A2 (pure composite + tests) → A3 (CH snapshot table) → A4 (repository + daemon step 1j) → A5 (brief section #13).
+**Gap #9 A1 — yfinance shares-outstanding ingest (`scripts/etf_flow_ingest.py`).** Per the SPEC §10 Phase A1 deliverable. The Python ingest unit polls `yf.Ticker(t).get_shares_full(start, end)` for the 21-ETF v1 universe (F-UNIVERSE), joins with the existing `quantlab.daily_bars` close prices on (ticker, date), materializes the AUM column (`shares × close`), and writes to `quantlab.etf_shares_outstanding` (ReplacingMergeTree keyed on (ticker, date)). Mirrors the s91 EDGAR ingest A1 structure (`scripts/sec_edgar_8k_item_5_02_ingest.py`) for table-bootstrap-on-first-run + idempotent re-ingest + dry-run flag.
 
-Concrete first move on "continue": open the gap doc (`docs/obsidian/gaps/etf-flow-monitoring.md` if it exists; otherwise read the broader gap inventory at `docs/obsidian/gaps/README.md`) → write `docs/specs/etf-flow-monitoring.md` mirroring the short-interest / executive-departure SPEC structure (§1 goals/non-goals, §2 decision lock-ins with three-criterion forks where canon-thin, §3 component diagram, §4 inputs, §5 composite formulas, §6 CH snapshot schema, §7 daemon hook position 1j, §8 brief panel mock-up, §9 test plan, §10 implementation phases, §11 deferred OQs, §12 references).
+Concrete first move on "continue":
 
-ETF.com + ETF Database are pre-authorized free public sources per CLAUDE.md; required scraper discipline (schema validation on every fetch + alert on parse failures + fallback to cached last-good + no silent stale-data propagation) is the established posture.
+1. Read `scripts/macro_regime_ingest.py` + `scripts/fetch_daily_yfinance.py` to confirm the yfinance integration pattern already established in the repo.
+2. Read the s91 A1 ingest (`scripts/sec_edgar_8k_item_5_02_ingest.py`) for the structural template (table-bootstrap, --dry-run flag, --apply flag, idempotent ReplacingMergeTree writes, help/npm registration pattern).
+3. Write `scripts/etf_flow_ingest.py` per SPEC §4 inputs + §6 source-table DDL.
+4. Write `scripts/tests/test_etf_flow_ingest.py` covering SPEC §9.4 T-EFI-1..T-EFI-8.
+5. Add 2 npm scripts to `package.json`: `etf:flow:ingest:dry-run` + `etf:flow:ingest:apply`.
+6. Update `scripts/help.ts` with the EXTRA_HELP entries.
+7. Run pytest to confirm green.
+8. Commit as the second commit of the gap #9 arc.
 
-### After gap #9 SPEC lands
+### After A1 lands
 
-A1-A5 phases mirror the prior five Layer-0 arcs structurally. Estimated 5-7 commits to gap #9 end-to-end at the established cadence.
+- **A2** — `src/server/etf_flow.ts` pure composite + `scripts/tests/etfFlow.test.ts` (~20 tests per SPEC §9.1).
+- **A3** — `scripts/migrate_create_etf_flow_snapshots.ts` + migration tests (per SPEC §9.3).
+- **A4** — `src/server/etf_flow_repository.ts` + daemon step 1j + repository tests (per SPEC §9.2).
+- **A5** — `src/server/operator_brief.ts` + `operator_brief_render.ts` section #13 + brief tests (per SPEC §9.5 + §9.6).
+
+Estimated ~6 working days at the established cadence (one commit per phase; phase boundary = natural model-turn boundary).
 
 ### After gap #9 ships
 
@@ -114,74 +110,63 @@ Per the locked queue:
 
 - Gap #7 event-driven-filings-processor (8-K classifier broader than gap #8's narrow exec-departure cut; **Form 4 path arrives here per gap #8 E-11**).
 
-Then the deferred-but-on-queue work: gap #8 v2 GICS-sector activation, ADR-041 implementation, C-12 Phase B AlpacaAdapter (paused), Phase B campaigns for the six Layer-0 composites.
+Then deferred-but-on-queue work: gap #8 v2 GICS-sector activation, gap #9 v2 cross-validation, ADR-041 implementation, C-12 Phase B AlpacaAdapter (paused), Phase B campaigns for the seven Layer-0 composites.
 
 ## Files / code state
 
-### NEW or EDITED this session (s91)
+### NEW or EDITED this turn (s92)
 
 | Path | Status | Notes |
 | --- | --- | --- |
-| `docs/specs/executive-departure-signal.md` | NEW (`c04b706`) | 445 LOC, §1-§12, 14 decision lock-ins. |
-| `scripts/sec_edgar_8k_item_5_02_ingest.py` | NEW (`bdd4d4f`) | ~575 LOC. EDGAR ingest + sub-item header regex + CIK→ticker resolve + RM-tree writes. |
-| `scripts/tests/test_sec_edgar_8k_item_5_02_ingest.py` | NEW (`bdd4d4f`) | 28 pytest. SPEC §9.4 T-EDI-1..T-EDI-7 fully covered. |
-| `src/server/executive_departure.ts` | NEW (`84e69be`) | ~330 LOC. Pure composite per SPEC §5. |
-| `scripts/tests/executiveDeparture.test.ts` | NEW (`84e69be`) | 41 node:test. SPEC §9.1 T-ED-1..T-ED-13 fully covered. |
-| `scripts/migrate_create_executive_departure_snapshots.ts` | NEW (`c11edb3`) | ~210 LOC. PLANNED_DDL byte-pinned per SPEC §6. |
-| `scripts/tests/migrateCreateExecutiveDepartureSnapshots.test.ts` | NEW (`c11edb3`) | 23 node:test. PLANNED_DDL byte-pin + FakeClickHouse coverage + EXPLAIN PLAN. |
-| `src/server/executive_departure_repository.ts` | NEW (`db2f7b2`) | ~430 LOC. SPEC §11 OQ-2 GICS-deferred autonomous resolution in module header. |
-| `scripts/tests/executiveDepartureRepository.test.ts` | NEW (`db2f7b2`) | 59 node:test. Subquery-around-FINAL + writeSnapshot round-trip + EXPLAIN PLAN. |
-| `scripts/daily_signal_daemon.ts` | EDITED (`db2f7b2`) | Step 1i wired between 1h short-interest + §2 cells/bundles. |
-| `src/server/operator_brief_render.ts` | EDITED (`f96ff5c`) | BriefExecutiveDepartureSection + renderExecutiveDepartureSection + #12 section ordering. |
-| `src/server/operator_brief.ts` | EDITED (`f96ff5c`) | buildExecutiveDepartureSection + fetchLatestExecutiveDepartureFromCH + Promise.all thread. |
-| `scripts/tests/operatorBriefRender.test.ts` | EDITED (`f96ff5c`) | brief() fixture extended + 12 rendering tests. |
-| `scripts/tests/operatorBrief.test.ts` | EDITED (`f96ff5c`) | 3 composer-wiring tests (null + populated + graceful-degrade). |
-| `scripts/help.ts` | EDITED (`c11edb3`) | EXTRA_HELP entries for edgar ingest + migrate scripts. |
-| `package.json` | EDITED (`bdd4d4f` + `c11edb3`) | 4 new scripts: 2 ingest + 2 migrate (dry/apply each). |
-| `.claude/HANDOFF.md` | EDITED (this commit) | Rewritten from scratch for end-of-arc state. |
+| `docs/specs/etf-flow-monitoring.md` | NEW (`20da333`) | ~480 LOC, §1-§12, 14 decision lock-ins (F-1..F-14, F-DATA-SOURCE, F-UNIVERSE, F-CADENCE). |
+| `docs/teach/2026-05-19-etf-flow-divergence-as-leading-indicator.md` | NEW (`20da333`) | ~150 LOC. BFM 2018 §3 flow construction + divergence-as-leading-indicator intuition + 7 failure modes + comparison table across all seven Layer-0 composites. |
+| `.claude/HANDOFF.md` | EDITED (this commit) | Rewritten from scratch for end-of-turn state. |
+
+### From s91 (carried; status unchanged)
+
+All s91 files (`exec_departure*`, `executive_departure*`, EDGAR ingest, brief section #12) preserved. See prior HANDOFF for the full s91 file delta.
 
 ### CH state
 
 - `quantlab.short_interest` + `quantlab.cusip_ticker_map` — NOT yet created (operator-gated FINRA ingest first run).
 - `quantlab.short_interest_snapshots` — migration script exists; not yet applied.
 - `quantlab.executive_departures` + `quantlab.cik_ticker_map` — NOT yet created (operator-gated EDGAR ingest first run).
-- `quantlab.executive_departure_snapshots` — migration script exists (`c11edb3`); needs operator `npm run migrate:create-executive-departure-snapshots:apply`. Daemon step 1i is absent-table-safe; until operator runs migration, step 1i logs the "table absent" message + skips.
+- `quantlab.executive_departure_snapshots` — migration script exists (`c11edb3`); not yet applied.
+- `quantlab.etf_shares_outstanding` + `quantlab.etf_flow_snapshots` — **NOT yet created.** A1 ingest builds the source table on first --apply run; A3 migration builds the snapshot table. Both still pending creation.
 
 ### Tests
 
 ```text
-npm test                       2210 / 2210 pass / 0 fail / 15 skipped   ✓ (was 2070 pre-A2; +140 net new from A2 + A3 + A4 + A5)
+npm test                       2210 / 2210 pass / 0 fail / 15 skipped   ✓ (unchanged from s91)
 npx tsc --noEmit               13 errors (unchanged baseline — pre-existing files)
 npm run check:help             ✓ green
-.venv/Scripts/python.exe -m pytest scripts/tests   210 / 210 (was 182 pre-A1; +28 net new from A1)
+.venv/Scripts/python.exe -m pytest scripts/tests   210 / 210 (unchanged from s91)
 ```
 
 ## Watch-outs
 
-### NEW from this session (s91)
+### NEW from this session (s92)
 
-- **A4 GICS-sector resolution is structurally dormant.** The composite's aggregate-sector layer + the brief's flagged-sectors table render code paths are implemented + tested but receive zero inputs in v1. A regression test (`renders the v1 GICS-deferred footer when flaggedSectors is empty`) catches an accidental activation that doesn't populate the GICS mapping. v2 activation lands when either A1's SIC capture or a separate gics_sector_map ingest goes in.
-- **EDGAR User-Agent compliance is hard-fail.** A1 hard-codes `SignalForge/exec-departure-ingest u0249898@gmail.com`; without a properly-formed UA header, SEC returns 403. Documented in A1 docstring + watch-out preserved from prior HANDOFF.
-- **EDGAR rate limit is 10 req/sec.** A1 backs off on 429; cold-cache first run for ~560 unique CIKs is ~60 seconds.
-- **`accepted_at` vs `period_of_report` is the load-bearing anti-leak gate.** The daemon's snapshot-as-of-D filter MUST use `accepted_at` (the wall-clock EDGAR-acceptance moment), NOT `period_of_report`. A4 reads enforce this; A2 composite operates on `acceptedAt`. A refactor that swapped to `period_of_report` would introduce a look-ahead-leak vector.
-- **Item 5.02 sub-item parsing requires per-filing body fetch.** EDGAR's broad `items` field returns "5.02" not "5.02(b)". A1 fetches the filing's primary doc HTML and regex-matches the structurally-encoded `Item 5.02(X)` header per 17 CFR 249.308.
-- **CIK ≠ CUSIP.** `cik_ticker_map` (gap #8) is a separate table from `cusip_ticker_map` (gap #10). Both coexist; both ReplacingMergeTree.
-- **A2 per-ticker layer is BINARY.** Per E-13, no per-ticker z-score baseline. A4 repository reads surface event-presence-in-window, not continuous per-ticker statistics.
-- **A3 PLANNED_DDL has 10 columns** (vs short-interest A3's 12). The narrower column set reflects the simpler per-snapshot data: boolean cluster flag + two JSON payloads + four metadata + composite version.
-- **A3 creates the SNAPSHOT table only.** Source `executive_departures` + cache `cik_ticker_map` are created lazily by A1's `ensure_*_table` calls on first --apply.
-- **A5 byte-equal protection on sections #1-#11.** Test pins #12 to render AFTER #11. Future composites (#13 etf-flow, #14+) MUST append at the tail.
-- **A5 staleness threshold = 4bd** (vs short-interest's 14bd). Tighter because EDGAR is real-time + filings are statutorily due within 4 business days. A 4bd-stale ingest is a missed daemon run, not a publication-cadence artifact.
+- **F-DATA-SOURCE locked yfinance v1 path.** The composite's correctness depends on yfinance `get_shares_full` returning accurate shares-outstanding for the 21 ETF universe. yfinance lag is typically T+1 to T+2 (Yahoo's data pipeline reflects issuer reports next-day); the F-CADENCE `bd_since_last_share_update > 3` staleness flag handles operator-visible signal. A real-time-flow Bloomberg replacement is paid; not in scope.
+- **Carry-forward semantics on missing shares-outstanding days.** When yfinance returns no shares update for day D, A2 carries forward the prior value. The 1-day flow on that day = 0. This is correct under BFM 2018 construction. Operator should not interpret "0 flow" on a carry-forward day as "no creation/redemption activity"; the staleness flag is the load-bearing operator signal.
+- **AUM column materialized at ingest (NOT computed at read).** The `etf_shares_outstanding.aum = shares × close` column is materialized at A1-ingest for read speed. A future shares-outstanding back-correction (Yahoo data revision) would NOT auto-update the materialized AUM unless the row is re-ingested. ReplacingMergeTree on (ticker, date) handles this — re-running A1 with --apply over a date range overwrites; A1 doesn't auto-replay history.
+- **HYG/JNK/TLT/GLD overlap with the cross-asset composite.** The four style/risk ETFs in F-UNIVERSE carry information already partially surfaced by the cross-asset signed-z composite (s88). Phase B independence testing (Pearson correlation < 0.7) is the load-bearing check; if etf-flow correlates >0.7 with cross-asset on this overlap, the etf-flow composite gets demoted or HYG/JNK/TLT/GLD get dropped. Documented in SPEC §1 non-goal #4 + teach-doc failure mode #7.
+- **Splits affect shares-outstanding interpretation.** ETF splits are rare (GLD 1:10 in 2008) but possible. Yahoo's `shares_full` is split-adjusted post-event; the F-1 sum-of-daily construction remains correct ONLY when both shares AND close are split-adjusted consistently. Forensic edge-case tests deferred to A2 (T-EF-Nplus).
 
-### Carried (s89-s90 + earlier)
+### Carried (s89-s91 + earlier)
 
 All prior watch-outs preserved unchanged. Key carry-overs:
 
-- 49 commits ahead of `origin/main`; push is operator-gated.
+- 50 commits ahead of `origin/main`; push is operator-gated.
 - `cycle_v1` composite continues rendering as Layer-5 LLM context only.
 - ADR-041 `yield_curve_inverted` implementation NOT yet started.
 - Repository reads use subquery-around-FINAL pattern (a52c964 regression class).
 - Short-interest Path A4-β shim is in the repository layer ONLY; A2 composite math is dimensionally agnostic.
-- FINRA ingest's default endpoint URL is a placeholder; same posture applies to EDGAR A1 (`q="Item 5.02"` query default may need refinement on first-run-with-real-data).
+- A4 GICS-sector resolution (gap #8) is structurally dormant; v2 activation defined.
+- `accepted_at` vs `period_of_report` is the load-bearing anti-leak gate in gap #8.
+- Item 5.02 sub-item parsing requires per-filing body fetch (gap #8 A1).
+- CIK ≠ CUSIP (separate tables; both ReplacingMergeTree).
+- A5 byte-equal protection on sections #1-#12; future #13+ MUST append at tail.
 - `runFredFetch` is NOT unit-tested directly — only `buildFredFetchArgs` is.
 - `/tmp/session-split-backup/` from s88-cont #3 is still present.
 
@@ -218,6 +203,20 @@ npm run daemon:daily       # step 1i fires; populates executive_departure_snapsh
 npm run brief:morning      # section #12 renders the per-ticker flagged-tickers panel
 ```
 
+### Gap #9 etf-flow activation (NOT YET READY — pending A1 through A5)
+
+```text
+# After A1+A3 land:
+.venv/Scripts/python.exe scripts/etf_flow_ingest.py --dry-run
+.venv/Scripts/python.exe scripts/etf_flow_ingest.py --apply
+npm run migrate:create-etf-flow-snapshots
+npm run migrate:create-etf-flow-snapshots:apply
+# After A4 lands:
+npm run daemon:daily       # step 1j fires; populates etf_flow_snapshots
+# After A5 lands:
+npm run brief:morning      # section #13 renders the ETF flow panel
+```
+
 ### Tests + dev
 
 ```text
@@ -229,9 +228,9 @@ npm run check:help                                                             #
 
 ## For the next session — priority order
 
-**Recommended immediate continuation:** Gap #9 — etf-flow-monitoring SPEC. First commit = `docs/specs/etf-flow-monitoring.md` mirroring the executive-departure SPEC structure (§1-§12). Read the gap doc (`docs/obsidian/gaps/etf-flow-monitoring.md` if present; else the broader gap inventory) first; resolve any canon-thin forks autonomously per the CLAUDE.md three-criterion test.
+**Recommended immediate continuation:** Gap #9 — A1 yfinance shares-outstanding ingest. First commit = `scripts/etf_flow_ingest.py` + `scripts/tests/test_etf_flow_ingest.py` + 2 npm script entries + help entries. Read the s91 EDGAR A1 (`scripts/sec_edgar_8k_item_5_02_ingest.py`) as the structural template; read `scripts/macro_regime_ingest.py` + `scripts/fetch_daily_yfinance.py` to confirm the established yfinance integration pattern.
 
-After the SPEC commits, A1-A5 phases follow at the established cadence (one commit per phase).
+After A1 commits, A2-A5 follow at the established cadence (one commit per phase).
 
 **Pejman decisions carried + queued:**
 
@@ -240,45 +239,47 @@ After the SPEC commits, A1-A5 phases follow at the established cadence (one comm
 - #5 capital-deployment-ramp ADR (self-assigned, ~1 week, not blocking).
 - ADR-041 implementation slot (operator-pickable insertion).
 - Gap #8 v2 enhancement — GICS sector activation (operator-pickable insertion).
-- Push 49 commits to origin/main (operator-gated, HOLD).
+- Gap #9 v2 enhancement — ETF.com / issuer-CSV cross-validation (operator-pickable insertion).
+- Push 50 commits to origin/main (operator-gated, HOLD).
 
 **Calendar-gated:**
 
 - Drawdown framework §12 90d empirical retune — earliest 2026-08-29.
-- Vol-structure / sector-rotation / cross-asset / cycle-position / short-interest / executive-departure Phase B campaigns — calendar or backfill arcs.
+- Vol-structure / sector-rotation / cross-asset / cycle-position / short-interest / executive-departure / etf-flow Phase B campaigns — calendar or backfill arcs.
 
 **DO NOT auto-open without operator green-light:**
 
 - ADR-041 implementation (Accepted methodology but slot un-queued).
 - Gap #8 v2 GICS-sector activation (operator-pickable; deferred-but-defined).
+- Gap #9 v2 cross-validation (operator-pickable; deferred-but-defined).
 - C-12 Phase B AlpacaAdapter.
-- Phase B campaigns for the six Layer-0 composites.
+- Phase B campaigns for the seven Layer-0 composites.
 - `git push` to origin/main.
 
 ## Important framing for the next chat
 
-s91 closed with gap #8 executive-departure-signal DONE end-to-end. Six commits this session under the autonomous-execution protocol; zero permission pauses across all six. Four autonomous canon-thin forks resolved (E-2 sub-item-code classification, E-5 no role weighting, E-11 Form 4 deferred to gap #7, A4 GICS-sector deferral per §11 OQ-2).
+s92 opened with gap #9 etf-flow-monitoring SPEC + teach-doc landed as commit `20da333`. One canon-thin fork (F-DATA-SOURCE) resolved autonomously: yfinance shares-outstanding panel is the v1 source; ETF.com scrape + issuer-CSV multi-source remain pre-authorized fallbacks deferred to v2.
 
-**The next session's default behavior on "continue":** read this HANDOFF's "Next stage" section, open gap #9 etf-flow-monitoring. Write `docs/specs/etf-flow-monitoring.md` mirroring the executive-departure SPEC structure. After SPEC lands, A1-A5 follow at the established cadence.
+**The next session's default behavior on "continue":** read this HANDOFF's "Next stage" section, open gap #9 A1. Write `scripts/etf_flow_ingest.py` mirroring the s91 EDGAR A1 structural template. Test under `scripts/tests/test_etf_flow_ingest.py` per SPEC §9.4. Add 2 npm scripts + help entries. Commit as the second commit of the gap #9 arc.
 
-**Parallel-tracks posture continues.** s91 did NOT affect C-12 / paper-trading / real-money-flip arcs.
+**Parallel-tracks posture continues.** s92 did NOT affect C-12 / paper-trading / real-money-flip arcs.
 
-**The chain through s91 close:**
+**The chain through s92 open:**
 
 ```text
-ALL S41-S90 WORK                               ✓ as documented
+ALL S41-S91 WORK                               ✓ as documented
 S90: gap #10 short-interest-tracking arc       ✓ COMPLETE end-to-end (5 commits)
-S90: HANDOFF rewrite                           ✓ committed (a5c0751)
-S91: gap #8 SPEC executive-departure-signal    ✓ committed (c04b706) — 445 LOC, §1-§12
-S91: gap #8 A1 EDGAR ingest + 28 pytest        ✓ committed (bdd4d4f)
-S91: gap #8 A2 pure composite + 41 TS tests    ✓ committed (84e69be)
-S91: gap #8 A3 snapshot migration + 23 tests   ✓ committed (c11edb3)
-S91: gap #8 A4 repository + daemon step 1i     ✓ committed (db2f7b2) + 59 tests
-S91: gap #8 A5 brief section #12 + 17 tests    ✓ committed (f96ff5c)
-S91: HANDOFF rewrite                           ✓ this commit
-  → next: gap #9 etf-flow-monitoring SPEC
-  → after SPEC: A1 (ETF.com / ETF Database scraper) → A2-A5 at established cadence
-  → after #9 ships: gap #7 event-driven-filings-processor (Form 4 lands here)
-  → operator-pickable insertions: ADR-041 impl, Gap #8 v2 GICS activation
-  → background: daemon writes per-cycle snapshots for the six Layer-0 composites that have applied migrations
+S91: gap #8 executive-departure-signal arc     ✓ COMPLETE end-to-end (6 commits)
+S91: HANDOFF rewrite                           ✓ committed (6e9ffe0)
+S92: gap #9 SPEC + teach-doc                   ✓ committed (20da333)
+S92: HANDOFF rewrite                           ✓ this commit
+  → next: gap #9 A1 (yfinance shares-outstanding ingest + pytest + npm/help)
+  → after A1: A2 (pure composite + ~20 TS tests) → A3 (CH migration + tests) →
+              A4 (repository + daemon step 1j + tests) →
+              A5 (brief section #13 + tests)
+  → after gap #9 ships: gap #7 event-driven-filings-processor (Form 4 lands here)
+  → operator-pickable insertions: ADR-041 impl, gap #8 v2 GICS activation,
+                                  gap #9 v2 cross-validation
+  → background: daemon writes per-cycle snapshots for the seven Layer-0 composites
+                that have applied migrations
 ```
