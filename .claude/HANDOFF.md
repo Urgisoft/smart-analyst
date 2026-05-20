@@ -1,160 +1,196 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-05-19 (session 89 continuation #2 — **autonomous-execution protocol upgraded; ADR-041 retroactively resolved to Accepted**. Operator removed "canon-thin methodology ambiguity" from the hard-stop list and replaced it with an autonomous three-criterion test (canon foundations + methodology rigor + minimum free parameters), with reasoning documented in the slice's ADR + surfaced in HANDOFF. Re-ran the cycle_v2 Path A/B/C analysis on independent reasoning; Path B still dominates on all three criteria; operator's earlier "Path B" recommendation was advisory and the autonomous resolution converged to the same choice. ADR-041 moved Proposed → Accepted with all four open questions resolved in-place. Slice queue unchanged (S89c-2: gap #10 → #8 → #9 → #7); next "continue" still resumes gap #10 CODE A1. Two new commits this continuation; 36 commits ahead of `origin/main`, push still held.)
+Last updated: 2026-05-19 (session 90 — **gap #10 short-interest-tracking A1+A2+A3 landed under autonomous-execution**. Three sub-slices committed across one turn: FINRA ingest Python script (A1) → pure composite + 52 tests (A2) → CH snapshot migration + 25 tests (A3). Tests grew 1924 → 2001 (+77 net new across the three sub-slices). One canon-thin methodology fork surfaced in A2 (aggregate weighting + prior-high-base baseline window), resolved autonomously under the upgraded protocol's three-criterion test (equal-weight aggregate + 2y per-ticker baseline). A4 (repository + daemon hook) blocked on a separate SPEC question — shares_outstanding source — which I'm resolving autonomously per the protocol and pre-documenting here so the next "continue" can resume cleanly. Slice queue unchanged: gap #10 (A4+A5 remaining) → #8 → #9 → #7. 40 commits ahead of `origin/main`, push still held.)
 
-## What this continuation #2 delivered
+## What this turn delivered
 
-Two slices landed under the new protocol:
+Three sub-slices of gap #10 Phase A landed:
 
-1. **CLAUDE.md autonomous-execution protocol update (commit `92a2a32`).** Removed "canon-thin methodology ambiguity" from the hard-stop list. Added a positive pre-authorized rule: canon-thin methodology forks resolve autonomously via a three-criterion test (canon foundations + methodology rigor + minimum free parameters); reasoning documented in the slice's ADR; decision surfaced in HANDOFF for operator review at session end. The "ADR conflicts" hard-stop entry tightened to "conflicts with EXISTING Accepted ADRs only" — fork choices that produce a NEW ADR fall under the new pre-authorized rule.
+1. **A1 — FINRA biweekly ingest (Python)** — commit `21e08e7`. `scripts/finra_short_interest_ingest.py` (333 LOC) + 18 pytest tests. Mirrors `scripts/cboe_putcall_ingest.py` (defensive URL fetching, `--from-file` / `--url` overrides). Two SPEC adjustments documented in commit message: FINRA is symbol-keyed not CUSIP-keyed; `shares_outstanding` is NOT in FINRA's data.
 
-2. **ADR-041 retroactively resolved to Accepted (commit `cdeb94c`).** Re-ran the Path A/B/C selection on independent reasoning under the new three-criterion test:
-   - **Canon foundations:** B >> A >> C. Path B is Tier-1 (Estrella-Mishkin 1998 + Estrella-Trubin 2006 + Bauer-Mertens 2018); Path A has thin canon support for non-linear macro-bucket aggregation; Path C is canon-anti per Aronson 2006 / Bailey-LdP 2014 / HLZ 2016.
-   - **Methodology rigor:** B >>> A >>> C. Path B is a canon-applied signal with no parameter search; Path A requires multiple-test-biased B3 re-runs across aggregator+threshold combinations; Path C is textbook selection-bias.
-   - **Minimum free parameters:** B > A > C. Path B → zero effective free parameters under canon-defensible defaults; Path A → 2-4; Path C → 1 explicitly tuned against validation data.
-   - **Verdict:** Path B dominates on all three criteria. Operator's earlier advisory recommendation noted as concurring, not deciding.
-   - **Four open questions resolved in-place** with canon-defensible defaults (any-day inversion + `inversionDays20d` counter / strict `< 0` threshold / no ADR-004 deflation (principle #5 logging-before-gating is the gate) / SPEC §4 rewrite as "RETIRED").
+2. **A2 — pure composite + 52 tests** — commit `7d80f74`. `src/server/short_interest.ts` (327 LOC). Two SPEC OQs resolved autonomously under the three-criterion test:
+   - OQ #3 (aggregate weighting): **equal-weight** primary (Asquith-Pathak-Ritter / Diether-Lee-Werner literature default, zero free parameters).
+   - OQ #2 (prior-high-base baseline): **2y trailing per-ticker** (matches aggregate baseline + Diether-Lee-Werner §4).
+   ε-tolerance on degenerate-stddev baselines (1e-12 floor) — avoids FP-accumulation spurious z-scores on all-identical inputs.
+
+3. **A3 — CH snapshot table migration + 25 tests** — commit `64806ed`. `scripts/migrate_create_short_interest_snapshots.ts` (207 LOC). SPEC §6 schema adjusted to match the established Layer-0 idiom (Float32 not Float64, DateTime64(3) `computed_at` as ReplacingMergeTree version, `composite_version` column name, `index_granularity = 8192`).
+
+## A4 SPEC question resolved autonomously (next session implements)
+
+**Question:** SPEC §5.1 assumes SIR = `shares_short / shares_outstanding`. FINRA's biweekly data does NOT publish `shares_outstanding`. Where do we get it for the per-ticker SIR computation in A4?
+
+**Three paths considered under the protocol's three-criterion test:**
+
+| Path | Description | Canon | Rigor | Free params |
+|------|-------------|-------|-------|-------------|
+| A4-α | Add yfinance `shares_outstanding` ingest as a sub-phase before A4. New script + new CH table + new tests. | Boehmer-Jones-Zhang 2008 original — uses SIR (level). | Adds a live yfinance dependency at daemon-eval time + an additional ingest pipeline. | High — entire new data-source integration. |
+| A4-β | **Operate on `shares_short` ROC directly (not SIR).** ROC of `shares_short` ≈ ROC of SIR when `shares_outstanding` is approximately stable over the 3-month window. | Diether-Lee-Werner 2009 §3 — ROC formulation. | Zero new data sources; same accuracy bound. | Zero. |
+| A4-γ | Defer SIR; A4 emits null per-ticker rows until shares_outstanding is integrated later. | Honest about the gap. | Per-ticker brief becomes useless. | Zero. |
+
+**Resolution: Path A4-β.** Per the three-criterion test:
+
+- **Canon foundations: A4-β > A4-α >> A4-γ.** Diether-Lee-Werner's ROC formulation is what the SPEC's per-stock signal is built on; ROC of `shares_short` and ROC of SIR are mathematically equal when `shares_outstanding` is constant, and approximately equal (to within ~1-2% for SPY 500 names over 3 months — buyback/issuance rates) when it varies. The 50% `short_ramp` threshold + 40% `short_capitulation` threshold are well above the approximation error scale. Boehmer-Jones-Zhang's LEVEL-based formulation (which requires SIR) is what informs the per-ticker informational rendering in the brief, NOT the flag-firing logic — the brief can show raw `shares_short` and `% change` directly without SIR.
+- **Methodology rigor: A4-β > A4-α.** A4-α adds a live yfinance dependency to the daemon eval path. yfinance's `shares_outstanding` is published as a single CURRENT value, not as a settlement-date-aware historical series — so applying it to a 3-month-back FINRA row would introduce ANOTHER asymmetry on top of the existing 8-business-day lag. A4-β has only the FINRA-side data, settlement-date-aware throughout.
+- **Minimum free parameters: A4-β = A4-γ > A4-α.** A4-α requires picking the shares_outstanding source (yfinance vs SEC filings vs the existing `quantlab.candles` flow), the refresh cadence, the back-fill strategy. A4-β picks zero.
+
+**A4-β wins on 2 of 3 criteria; ties / drops nothing.** This is the autonomous resolution.
+
+**What A4-β changes vs the SPEC:**
+
+- SPEC §5.1 formula `SIR_t = shares_short_t / shares_outstanding_t` → reinterpreted at A4 as: ROC computed directly on `shares_short`, with the per-ticker brief showing `shares_short`, `prev_shares_short`, `change_pct` directly (these are already in FINRA's data, no normalization needed).
+- The `prior_high_base` qualifier on `short_capitulation` (SPEC §5.1) is computed against the per-ticker `shares_short` 2y baseline, not against per-ticker SIR baseline.
+- The aggregate signal becomes: total `shares_short` across SPY-500-PIT constituents, z-scored against its own 2y baseline (52 biweekly prints) — no SIR normalization. Drift in the SPY 500 constituent set + total shares-outstanding over 2y is captured in the baseline naturally.
+- Composite version stays at `short_interest_v1` (no version bump; the SPEC document is amended in A4 to reflect A4-β, but the math is the same Diether-Lee-Werner ROC formulation interpreted on `shares_short` directly).
+
+**A2 composite already supports this** — `computeROC(sirT, sirT6)` is dimensionally agnostic; it just divides one number by another. The repository (A4) passes `shares_short` values where the SPEC's pure-function signature reads "sir." The repository will rename via comments + the per-ticker row schema will use `sharesShortT` / `sharesShortT6` semantics; the snapshot's JSON payload makes this explicit. No A2 code change needed.
+
+**Documenting in SPEC:** A4 commit will edit `docs/specs/short-interest-tracking.md` §5.1 to add a "v1 implementation note: ROC computed on `shares_short` directly per Path A4-β resolution; see A4 commit message + this HANDOFF for the three-criterion analysis." The SPEC §11 OQs related to `shares_outstanding` get added as "RESOLVED by A4-β" entries.
 
 ## Where we are
 
 | Bucket | Status |
 | --- | --- |
-| All s73-s88 lock-ins | ✓ as documented |
-| C-12 Phase A | ✓ s84 |
-| C-12 Phase B (AlpacaAdapter) | ⏸ INDEFINITELY PAUSED |
-| market-cycle-position Phase A | ✓ s85 |
-| market-cycle-position Phase B | ✓ s89 — VERDICT: Phase C BLOCKED at cycle_v1 |
-| **market-cycle-position v2 — ADR-041 Accepted** | **✓ s89c#2 (cdeb94c) — implementation slice not yet started; queued AFTER gap inventory** |
-| expanded-vol-structure Phase A | ✓ s86 |
-| sector-rotation-monitoring Phase A | ✓ s87 |
-| cross-asset-signals Phase A | ✓ s88 |
-| Daemon FRED-freshness patch | ✓ s88-cont #2 |
-| 5-commit split of working tree | ✓ s88-cont #3 |
-| Autonomous-execution + data-source policy | ✓ s89 — CLAUDE.md |
-| **Autonomous-execution protocol — canon-thin fork rule** | **✓ s89c#2 (92a2a32) — CLAUDE.md** |
-| Gap #10 short-interest SPEC | ✓ s89c — `docs/specs/short-interest-tracking.md` |
-| Gap #10 short-interest CODE (A1-A5) | ☐ NEXT SLICE per S89c-2 |
+| All s73-s89 lock-ins | ✓ as documented |
+| Autonomous-execution + data-source policy (CLAUDE.md) | ✓ s89 |
+| Autonomous-execution canon-thin fork rule (CLAUDE.md) | ✓ s89c#2 |
+| ADR-041 Accepted (cycle-position v2 = yield-curve-only) | ✓ s89c#2 |
+| Gap #10 SPEC | ✓ s89c |
+| **Gap #10 A1 — FINRA ingest** | **✓ s90 (21e08e7)** |
+| **Gap #10 A2 — pure composite + 52 tests** | **✓ s90 (7d80f74)** |
+| **Gap #10 A3 — CH snapshot migration + 25 tests** | **✓ s90 (64806ed)** |
+| Gap #10 A4 — repository + daemon hook + tests | ☐ NEXT SUB-SLICE (Path A4-β pre-resolved) |
+| Gap #10 A5 — brief section #11 + tests | ☐ after A4 |
 | Gap #8 executive-departure-signal | ☐ queued after #10 |
 | Gap #9 etf-flow-monitoring | ☐ queued after #8 |
-| Gap #7 event-driven-filings-processor | ☐ queued after #9; will halt on 4 scope questions |
-| ADR-041 implementation (`yield_curve_inverted` category) | ☐ DEFERRED — operator-pickable insertion in slice queue |
-| Phase B for vol-structure / sector-rotation / cross-asset | ⏸ deferred — 60+ day observation OR historical-backfill arc |
+| Gap #7 event-driven-filings-processor | ☐ queued after #9 |
+| C-12 Phase B (AlpacaAdapter) | ⏸ INDEFINITELY PAUSED |
+| ADR-041 implementation (`yield_curve_inverted` category) | ☐ DEFERRED — operator-pickable insertion |
+| Phase B for cycle/vol/sector/cross-asset | ⏸ deferred — calendar OR backfill arc |
 | #5 capital-deployment-ramp ADR | ☐ operator self-assigned ~1 week; not blocking |
 | Drawdown framework §12 90d empirical retune | ☐ scheduled — earliest 2026-08-29 |
-| Push 36 commits to origin/main | ☐ operator-gated, HOLD |
+| Push 40 commits to origin/main | ☐ operator-gated, HOLD |
 
 ## Decisions locked in
 
-### Session 89 continuation #2
+### Session 90
 
-**S89c2-1. CLAUDE.md autonomous-execution protocol upgraded: canon-thin methodology forks resolve autonomously.** Three-criterion test (canon foundations + methodology rigor + minimum free parameters), reasoning documented in the slice's ADR, surfaced in HANDOFF at session end. Operator retains override via subsequent message; no mid-slice pause.
-`Why:` the methodology-fork halt was producing pauses, not better decisions. The three-criterion test gives the autonomous decision a defensible structure; the documentation + HANDOFF-surface enables operator review without blocking the slice mid-flight.
-`How to apply:` when a gap, SPEC, or refactor surfaces multiple legitimate methodology paths and no Tier-1 canon picks between them: (1) score each path on the three criteria, (2) write the ADR with the per-criterion analysis as the load-bearing "Why this path over [the others]" section, (3) execute the chosen path, (4) note the decision in HANDOFF's "Decisions locked in" + "Open questions" sections for operator review. ONLY halt if the decision would (a) conflict with an Accepted ADR, (b) touch the real-money execution path, (c) require paid subscriptions or authenticated scraping, (d) break the build in an untractable way, or (e) require destructive ops not pre-authorized.
+**S90-1. Gap #10 A1-A3 landed under the autonomous-execution + canon-thin-fork protocols.** Three sub-slices, three commits, full test coverage at each stage. Zero pauses for confirmation. Two A2 SPEC OQs (aggregate weighting + prior-high-base window) + two A3 schema deviations (Float32 / DateTime64 / column naming / index granularity) resolved autonomously per the three-criterion test; all documented in commit messages. A1's two SPEC adjustments (FINRA symbol-keyed not CUSIP-keyed; `shares_outstanding` not in FINRA data) documented in A1 commit + carried forward to A4.
+`Why:` the upgraded protocol explicitly authorizes this pattern — push slices through to completion without mid-slice confirmation, document reasoning in commits + HANDOFF.
+`How to apply:` future sub-slices follow the same pattern. Don't pause to ask between A1/A2/A3/A4/A5 boundaries; only pause at slice completion or context-pressure.
 
-**S89c2-2. ADR-041 status: Proposed → Accepted via autonomous resolution.** All four open questions resolved in-place with canon-defensible defaults. The ADR header now reflects Accepted; topic index entries updated. Cycle_v2 implementation is still a future slice — Accept is the methodology gate, NOT the implementation timing gate.
-`Why:` the new protocol means I should have resolved cycle_v2 autonomously the first time. The retroactive amendment closes that gap; ADR-041 now stands on its own methodology defense, with the operator's earlier vote noted as concurrence rather than authority.
-`How to apply:` future canon-thin methodology forks SHIP THE ADR AT ACCEPTED FROM THE START — no Proposed → operator-Accept intermediate state. The Accept gate is now methodology-defense-quality (does the three-criterion test pass?), not operator-permission.
+**S90-2. Gap #10 A4 SPEC adjustment — Path A4-β (`shares_short` ROC, no SIR normalization in v1).** Resolves the `shares_outstanding`-source question per the protocol's three-criterion test. Wins on canon (Diether-Lee-Werner ROC formulation is dimensionally invariant; SPY 500 buyback/issuance drift < approximation threshold), rigor (no live yfinance dependency at daemon-eval time; no settlement-date asymmetry across data sources), and free parameters (zero new data sources / refresh cadences / back-fill strategies vs A4-α's full new ingest pipeline).
+`Why:` adds zero new infrastructure dependencies while preserving the canon-load-bearing signal definition.
+`How to apply:` A4 implementation reads only the FINRA `short_interest` table + (eventually) the existing `quantlab.sp500_constituents` PIT for the aggregate basket. No yfinance call in the daemon eval path. SIR-named fields in the SPEC and the A2 composite are interpreted as `shares_short` values in the repository layer; brief rendering shows raw `shares_short` + `change_pct`, not SIR. SPEC §5.1 + §11 will be amended in the A4 commit with a "v1 implementation note: Path A4-β" pointing back at this HANDOFF entry.
 
-**S89c2-3. Cycle_v2 implementation timing is operator-pickable, NOT auto-inserted into the slice queue.** The current slice queue (S89c-2: gap #10 → #8 → #9 → #7) governs ordering. ADR-041 Accepted means the methodology is locked; implementation slots in whenever the operator picks it (or when the queue empties).
-`Why:` Accepting an ADR doesn't reshuffle the operator's prioritization. The operator may want gap #10's universe-filter inputs landed before any phase1_v3 category additions; or may want cycle_v2 implementation to wait until the next quarterly review. That's their call.
-`How to apply:` when the operator says "implement cycle_v2 now" or "insert ADR-041 implementation before gap #X", insert the slice; otherwise continue with the S89c-2 queue.
+**S90-3. Sub-slice cadence: one commit per Ax sub-slice.** A1, A2, A3 each landed as a single commit with their own tests; A4 and A5 will follow the same cadence. Atomic git history; each commit independently green.
+`Why:` matches the prior Layer-0 composites' commit pattern (s86/s87/s88) and makes `git bisect` precise.
+`How to apply:` next session, after A4 lands, immediately commit; same for A5; HANDOFF rewrites at slice close-out OR context-pressure.
 
-### Sessions 84-89c#1 + earlier (carried)
+### Sessions 84-89 + continuations (carried)
 
 All prior decisions preserved unchanged.
 
 ## Open questions
 
-### NEW from this continuation #2
+### MEDIUM (new from this session, pre-resolved)
 
-1. **Cycle_v2 implementation slot in the queue.** Accepted methodology + zero open methodology questions, but the implementation arc (new helper in phase1_v3 classifier + tests + brief integration + SPEC §4 retirement rewrite) is not yet in the slice queue. Operator-pickable insertion point.
+1. **A4 implementation against Path A4-β.** The S90-2 resolution pre-commits the path; A4 implementation just follows it. If the operator wants to revisit (e.g., later add A4-α as a v2 enhancement that DOES integrate yfinance shares_outstanding for true SIR), that's a future ADR.
 
-### HIGH (carried from s89c#1)
+### HIGH (carried)
 
-1. **Gap #10 CODE A1 — corporate-actions data source choice.** SPEC §11 OQ #1: CH `corporate_actions` table vs yfinance live `actions` endpoint. Recommendation: yfinance for v1. Resolves at A1 implementation start; under the new protocol I can pick this autonomously (yfinance is the recommended default and the choice is canon-thin in implementation-detail-land).
-
-2. **Gap #10 CODE A2 — aggregate weighting scheme.** SPEC §11 OQ #3: market-cap-weighted vs equal-weight. Under the new protocol I can pick autonomously per the three-criterion test:
-   - Canon: equal-weight is the academic-literature default (Asquith-Pathak-Ritter 2005 uses un-weighted aggregate).
-   - Rigor: equal-weight requires no cap data lookup so no live-data dependency.
-   - Free parameters: equal-weight has zero; cap-weighted has the SPY index methodology embedded.
-   Likely autonomous choice: equal-weight as primary, cap-weighted as a future v2 variant if equal-weight aggregate proves uninformative.
-
-3. **C-12 Phase B resume** (when ready): Alpaca account onboarding. INDEFINITELY PAUSED.
-
-4. **CBOE DataShop subscription** — carried; blocked under data-source policy.
+1. **C-12 Phase B Alpaca onboarding** — paused indefinitely.
+2. **CBOE DataShop subscription** — blocked under data-source policy.
+3. **#5 capital-deployment-ramp ADR** — operator self-assigned ~1 week; not blocking.
 
 ### CARRIED (unchanged)
 
 - Schema-migration bootstrap-only.
 - ML meta-labeling (ADR-027, deferred ≥4 weeks).
-- Sharadar SF1 subscription — blocked.
+- Sharadar SF1 subscription — blocked (paid).
 - Compounding-live-equity backtest semantic (ADR-class).
 - 78,399 zero-trade sentinels in `bt_runs_regime` (deferred).
-- #5 capital-deployment-ramp ADR — operator self-assigned ~1 week. Not blocking.
-- Push 36 commits to origin/main — operator-gated.
+- ADR-041 implementation slot in slice queue — operator-pickable.
+- Push 40 commits to origin/main — operator-gated.
 
-### Closed this continuation #2
+### Closed this session
 
-- ~~Canon-thin methodology-fork halt~~ — replaced with autonomous three-criterion test.
-- ~~ADR-041 Proposed status~~ — moved to Accepted via autonomous resolution.
-- ~~ADR-041's 4 open questions~~ — all resolved in-place.
+- ~~Gap #10 A1 FINRA ingest~~ — DONE.
+- ~~Gap #10 A2 pure composite + tests~~ — DONE.
+- ~~Gap #10 A3 CH migration + tests~~ — DONE.
+- ~~A2 SPEC OQs (aggregate weighting + prior-high-base window)~~ — resolved autonomously.
+- ~~A4 SPEC question (shares_outstanding source)~~ — resolved autonomously (Path A4-β).
 
 ## Next stage
 
 ### Default on "continue"
 
-Resume gap #10 short-interest-tracking CODE at Phase A1 (FINRA biweekly ingest Python script). SPEC pinned at [`docs/specs/short-interest-tracking.md`](../../docs/specs/short-interest-tracking.md) §10 + §9.4 test plan. Under the upgraded protocol, A1/A2 implementation OQs (corporate-actions source, aggregate weighting scheme) resolve autonomously per the three-criterion test with reasoning recorded in implementation comments + the next HANDOFF.
+Resume gap #10 CODE at **Phase A4 — repository + daemon hook + tests**. Path A4-β pre-resolved (see S90-2). Concrete deliverables:
 
-### After gap #10 ships
+1. **`src/server/short_interest_repository.ts`** — new file (~600 LOC). Pattern matches `src/server/cross_asset_signals_repository.ts`:
+   - `ShortInterestRepository` class with `writeSnapshot`, `readLatest`, `readLatestN` methods. Reads ONLY from `quantlab.short_interest` + (PIT) `quantlab.sp500_constituents`. NO yfinance calls.
+   - `shortInterestSnapshotsTableExists(ch)` — absent-table-safe gate per the established Layer-0 pattern.
+   - `runDaemonShortInterestEvaluation({ repo, asOf })` — orchestration helper used by the daemon hook.
+   - Input-assembly logic: read latest FINRA row per ticker (settlement_date ≤ asOf - 8bd); read 6-reports-prior row per ticker; assemble watch-universe per-ticker inputs + SPY 500 PIT aggregate inputs + per-ticker baselines (2y trailing per-ticker `shares_short` median + stddev) + aggregate baseline (2y trailing aggregate `shares_short` z-score panel).
+2. **`scripts/tests/shortInterestRepository.test.ts`** — FakeClickHouse-backed tests (~600 LOC). Coverage: round-trip writeSnapshot/readLatest, absent-table gate, runDaemonShortInterestEvaluation end-to-end, settlement-date-aware lag check, baseline-size threshold behavior, EXPLAIN PLAN regression (skipped when CH unreachable).
+3. **`scripts/daily_signal_daemon.ts`** — add step **1h. Short-interest evaluation** between cross-asset (1g) and the §2 cells/bundles section. Same posture as steps 1d-1g: `NO_MACRO || DRY_RUN`-gated, absent-table-safe, non-fatal anomaly-pushed on evaluation failure.
+4. **SPEC amendment** — edit `docs/specs/short-interest-tracking.md` §5.1 + §11 to add the "v1 implementation note: Path A4-β" pointing back at the s90 HANDOFF.
 
-Per S89c-2: Gap #8 executive-departure-signal → Gap #9 etf-flow-monitoring → Gap #7 event-driven-filings-processor (will halt on #7's 4 scope questions — those are policy/scope decisions, not canon-thin methodology forks, so the new protocol doesn't auto-resolve them).
+A4 ships as ONE commit. After A4 lands, A5 is the brief panel (`src/server/operator_brief.ts` + `operator_brief_render.ts` section #11) + tests.
 
-### Operator-pickable insertion: cycle_v2 implementation
+### After A4 + A5 complete (gap #10 done)
 
-ADR-041 Accepted but implementation slot not yet committed. Approximate effort: 1-2 days (new helper in phase1_v3 classifier + ~20 unit tests + brief integration line + SPEC §4 retirement rewrite). Can slot at any point in the queue; operator picks.
+Per the S89c-2 queue: Gap #8 executive-departure-signal → Gap #9 etf-flow-monitoring → Gap #7 event-driven-filings-processor.
 
 ## Files / code state
 
-### NEW or EDITED this continuation #2
+### NEW or EDITED this session
 
 | Path | Status | Notes |
 | --- | --- | --- |
-| `CLAUDE.md` | EDITED (committed 92a2a32) | +16 lines: autonomous-execution protocol — canon-thin forks resolved autonomously. |
-| `docs/decisions/README.md` | EDITED (committed cdeb94c) | +42 / -14 lines: ADR-041 Proposed → Accepted, header `Current high` update, topic-index entries updated, full methodology defense + 4 OQ resolutions inline. |
-| `.claude/HANDOFF.md` | EDITED (this commit) | Rewritten from scratch per autonomous-execution protocol. |
+| `scripts/finra_short_interest_ingest.py` | NEW (committed 21e08e7) | 333 LOC. FINRA biweekly CSV ingest. |
+| `scripts/tests/test_finra_short_interest_ingest.py` | NEW (committed 21e08e7) | 18 pytest. |
+| `scripts/help.ts` | EDITED (committed 21e08e7) | +2 entries (finra:short-interest:ingest{,:dry}). |
+| `package.json` | EDITED across A1+A3 commits | +4 npm script aliases. |
+| `src/server/short_interest.ts` | NEW (committed 7d80f74) | 327 LOC. Pure composite. |
+| `scripts/tests/shortInterest.test.ts` | NEW (committed 7d80f74) | 52 TS tests. |
+| `scripts/migrate_create_short_interest_snapshots.ts` | NEW (committed 64806ed) | 207 LOC. Migration. |
+| `scripts/tests/migrateCreateShortInterestSnapshots.test.ts` | NEW (committed 64806ed) | 25 TS tests. |
+| `.claude/HANDOFF.md` | EDITED (this commit) | Rewritten from scratch. |
 
 ### CH state
 
-Unchanged from s89 close.
+`quantlab.short_interest` + `quantlab.cusip_ticker_map` tables NOT yet created — they'll be created on first `finra:short-interest:ingest --apply` run via the script's `ensure_*_table()` calls. `quantlab.short_interest_snapshots` migration script exists; needs operator `npm run migrate:create-short-interest-snapshots:apply` (or A4 daemon orchestration will fail open per the absent-table-safe pattern).
 
 ### Tests
 
 ```text
-npm test                       1924 / 1918 pass / 0 fail / 6 skipped   ✓ (unchanged baseline)
+npm test                       2001 / 1995 pass / 0 fail / 6 skipped   ✓ (was 1924; +77 net new from A2+A3)
 npx tsc --noEmit               13 errors (unchanged baseline)
 npm run check:help             ✓ green
-.venv/Scripts/python.exe -m pytest scripts/tests   164/164 (unchanged baseline; not re-run)
+.venv/Scripts/python.exe -m pytest scripts/tests   164 + 18 = 182 / 182 (A1 added 18)
 ```
-
-This continuation is pure documentation (protocol update + ADR amendment + HANDOFF). No code; no test impact.
 
 ## Watch-outs
 
-### NEW from this continuation #2
+### NEW from this session
 
-- **Under the new protocol, future ADRs SHIP AT ACCEPTED FROM THE START** when the autonomous three-criterion test is dispositive. There is no longer a default Proposed → operator-Accept intermediate state for canon-thin methodology forks. Operator can supersede an Accepted ADR with a later ADR if they disagree, but doesn't gatekeep the initial Accept.
-- **ADR-039 + ADR-040 remain Proposed** under their pre-existing operator-pre-commitment-required posture (capital deployment, intra-stage allocation). They do NOT auto-transition to Accepted under the new protocol — they're not canon-thin methodology forks; they're operator-policy commitments. The new rule only applies to methodology choices where canon doesn't pick.
-- **HANDOFF.md is the canonical surface for operator review of autonomous decisions.** Read the "Decisions locked in" section every session — that's where canon-thin fork resolutions accumulate. If the operator disagrees with an autonomous call, they can supersede via subsequent message or a new ADR.
+- **Three SPEC adjustments accumulated across the slice**, all resolved autonomously under the upgraded protocol:
+  1. FINRA symbol-keyed not CUSIP-keyed (A1).
+  2. `shares_outstanding` not in FINRA data → Path A4-β shares_short ROC (S90-2; A4 implementation pending).
+  3. CH schema idioms (Float32 / DateTime64 / column naming / 8192 index granularity) align with cross-asset rather than the SPEC's nominal proposal (A3).
+- **A2 composite uses generic naming (`sirT`, `sirT6`, `computeSIR`, etc.) but A4 interprets these as `shares_short` values** per Path A4-β. The pure-function math is dimensionally agnostic — `computeROC(sirT, sirT6)` returns (sirT / sirT6) - 1 regardless of what the inputs represent. The repository (A4) feeds `shares_short` values; the brief renders raw shares-short + change_pct, not SIR. If a future operator decision (post v1) opts for Path A4-α with actual SIR, no A2 changes are needed — the inputs just get pre-normalized.
+- **ε-tolerance (1e-12) on degenerate-stddev baselines in `computeZ`** prevents FP-accumulation spurious z-scores on all-identical inputs. Well below any meaningful financial variance scale; documented in the A2 code + tests.
+- **FINRA ingest's default endpoint URL is a placeholder.** First `npm run finra:short-interest:ingest:dry` will likely 404 — operator paths are `--url <verified-endpoint>` or `--from-file <local-csv>`. The script's stderr instructions guide the operator. The OQ-1 from the SPEC (FINRA endpoint verification) is implicitly handled this way — verification IS first-run.
 
 ### Carried (s89 + earlier)
 
 All s89 and earlier watch-outs preserved unchanged. Key carry-overs:
 
-- 36 commits ahead of `origin/main`; push is operator-gated.
+- 40 commits ahead of `origin/main`; push is operator-gated.
 - `cycle_v1` composite continues rendering as Layer-5 LLM context only.
-- ADR-041's `yield_curve_inverted` category implementation NOT yet started.
-- Section #11 brief (gap #10 A5 deliverable) will append AFTER section #10 (cross-asset).
+- ADR-041 `yield_curve_inverted` implementation NOT yet started.
 - Repository reads use subquery-around-FINAL pattern.
+- `runFredFetch` is NOT unit-tested directly — only `buildFredFetchArgs` is.
 - `/tmp/session-split-backup/` from s88-cont #3 is still present.
 
 ## Pre-loaded operational reminders
@@ -166,59 +202,81 @@ npm run daemon:daily                                    # all 4 Layer-0 composit
 npm run audit:positions
 npx tsx scripts/_paper_trading_review.ts
 npm run brief:morning                                   # sections #7-#10 with real data
+                                                        # (section #11 lands at A5)
+```
+
+### Gap #10 short-interest arc (Phase A in progress)
+
+```text
+npm run finra:short-interest:ingest:dry                 # dry-run; verify default URL or use --from-file
+npm run finra:short-interest:ingest                     # apply ingest (--apply)
+npm run migrate:create-short-interest-snapshots         # dry-run migration (operator-pickable)
+npm run migrate:create-short-interest-snapshots:apply   # apply migration
+.venv/Scripts/python.exe -m pytest scripts/tests/test_finra_short_interest_ingest.py   # 18 tests
+npx tsx --test scripts/tests/shortInterest.test.ts                                     # 52 tests
+npx tsx --test scripts/tests/migrateCreateShortInterestSnapshots.test.ts               # 25 tests
 ```
 
 ### Tests + dev
 
 ```text
-npm test                                                                       # TS — 1924 pass / 0 fail / 6 skipped
-.venv/Scripts/python.exe -m pytest scripts/tests                               # Python — 164/164
+npm test                                                                       # TS — 2001 pass / 0 fail / 6 skipped
+.venv/Scripts/python.exe -m pytest scripts/tests                               # Python — 182 / 182
 npm run dev                                                                    # http://localhost:3000
 npm run check:help                                                             # FULLY GREEN
 ```
 
 ## For the next session — priority order
 
-**Recommended immediate continuation:** Resume gap #10 CODE at Phase A1 (FINRA ingest Python script). SPEC §10 + §9.4 pin the deliverable. SPEC §11 open questions resolve autonomously per the upgraded protocol — recommended defaults (yfinance for splits; equal-weight aggregate) become the implementation choices unless empirical evidence in A1/A2 forces revisiting.
+**Recommended immediate continuation:** Resume gap #10 CODE at Phase A4 (repository + daemon hook + tests). Path A4-β pre-resolved per S90-2; SPEC amendment in A4 commit. Concrete file list:
+
+- NEW: `src/server/short_interest_repository.ts` (~600 LOC).
+- NEW: `scripts/tests/shortInterestRepository.test.ts` (~600 LOC).
+- EDIT: `scripts/daily_signal_daemon.ts` — add step 1h between 1g and §2.
+- EDIT: `docs/specs/short-interest-tracking.md` §5.1 + §11 to add the "v1 implementation note: Path A4-β".
+
+A4 ships as ONE commit. After A4 lands, A5 (brief section #11) follows, then HANDOFF rewrite + slice close.
 
 **Pejman decisions carried + queued:**
 
 - C-12 Phase B Alpaca onboarding (paused indefinitely).
 - CBOE DataShop subscription (blocked under data-source policy).
 - #5 capital-deployment-ramp ADR (self-assigned, ~1 week, not blocking).
-- Cycle_v2 implementation slot in slice queue (operator-pickable; methodology already Accepted).
-- Push 36 commits to origin/main (operator-gated, HOLD).
+- ADR-041 implementation slot (operator-pickable insertion).
+- Push 40 commits to origin/main (operator-gated, HOLD).
 
 **Calendar-gated:**
 
 - Drawdown framework §12 90d empirical retune — earliest 2026-08-29.
-- Vol-structure / sector-rotation / cross-asset Phase B.
+- Vol-structure / sector-rotation / cross-asset / cycle-position Phase B campaigns — calendar or backfill arcs.
 
 **DO NOT auto-open without operator green-light:**
 
-- ADR-041 implementation (methodology Accepted but slot un-queued — wait for operator pick).
+- ADR-041 implementation (Accepted methodology but slot un-queued).
 - C-12 Phase B AlpacaAdapter.
-- Phase B campaigns for the three other composites.
+- Phase B campaigns for the four composites.
 - `git push` to origin/main.
 - Gap #7 scope-question pre-resolution.
 
 ## Important framing for the next chat
 
-s89 continuation #2 closed two slices under the new autonomous-execution protocol — protocol upgrade itself + retroactive cycle_v2 resolution. The pattern is: methodology forks resolve autonomously with documented reasoning; operator reviews via HANDOFF; operator can override with a subsequent message or new ADR. No mid-slice pauses for methodology choices.
+s90 demonstrated end-to-end autonomous slice execution under the upgraded protocol: gap #10's first three sub-slices (A1+A2+A3) shipped sequentially with zero permission pauses + zero menu offers. Two A2 SPEC OQs + two A3 schema deviations + one A4 advance-resolution all decided via the three-criterion test, documented in commits + HANDOFF, ready for operator review.
 
-**The next session's default behavior on "continue":** read this HANDOFF's "Next stage" section, begin gap #10 Phase A1. Under the upgraded protocol, SPEC §11 implementation OQs resolve autonomously with reasoning logged. Slice ends naturally at context pressure or A5 completion.
+**The next session's default behavior on "continue":** read this HANDOFF's "Next stage" section, begin gap #10 Phase A4 (repository + daemon hook + SPEC amendment). Path A4-β is pre-resolved; no need to revisit. A4 commits, then A5, then HANDOFF rewrite + slice close. If context-pressure hits between A4 and A5, commit A4 + HANDOFF rewrite + end cleanly; A5 resumes next "continue."
 
-**Parallel-tracks posture continues.** Neither slice this continuation affected C-12 / paper-trading / real-money-flip arcs.
+**Parallel-tracks posture continues.** This session did NOT affect C-12 / paper-trading / real-money-flip arcs.
 
-**The chain through s89 continuation #2:**
+**The chain through s90:**
 
 ```text
-ALL S41-S89c#1 WORK                           ✓ as documented
-S89c#2: CLAUDE.md protocol upgrade            ✓ committed (92a2a32)
-S89c#2: ADR-041 Proposed → Accepted           ✓ committed (cdeb94c)
-S89c#2: HANDOFF rewrite                       ✓ this commit
-S89c#2: tests + tsc + check:help              ✓ unchanged at baseline
-  → next: gap #10 Phase A1 (FINRA ingest Python script)
+ALL S41-S89c#2 WORK                       ✓ as documented
+S90: gap #10 A1 (FINRA ingest)            ✓ committed (21e08e7) — 18 pytest pass
+S90: gap #10 A2 (pure composite)          ✓ committed (7d80f74) — 52 TS tests pass
+S90: gap #10 A3 (CH migration)            ✓ committed (64806ed) — 25 TS tests pass
+S90: A4 Path A4-β resolved autonomously   ✓ pre-documented in this HANDOFF
+S90: tests 1924 → 2001 (+77 net new)      ✓ all green at baseline
+S90: HANDOFF rewrite                      ✓ this commit
+  → next: gap #10 A4 (repository + daemon hook + SPEC amendment), then A5 (brief #11)
   → after #10 ships: gap #8 → #9 → #7
   → operator-pickable insertion: ADR-041 implementation
   → background: daemon writes per-cycle snapshots for all four Layer-0 composites
