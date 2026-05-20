@@ -77,6 +77,11 @@ import {
   executiveDepartureSnapshotsTableExists,
 } from './executive_departure_repository.js';
 import type { ExecutiveDepartureSnapshot } from './executive_departure.js';
+import {
+  EtfFlowRepository,
+  etfFlowSnapshotsTableExists,
+} from './etf_flow_repository.js';
+import type { EtfFlowSnapshot } from './etf_flow.js';
 import { DEPLOYMENT_STAGES } from './capital_deployment_config.js';
 import {
   computePerCellCapital,
@@ -95,6 +100,7 @@ import type {
   BriefDaemonSection,
   BriefDrawdownSection,
   BriefDrawdownStrategyRow,
+  BriefEtfFlowSection,
   BriefExecutiveDepartureSection,
   BriefSectorRotationSection,
   BriefShortInterestSection,
@@ -260,6 +266,14 @@ export interface BriefDeps {
    */
   fetchLatestExecutiveDeparture?: () => Promise<ExecutiveDepartureSnapshot | null>;
   /**
+   * ETF-flow composite reader. Defaults to
+   * `EtfFlowRepository.loadLatestSnapshot()`, returning null when
+   * `quantlab.etf_flow_snapshots` is absent or empty. SPEC:
+   * docs/specs/etf-flow-monitoring.md §3. Tests stub to drive the panel
+   * deterministically.
+   */
+  fetchLatestEtfFlow?: () => Promise<EtfFlowSnapshot | null>;
+  /**
    * Kill-criteria daily history probe — true iff
    * `quantlab.kill_criteria_daily` exists. Drives the brief stage panel's
    * "streak source" warning (SPEC docs/specs/kill-criteria-daily-history.md
@@ -316,6 +330,8 @@ export async function composeMorningBrief(deps?: Partial<BriefDeps>): Promise<Mo
     deps?.fetchLatestShortInterest ?? fetchLatestShortInterestFromCH;
   const fetchLatestExecutiveDeparture =
     deps?.fetchLatestExecutiveDeparture ?? fetchLatestExecutiveDepartureFromCH;
+  const fetchLatestEtfFlow =
+    deps?.fetchLatestEtfFlow ?? fetchLatestEtfFlowFromCH;
   // Critic H-2 (SPEC docs/specs/kill-criteria-daily-history.md §10) — probe
   // the table at compose time so the stage panel can surface "streak source"
   // when the daemon falls back to the rolling-asOf shortcut. Defaulted via
@@ -326,7 +342,7 @@ export async function composeMorningBrief(deps?: Partial<BriefDeps>): Promise<Mo
     deps?.fetchCellWeightsForBrief ?? defaultFetchCellWeightsForBrief;
   const now = deps?.now ?? (() => new Date());
 
-  const [regime, paper, lastRun, allowlists, closedTrades, latestDrawdown, latestDrawdownPerStrategy, latestStage, killCritDailyPresent, latestCyclePosition, latestVolStructure, latestSectorRotation, latestCrossAsset, latestShortInterest, latestExecutiveDeparture] = await Promise.all([
+  const [regime, paper, lastRun, allowlists, closedTrades, latestDrawdown, latestDrawdownPerStrategy, latestStage, killCritDailyPresent, latestCyclePosition, latestVolStructure, latestSectorRotation, latestCrossAsset, latestShortInterest, latestExecutiveDeparture, latestEtfFlow] = await Promise.all([
     fetchRegime({ asOf: null, lookbackDays: LOOKBACK_DAYS_DEFAULT }),
     fetchPaper({ runHistoryLimit: 14 }),
     fetchDaemon(),
@@ -342,6 +358,7 @@ export async function composeMorningBrief(deps?: Partial<BriefDeps>): Promise<Mo
     fetchLatestCrossAsset(),
     fetchLatestShortInterest(),
     fetchLatestExecutiveDeparture(),
+    fetchLatestEtfFlow(),
   ]);
 
   if (!regime.biasNote || !regime.biasNote.body) {
@@ -390,6 +407,7 @@ export async function composeMorningBrief(deps?: Partial<BriefDeps>): Promise<Mo
   const crossAsset = buildCrossAssetSection(latestCrossAsset);
   const shortInterest = buildShortInterestSection(latestShortInterest);
   const executiveDeparture = buildExecutiveDepartureSection(latestExecutiveDeparture);
+  const etfFlow = buildEtfFlowSection(latestEtfFlow);
 
   return {
     generatedAt: now().toISOString().slice(0, 19) + 'Z',
@@ -410,6 +428,7 @@ export async function composeMorningBrief(deps?: Partial<BriefDeps>): Promise<Mo
     crossAsset,
     shortInterest,
     executiveDeparture,
+    etfFlow,
   };
 }
 
@@ -663,6 +682,62 @@ async function fetchLatestExecutiveDepartureFromCH(): Promise<ExecutiveDeparture
   try {
     if (!(await executiveDepartureSnapshotsTableExists())) return null;
     const repo = new ExecutiveDepartureRepository();
+    return await repo.loadLatestSnapshot();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Build the morning-brief etf-flow section from the repository snapshot.
+ * Returns null when no snapshot exists yet; the renderer handles null with
+ * a friendly "not yet evaluated" message. Mirrors
+ * buildExecutiveDepartureSection / buildShortInterestSection structurally.
+ *
+ * Date fields on the snapshot (`snapshotDate`, `lastYfinanceQueryAt`) are
+ * converted to ISO strings at this boundary; the renderer is pure and only
+ * works with strings. `perEtfRows` is NOT threaded through — the v1 panel
+ * renders aggregate scalars + flagged list + universe coverage, and the
+ * full per-ETF table stays queryable from the snapshot's `per_etf_json`
+ * column.
+ */
+export function buildEtfFlowSection(
+  snapshot: EtfFlowSnapshot | null,
+): BriefEtfFlowSection | null {
+  if (snapshot === null) return null;
+  return {
+    evaluatedAt: snapshot.snapshotDate.toISOString(),
+    snapshotDate: snapshot.snapshotDate.toISOString().slice(0, 10),
+    lastYfinanceQueryAt: snapshot.lastYfinanceQueryAt != null
+      ? snapshot.lastYfinanceQueryAt.toISOString()
+      : null,
+    bdSinceLastShareUpdate: snapshot.bdSinceLastShareUpdate,
+    sectorFlowDispersion: snapshot.sectorFlowDispersion,
+    aggregateRiskOnFlow: snapshot.aggregateRiskOnFlow,
+    aggregateFlowStressFlag: snapshot.aggregateFlowStressFlag,
+    flaggedEtfs: snapshot.flaggedEtfs.map(f => ({
+      ticker: f.ticker,
+      flowZ: f.flowZ,
+      returnZ20bd: f.returnZ20bd,
+      flowPctAumT: f.flowPctAumT,
+      divergenceFlag: f.divergenceFlag,
+    })),
+    inputsAvailableAggregateSector: snapshot.inputsAvailableAggregateSector,
+    inputsAvailableAggregateBroad: snapshot.inputsAvailableAggregateBroad,
+    inputsAvailablePerEtf: snapshot.inputsAvailablePerEtf,
+    compositeVersion: snapshot.version,
+  };
+}
+
+/**
+ * Default fetcher for the morning-brief etf-flow section. Mirrors the prior
+ * six Layer-0 composites' graceful-degrade posture — returns null on absent
+ * table OR any read error.
+ */
+async function fetchLatestEtfFlowFromCH(): Promise<EtfFlowSnapshot | null> {
+  try {
+    if (!(await etfFlowSnapshotsTableExists())) return null;
+    const repo = new EtfFlowRepository();
     return await repo.loadLatestSnapshot();
   } catch {
     return null;

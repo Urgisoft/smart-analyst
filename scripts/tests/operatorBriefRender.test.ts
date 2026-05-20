@@ -67,6 +67,7 @@ function brief(overrides?: Partial<MorningBrief>): MorningBrief {
     crossAsset: null,
     shortInterest: null,
     executiveDeparture: null,
+    etfFlow: null,
     ...overrides,
   };
 }
@@ -1879,5 +1880,312 @@ describe('renderBriefMarkdown — executive-departure panel', () => {
     assert.ok(siIdx > -1, 'expected short-interest section');
     assert.ok(edIdx > -1, 'expected executive-departure section');
     assert.ok(edIdx > siIdx, 'executive-departure must render after short-interest section');
+  });
+});
+
+// ───── etf-flow panel (SPEC docs/specs/etf-flow-monitoring.md §3, §8, §9.5) ─────
+
+describe('renderBriefMarkdown — etf-flow panel', () => {
+  it('renders the "not yet evaluated" panel when etfFlow is null', () => {
+    const md = renderBriefMarkdown(brief({ etfFlow: null }));
+    assert.match(md, /## 13\. ETF flows — not yet evaluated/);
+    assert.match(md, /quantlab\.etf_flow_snapshots.*empty/);
+    assert.match(md, /migrate:create-etf-flow-snapshots:apply/);
+  });
+
+  // T-OBR-EF-1 — section #13 renders AFTER section #12 (byte-equal protection
+  // on sections #1-#12 preserved per SPEC F-11).
+  it('T-OBR-EF-1 section ordering: etf-flow renders AFTER executive-departure', () => {
+    const md = renderBriefMarkdown(brief({
+      cyclePosition: null, volStructure: null, sectorRotation: null,
+      crossAsset: null, shortInterest: null, executiveDeparture: null,
+      etfFlow: null,
+    }));
+    const edIdx = md.indexOf('## 12.');
+    const efIdx = md.indexOf('## 13.');
+    assert.ok(edIdx > -1, 'expected executive-departure section');
+    assert.ok(efIdx > -1, 'expected etf-flow section');
+    assert.ok(efIdx > edIdx, 'etf-flow must render after executive-departure section');
+  });
+
+  // T-OBR-EF-3 — `aggregate_flow_stress_flag: YES` rendering on high dispersion.
+  it('T-OBR-EF-3 renders STRESS header + flag YES + dispersion + risk-on lines', () => {
+    const md = renderBriefMarkdown(brief({
+      etfFlow: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastYfinanceQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastShareUpdate: 0,
+        sectorFlowDispersion: 2.5,
+        aggregateRiskOnFlow: 0.4,
+        aggregateFlowStressFlag: true,
+        flaggedEtfs: [],
+        inputsAvailableAggregateSector: 11,
+        inputsAvailableAggregateBroad: 6,
+        inputsAvailablePerEtf: 21,
+        compositeVersion: 'etf_flow_v1',
+      },
+    }));
+    assert.match(md, /## 13\. ETF flows — STRESS/);
+    assert.match(md, /Aggregate flow stress flag:\*\* YES/);
+    assert.match(md, /Sector flow dispersion:\*\* 2\.50 \(rotation regime threshold > 2\.00\)/);
+    assert.match(md, /Aggregate risk-on flow:\*\* \+0\.40σ \(mean across SPY\/IVV\/VOO\/QQQ\/IWM\/DIA\)/);
+  });
+
+  it('renders NORMAL header + flag NO when stress flag is false', () => {
+    const md = renderBriefMarkdown(brief({
+      etfFlow: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastYfinanceQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastShareUpdate: 0,
+        sectorFlowDispersion: 1.2,
+        aggregateRiskOnFlow: -0.5,
+        aggregateFlowStressFlag: false,
+        flaggedEtfs: [],
+        inputsAvailableAggregateSector: 11,
+        inputsAvailableAggregateBroad: 6,
+        inputsAvailablePerEtf: 21,
+        compositeVersion: 'etf_flow_v1',
+      },
+    }));
+    assert.match(md, /## 13\. ETF flows — NORMAL/);
+    assert.match(md, /Aggregate flow stress flag:\*\* NO/);
+    assert.match(md, /Aggregate risk-on flow:\*\* -0\.50σ/);
+  });
+
+  // T-OBR-EF-4 — Cold-start fallback (all-null aggregate).
+  it('T-OBR-EF-4 renders cold-start fallback when both aggregates are null', () => {
+    const md = renderBriefMarkdown(brief({
+      etfFlow: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastYfinanceQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastShareUpdate: 0,
+        sectorFlowDispersion: null,
+        aggregateRiskOnFlow: null,
+        aggregateFlowStressFlag: false,
+        flaggedEtfs: [],
+        inputsAvailableAggregateSector: 0,
+        inputsAvailableAggregateBroad: 0,
+        inputsAvailablePerEtf: 0,
+        compositeVersion: 'etf_flow_v1',
+      },
+    }));
+    assert.match(md, /Aggregate baseline cold-start \(n < 30\) — no z-scores available\./);
+    // Cold-start path skips the per-line scalar block (flag/dispersion/risk-on).
+    assert.doesNotMatch(md, /Aggregate flow stress flag:\*\*/);
+    assert.doesNotMatch(md, /Sector flow dispersion:\*\*/);
+  });
+
+  // T-OBR-EF-5 — "No ETFs flagged." fallback when flagged array is empty.
+  it('T-OBR-EF-5 renders "No ETFs flagged." when flaggedEtfs is empty', () => {
+    const md = renderBriefMarkdown(brief({
+      etfFlow: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastYfinanceQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastShareUpdate: 0,
+        sectorFlowDispersion: 1.0,
+        aggregateRiskOnFlow: 0.2,
+        aggregateFlowStressFlag: false,
+        flaggedEtfs: [],
+        inputsAvailableAggregateSector: 11,
+        inputsAvailableAggregateBroad: 6,
+        inputsAvailablePerEtf: 21,
+        compositeVersion: 'etf_flow_v1',
+      },
+    }));
+    assert.match(md, /### Flagged ETFs \(divergence or \|z\| > 2\.0\)/);
+    assert.match(md, /No ETFs flagged\./);
+  });
+
+  it('renders flagged ETFs table when flags fire', () => {
+    const md = renderBriefMarkdown(brief({
+      etfFlow: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastYfinanceQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastShareUpdate: 0,
+        sectorFlowDispersion: 1.5,
+        aggregateRiskOnFlow: 0.1,
+        aggregateFlowStressFlag: false,
+        flaggedEtfs: [
+          { ticker: 'TLT', flowZ: 0.9, returnZ20bd: -0.6, flowPctAumT: 0.012, divergenceFlag: true },
+          { ticker: 'XLE', flowZ: -2.3, returnZ20bd: 0.7, flowPctAumT: -0.034, divergenceFlag: false },
+        ],
+        inputsAvailableAggregateSector: 11,
+        inputsAvailableAggregateBroad: 6,
+        inputsAvailablePerEtf: 21,
+        compositeVersion: 'etf_flow_v1',
+      },
+    }));
+    assert.match(md, /\| Ticker \| Flow %AUM \| flow z \| ret 20bd z \| Trigger \|/);
+    assert.match(md, /\| TLT \| \+1\.20% \| \+0\.90σ \| -0\.60σ \| divergence \|/);
+    assert.match(md, /\| XLE \| -3\.40% \| -2\.30σ \| \+0\.70σ \| abs\(z\)>2 \|/);
+  });
+
+  // T-OBR-EF-2 — Top-N truncation at N=5 with "X more not shown" note.
+  it('T-OBR-EF-2 truncates flagged ETFs at top N=5 and notes the remainder', () => {
+    const flagged = Array.from({ length: 7 }, (_, i) => ({
+      ticker: `F${i}`,
+      flowZ: 2.5 + i * 0.1,
+      returnZ20bd: -0.5,
+      flowPctAumT: 0.03 + i * 0.01,
+      divergenceFlag: false,
+    }));
+    const md = renderBriefMarkdown(brief({
+      etfFlow: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastYfinanceQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastShareUpdate: 0,
+        sectorFlowDispersion: 1.5,
+        aggregateRiskOnFlow: 0.1,
+        aggregateFlowStressFlag: false,
+        flaggedEtfs: flagged,
+        inputsAvailableAggregateSector: 11,
+        inputsAvailableAggregateBroad: 6,
+        inputsAvailablePerEtf: 21,
+        compositeVersion: 'etf_flow_v1',
+      },
+    }));
+    // First 5 (F0..F4) render; F5 + F6 do not.
+    assert.match(md, /\| F0 \|/);
+    assert.match(md, /\| F4 \|/);
+    assert.doesNotMatch(md, /\| F5 \|/);
+    assert.doesNotMatch(md, /\| F6 \|/);
+    assert.match(md, /Truncated at top 5/);
+    assert.match(md, /2 more not shown/);
+    assert.match(md, /query `quantlab\.etf_flow_snapshots`/);
+  });
+
+  // T-OBR-EF-6 — Staleness indicator on `bd_since_last_share_update > 3`.
+  it('T-OBR-EF-6 renders staleness warning when bdSinceLastShareUpdate > 3', () => {
+    const md = renderBriefMarkdown(brief({
+      etfFlow: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastYfinanceQueryAt: '2026-05-12T13:25:00Z',
+        bdSinceLastShareUpdate: 5,
+        sectorFlowDispersion: 1.0,
+        aggregateRiskOnFlow: 0.0,
+        aggregateFlowStressFlag: false,
+        flaggedEtfs: [],
+        inputsAvailableAggregateSector: 11,
+        inputsAvailableAggregateBroad: 6,
+        inputsAvailablePerEtf: 21,
+        compositeVersion: 'etf_flow_v1',
+      },
+    }));
+    assert.match(md, /Last yfinance query:\*\* 2026-05-12T13:25:00Z \(5 business days ago\) ⚠ stale \(>3bd\)/);
+  });
+
+  it('omits staleness warning when bdSinceLastShareUpdate <= 3', () => {
+    const md = renderBriefMarkdown(brief({
+      etfFlow: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastYfinanceQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastShareUpdate: 2,
+        sectorFlowDispersion: 1.0,
+        aggregateRiskOnFlow: 0.0,
+        aggregateFlowStressFlag: false,
+        flaggedEtfs: [],
+        inputsAvailableAggregateSector: 11,
+        inputsAvailableAggregateBroad: 6,
+        inputsAvailablePerEtf: 21,
+        compositeVersion: 'etf_flow_v1',
+      },
+    }));
+    assert.match(md, /Last yfinance query:\*\* 2026-05-19T13:25:00Z \(2 business days ago\)/);
+    assert.doesNotMatch(md, /⚠ stale/);
+  });
+
+  it('special-cases bdSinceLastShareUpdate cold-start sentinel (>=9999) as "no current data"', () => {
+    // S92-13 "How to apply" — operator-facing brief should not render the
+    // raw sentinel as "9999 business days ago"; render "no current data"
+    // and skip the staleness arrow.
+    const md = renderBriefMarkdown(brief({
+      etfFlow: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastYfinanceQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastShareUpdate: 9999,
+        sectorFlowDispersion: null,
+        aggregateRiskOnFlow: null,
+        aggregateFlowStressFlag: false,
+        flaggedEtfs: [],
+        inputsAvailableAggregateSector: 0,
+        inputsAvailableAggregateBroad: 0,
+        inputsAvailablePerEtf: 0,
+        compositeVersion: 'etf_flow_v1',
+      },
+    }));
+    assert.match(md, /Last yfinance query:\*\* 2026-05-19T13:25:00Z \(no current data\)/);
+    assert.doesNotMatch(md, /9999/);
+    assert.doesNotMatch(md, /⚠ stale/);
+  });
+
+  it('renders no-yfinance-data fallback when lastYfinanceQueryAt is null', () => {
+    const md = renderBriefMarkdown(brief({
+      etfFlow: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastYfinanceQueryAt: null,
+        bdSinceLastShareUpdate: null,
+        sectorFlowDispersion: null,
+        aggregateRiskOnFlow: null,
+        aggregateFlowStressFlag: false,
+        flaggedEtfs: [],
+        inputsAvailableAggregateSector: 0,
+        inputsAvailableAggregateBroad: 0,
+        inputsAvailablePerEtf: 0,
+        compositeVersion: 'etf_flow_v1',
+      },
+    }));
+    assert.match(md, /Last yfinance query:\*\* — \(run `npm run etf:flow:ingest`/);
+  });
+
+  it('renders the universe coverage line + composite caveat', () => {
+    const md = renderBriefMarkdown(brief({
+      etfFlow: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastYfinanceQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastShareUpdate: 0,
+        sectorFlowDispersion: 1.0,
+        aggregateRiskOnFlow: 0.0,
+        aggregateFlowStressFlag: false,
+        flaggedEtfs: [],
+        inputsAvailableAggregateSector: 11,
+        inputsAvailableAggregateBroad: 6,
+        inputsAvailablePerEtf: 21,
+        compositeVersion: 'etf_flow_v1',
+      },
+    }));
+    assert.match(md, /Universe coverage: 21 ETFs · 11\/11 sector · 6\/6 broad-index/);
+    assert.match(md, /Composite: `etf_flow_v1` \(yfinance shares-outstanding → BFM 2018 §3 flow construction/);
+    assert.match(md, /INFORMATIONAL — does NOT fire a regime category in v1 \(SPEC §1 non-goal #1\)/);
+  });
+
+  it('renders the evaluatedAt + snapshotDate footer', () => {
+    const md = renderBriefMarkdown(brief({
+      etfFlow: {
+        evaluatedAt: '2026-05-19T13:30:00.123Z',
+        snapshotDate: '2026-05-19',
+        lastYfinanceQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastShareUpdate: 0,
+        sectorFlowDispersion: 1.0,
+        aggregateRiskOnFlow: 0.0,
+        aggregateFlowStressFlag: false,
+        flaggedEtfs: [],
+        inputsAvailableAggregateSector: 11,
+        inputsAvailableAggregateBroad: 6,
+        inputsAvailablePerEtf: 21,
+        compositeVersion: 'etf_flow_v1',
+      },
+    }));
+    assert.match(md, /Last evaluated: `2026-05-19T13:30:00\.123Z` · snapshot date: `2026-05-19`/);
   });
 });

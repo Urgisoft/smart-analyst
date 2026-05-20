@@ -273,6 +273,15 @@ export interface MorningBrief {
    * sections 1-11.
    */
   executiveDeparture: BriefExecutiveDepartureSection | null;
+  /**
+   * ETF-flow composite — informational Layer-0 context.
+   * SPEC: docs/specs/etf-flow-monitoring.md §3 (brief panel) +
+   * §1 non-goal #1 (does NOT fire a regime category in v1; informational).
+   * `null` when the table is absent or empty.
+   * APPENDED as section #13 to preserve byte-equal-stdout protection on
+   * sections 1-12 (F-11 lock).
+   */
+  etfFlow: BriefEtfFlowSection | null;
 }
 
 /**
@@ -528,6 +537,70 @@ export const EXECUTIVE_DEPARTURE_FLAGGED_TOP_N = 5;
  *  stale. */
 export const EXECUTIVE_DEPARTURE_STALENESS_BD_THRESHOLD = 4;
 
+/**
+ * ETF-flow panel — informational Layer-0 context.
+ * SPEC: docs/specs/etf-flow-monitoring.md §§3, 5.3, 8.
+ *
+ * Snapshot is derived from EtfFlowSnapshot (src/server/etf_flow.ts) by the
+ * composer (operator_brief.ts::buildEtfFlowSection). Date fields converted
+ * to ISO strings at the section boundary; `perEtfRows` from the snapshot
+ * is intentionally NOT threaded through here — the v1 panel renders the
+ * aggregate scalars + flagged list + universe coverage. Operators can
+ * query the snapshot's `per_etf_json` column for the full per-ETF table.
+ */
+export interface BriefEtfFlowSection {
+  /** Snapshot computation timestamp (ISO 8601). */
+  evaluatedAt: string;
+  /** Snapshot date (YYYY-MM-DD). */
+  snapshotDate: string;
+  /** ISO 8601 of the most-recent yfinance ingest ≤ asOf (null pre-ingest). */
+  lastYfinanceQueryAt: string | null;
+  /** Max business-days-since-last-share-update across the universe. The
+   *  sentinel ETF_FLOW_COLD_START_BD_SENTINEL (9999) marks the
+   *  no-data-at-all cold-start case (rendered as "no current data"). */
+  bdSinceLastShareUpdate: number | null;
+  /** F-5 stddev across 11 SPDR sectors. Null on cold-start (any sector ETF
+   *  z null cascades per F-9). */
+  sectorFlowDispersion: number | null;
+  /** F-6 mean across 6 broad-index ETFs. Null on cold-start. */
+  aggregateRiskOnFlow: number | null;
+  /** F-7 OR-aggregation of the two threshold tests. */
+  aggregateFlowStressFlag: boolean;
+  /** ETFs with divergence_flag=true OR |flow_z| > 2.0; deduplicated by
+   *  ticker (composite-side); top-N truncated at render time per
+   *  ETF_FLOW_FLAGGED_TOP_N. */
+  flaggedEtfs: ReadonlyArray<{
+    ticker: string;
+    flowZ: number;
+    returnZ20bd: number | null;
+    flowPctAumT: number;
+    divergenceFlag: boolean;
+  }>;
+  /** Count of sector ETFs with valid (non-null) flow_z (≤ 11). */
+  inputsAvailableAggregateSector: number;
+  /** Count of broad-index ETFs with valid (non-null) flow_z (≤ 6). */
+  inputsAvailableAggregateBroad: number;
+  /** Count of ETFs with valid (non-null) flow_pct_aum (≤ universe size). */
+  inputsAvailablePerEtf: number;
+  /** Composite version stamp ('etf_flow_v1' in v1). */
+  compositeVersion: string;
+}
+
+/** Top-N flagged ETFs shown in section #13 (SPEC §8: "N=5 default per panel"). */
+export const ETF_FLOW_FLAGGED_TOP_N = 5;
+
+/** Staleness threshold for the bd-since-last-share-update warning. Matches
+ *  STALENESS_BD_THRESHOLD in src/server/etf_flow.ts (F-CADENCE: > 3 is
+ *  stale). The renderer fires the indicator when bd > this constant. */
+export const ETF_FLOW_STALENESS_BD_THRESHOLD = 3;
+
+/** Cold-start sentinel for `bdSinceLastShareUpdate` — matches
+ *  COLD_START_BD_SENTINEL in src/server/etf_flow_repository.ts (no rows
+ *  at all in the trailing read window). Renderer special-cases to "no
+ *  current data" instead of "9999 business days ago" (S92-13 "How to
+ *  apply"). */
+export const ETF_FLOW_COLD_START_BD_SENTINEL = 9999;
+
 /** Render the brief as operator-facing markdown. Pure. */
 export function renderBriefMarkdown(brief: MorningBrief): string {
   const parts: string[] = [];
@@ -556,6 +629,8 @@ export function renderBriefMarkdown(brief: MorningBrief): string {
   parts.push(renderShortInterestSection(brief));
   parts.push('');
   parts.push(renderExecutiveDepartureSection(brief));
+  parts.push('');
+  parts.push(renderEtfFlowSection(brief));
   parts.push('');
   return parts.join('\n');
 }
@@ -1579,6 +1654,144 @@ function formatDaysSince(v: number | null): string {
 }
 
 /**
+ * Section #13 — ETF-flow composite. Informational only in v1 (SPEC §1
+ * non-goal #1). v1 panel renders aggregate scalars + flagged ETFs + universe
+ * coverage; the per-ETF table is queryable from `per_etf_json` on the
+ * snapshot row but not surfaced here (keeps the brief tight).
+ *
+ * Cold-start handling:
+ *   - Both aggregates null (sectorFlowDispersion + aggregateRiskOnFlow) →
+ *     renders a single "Aggregate baseline cold-start (n < 30) — no z-scores
+ *     available." line in place of the aggregate scalar block.
+ *   - `bdSinceLastShareUpdate >= ETF_FLOW_COLD_START_BD_SENTINEL` (9999) →
+ *     special-cased to "no current data" instead of "9999 business days ago"
+ *     (S92-13 "How to apply"). Skips the staleness arrow.
+ *   - Stale (bd > ETF_FLOW_STALENESS_BD_THRESHOLD, < cold-start sentinel) →
+ *     appends ` ⚠ stale (>3bd)` to the last-yfinance-query line.
+ */
+function renderEtfFlowSection(b: MorningBrief): string {
+  const lines: string[] = [];
+  if (b.etfFlow === null) {
+    lines.push(`## 13. ETF flows — not yet evaluated`);
+    lines.push(``);
+    lines.push(
+      `\`quantlab.etf_flow_snapshots\` is empty (or absent). ` +
+      `Apply \`npm run migrate:create-etf-flow-snapshots:apply\` and run ` +
+      `\`npm run daemon:daily\` to populate. ` +
+      `SPEC: docs/specs/etf-flow-monitoring.md §3.`,
+    );
+    return lines.join('\n');
+  }
+  const e = b.etfFlow;
+  const stressLabel = e.aggregateFlowStressFlag ? 'STRESS' : 'NORMAL';
+  lines.push(`## 13. ETF flows — ${stressLabel}`);
+  lines.push(``);
+
+  const coldStart =
+    e.sectorFlowDispersion === null && e.aggregateRiskOnFlow === null;
+  if (coldStart) {
+    lines.push(
+      `**Aggregate (21-ETF v1 universe, 20bd cumulative, 1y baseline):** ` +
+      `Aggregate baseline cold-start (n < 30) — no z-scores available.`,
+    );
+  } else {
+    lines.push(
+      `**Aggregate flow stress flag:** ${e.aggregateFlowStressFlag ? 'YES' : 'NO'}`,
+    );
+    const dispStr = e.sectorFlowDispersion != null
+      ? e.sectorFlowDispersion.toFixed(2)
+      : '—';
+    lines.push(
+      `**Sector flow dispersion:** ${dispStr} ` +
+      `(rotation regime threshold > 2.00)`,
+    );
+    const riskOnStr = e.aggregateRiskOnFlow != null
+      ? `${e.aggregateRiskOnFlow >= 0 ? '+' : ''}${e.aggregateRiskOnFlow.toFixed(2)}σ`
+      : '—';
+    lines.push(
+      `**Aggregate risk-on flow:** ${riskOnStr} ` +
+      `(mean across SPY/IVV/VOO/QQQ/IWM/DIA)`,
+    );
+  }
+
+  // Staleness indicator. Cold-start sentinel (9999) renders as "no current
+  // data" and skips the stale arrow; intermediate bd > 3 renders the arrow.
+  if (e.lastYfinanceQueryAt != null) {
+    const bd = e.bdSinceLastShareUpdate;
+    const coldData = bd != null && bd >= ETF_FLOW_COLD_START_BD_SENTINEL;
+    let bdStr: string;
+    let staleSuffix = '';
+    if (coldData) {
+      bdStr = 'no current data';
+    } else if (bd != null) {
+      bdStr = `${bd} business days ago`;
+      if (bd > ETF_FLOW_STALENESS_BD_THRESHOLD) {
+        staleSuffix = ` ⚠ stale (>${ETF_FLOW_STALENESS_BD_THRESHOLD}bd)`;
+      }
+    } else {
+      bdStr = '—';
+    }
+    lines.push(
+      `**Last yfinance query:** ${e.lastYfinanceQueryAt} (${bdStr})${staleSuffix}`,
+    );
+  } else {
+    lines.push(
+      `**Last yfinance query:** — (run \`npm run etf:flow:ingest\` to populate)`,
+    );
+  }
+  lines.push(``);
+
+  // Flagged ETFs section (divergence OR |z| > 2.0 from the composite).
+  lines.push(`### Flagged ETFs (divergence or |z| > 2.0)`);
+  lines.push(``);
+  if (e.flaggedEtfs.length === 0) {
+    lines.push(`No ETFs flagged.`);
+  } else {
+    const shown = e.flaggedEtfs.slice(0, ETF_FLOW_FLAGGED_TOP_N);
+    lines.push(`| Ticker | Flow %AUM | flow z | ret 20bd z | Trigger |`);
+    lines.push(`|---|---|---|---|---|`);
+    for (const f of shown) {
+      const flowPctStr =
+        `${f.flowPctAumT >= 0 ? '+' : ''}${(f.flowPctAumT * 100).toFixed(2)}%`;
+      const flowZStr =
+        `${f.flowZ >= 0 ? '+' : ''}${f.flowZ.toFixed(2)}σ`;
+      const retZStr = f.returnZ20bd != null
+        ? `${f.returnZ20bd >= 0 ? '+' : ''}${f.returnZ20bd.toFixed(2)}σ`
+        : '—';
+      const trigger = f.divergenceFlag ? 'divergence' : 'abs(z)>2';
+      lines.push(
+        `| ${f.ticker} | ${flowPctStr} | ${flowZStr} | ${retZStr} | ${trigger} |`,
+      );
+    }
+    if (e.flaggedEtfs.length > shown.length) {
+      lines.push(``);
+      lines.push(
+        `_Truncated at top ${ETF_FLOW_FLAGGED_TOP_N} ` +
+        `(${e.flaggedEtfs.length - shown.length} more not shown — query ` +
+        `\`quantlab.etf_flow_snapshots\` for the full list)._`,
+      );
+    }
+  }
+  lines.push(``);
+  lines.push(
+    `_Universe coverage: ${e.inputsAvailablePerEtf} ETFs · ` +
+    `${e.inputsAvailableAggregateSector}/11 sector · ` +
+    `${e.inputsAvailableAggregateBroad}/6 broad-index._`,
+  );
+  lines.push(
+    `_Composite: \`${e.compositeVersion}\` ` +
+    `(yfinance shares-outstanding → BFM 2018 §3 flow construction; ` +
+    `Δ shares × close summed over 20bd, normalized by AUM, z-scored vs trailing 1y). ` +
+    `INFORMATIONAL — does NOT fire a regime category in v1 (SPEC §1 non-goal #1)._`,
+  );
+  lines.push(``);
+  lines.push(
+    `_Last evaluated: \`${e.evaluatedAt}\` · snapshot date: \`${e.snapshotDate}\`._`,
+  );
+  return lines.join('\n');
+}
+
+/**
  * What could break this:
  *  - A future refactor that paraphrases the bias note inline. Test #15 catches
  *    this — the rendered output must contain the active bias-note body
@@ -1595,4 +1808,12 @@ function formatDaysSince(v: number | null): string {
  *    requires updating renderShortInterestSection's formatters AND the
  *    BriefShortInterestSection JSDoc — the renderer naively renders whatever
  *    magnitude it's given.
+ *  - Section #13 etf-flow panel — the cold-start sentinel check
+ *    (`bd >= ETF_FLOW_COLD_START_BD_SENTINEL`) must stay synchronized with
+ *    the repository's `COLD_START_BD_SENTINEL` constant (etf_flow_repository
+ *    .ts). A drift between the two would mis-render the "no current data"
+ *    branch as "9999 business days ago" (or the reverse for a different
+ *    sentinel value). The two constants are intentionally duplicated to
+ *    avoid pulling the ClickHouse-heavy repository into the pure renderer;
+ *    drift detection is a code-review concern.
  */

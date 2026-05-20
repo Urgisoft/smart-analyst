@@ -838,3 +838,148 @@ describe('composeMorningBrief — executive-departure section wiring', () => {
     assert.equal(brief.executiveDeparture, null);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// composeMorningBrief — etf-flow section wiring (s92 A5).
+// SPEC: docs/specs/etf-flow-monitoring.md §9.6 T-OB-EF-1..3.
+// ─────────────────────────────────────────────────────────────────────────
+describe('composeMorningBrief — etf-flow section wiring', () => {
+  // T-OB-EF-3 — null pass-through: composer threads null through to brief.etfFlow.
+  it('T-OB-EF-3 etfFlow=null when fetchLatestEtfFlow returns null', async () => {
+    const brief = await composeMorningBrief({
+      fetchRegimeState: async () => stubRegime(),
+      fetchPaperTradingState: async () => stubPaper(),
+      fetchLastDaemonRun: async () => stubDaemonRow(),
+      fetchCellAllowlists: async () => new Map(),
+      fetchClosedTrades: async () => [],
+      fetchLatestEtfFlow: async () => null,
+      now: () => FIXED_NOW,
+    });
+    assert.equal(brief.etfFlow, null);
+  });
+
+  // T-OB-EF-1 — composeMorningBrief threads the snapshot through Promise.all.
+  it('T-OB-EF-1 etfFlow populated when fetchLatestEtfFlow returns a snapshot', async () => {
+    const brief = await composeMorningBrief({
+      fetchRegimeState: async () => stubRegime(),
+      fetchPaperTradingState: async () => stubPaper(),
+      fetchLastDaemonRun: async () => stubDaemonRow(),
+      fetchCellAllowlists: async () => new Map(),
+      fetchClosedTrades: async () => [],
+      fetchLatestEtfFlow: async () => ({
+        snapshotDate: new Date('2026-05-19T13:30:00Z'),
+        lastYfinanceQueryAt: new Date('2026-05-19T13:25:00Z'),
+        bdSinceLastShareUpdate: 0,
+        sectorFlowDispersion: 2.5,
+        aggregateRiskOnFlow: 0.4,
+        aggregateFlowStressFlag: true,
+        flaggedEtfs: [
+          { ticker: 'XLE', flowZ: -2.3, returnZ20bd: 0.7, flowPctAumT: -0.034, divergenceFlag: false },
+        ],
+        perEtfRows: [],
+        inputsAvailableAggregateSector: 11,
+        inputsAvailableAggregateBroad: 6,
+        inputsAvailablePerEtf: 21,
+        version: 'etf_flow_v1',
+      }),
+      now: () => FIXED_NOW,
+    });
+    assert.ok(brief.etfFlow !== null);
+    assert.equal(brief.etfFlow!.snapshotDate, '2026-05-19');
+    assert.equal(brief.etfFlow!.lastYfinanceQueryAt, '2026-05-19T13:25:00.000Z');
+    assert.equal(brief.etfFlow!.bdSinceLastShareUpdate, 0);
+    assert.equal(brief.etfFlow!.sectorFlowDispersion, 2.5);
+    assert.equal(brief.etfFlow!.aggregateRiskOnFlow, 0.4);
+    assert.equal(brief.etfFlow!.aggregateFlowStressFlag, true);
+    assert.equal(brief.etfFlow!.flaggedEtfs.length, 1);
+    assert.equal(brief.etfFlow!.flaggedEtfs[0].ticker, 'XLE');
+    assert.equal(brief.etfFlow!.inputsAvailableAggregateSector, 11);
+    assert.equal(brief.etfFlow!.inputsAvailableAggregateBroad, 6);
+    assert.equal(brief.etfFlow!.inputsAvailablePerEtf, 21);
+    assert.equal(brief.etfFlow!.compositeVersion, 'etf_flow_v1');
+  });
+
+  // T-OB-EF-2 — graceful-degrade on fetcher throw (mirrors prior A5 panels).
+  it('T-OB-EF-2 etfFlow=null when the explicit fetcher rejects (graceful degrade)', async () => {
+    const brief = await composeMorningBrief({
+      fetchRegimeState: async () => stubRegime(),
+      fetchPaperTradingState: async () => stubPaper(),
+      fetchLastDaemonRun: async () => stubDaemonRow(),
+      fetchCellAllowlists: async () => new Map(),
+      fetchClosedTrades: async () => [],
+      fetchLatestEtfFlow: async () => {
+        try {
+          throw new Error('simulated CH read failure');
+        } catch {
+          return null;
+        }
+      },
+      now: () => FIXED_NOW,
+    });
+    assert.equal(brief.etfFlow, null);
+  });
+});
+
+describe('buildEtfFlowSection', () => {
+  it('returns null when snapshot is null', async () => {
+    const { buildEtfFlowSection } = await import('../../src/server/operator_brief.js');
+    assert.equal(buildEtfFlowSection(null), null);
+  });
+
+  it('maps EtfFlowSnapshot fields into the brief section (Date→ISO, version→compositeVersion)', async () => {
+    const { buildEtfFlowSection } = await import('../../src/server/operator_brief.js');
+    const snapshotDate = new Date('2026-05-19T13:30:00.123Z');
+    const lastYfinanceQueryAt = new Date('2026-05-19T13:25:00Z');
+    const section = buildEtfFlowSection({
+      snapshotDate,
+      lastYfinanceQueryAt,
+      bdSinceLastShareUpdate: 2,
+      sectorFlowDispersion: 1.5,
+      aggregateRiskOnFlow: -0.3,
+      aggregateFlowStressFlag: false,
+      flaggedEtfs: [
+        { ticker: 'TLT', flowZ: 0.9, returnZ20bd: -0.6, flowPctAumT: 0.012, divergenceFlag: true },
+      ],
+      perEtfRows: [],
+      inputsAvailableAggregateSector: 11,
+      inputsAvailableAggregateBroad: 6,
+      inputsAvailablePerEtf: 21,
+      version: 'etf_flow_v1',
+    });
+    assert.ok(section !== null);
+    assert.equal(section!.evaluatedAt, '2026-05-19T13:30:00.123Z');
+    assert.equal(section!.snapshotDate, '2026-05-19');
+    assert.equal(section!.lastYfinanceQueryAt, '2026-05-19T13:25:00.000Z');
+    assert.equal(section!.bdSinceLastShareUpdate, 2);
+    assert.equal(section!.sectorFlowDispersion, 1.5);
+    assert.equal(section!.aggregateRiskOnFlow, -0.3);
+    assert.equal(section!.aggregateFlowStressFlag, false);
+    assert.equal(section!.flaggedEtfs.length, 1);
+    assert.equal(section!.flaggedEtfs[0].ticker, 'TLT');
+    assert.equal(section!.flaggedEtfs[0].divergenceFlag, true);
+    assert.equal(section!.compositeVersion, 'etf_flow_v1');
+  });
+
+  it('passes null lastYfinanceQueryAt through unchanged (pre-ingest state)', async () => {
+    const { buildEtfFlowSection } = await import('../../src/server/operator_brief.js');
+    const section = buildEtfFlowSection({
+      snapshotDate: new Date('2026-05-19T13:30:00Z'),
+      lastYfinanceQueryAt: null,
+      bdSinceLastShareUpdate: null,
+      sectorFlowDispersion: null,
+      aggregateRiskOnFlow: null,
+      aggregateFlowStressFlag: false,
+      flaggedEtfs: [],
+      perEtfRows: [],
+      inputsAvailableAggregateSector: 0,
+      inputsAvailableAggregateBroad: 0,
+      inputsAvailablePerEtf: 0,
+      version: 'etf_flow_v1',
+    });
+    assert.ok(section !== null);
+    assert.equal(section!.lastYfinanceQueryAt, null);
+    assert.equal(section!.bdSinceLastShareUpdate, null);
+    assert.equal(section!.sectorFlowDispersion, null);
+    assert.equal(section!.aggregateRiskOnFlow, null);
+  });
+});
