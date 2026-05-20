@@ -690,3 +690,78 @@ describe('composeMorningBrief — cross-asset section wiring', () => {
     assert.equal(brief.crossAsset, null);
   });
 });
+
+describe('composeMorningBrief — short-interest section wiring', () => {
+  it('shortInterest=null when fetchLatestShortInterest returns null', async () => {
+    const brief = await composeMorningBrief({
+      fetchRegimeState: async () => stubRegime(),
+      fetchPaperTradingState: async () => stubPaper(),
+      fetchLastDaemonRun: async () => stubDaemonRow(),
+      fetchCellAllowlists: async () => new Map(),
+      fetchClosedTrades: async () => [],
+      fetchLatestShortInterest: async () => null,
+      now: () => FIXED_NOW,
+    });
+    assert.equal(brief.shortInterest, null);
+  });
+
+  it('shortInterest populated when fetchLatestShortInterest returns a snapshot', async () => {
+    const brief = await composeMorningBrief({
+      fetchRegimeState: async () => stubRegime(),
+      fetchPaperTradingState: async () => stubPaper(),
+      fetchLastDaemonRun: async () => stubDaemonRow(),
+      fetchCellAllowlists: async () => new Map(),
+      fetchClosedTrades: async () => [],
+      fetchLatestShortInterest: async () => ({
+        snapshotDate: new Date('2026-05-19T13:30:00Z'),
+        lastFinraPublication: new Date('2026-05-14T00:00:00Z'),
+        bdSincePublication: 3,
+        aggregateSir: 5_000_000,
+        aggregateZ: 1.4,
+        aggregateBaselineSize: 52,
+        sentimentShortExtreme: false,
+        perTickerRows: [
+          {
+            ticker: 'AAPL', cusip: '037833100',
+            sirT: 1_500_000, sirT6: 1_000_000, sirRoc: 0.5, d2cT: 6.0,
+            shortRamp: true, shortCapitulation: false,
+          },
+        ],
+        inputsAvailableAggregate: 480,
+        inputsAvailablePerTicker: 58,
+        version: 'short_interest_v1',
+      }),
+      now: () => FIXED_NOW,
+    });
+    assert.ok(brief.shortInterest !== null);
+    assert.equal(brief.shortInterest!.snapshotDate, '2026-05-19');
+    assert.equal(brief.shortInterest!.lastFinraPublication, '2026-05-14');
+    assert.equal(brief.shortInterest!.bdSincePublication, 3);
+    assert.equal(brief.shortInterest!.aggregateSir, 5_000_000);
+    assert.equal(brief.shortInterest!.aggregateZ, 1.4);
+    assert.equal(brief.shortInterest!.sentimentShortExtreme, false);
+    assert.equal(brief.shortInterest!.perTickerRows.length, 1);
+    assert.equal(brief.shortInterest!.perTickerRows[0].ticker, 'AAPL');
+    assert.equal(brief.shortInterest!.perTickerRows[0].shortRamp, true);
+    assert.equal(brief.shortInterest!.compositeVersion, 'short_interest_v1');
+  });
+
+  it('shortInterest=null when the explicit fetcher rejects (graceful degrade)', async () => {
+    const brief = await composeMorningBrief({
+      fetchRegimeState: async () => stubRegime(),
+      fetchPaperTradingState: async () => stubPaper(),
+      fetchLastDaemonRun: async () => stubDaemonRow(),
+      fetchCellAllowlists: async () => new Map(),
+      fetchClosedTrades: async () => [],
+      fetchLatestShortInterest: async () => {
+        try {
+          throw new Error('simulated CH read failure');
+        } catch {
+          return null;
+        }
+      },
+      now: () => FIXED_NOW,
+    });
+    assert.equal(brief.shortInterest, null);
+  });
+});

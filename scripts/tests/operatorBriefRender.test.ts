@@ -65,6 +65,7 @@ function brief(overrides?: Partial<MorningBrief>): MorningBrief {
     volStructure: null,
     sectorRotation: null,
     crossAsset: null,
+    shortInterest: null,
     ...overrides,
   };
 }
@@ -1310,5 +1311,297 @@ describe('renderBriefMarkdown — cross-asset panel', () => {
     assert.ok(sectorIdx > -1, 'expected sector-rotation section');
     assert.ok(crossIdx > -1, 'expected cross-asset section');
     assert.ok(crossIdx > sectorIdx, 'cross-asset must render after sector-rotation section');
+  });
+});
+
+// ───── short-interest panel (SPEC docs/specs/short-interest-tracking.md §3) ─────
+
+describe('renderBriefMarkdown — short-interest panel', () => {
+  it('renders the "not yet evaluated" panel when shortInterest is null', () => {
+    const md = renderBriefMarkdown(brief({ shortInterest: null }));
+    assert.match(md, /## 11\. Short interest — not yet evaluated/);
+    assert.match(md, /quantlab\.short_interest_snapshots.*empty/);
+    assert.match(md, /migrate:create-short-interest-snapshots:apply/);
+  });
+
+  it('renders EXTREME header when sentimentShortExtreme is true', () => {
+    const md = renderBriefMarkdown(brief({
+      shortInterest: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastFinraPublication: '2026-05-14',
+        bdSincePublication: 3,
+        aggregateSir: 5_000_000,
+        aggregateZ: 2.4,
+        aggregateBaselineSize: 52,
+        sentimentShortExtreme: true,
+        perTickerRows: [],
+        inputsAvailableAggregate: 480,
+        inputsAvailablePerTicker: 58,
+        compositeVersion: 'short_interest_v1',
+      },
+    }));
+    assert.match(md, /## 11\. Short interest — EXTREME/);
+    assert.match(md, /sentiment_short_extreme:\*\* YES/);
+  });
+
+  it('renders NORMAL header when sentimentShortExtreme is false', () => {
+    const md = renderBriefMarkdown(brief({
+      shortInterest: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastFinraPublication: '2026-05-14',
+        bdSincePublication: 3,
+        aggregateSir: 5_000_000,
+        aggregateZ: 0.4,
+        aggregateBaselineSize: 52,
+        sentimentShortExtreme: false,
+        perTickerRows: [],
+        inputsAvailableAggregate: 480,
+        inputsAvailablePerTicker: 58,
+        compositeVersion: 'short_interest_v1',
+      },
+    }));
+    assert.match(md, /## 11\. Short interest — NORMAL/);
+    assert.match(md, /sentiment_short_extreme:\*\* NO/);
+  });
+
+  it('renders aggregate in scientific notation + z to 2dp + baseline n', () => {
+    const md = renderBriefMarkdown(brief({
+      shortInterest: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastFinraPublication: '2026-05-14',
+        bdSincePublication: 3,
+        aggregateSir: 4_230_000,
+        aggregateZ: 1.4,
+        aggregateBaselineSize: 52,
+        sentimentShortExtreme: false,
+        perTickerRows: [],
+        inputsAvailableAggregate: 480,
+        inputsAvailablePerTicker: 58,
+        compositeVersion: 'short_interest_v1',
+      },
+    }));
+    assert.match(md, /Aggregate \(SPY 500, equal-weight mean shares-short\):\*\* 4\.23e\+6/);
+    assert.match(md, /\*\*z:\*\* 1\.40σ/);
+    assert.match(md, /baseline n=52/);
+  });
+
+  it('renders staleness warning when bdSincePublication >= 14', () => {
+    const md = renderBriefMarkdown(brief({
+      shortInterest: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastFinraPublication: '2026-04-30',
+        bdSincePublication: 14,
+        aggregateSir: 5_000_000,
+        aggregateZ: 0.4,
+        aggregateBaselineSize: 52,
+        sentimentShortExtreme: false,
+        perTickerRows: [],
+        inputsAvailableAggregate: 480,
+        inputsAvailablePerTicker: 58,
+        compositeVersion: 'short_interest_v1',
+      },
+    }));
+    assert.match(md, /Last FINRA publication:\*\* 2026-04-30 \(14 business days ago\) ⚠ stale/);
+  });
+
+  it('omits staleness warning when bdSincePublication < 14', () => {
+    const md = renderBriefMarkdown(brief({
+      shortInterest: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastFinraPublication: '2026-05-14',
+        bdSincePublication: 3,
+        aggregateSir: 5_000_000,
+        aggregateZ: 0.4,
+        aggregateBaselineSize: 52,
+        sentimentShortExtreme: false,
+        perTickerRows: [],
+        inputsAvailableAggregate: 480,
+        inputsAvailablePerTicker: 58,
+        compositeVersion: 'short_interest_v1',
+      },
+    }));
+    assert.doesNotMatch(md, /⚠ stale/);
+  });
+
+  it('renders no-FINRA-data fallback when lastFinraPublication is null', () => {
+    const md = renderBriefMarkdown(brief({
+      shortInterest: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastFinraPublication: null,
+        bdSincePublication: null,
+        aggregateSir: null,
+        aggregateZ: null,
+        aggregateBaselineSize: 0,
+        sentimentShortExtreme: false,
+        perTickerRows: [],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 0,
+        compositeVersion: 'short_interest_v1',
+      },
+    }));
+    assert.match(md, /Last FINRA publication:\*\* — \(run `npm run finra:short-interest:ingest`/);
+  });
+
+  it('renders "No tickers flagged." when no flags fire', () => {
+    const md = renderBriefMarkdown(brief({
+      shortInterest: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastFinraPublication: '2026-05-14',
+        bdSincePublication: 3,
+        aggregateSir: 5_000_000,
+        aggregateZ: 0.4,
+        aggregateBaselineSize: 52,
+        sentimentShortExtreme: false,
+        perTickerRows: [
+          { ticker: 'AAPL', cusip: '', sirT: 1000, sirT6: 950, sirRoc: 0.05, d2cT: 2.0, shortRamp: false, shortCapitulation: false },
+        ],
+        inputsAvailableAggregate: 480,
+        inputsAvailablePerTicker: 58,
+        compositeVersion: 'short_interest_v1',
+      },
+    }));
+    assert.match(md, /No tickers flagged\./);
+  });
+
+  it('renders flagged tickers table when flags fire', () => {
+    const md = renderBriefMarkdown(brief({
+      shortInterest: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastFinraPublication: '2026-05-14',
+        bdSincePublication: 3,
+        aggregateSir: 5_000_000,
+        aggregateZ: 0.4,
+        aggregateBaselineSize: 52,
+        sentimentShortExtreme: false,
+        perTickerRows: [
+          { ticker: 'ABCD', cusip: '', sirT: 1_500_000, sirT6: 1_000_000, sirRoc: 0.5, d2cT: 6.0, shortRamp: true, shortCapitulation: false },
+          { ticker: 'PQRS', cusip: '', sirT: 600_000, sirT6: 1_000_000, sirRoc: -0.4, d2cT: 3.0, shortRamp: false, shortCapitulation: true },
+        ],
+        inputsAvailableAggregate: 480,
+        inputsAvailablePerTicker: 58,
+        compositeVersion: 'short_interest_v1',
+      },
+    }));
+    assert.match(md, /\| Flag \| Ticker \| shares_short \| ROC \| D2C \|/);
+    assert.match(md, /\| short_ramp \| ABCD \| 1\.50e\+6 \| \+50\.0% \| 6\.0 \|/);
+    assert.match(md, /\| short_capitulation \| PQRS \| 6\.00e\+5 \| -40\.0% \| 3\.0 \|/);
+  });
+
+  it('caps flagged tickers at top-N per category + shows truncation note', () => {
+    const ramped = Array.from({ length: 7 }, (_, i) => ({
+      ticker: `R${i}`, cusip: '',
+      sirT: 1_000_000 + i, sirT6: 500_000,
+      sirRoc: 0.6 + i * 0.01, d2cT: 6.0,
+      shortRamp: true, shortCapitulation: false,
+    }));
+    const md = renderBriefMarkdown(brief({
+      shortInterest: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastFinraPublication: '2026-05-14',
+        bdSincePublication: 3,
+        aggregateSir: 5_000_000,
+        aggregateZ: 0.4,
+        aggregateBaselineSize: 52,
+        sentimentShortExtreme: false,
+        perTickerRows: ramped,
+        inputsAvailableAggregate: 480,
+        inputsAvailablePerTicker: 58,
+        compositeVersion: 'short_interest_v1',
+      },
+    }));
+    // Top 5 by sirRoc (highest first): R6, R5, R4, R3, R2
+    const r6Idx = md.indexOf('| short_ramp | R6 |');
+    const r2Idx = md.indexOf('| short_ramp | R2 |');
+    const r1Idx = md.indexOf('| short_ramp | R1 |');
+    assert.ok(r6Idx > -1, 'expected R6 row');
+    assert.ok(r2Idx > -1, 'expected R2 row');
+    assert.equal(r1Idx, -1, 'R1 should NOT be in the truncated top-5');
+    assert.ok(r6Idx < r2Idx, 'rows ordered by ROC DESC (R6 before R2)');
+    assert.match(md, /Truncated at top 5 per category/);
+    assert.match(md, /2 more short_ramp/);
+  });
+
+  it('renders the universe coverage line + path-A4-β composite caveat', () => {
+    const md = renderBriefMarkdown(brief({
+      shortInterest: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastFinraPublication: '2026-05-14',
+        bdSincePublication: 3,
+        aggregateSir: 5_000_000,
+        aggregateZ: 0.4,
+        aggregateBaselineSize: 52,
+        sentimentShortExtreme: false,
+        perTickerRows: [],
+        inputsAvailableAggregate: 480,
+        inputsAvailablePerTicker: 58,
+        compositeVersion: 'short_interest_v1',
+      },
+    }));
+    assert.match(md, /Universe coverage: 58 watch-universe tickers · 480 aggregate constituents/);
+    assert.match(md, /Composite: `short_interest_v1` \(Path A4-β/);
+    assert.match(md, /INFORMATIONAL — does NOT fire a regime category in v1 \(SPEC S-SI-2\)/);
+  });
+
+  it('renders the evaluatedAt + snapshotDate footer', () => {
+    const md = renderBriefMarkdown(brief({
+      shortInterest: {
+        evaluatedAt: '2026-05-19T13:30:00.123Z',
+        snapshotDate: '2026-05-19',
+        lastFinraPublication: '2026-05-14',
+        bdSincePublication: 3,
+        aggregateSir: 5_000_000,
+        aggregateZ: 0.4,
+        aggregateBaselineSize: 52,
+        sentimentShortExtreme: false,
+        perTickerRows: [],
+        inputsAvailableAggregate: 480,
+        inputsAvailablePerTicker: 58,
+        compositeVersion: 'short_interest_v1',
+      },
+    }));
+    assert.match(md, /Last evaluated: `2026-05-19T13:30:00\.123Z`/);
+    assert.match(md, /snapshot date: `2026-05-19`/);
+  });
+
+  it('renders "—" for null aggregate values', () => {
+    const md = renderBriefMarkdown(brief({
+      shortInterest: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastFinraPublication: '2026-05-14',
+        bdSincePublication: 3,
+        aggregateSir: null,
+        aggregateZ: null,
+        aggregateBaselineSize: 0,
+        sentimentShortExtreme: false,
+        perTickerRows: [],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 0,
+        compositeVersion: 'short_interest_v1',
+      },
+    }));
+    assert.match(md, /Aggregate \(SPY 500, equal-weight mean shares-short\):\*\* — · \*\*z:\*\* —σ/);
+  });
+
+  it('section ordering: short-interest renders AFTER cross-asset (byte-equal protection)', () => {
+    const md = renderBriefMarkdown(brief({
+      cyclePosition: null, volStructure: null, sectorRotation: null,
+      crossAsset: null, shortInterest: null,
+    }));
+    const crossIdx = md.indexOf('## 10.');
+    const siIdx = md.indexOf('## 11.');
+    assert.ok(crossIdx > -1, 'expected cross-asset section');
+    assert.ok(siIdx > -1, 'expected short-interest section');
+    assert.ok(siIdx > crossIdx, 'short-interest must render after cross-asset section');
   });
 });

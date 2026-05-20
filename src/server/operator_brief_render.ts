@@ -255,6 +255,15 @@ export interface MorningBrief {
    * sections 1-9.
    */
   crossAsset: BriefCrossAssetSection | null;
+  /**
+   * Short-interest composite — informational Layer-0 context.
+   * SPEC: docs/specs/short-interest-tracking.md §3 (brief panel) + S-SI-2
+   * (short-interest does NOT fire a regime category in v1; informational).
+   * `null` when the table is absent or empty.
+   * APPENDED as section #11 to preserve byte-equal-stdout protection on
+   * sections 1-10.
+   */
+  shortInterest: BriefShortInterestSection | null;
 }
 
 /**
@@ -398,6 +407,61 @@ export interface BriefCrossAssetSection {
   compositeVersion: string;
 }
 
+/**
+ * Short-interest panel — informational Layer-0 context.
+ * SPEC: docs/specs/short-interest-tracking.md §§3, 5, 8.
+ *
+ * Path A4-β (HANDOFF s90 / SPEC §5.1 "v1 implementation note"): the per-stock
+ * payload's `sirT`/`sirT6`/`sirRoc` fields carry raw `shares_short` values +
+ * their ROC, NOT SIR. `aggregateSir` holds the equal-weight mean shares_short
+ * across SPY-500-PIT constituents (massive numbers ~10^6–10^7). The renderer
+ * surfaces shares-short in scientific notation + ROC as a percentage, so the
+ * operator reads the underlying signal without being misled by the legacy
+ * field names. A future v2 ADR could re-integrate true SIR; until then, treat
+ * sirT-named fields as shares-short.
+ */
+export interface BriefShortInterestSection {
+  /** Composite computation timestamp (ISO 8601). */
+  evaluatedAt: string;
+  /** Snapshot date (YYYY-MM-DD). */
+  snapshotDate: string;
+  /** YYYY-MM-DD of the most-recent FINRA publication ≤ asOf (null pre-ingest). */
+  lastFinraPublication: string | null;
+  /** Business days between lastFinraPublication and asOf (null pre-ingest). */
+  bdSincePublication: number | null;
+  /** Aggregate mean(shares_short) across SPY-500-PIT constituents. */
+  aggregateSir: number | null;
+  /** Z-score of aggregateSir vs trailing 2y baseline. */
+  aggregateZ: number | null;
+  /** Number of biweekly prints in the aggregate baseline. */
+  aggregateBaselineSize: number;
+  /** Flag: |aggregateZ| > 2.0. */
+  sentimentShortExtreme: boolean;
+  /** Per-ticker rows (Path A4-β: sir* fields hold shares_short). */
+  perTickerRows: ReadonlyArray<{
+    ticker: string;
+    cusip: string;
+    sirT: number | null;
+    sirT6: number | null;
+    sirRoc: number | null;
+    d2cT: number | null;
+    shortRamp: boolean;
+    shortCapitulation: boolean;
+  }>;
+  /** Count of constituents with valid current shares_short. */
+  inputsAvailableAggregate: number;
+  /** Count of watch-universe tickers with valid current shares_short. */
+  inputsAvailablePerTicker: number;
+  /** Composite version stamp ('short_interest_v1' in v1). */
+  compositeVersion: string;
+}
+
+/** Top-N flagged tickers shown in section #11 (SPEC §8). */
+export const SHORT_INTEREST_FLAGGED_TOP_N = 5;
+
+/** Staleness threshold for the bd-since-publication warning (SPEC §8 sample). */
+export const SHORT_INTEREST_STALENESS_BD_THRESHOLD = 14;
+
 /** Render the brief as operator-facing markdown. Pure. */
 export function renderBriefMarkdown(brief: MorningBrief): string {
   const parts: string[] = [];
@@ -422,6 +486,8 @@ export function renderBriefMarkdown(brief: MorningBrief): string {
   parts.push(renderSectorRotationSection(brief));
   parts.push('');
   parts.push(renderCrossAssetSection(brief));
+  parts.push('');
+  parts.push(renderShortInterestSection(brief));
   parts.push('');
   return parts.join('\n');
 }
@@ -1165,6 +1231,140 @@ function crossAssetReadingZ(z: number): string {
 }
 
 /**
+ * Section #11 — short-interest composite. Informational only in v1 (S-SI-2).
+ *
+ * Path A4-β rendering convention (SPEC §5.1 "v1 implementation note"):
+ *   - The aggregate value is mean(shares_short) across SPY-500-PIT
+ *     constituents, rendered in scientific notation (e.g., "4.23e+6").
+ *   - Per-ticker rows render `sirT` (raw shares_short, scientific) +
+ *     `sirRoc` (as percentage). Field names retain the SIR shape from
+ *     A2; magnitudes are shares-short per A4-β.
+ *   - Top-N flagged tickers (short_ramp / short_capitulation) shown
+ *     separately; cap at SHORT_INTEREST_FLAGGED_TOP_N per SPEC §8.
+ */
+function renderShortInterestSection(b: MorningBrief): string {
+  const lines: string[] = [];
+  if (b.shortInterest === null) {
+    lines.push(`## 11. Short interest — not yet evaluated`);
+    lines.push(``);
+    lines.push(
+      `\`quantlab.short_interest_snapshots\` is empty (or absent). ` +
+      `Apply \`npm run migrate:create-short-interest-snapshots:apply\` and run ` +
+      `\`npm run daemon:daily\` to populate. ` +
+      `SPEC: docs/specs/short-interest-tracking.md §3.`,
+    );
+    return lines.join('\n');
+  }
+  const s = b.shortInterest;
+  const extremeLabel = s.sentimentShortExtreme ? 'EXTREME' : 'NORMAL';
+  lines.push(`## 11. Short interest — ${extremeLabel}`);
+  lines.push(``);
+  const aggSir = s.aggregateSir != null
+    ? s.aggregateSir.toExponential(2)
+    : '—';
+  const aggZ = s.aggregateZ != null ? s.aggregateZ.toFixed(2) : '—';
+  lines.push(
+    `**Aggregate (SPY 500, equal-weight mean shares-short):** ${aggSir} ` +
+    `· **z:** ${aggZ}σ (baseline n=${s.aggregateBaselineSize}) ` +
+    `· **sentiment_short_extreme:** ${s.sentimentShortExtreme ? 'YES' : 'NO'}`,
+  );
+  if (s.lastFinraPublication != null) {
+    const bdSince = s.bdSincePublication;
+    const staleSuffix =
+      bdSince != null && bdSince >= SHORT_INTEREST_STALENESS_BD_THRESHOLD
+        ? ` ⚠ stale (≥${SHORT_INTEREST_STALENESS_BD_THRESHOLD}bd)`
+        : '';
+    lines.push(
+      `**Last FINRA publication:** ${s.lastFinraPublication}` +
+      ` (${bdSince != null ? `${bdSince} business days ago` : '—'})${staleSuffix}`,
+    );
+  } else {
+    lines.push(
+      `**Last FINRA publication:** — (run \`npm run finra:short-interest:ingest\` to populate)`,
+    );
+  }
+  lines.push(``);
+
+  const ramped = s.perTickerRows
+    .filter(r => r.shortRamp && r.sirRoc != null)
+    .sort((a, b) => (b.sirRoc ?? 0) - (a.sirRoc ?? 0))
+    .slice(0, SHORT_INTEREST_FLAGGED_TOP_N);
+  const capitulated = s.perTickerRows
+    .filter(r => r.shortCapitulation && r.sirRoc != null)
+    .sort((a, b) => (a.sirRoc ?? 0) - (b.sirRoc ?? 0))
+    .slice(0, SHORT_INTEREST_FLAGGED_TOP_N);
+  const totalRamped = s.perTickerRows.filter(r => r.shortRamp).length;
+  const totalCapitulated = s.perTickerRows.filter(r => r.shortCapitulation).length;
+
+  lines.push(`### Flagged tickers (universe: equity-midcap)`);
+  lines.push(``);
+  if (ramped.length === 0 && capitulated.length === 0) {
+    lines.push(`No tickers flagged.`);
+  } else {
+    lines.push(`| Flag | Ticker | shares_short | ROC | D2C |`);
+    lines.push(`|---|---|---|---|---|`);
+    for (const r of ramped) {
+      lines.push(
+        `| short_ramp | ${r.ticker} | ${formatShortInterestShares(r.sirT)} ` +
+        `| ${formatShortInterestPct(r.sirRoc)} | ${formatShortInterestD2c(r.d2cT)} |`,
+      );
+    }
+    for (const r of capitulated) {
+      lines.push(
+        `| short_capitulation | ${r.ticker} | ${formatShortInterestShares(r.sirT)} ` +
+        `| ${formatShortInterestPct(r.sirRoc)} | ${formatShortInterestD2c(r.d2cT)} |`,
+      );
+    }
+    if (totalRamped > ramped.length || totalCapitulated > capitulated.length) {
+      lines.push(``);
+      const extras: string[] = [];
+      if (totalRamped > ramped.length) {
+        extras.push(`${totalRamped - ramped.length} more short_ramp`);
+      }
+      if (totalCapitulated > capitulated.length) {
+        extras.push(`${totalCapitulated - capitulated.length} more short_capitulation`);
+      }
+      lines.push(
+        `_Truncated at top ${SHORT_INTEREST_FLAGGED_TOP_N} per category ` +
+        `(${extras.join(' · ')} not shown — query \`quantlab.short_interest_snapshots\` for the full list)._`,
+      );
+    }
+  }
+  lines.push(``);
+  lines.push(
+    `_Universe coverage: ${s.inputsAvailablePerTicker} watch-universe tickers ` +
+    `· ${s.inputsAvailableAggregate} aggregate constituents have current FINRA data._`,
+  );
+  lines.push(
+    `_Composite: \`${s.compositeVersion}\` (Path A4-β: per-stock ROC computed on \`shares_short\` directly, ` +
+    `no SIR normalization in v1; see SPEC §5.1). ` +
+    `INFORMATIONAL — does NOT fire a regime category in v1 (SPEC S-SI-2)._`,
+  );
+  lines.push(``);
+  lines.push(
+    `_Last evaluated: \`${s.evaluatedAt}\` · snapshot date: \`${s.snapshotDate}\`._`,
+  );
+  return lines.join('\n');
+}
+
+function formatShortInterestShares(v: number | null): string {
+  if (v == null || !Number.isFinite(v)) return '—';
+  return v.toExponential(2);
+}
+
+function formatShortInterestPct(v: number | null): string {
+  if (v == null || !Number.isFinite(v)) return '—';
+  const pct = v * 100;
+  const sign = pct > 0 ? '+' : '';
+  return `${sign}${pct.toFixed(1)}%`;
+}
+
+function formatShortInterestD2c(v: number | null): string {
+  if (v == null || !Number.isFinite(v)) return '—';
+  return v.toFixed(1);
+}
+
+/**
  * What could break this:
  *  - A future refactor that paraphrases the bias note inline. Test #15 catches
  *    this — the rendered output must contain the active bias-note body
@@ -1176,4 +1376,9 @@ function crossAssetReadingZ(z: number): string {
  *    coordinated SPEC + render edit.
  *  - Watch-list with > 3 items. The composer is responsible for capping at 3
  *    per SPEC §2.5; the renderer prints whatever it receives.
+ *  - Section #11 short-interest payload is Path A4-β shaped (sir* fields hold
+ *    shares_short). A refactor that re-introduces true SIR (v2 enhancement)
+ *    requires updating renderShortInterestSection's formatters AND the
+ *    BriefShortInterestSection JSDoc — the renderer naively renders whatever
+ *    magnitude it's given.
  */
