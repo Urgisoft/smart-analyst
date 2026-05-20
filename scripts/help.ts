@@ -85,6 +85,8 @@ const EXTRA_HELP: HelpEntry[] = [
   { npm: 'finra:short-interest:ingest:dry',    category: 'Data ingestion', what: 'Dry-run of `finra:short-interest:ingest` — fetch + parse without writing.' },
   { npm: 'edgar:exec-departure:ingest',        category: 'Data ingestion', what: 'SEC EDGAR 8-K Item 5.02 filings → quantlab.executive_departures (+ quantlab.cik_ticker_map cache). SPEC docs/specs/executive-departure-signal.md §3 + §10 Phase A1. Supports --url / --from-file when the default endpoint 404s; --start-date / --end-date / --snapshot-date / --user-agent flags available.' },
   { npm: 'edgar:exec-departure:ingest:dry',    category: 'Data ingestion', what: 'Dry-run of `edgar:exec-departure:ingest` — fetch + parse without writing.' },
+  { npm: 'etf:flow:ingest',                    category: 'Data ingestion', what: 'yfinance shares-outstanding + close panel for the v1 21-ETF universe (F-UNIVERSE: SPY/IVV/VOO/QQQ/IWM/DIA + 11 SPDR sectors + HYG/JNK/TLT/GLD) → quantlab.etf_shares_outstanding. AUM materialized at ingest. SPEC docs/specs/etf-flow-monitoring.md §4/§6/§10 Phase A1. Supports --start-date / --end-date / --tickers overrides.' },
+  { npm: 'etf:flow:ingest:dry',                category: 'Data ingestion', what: 'Dry-run of `etf:flow:ingest` — fetch + build panel without writing.' },
 
   // Phase 2 behavioral-clustering pipeline (Python)
   { npm: 'features:weekly',                    category: 'Data ingestion', what: 'Phase 2 §5.1 — compute 8-feature point-in-time token features → quantlab.token_features_weekly. Idempotent under (token_address, week_start, feature_version).', example: 'python scripts/compute_token_features_weekly.py --week-start 2026-04-27 --feature-version v1' },
