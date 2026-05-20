@@ -1,74 +1,14 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-05-19 (session 89 — **cycle-position Phase B verdict landed + new working-pattern rules codified**. Phase B validation arc ran end-to-end on cycle-position: 4624 rows backfilled across 2008-01-02 → 2026-05-19, analyze report written, headline result is **Phase C promotion BLOCKED** (0/8 NBER recessions signaled at threshold 0.40 across 6/12/18m leads). The independence-vs-phase1_v3 test PASSED (Pearson ρ = -0.19). Three operator-decision paths surfaced in the report. Concurrent with the Phase B work: **autonomous-execution protocol + data-source policy locked into project CLAUDE.md** as always-on rules — HANDOFF auto-writes pre-authorized, per-slice commits pre-authorized, free APIs (yfinance/SEC EDGAR/FRED/FINRA/CBOE archives/ETF.com/Stooq/Wikipedia) + Playwright public scraping pre-authorized, paid + authenticated-scrape blocked. Three commits landed: 692d31a (Phase B verdict) + c3443ee (CLAUDE.md rules) + (this handoff). Tests + tsc + check:help unchanged at baseline.**
+Last updated: 2026-05-19 (session 89 continuation — **ADR-041 + gap #10 SPEC landed**. Operator picked Path B from the s89 Phase B verdict (cycle-position v2 = yield-curve-only category, Estrella-Mishkin 1998 canon foundation) and authorized the next slice queue: gap #10 short-interest-tracking → #8 executive-departure-signal → #9 etf-flow-monitoring → #7 filings-processor (will halt on #7's 4 scope questions). Push to origin/main remains operator-only — hold the 33 commits.)
 
-## What this session delivered
+## What this continuation delivered
 
-Operator redirected three things in one message: (1) immediate work to cycle-position Phase B backfill + analyze (both pre-authorized), (2) workflow pattern to autonomous-execution (not /loop), (3) data-source policy to free-only with broad pre-authorization for free APIs + Playwright public scraping. All three landed.
+Two slices landed end-to-end since the prior HANDOFF:
 
-### The Phase B arc (operator-directed slice)
+1. **ADR-041 (Proposed)** — cycle-position v2 = yield-curve-only Phase C category. Deprecates the `cycle_v1` composite for Phase C promotion; promotes `T10Y3M < 0` directly as a new `yield_curve_inverted` category in phase1_v3+, sourced from Estrella-Mishkin 1998 canon. Rejects Path A (in-sample bucket re-weighting) and Path C (in-sample threshold lowering) on selection-bias grounds (AFML §11, Bailey-LdP §11.5, Harvey-Liu-Zhu 2016). Four open questions deferred to Accept step (sustained-inversion requirement, buffer threshold, ADR-004 deflation-pipeline applicability, SPEC §4 Phase C explicit retirement). Commit `da45689`.
 
-1. `npm run backfill:cycle-position-history:apply` — 4624 trade-days inserted into `quantlab.cycle_position_snapshots`. Phase distribution: late=461, mid=1686, early=2432, contraction=45, unknown=0. All rows are "partial inputs" (6/8) because DFII10 and BAMLH0A0HYM2 have shorter FRED history than the rest; this is expected and the composite falls back to BAA10Y-only credit when HY OAS is null.
-2. `npm run analyze:cycle-position-validation:write` — wrote `docs/analysis/cycle-position-validation-2026-05.md`.
-
-**Phase B result:**
-
-| Gate | Result | Verdict |
-| --- | --- | --- |
-| B3a — NBER lead-time backtest | 0/8 recessions signaled at any of {6, 12, 18}m leads (threshold 0.40) | ✗ FAIL |
-| B3b — False-positive rate | 0/506 depressed days followed by an NBER peak within 18m | ✗ FAIL (no precision) |
-| B4 — Independence vs phase1_v3 | Pearson ρ = -0.189, Spearman ρ = -0.159 (\|ρ\| < 0.7 gate) | ✓ PASS |
-| **B5 — Phase C promotion** | Fails the load-bearing backtest gate | **BLOCKED** |
-
-**Mechanism (not a bug):** SPEC §7 chose equal-weight bucket averaging (yield-curve / credit / employment, each 1/3) as a heuristic approximation of PCA. The data shows the watch-out has materialized — at the GFC 12m-lead point (2006-12-01), T10Y3M was already flat-to-inverted but BAA10Y credit + employment indicators were still benign, so the bucket average landed at score 0.600 (`mid`), well above the 0.40 depression threshold. Same dynamic at COVID 6m-lead (2019-08-01, score 0.556). The composite captures the **state** of the business cycle (where we are now) without **leading** it.
-
-### Three operator-decision paths (surfaced in the report, NOT autonomous)
-
-A. **`cycle_v2` with non-linear bucket weighting** — replace the equal-weight bucket average with a min-or-product aggregator so a single depressed bucket can pull the score down even when the others stay healthy. Needs new SPEC + re-run B3. Most methodology-faithful path; preserves the composite shape; new threshold-tuning required.
-
-B. **`cycle_v2` with yield-curve-only Phase C category** — promote the `T10Y3M < 0` signal (per Estrella-Mishkin 1998) directly to a `phase1_v3+` category, keep the bucket-averaged composite as Layer-5 LLM context only. Narrows Phase C scope; reuses canon-load-bearing input directly; preserves cycle_v1 as informational.
-
-C. **Lower the SPEC §6 0.40 threshold to 0.55** and re-run validation. GFC 12m landed at 0.600 — 0.55 would have JUST missed it; COVID 6m at 0.556 would have hit. Re-tuning is a composite-version bump (`cycle_v2`); validation must be re-run honestly on the new threshold.
-
-The Phase B verdict makes cycle_v1 **permanent at the "Layer-0 informational" posture** per SPEC §6 fallback — the dashboard panel + brief section #7 keep rendering, but no Phase C promotion happens at cycle_v1.
-
-### The new working-pattern rules (codified in CLAUDE.md)
-
-Two new always-on sections in [CLAUDE.md](CLAUDE.md), locked 2026-05-19 by operator directive:
-
-**1. Autonomous-execution protocol** — pre-authorizes:
-
-- HANDOFF.md rewrites (no confirmation, no trigger-gating for this project)
-- Per-slice git commits
-- End-of-session close-out (commit → HANDOFF → end cleanly)
-- "Continue" semantic (resume from HANDOFF without re-asking)
-
-And enumerates the hard-stop list (these reverse the autonomous default):
-
-- Destructive ops not previously authorized
-- Broken builds or failing tests not fixable from current context
-- Canon-thin methodology ambiguity
-- ADR conflicts
-- Real-money-execution path touches
-- Paid subscriptions / vendor onboarding
-- Authenticated / logged-in scraping
-- `git push`
-
-**2. Data-source policy** — pre-authorizes:
-
-- Direct free APIs: yfinance, SEC EDGAR (full-text + RSS/Atom + submissions), FRED, FINRA (Reg-SHO + short-interest), CBOE archives, ETF.com, Yahoo Finance, Stooq, Wikipedia + fja05680/sp500
-- Playwright public-source scraping (any public, unauthenticated page) with required discipline: schema validation on every fetch, alerts on parse failure, fallback to cached last-good values, no silent stale propagation
-
-And blocks (require explicit operator approval):
-
-- Paid subscriptions (Sharadar, CBOE DataShop, ISM PMI, Polygon, S&P CapIQ, Bloomberg, Refinitiv, FactSet, PitchBook, Crunchbase, CB Insights)
-- Authenticated / logged-in scraping (Fidelity, broker portals, anything behind login)
-
-And adds the **gap-evaluation rule** — never halt on "needs data" without first researching free + scrape alternatives.
-
-### Memory updates
-
-Two new memory entries point at CLAUDE.md as the authoritative source: `feedback_signalforge_autonomous_execution.md` + `feedback_signalforge_data_source_policy.md`. MEMORY.md index updated.
+2. **Gap #10 SPEC** — `short_interest_v1` Phase A architecture. Mirrors the four prior Layer-0 informational SPECs (cycle-position s85, vol-structure s86, sector-rotation s87, cross-asset s88). Thirteen decisions locked at SPEC time (S-SI-1..S-SI-13): FINRA biweekly only (paid sources rejected; Reg SHO daily out-of-scope for v1), ROC-based per-stock signal (Diether-Lee-Werner 2009 canon, NOT level-based), SPY 500 PIT aggregate universe, settlement-date-aware lag (no 8-day forward-look leak), split-adjusted ROC, SEC EDGAR CUSIP→ticker resolution (pre-authorized per CLAUDE.md), brief section #11 (appended after cross-asset #10), 2y baseline + 30-print floor, `sentiment_short_extreme` at \|z\| > 2.0 symmetric. Six open questions DEFERRED to A1/A2 implementation (not blocking SPEC). Implementation phases A1-A5 enumerated with ~7 working days total effort. Commit `f7745c0`.
 
 ## Where we are
 
@@ -78,138 +18,140 @@ Two new memory entries point at CLAUDE.md as the authoritative source: `feedback
 | C-12 Phase A | ✓ s84 |
 | C-12 Phase B (AlpacaAdapter) | ⏸ INDEFINITELY PAUSED |
 | market-cycle-position Phase A | ✓ s85 |
-| market-cycle-position Phase B | ✓ s89 — **VERDICT: Phase C BLOCKED at cycle_v1** |
-| market-cycle-position Phase C / cycle_v2 redesign | ☐ THREE PATHS SURFACED — operator picks A / B / C |
+| market-cycle-position Phase B | ✓ s89 — VERDICT: Phase C BLOCKED at cycle_v1 |
+| **market-cycle-position v2 (ADR-041 Proposed)** | **✓ s89-cont — Proposed; Accept step opens implementation (4 OQs)** |
 | expanded-vol-structure Phase A | ✓ s86 |
 | sector-rotation-monitoring Phase A | ✓ s87 |
 | cross-asset-signals Phase A | ✓ s88 |
 | Daemon FRED-freshness patch | ✓ s88-cont #2 |
 | 5-commit split of working tree | ✓ s88-cont #3 |
-| **Autonomous-execution protocol** | **✓ s89 — CLAUDE.md** |
-| **Data-source policy (free + scrape)** | **✓ s89 — CLAUDE.md** |
+| Autonomous-execution + data-source policy | ✓ s89 — CLAUDE.md |
+| **Gap #10 short-interest SPEC** | **✓ s89-cont — `docs/specs/short-interest-tracking.md`** |
+| Gap #10 short-interest CODE (A1-A5) | ☐ NEXT SLICE |
+| Gap #8 executive-departure-signal | ☐ queued after #10 |
+| Gap #9 etf-flow-monitoring | ☐ queued after #8 |
+| Gap #7 event-driven-filings-processor | ☐ queued after #9; will halt on 4 scope questions |
 | Phase B for vol-structure / sector-rotation / cross-asset | ⏸ deferred — 60+ day observation OR historical-backfill arc |
-| drawdown-response-framework | ✓ shipped s54 + rescaled s74/s77 |
-| Multi-agent / autonomous-workflow setup | ✓ s89 — autonomous-execution chosen over /loop |
-| 8 remaining frozen Phase 9+ gap inventory items | ⚠ RE-EVALUATE under new data-source policy (see below) |
-| #5 capital-deployment-ramp ADR | ☐ operator self-assigned to draft within ~1 week; not blocking |
+| #5 capital-deployment-ramp ADR | ☐ operator self-assigned ~1 week; not blocking |
 | Drawdown framework §12 90d empirical retune | ☐ scheduled — earliest 2026-08-29 |
+| Push 33 commits to origin/main | ☐ operator-gated, HOLD |
 
 ## Decisions locked in
 
-### Session 89
+### Session 89 continuation
 
-**S89-1. cycle_v1 stays at Layer-0 informational posture.** Phase B verdict is final at this version stamp. No threshold tuning, no bucket-weighting change, no Phase C promotion happens at `cycle_v1`. The dashboard panel + brief section #7 keep rendering against `cycle_v1` snapshots; the validation report `docs/analysis/cycle-position-validation-2026-05.md` is the authoritative record.
-`Why:` SPEC §4 Phase B is a binary gate. The composite failed the backtest at the SPEC-pinned threshold (0.40) and lead horizons (6/12/18m). Re-tuning at this point — moving the threshold, changing the bucket weights — would be a `cycle_v2` redesign per SPEC §6 fallback, requiring a new SPEC, new B3 backtest, and a new validation pass. Operator decision required to launch that redesign.
-`How to apply:` future sessions referencing cycle-position should read this as "informational only; do not promote." If the operator chooses cycle_v2, that opens a fresh RESEARCH→SPEC→CODE arc; do not auto-launch.
+**S89c-1. cycle_v2 = Path B (yield-curve-only category).** Operator-selected path. ADR-041 (Proposed) lives at [`docs/decisions/README.md`](docs/decisions/README.md) — the v2 deprecates the composite's Phase C path, promotes `T10Y3M < 0` (Estrella-Mishkin 1998 canon) as a new phase1_v3+ category named `yield_curve_inverted`. `cycle_v1` composite continues unchanged as Layer-5 LLM context only.
+`Why:` Path A and Path C both required in-sample tuning against the same NBER data that the failed Phase B gate used (selection-bias canon AFML §11, Bailey-LdP §11.5, Harvey-Liu-Zhu 2016 protect against this). Path B uses a single canon-load-bearing input with no tuning, 25+ years of Tier-1 literature support, and already in the daemon pipeline (T10Y3M is in fred_ingest.py DEFAULT_SERIES + auto-refreshed by daemon step 1b').
+`How to apply:` ADR-041 is Proposed, not Accepted. Implementation does NOT proceed without operator Accept step. The four open questions (sustained-inversion requirement, buffer threshold, ADR-004 deflation-pipeline applicability, SPEC §4 retirement language) are resolved at Accept, not as blocking SPEC-time decisions.
 
-**S89-2. Autonomous-execution + data-source policy codified in CLAUDE.md.** The rules are in the project's auto-loaded CLAUDE.md file, not memory. Memory entries are breadcrumbs pointing back at CLAUDE.md.
-`Why:` operator explicitly directed "add to persistent rules (.claude/CLAUDE.md), not session-level" — meaning the rules should travel with the repo and apply uniformly across sessions, surviving memory pruning or new-conversation context. The CLAUDE.md is auto-loaded at session start, so the rules fire on every chat in this repo without depending on memory recall.
-`How to apply:` at session start, the rules are already in your context via the @CLAUDE.md import. Treat the "hard stops" list as the only reasons to halt the autonomous default; everything else proceeds without confirmation.
+**S89c-2. Gap-inventory slice order pre-committed: #10 → #8 → #9 → #7.** After gap #10 ships its CODE phases A1-A5, default-resume is gap #8 executive-departure-signal. After #8, gap #9 etf-flow-monitoring. After #9, gap #7 event-driven-filings-processor — which will halt on its 4 scope questions (operator chose to defer surfacing those questions until #7 is the active slice rather than pre-blocking).
+`Why:` operator-directed prioritization based on the post-data-source-policy unblock analysis. #10/#8/#9 have clean data-source profiles (FINRA + SEC EDGAR + ETF.com all pre-authorized); #7 has the messiest scope so it's last, but not zero — the 4 scope questions surface when #7 is active rather than being pre-blockers.
+`How to apply:` when gap #10 finishes, do NOT pause to ask "which gap next" — proceed directly to gap #8 RESEARCH→SPEC→CODE. Same pattern through #9. On #7's scope questions, surface them via AskUserQuestion when reached; don't pre-research them.
 
-**S89-3. The /loop pattern is deprecated for this project.** s88-cont #3's /loop iteration halted on gap #7 over a fabricated "data-source decision" (SEC EDGAR was the answer all along, but the loop had no data-source policy to read against). Direct autonomous execution against pre-authorized scope is the replacement pattern.
-`Why:` the failure mode of /loop was that the loop's stop-conditions were too conservative — every gap looked like a "data-source decision" because the loop didn't know what data sources were authorized. The new pattern fixes the failure mode at the source (CLAUDE.md data-source policy) and removes the indirection (loop wrapper) that produced the false stop.
-`How to apply:` for multi-session work, the autonomous pattern is "operator says 'continue' → resume HANDOFF → push slice to completion → commit + HANDOFF + end cleanly." Do NOT invoke /loop. /schedule remains available for genuinely cron'd tasks (e.g., daily-ops trio if the operator chooses to set that up), but is not the default.
+**S89c-3. Gap #10 SPEC uses the established Layer-0 architectural template.** A1-A5 phase decomposition + brief section append-at-tail + ReplacingMergeTree snapshot pattern + version stamp. Same shape as s86/s87/s88. The SPEC is at [`docs/specs/short-interest-tracking.md`](docs/specs/short-interest-tracking.md).
+`Why:` consistency reduces operator review burden, makes test/repo/daemon patterns reusable, keeps the brief stable.
+`How to apply:` when the CODE slice begins next session, follow the SPEC's A1-A5 order. A1 is the Python FINRA ingest script (data plumbing); A2-A5 build on top of A1's data.
 
-### Sessions 84-88 + continuations (carried)
+### Sessions 84-89 + continuations (carried)
 
-All prior decisions preserved unchanged.
+All prior decisions preserved unchanged (s89 Phase B verdict, autonomous-execution + data-source policy in CLAUDE.md, etc.).
 
 ## Open questions
 
-### HIGH (new this session)
+### HIGH (new this continuation)
 
-1. **cycle_v2 redesign path** — A (non-linear bucket weighting) vs B (yield-curve-only Phase C category) vs C (threshold lowering to 0.55 + re-run). Operator picks; the report's "Paths forward" section enumerates the trade-offs.
+1. **ADR-041 Accept step** — four open questions in the ADR body (sustained-inversion requirement, buffer threshold, ADR-004 deflation applicability, SPEC §4 retirement language). Operator-gated.
 
-2. **Phase 9+ gap re-evaluation under new data-source policy.** The /loop halted on gap #7 because of perceived data-source ambiguity — under the new free+scrape policy, that ambiguity is resolved. Re-evaluation:
-   - **#7 event-driven-filings-processor** — *partially unblocks.* SEC EDGAR is pre-authorized; the data-source blocker is gone. Architecture decision (separate service vs daemon hook for <4h latency) is mine to make per [DESIGN] role. 4 open spec questions remain (international filings, 13G vs 13D weighting, 13F-HR amendments, Form 4 cluster threshold); most have canon defaults per Cohen-Malloy-Pomorski 2012, but international + 13F-HR are scope decisions.
-   - **#10 short-interest-tracking** — *unblocks.* FINRA Reg-SHO + short-interest feeds are pre-authorized. Bi-monthly cadence is daemon-hook-compatible. Some methodology choices (per-stock vs aggregate, threshold definition) are RESEARCH-stage, not operator-gated.
-   - **#8 executive-departure-signal** — *unblocks.* SEC EDGAR Form 4 captures CEO/CFO departures + supplements (e.g., 8-K Item 5.02). Public-source news scraping is an option for finer-grained signal. Implementable end-to-end without operator data-source decision.
-   - **#9 etf-flow-monitoring** — *unblocks.* ETF.com is pre-authorized; public exchange archives + Yahoo finance ETF endpoints cover the rest. Previous PUSHBACK on "scrape debt" is now obsolete — the data-source policy explicitly authorizes Playwright public scraping with discipline.
+2. **Gap #10 CODE A1 — corporate-actions data source choice.** SPEC §11 OQ #1: CH `corporate_actions` table vs yfinance live `actions` endpoint. Recommendation in SPEC: yfinance for v1 (zero-infra). To resolve at A1 implementation start.
 
-3. **C-12 Phase B resume** (when ready): Alpaca account onboarding. INDEFINITELY PAUSED.
+3. **Gap #10 CODE A2 — aggregate weighting scheme.** SPEC §11 OQ #3: market-cap-weighted vs equal-weight aggregate SIR over SPY 500 constituents. The academic literature is typically equal-weighted; cap-weighted matches the SPY index methodology. To resolve at A2.
 
-4. **CBOE DataShop subscription** — carried; still blocked under the new policy (paid).
+### CARRIED HIGH (unchanged)
+
+- C-12 Phase B resume (Alpaca onboarding) — INDEFINITELY PAUSED.
+- CBOE DataShop subscription — carried; blocked under data-source policy.
+- #5 capital-deployment-ramp ADR — operator self-assigned to draft within ~1 week. Not blocking.
+- cycle_v2 path A / B / C — closed (Path B chosen, ADR-041 Proposed).
+- Push 33 commits to origin/main — operator-gated.
 
 ### CARRIED (unchanged)
 
 - Schema-migration bootstrap-only.
 - ML meta-labeling (ADR-027, deferred ≥4 weeks).
-- Sharadar SF1 subscription — blocked (paid).
+- Sharadar SF1 subscription — blocked.
 - Compounding-live-equity backtest semantic (ADR-class).
 - 78,399 zero-trade sentinels in `bt_runs_regime` (deferred).
-- **#5 capital-deployment-ramp ADR** — operator self-assigned to draft within ~1 week. Not blocking.
 
-### Closed this session
+### Closed this continuation
 
-- ~~cycle-position Phase B validation run~~ — DONE. Verdict: BLOCKED at cycle_v1.
-- ~~Multi-agent workflow choice~~ — autonomous-execution chosen, codified in CLAUDE.md.
-- ~~Data-source policy~~ — codified in CLAUDE.md.
+- ~~cycle_v2 path decision~~ — Path B chosen, ADR-041 Proposed.
+- ~~Gap #10 SPEC~~ — landed at `docs/specs/short-interest-tracking.md`.
 
 ## Next stage
 
-### Operator picks one of these on next "continue"
+### Operator-directed sequence (S89c-2)
 
-1. **cycle_v2 path A / B / C** — operator picks; I launch RESEARCH→SPEC→CODE on the chosen path.
-2. **Unfreeze gap #10 short-interest-tracking** — cleanest data-source profile under new policy, bi-monthly cadence fits daemon-hook pattern, methodology questions are RESEARCH-stage not operator-gated. **My recommendation if no other input.**
-3. **Unfreeze gap #8 executive-departure-signal** — also clean under new policy.
-4. **Unfreeze gap #9 etf-flow-monitoring** — newly unblocked under scrape policy; previous PUSHBACK obsolete.
-5. **Unfreeze gap #7 event-driven-filings-processor** — partially unblocked (data source settled); operator still owes 4 scope decisions before SPEC. Lowest velocity option.
-6. **Run Phase B historical-backfill arcs for vol-structure / sector-rotation / cross-asset** — analogous to what just landed for cycle-position. Higher likelihood of similar "informational-only at v1" verdicts given the same equal-weight composite shape, but valuable data either way.
-7. **Drawdown framework §12 retune prep** — operator-deferred to 2026-08-29 calendar gate, but prep work (data assembly, baseline metrics) can happen now.
-8. **Land #5 capital-deployment-ramp ADR draft** — operator said "drafting in ~1 week when rested"; if the operator wants me to take a first pass, that's available.
-9. **Push to origin/main** — operator-gated (31 commits ahead now). Single command.
+**Default next slice on "continue":** Gap #10 short-interest-tracking CODE — start at Phase A1 (FINRA biweekly ingest Python script at `scripts/finra_short_interest_ingest.py`). The SPEC pins the deliverable; the A1 sub-deliverables are:
 
-### If operator just says "continue" without picking
+1. CSV parser for FINRA biweekly short interest reports (against fixture).
+2. CUSIP→ticker resolution via SEC EDGAR submissions API (pre-authorized), cached in new CH `cusip_ticker_map` table.
+3. Split-adjustment via yfinance `actions` endpoint (SPEC §11 OQ #1 default recommendation; revisit if reliability becomes an issue).
+4. Write to `quantlab.short_interest` table (ReplacingMergeTree, keyed on `(cusip, settlement_date)`).
+5. CLI: `python scripts/finra_short_interest_ingest.py [--start YYYY-MM-DD] [--dry-run]`.
+6. Tests at `scripts/tests/finra_short_interest_ingest_test.py` (pytest) — 5 tests per SPEC §9.4.
 
-Per [PUSHBACK]: the cycle_v2 decision is canon-thin (three legitimate paths with different trade-offs, no canon default). I should NOT auto-pick that. The gap unfreezings are within autonomous scope under the new policy. Default next-slice if "continue" with no further input: **start gap #10 short-interest-tracking RESEARCH→SPEC→CODE arc** (highest velocity per the analysis above).
+After A1 ships: A2 (pure composite) → A3 (CH snapshot table migration) → A4 (repository + daemon step 1h hook) → A5 (brief section #11). The slice ends when A5 commits with byte-equal-protection verified on the brief.
+
+### After Gap #10 ships
+
+Per S89c-2: Gap #8 executive-departure-signal → Gap #9 etf-flow-monitoring → Gap #7 event-driven-filings-processor.
 
 ## Files / code state
 
-### NEW or EDITED this session
+### NEW or EDITED this continuation
 
 | Path | Status | Notes |
 | --- | --- | --- |
-| `docs/analysis/cycle-position-validation-2026-05.md` | EDITED (committed 692d31a) | Rewritten by analyze:cycle-position-validation:write. Phase B verdict. |
-| `CLAUDE.md` | EDITED (committed c3443ee) | +88 lines: autonomous-execution protocol + data-source policy. |
+| `docs/decisions/README.md` | EDITED (committed da45689) | +100 lines: ADR-041 (Proposed) + index updates. |
+| `docs/specs/short-interest-tracking.md` | NEW (committed f7745c0) | 355 lines: gap #10 Phase A SPEC. |
 | `.claude/HANDOFF.md` | EDITED (this commit) | Rewritten from scratch per autonomous-execution protocol. |
-| memory: `feedback_signalforge_autonomous_execution.md` | NEW | Points back at CLAUDE.md as source of truth. |
-| memory: `feedback_signalforge_data_source_policy.md` | NEW | Points back at CLAUDE.md as source of truth. |
-| memory: `MEMORY.md` | EDITED | Two new index entries. |
 
 ### CH state
 
-`quantlab.cycle_position_snapshots` now has 4624 historical rows in addition to the per-cycle daemon writes. ReplacingMergeTree dedupes on (snapshot_date) — re-running the backfill is safe. OPTIMIZE TABLE … FINAL ran cleanly post-insert.
+Unchanged from s89 close. Phase B backfill rows (4624 in `cycle_position_snapshots`) still present + idempotent. No new migrations this continuation.
 
 ### Tests
 
 ```text
-npm test                       1924 / 1918 pass / 0 fail / 6 skipped   ✓ (s88-cont #2 baseline, unchanged)
+npm test                       1924 / 1918 pass / 0 fail / 6 skipped   ✓ (unchanged baseline)
 npx tsc --noEmit               13 errors (unchanged baseline)
 npm run check:help             ✓ green
-.venv/Scripts/python.exe -m pytest scripts/tests   164/164 (s88-cont #2 baseline; not re-run)
+.venv/Scripts/python.exe -m pytest scripts/tests   164/164 (unchanged baseline; not re-run)
 ```
 
-The Phase B work is pure data + a regenerated markdown report. No code changes; no test impact.
+The two commits this continuation are pure documentation (ADR + SPEC); no code changes; no test impact.
 
 ## Watch-outs
 
-### NEW from this session
+### NEW from this continuation
 
-- **cycle_v1 will keep firing as `mid` during the early innings of the next real recession.** That's the headline failure mode of the v1 composite — the equal-weight bucket average masks single-bucket inversions. Until cycle_v2 lands, treat the `cycle_v1` brief section #7 as state-not-lead and do NOT use it for early-warning calls.
-- **The validation report has a UTC-vs-local date stamp quirk.** The report's "Generated:" timestamp is `2026-05-20T01:20:27.391Z` even though local date is 2026-05-19. Not a bug; just a heads-up if anyone wonders why the doc looks like it ran tomorrow.
-- **The backfill's "with full 8 inputs: 0" line is expected.** DFII10 starts 2003 + BAMLH0A0HYM2 has FRED-cap ~3y, so no row in the 2008-onwards window has all 8 inputs simultaneously available. All 4624 rows show 6/8 or 7/8 — the composite correctly falls back to BAA10Y-only credit when HY OAS is null.
-- **CLAUDE.md is now ~140 lines instead of ~50.** The two new sections add weight to the always-on context. If the operator notices a token-budget impact, consider trimming the data-source policy section to a pointer + a shorter doc somewhere under `docs/`.
+- **ADR-041 is Proposed, not Accepted.** Do NOT start implementation of the `yield_curve_inverted` category without an explicit operator Accept step. The four open questions in the ADR body resolve at Accept, not as inferred defaults.
+- **Gap #10 SPEC has six DEFERRED open questions.** Most are resolvable at A1/A2 implementation start with the SPEC's recommended defaults. The operator's involvement is needed only if A1/A2 hits a path where the recommendation breaks (e.g., yfinance reliability for splits forces the CH-table fallback).
+- **The slice queue (S89c-2) commits the operator to NOT pre-blocking on gap #7's 4 scope questions.** When gap #7 becomes active (after #9 ships), surface those questions then. Don't try to pre-resolve them while working on #10/#8/#9.
+- **HANDOFF.md is now load-bearing for slice-queue resumption.** Per autonomous-execution rule "Continue means continue", the next session reads the "Next stage" section and starts A1. Do NOT re-summarize the HANDOFF back to the operator; just begin work.
 
-### Carried (s88-cont #3 + earlier)
+### Carried (s89 + earlier)
 
-All prior watch-outs preserved unchanged. Key carry-overs:
+All s89 and earlier watch-outs preserved unchanged. Key carry-overs:
 
-- The 5 commits from s88-cont #3 are NOT pushed; main is now 31 commits ahead of origin.
+- 33 commits ahead of `origin/main`; push is operator-gated.
+- `cycle_v1` composite continues rendering as Layer-5 LLM context only — do NOT use for early-warning calls.
 - `runFredFetch` is NOT unit-tested directly — only `buildFredFetchArgs` is.
 - DFII10/DFII5 history starts 2003-01-02; DTWEXBGS is weekly (lags 1-3 days).
-- HY OAS (BAMLH0A0HYM2) FRED-capped to ~3y history on free endpoint.
-- Section #10 appended last in the brief (byte-equal-protection).
-- Repository reads use subquery-around-FINAL pattern on all 4 cross-asset read methods.
+- HY OAS (BAMLH0A0HYM2) FRED-capped to ~3y on free endpoint.
+- Section #11 (this SPEC's new brief section) will append AFTER #10 (cross-asset) on Phase A5. Sections #1-#10 are byte-equal-protected.
+- Repository reads use subquery-around-FINAL pattern.
+- `/tmp/session-split-backup/` from s88-cont #3 is still present; can be deleted at operator discretion.
 
 ## Pre-loaded operational reminders
 
@@ -222,12 +164,11 @@ npx tsx scripts/_paper_trading_review.ts
 npm run brief:morning                                   # sections #7-#10 with real data
 ```
 
-### cycle-position arc (all NOW LANDED)
+### cycle-position arc (Phase B closed)
 
 ```text
-npm run backfill:cycle-position-history[:apply]         # done s89 — 4624 rows in CH
-npm run analyze:cycle-position-validation[:write]       # done s89 — verdict BLOCKED, report committed
-npm run seed:nber-recessions[:apply]                    # available, idempotent
+npm run backfill:cycle-position-history[:apply]         # idempotent re-run; landed s89
+npm run analyze:cycle-position-validation[:write]       # re-runnable; verdict at docs/analysis/
 ```
 
 ### Tests + dev
@@ -241,20 +182,20 @@ npm run check:help                                                             #
 
 ## For the next session — priority order
 
-**Default if operator just says "continue":** start gap #10 short-interest-tracking RESEARCH→SPEC→CODE per the new autonomous-execution + data-source policy. Halt only on the codified hard-stop list, not on data-source ambiguity.
+**Recommended immediate continuation:** Resume gap #10 CODE at Phase A1 (FINRA ingest Python script). The SPEC at [`docs/specs/short-interest-tracking.md`](docs/specs/short-interest-tracking.md) §10 pins the deliverable and effort estimate. Six DEFERRED open questions (SPEC §11) resolve at A1/A2 with the SPEC's recommended defaults; operator only needs to be involved if a recommendation breaks empirically.
 
 **Pejman decisions carried + queued:**
 
 - C-12 Phase B Alpaca onboarding (paused indefinitely).
-- CBOE DataShop subscription (carried; blocked under new policy).
+- CBOE DataShop subscription (blocked under data-source policy).
 - #5 capital-deployment-ramp ADR (self-assigned, ~1 week, not blocking).
-- cycle_v2 path A / B / C (new this session; load-bearing for cycle-position Phase C).
-- Push 31 commits to origin/main (operator-gated).
+- ADR-041 Accept step (4 OQs; operator-gated).
+- Push 33 commits to origin/main (operator-gated, HOLD).
 
 **Calendar-gated:**
 
 - Drawdown framework §12 90d empirical retune — earliest 2026-08-29.
-- Vol-structure / sector-rotation / cross-asset Phase B — 60+ day observation OR historical-backfill arc (operator can authorize the backfill arc anytime; matches what just ran for cycle-position).
+- Vol-structure / sector-rotation / cross-asset Phase B — 60+ day observation OR historical-backfill arc.
 
 **Background:**
 
@@ -262,30 +203,31 @@ npm run check:help                                                             #
 
 **DO NOT auto-open without operator green-light:**
 
-- cycle_v2 redesign (any of paths A/B/C — canon-thin choice).
+- ADR-041 implementation (Proposed → Accepted gate).
 - C-12 Phase B AlpacaAdapter.
-- Phase B campaigns for the three other composites (compute-heavy + operator-gated).
+- Phase B campaigns for the three other composites.
 - `git push` to origin/main.
+- Gap #7 scope-question pre-resolution.
 
 ## Important framing for the next chat
 
-s89 closed the cycle-position Phase B arc and codified the autonomous-execution + data-source rules that the operator wanted as standing project policy. Working tree is clean; three new commits land on top of the s88-cont #3 chain. The cycle-position composite is now permanently informational at cycle_v1 — the brief panel + dashboard keep rendering, but no Phase C promotion happens without a cycle_v2 redesign.
+The s89 continuation closed two clean slices (ADR-041 Proposed + gap #10 SPEC) under the new autonomous-execution protocol — no permission pauses, no menu offers, no mid-slice confirmation requests. The pattern is working as designed. Five commits landed on top of the s89 chain.
 
-The deeper shift this session: **/loop is deprecated**. The replacement pattern is direct autonomous execution against pre-authorized scope, halting only on the codified hard-stop list. The data-source policy in CLAUDE.md prevents the failure mode that killed /loop's first iteration — gap-evaluation no longer halts on "needs data" without first checking the free + scrape catalogue.
+**The next session's default behavior on "continue":** read this HANDOFF's "Next stage" section, begin work on gap #10 Phase A1 (FINRA ingest Python script per [`docs/specs/short-interest-tracking.md`](docs/specs/short-interest-tracking.md) §10 + §9.4 test plan). Do NOT pause to ask "should I start with A1 or A2?" — A1 is pinned by the SPEC. Do NOT pause to ask "yfinance or CH table for splits?" — yfinance is the SPEC §11 OQ #1 recommendation. Slice ends naturally at context pressure or A5 completion; commit + rewrite HANDOFF + end cleanly.
 
-**The chain through s89:**
+**The slice queue is committed (S89c-2):** #10 → #8 → #9 → #7. When #10 finishes, the next session reads this HANDOFF (which will have been rewritten to reflect #10's completion) and proceeds to #8 without re-asking.
+
+**Parallel-tracks posture continues.** This continuation did NOT affect C-12 / paper-trading / real-money-flip arcs.
+
+**The chain through s89 continuation:**
 
 ```text
-ALL S41-S88-CONT-#3 WORK                  ✓ as documented
-S89: backfill:cycle-position-history:apply    ✓ 4624 rows in CH
-S89: analyze:cycle-position-validation:write  ✓ verdict BLOCKED, report committed (692d31a)
-S89: CLAUDE.md autonomous-execution rules     ✓ committed (c3443ee)
-S89: CLAUDE.md data-source policy             ✓ committed (c3443ee, same commit)
-S89: memory pointers                          ✓ feedback_signalforge_*.md + MEMORY.md
-S89: HANDOFF rewrite                          ✓ this commit
-S89: tests + tsc + check:help                 ✓ unchanged at baseline
-  → next: operator picks cycle_v2 path OR "continue" → gap #10 short-interest by default
-  → background: daemon writes per-cycle snapshots for all four composites
+ALL S41-S89-PRIOR WORK                        ✓ as documented
+S89c: ADR-041 Proposed (cycle_v2 = Path B)    ✓ committed (da45689)
+S89c: gap #10 SPEC (short_interest_v1)        ✓ committed (f7745c0)
+S89c: HANDOFF rewrite                         ✓ this commit
+S89c: tests + tsc + check:help                ✓ unchanged at baseline
+  → next: gap #10 Phase A1 (FINRA ingest Python script)
+  → after #10 ships: gap #8 → #9 → #7
+  → background: daemon writes per-cycle snapshots for all four Layer-0 composites
 ```
-
-**Parallel-tracks posture continues.** s89 added the autonomous-execution backbone but did NOT change the C-12 / paper-trading / real-money-flip arc — those remain operator-gated independent of the new rules.
