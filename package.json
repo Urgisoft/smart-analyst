@@ -105,6 +105,8 @@
     "migrate:create-etf-flow-snapshots:apply": "tsx scripts/migrate_create_etf_flow_snapshots.ts --apply",
     "migrate:create-eight-k-events": "tsx scripts/migrate_create_eight_k_events.ts",
     "migrate:create-eight-k-events:apply": "tsx scripts/migrate_create_eight_k_events.ts --apply",
+    "migrate:create-eight-k-classifier-snapshots": "tsx scripts/migrate_create_eight_k_classifier_snapshots.ts",
+    "migrate:create-eight-k-classifier-snapshots:apply": "tsx scripts/migrate_create_eight_k_classifier_snapshots.ts --apply",
     "seed:nber-recessions": "tsx scripts/seed_nber_recessions.ts",
     "seed:nber-recessions:apply": "tsx scripts/seed_nber_recessions.ts --apply",
     "backfill:cycle-position-history": "tsx scripts/backfill_cycle_position_history.ts",
