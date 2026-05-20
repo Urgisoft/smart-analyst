@@ -2,9 +2,9 @@
 
 > **Authority:** [MASTER.html §6](../../MASTER.html#part6) is the in-document index. This file is the working markdown form. Future ADRs are added here first; MASTER §6 is updated to link.
 >
-> **Last updated:** 2026-05-09 · **Format:** ADR (Architecture Decision Record), append-only, supersession by reference.
+> **Last updated:** 2026-05-19 · **Format:** ADR (Architecture Decision Record), append-only, supersession by reference.
 >
-> Current high: **ADR-039 (Proposed)**; highest Accepted: **ADR-038** (the post-v3-backfill regime distribution baseline `{127/349/1392/2754}` enforced by the `ADR_038_BASELINE` code constant in [`src/server/regime_dashboard.ts`](../../src/server/regime_dashboard.ts) and test #9b in [`scripts/tests/regimeDashboard.test.ts`](../../scripts/tests/regimeDashboard.test.ts)).
+> Current high: **ADR-041 (Proposed)**; highest Accepted: **ADR-038** (the post-v3-backfill regime distribution baseline `{127/349/1392/2754}` enforced by the `ADR_038_BASELINE` code constant in [`src/server/regime_dashboard.ts`](../../src/server/regime_dashboard.ts) and test #9b in [`scripts/tests/regimeDashboard.test.ts`](../../scripts/tests/regimeDashboard.test.ts)).
 
 ---
 
@@ -4375,11 +4375,107 @@ The full RESEARCH note (canon survey + data inventory + alternative-rule PUSHBAC
 
 ---
 
+## ADR-041 · cycle-position v2 — deprecate composite for Phase C; promote T10Y3M<0 to a phase1_v3+ category (Estrella-Mishkin 1998)
+
+**Status:** Proposed · **Date:** 2026-05-19 · **Author:** Pejman (operator decision after reading s89 Phase B verdict report) · **Supersedes (in part):** `docs/specs/market-cycle-position.md` §4 Phase C path (composite-based Phase C promotion is retired).
+
+**Context:**
+
+Session 89 ran the cycle-position Phase B validation arc to completion. Result, recorded at [`docs/analysis/cycle-position-validation-2026-05.md`](../analysis/cycle-position-validation-2026-05.md):
+
+- **NBER lead-time backtest (B3a):** 0/8 recessions signaled at threshold 0.40 across {6, 12, 18}-month leads.
+- **False-positive rate (B3b):** 0/506 depressed days followed by an NBER peak within 18 months. Precision 0.0%.
+- **Independence vs `phase1_v3` (B4):** Pearson ρ = -0.189, Spearman ρ = -0.159 — PASS (`|ρ| < 0.7` gate). The signal is orthogonal to the existing acute-stress detector.
+- **Phase C promotion:** BLOCKED by the backtest failure.
+
+The mechanism is in SPEC §7: the cycle composite is the equal-weighted average of three buckets (yield-curve / credit / employment). When the yield-curve bucket is depressed but credit and employment buckets remain healthy, the bucket average pulls the score above the 0.40 depression threshold. Concretely:
+
+- GFC 12m-lead point (2006-12-01): T10Y3M already flat-to-inverted, but BAA10Y credit + ICSA/UNRATE employment still benign → composite score = 0.600 (`mid`), missed.
+- COVID 6m-lead point (2019-08-01): same dynamic → composite score = 0.556 (`mid`), missed.
+
+`cycle_v1` correctly captures the **state** of the business cycle (where the operator is now) but does not **lead** it. The independence test passed precisely because the composite is genuinely orthogonal to the acute-stress detector — but orthogonality without lead-time predictive power doesn't satisfy the SPEC §4 Phase C gate.
+
+The s89 Phase B report surfaced three operator-decision paths. The operator selected Path B (this ADR), rejecting Path A (non-linear bucket weighting → requires in-sample threshold-tuning) and Path C (lower 0.40 threshold to 0.55 → explicit in-sample tuning against the failed gates, AFML §11 / Bailey-LdP §11.5 selection-bias concerns).
+
+**Decision:**
+
+1. **The cycle-position composite (`cycle_v1`) is DEPRECATED for Phase C promotion.** No further work is done on its composite-score-based recession-leading-indicator capability. The composite continues writing snapshots to `quantlab.cycle_position_snapshots` via the daemon and continues rendering in the morning brief section #7 + the dashboard panel, but its role is permanently **Layer-5 LLM context only** — a readable summary of "where are we in the business cycle right now" for the operator + the LLM, NOT a Phase C-eligible signal.
+
+2. **A new phase1_v3+ category fires on yield-curve inversion, sourced directly from Estrella-Mishkin 1998.** The signal is `T10Y3M < 0` evaluated on the latest FRED observation. Estrella-Mishkin 1998 ("Predicting U.S. Recessions: Financial Variables as Leading Indicators," *Review of Economics and Statistics* 80(1), 45-61) is the canon source — Tier 1 — and identifies T10Y3M as the single most reliable financial-variable leading indicator for U.S. recessions in their out-of-sample tests (1959-1995, extended in follow-on literature to present).
+
+3. **The new category is named `yield_curve_inverted`** and is added to phase1_v3's `categories_firing_today` enumeration as an additional category. It does NOT replace any existing category. The phase1_v3 classifier continues to operate as today; this is additive.
+
+4. **No in-sample tuning. The threshold is the canon-load-bearing `< 0` only.** Estrella-Mishkin's probit framework parameterized recession probability as a continuous function of T10Y3M, but the simple threshold `T10Y3M < 0` (curve-inverted) is the canon-load-bearing signal — it captures the load-bearing economic mechanism (short rates above long rates implies tight monetary policy AND/OR weak long-term growth expectations) without requiring threshold-fitting against the same NBER data the Phase B gate uses.
+
+5. **No persistence-of-inversion requirement at v1.** The category fires on any day where the latest available T10Y3M observation is negative; it does NOT require "5 consecutive days inverted" or similar. Open question §1 below.
+
+6. **`cycle_v1` snapshots and outputs remain unchanged.** The composite, the buckets, the per-bucket contributions, the brief section #7 rendering, the dashboard panel — all stay as they are. They serve Layer-5 LLM context; their schema and outputs are NOT touched by this ADR.
+
+7. **The cycle-position SPEC's Phase C path is explicitly retired**, not "deferred" or "pending v2." [`docs/specs/market-cycle-position.md`](../specs/market-cycle-position.md) gets a header note pointing at this ADR. SPEC §4 Phase C and §6 fallback are superseded by ADR-041 §1-§2.
+
+**Why this path over Path A or Path C:**
+
+- **vs Path A (non-linear bucket weighting):** Path A preserves the composite shape with a different aggregator (min, product, weighted-min). But the threshold (0.40 or whatever replaces it) would still need calibration, and that calibration would necessarily use the same NBER data that the Phase B gate uses — turning the validation into a circular check. The canon (AFML §11 deflation pipeline, Bailey-LdP §11.5 DSR) is specifically built to prevent this exact pattern. Path A is feasible but methodology-fragile.
+
+- **vs Path C (lower threshold to 0.55):** Path C is explicit in-sample tuning against the failed gates. GFC 12m-lead landed at 0.600, COVID 6m-lead at 0.556 — a 0.55 threshold would have missed GFC (just) and caught COVID (just). The "validation" of a 0.55 threshold against the same recessions used to pick it is the canonical Aronson 2006 / Harvey-Liu-Zhu 2016 data-mining failure mode. The deflated Sharpe of such a re-tuned signal would be near zero by construction.
+
+- **vs Path B (this ADR):** Single canon-load-bearing input (T10Y3M), already in the daemon pipeline since `fred:ingest` DEFAULT_SERIES, already updated automatically by the daemon's `[fred-fetch]` step (s88-cont #2). No new data, no new composite math, no in-sample tuning. The signal's predictive power is documented in 25+ years of Tier-1 literature with out-of-sample evidence dating back to Estrella-Hardouvelis 1991. The independence test result from Phase B (ρ = -0.19) supports the underlying intuition — yield-curve information is genuinely orthogonal to phase1_v3's HY/SPY/VIX acute-stress signals.
+
+**Alternatives considered:**
+
+- **(a) Path A — non-linear bucket weighting** (rejected, see above).
+- **(b) Path C — threshold lowering** (rejected, see above).
+- **(c) Multi-spread blend (T10Y2Y + T10Y3M + DGS10-DGS2 blend).** Rejected for v1 because adding more spreads introduces correlation collinearity and weighting decisions without canon-load-bearing reason to prefer a blend over the single canon signal. T10Y2Y is the alternative canonical spread (also Estrella-Mishkin) but the literature consensus is T10Y3M slightly outperforms (Estrella-Trubin 2006 "The Yield Curve as a Leading Indicator: Some Practical Issues," FRBNY Current Issues). v2.1 could revisit if v2 fires badly.
+- **(d) Probit-style continuous recession probability** (per Estrella-Mishkin original framework). Rejected for v1 because it requires fitting probit coefficients to historical NBER data — the same in-sample-tuning problem as Path A. Estrella-Mishkin's published coefficients (from 1995-vintage data) could be used as-is, but the daemon already has a hard category-fires-yes-or-no enumeration in phase1_v3, and continuous probability doesn't fit that interface without scaffolding.
+- **(e) Persist the composite to Phase C with a status flag.** Rejected because the SPEC §4 Phase C gate IS the validation gate, and the gate failed. Keeping the composite as a "soft" Phase C signal would be the worst of both worlds: it would influence operator decisions via brief #7 / dashboard while not having met the SPEC gate. The Layer-5 LLM context posture is honest about what cycle_v1 IS — a state summary, not a leading indicator.
+
+**Open questions** (resolved at Accept step, NOT blocking Proposed status):
+
+1. **Sustained-inversion requirement.** Does the `yield_curve_inverted` category fire on (a) ANY day with T10Y3M < 0, or (b) only after K consecutive days of T10Y3M < 0 (e.g., K=5 or K=21)? The literature (Estrella-Mishkin 1998 §3, Estrella-Trubin 2006) uses monthly average T10Y3M for the probit, implicitly smoothing over short-window noise. v1 recommendation: fire on any day with T10Y3M < 0 (matches the daemon's daily cadence + the brief's daily rendering); add an `inversionDays20d` counter to the snapshot for the operator to see sustained-vs-flash distinction at-a-glance.
+
+2. **Buffer threshold.** Some implementations use `T10Y3M < -0.05` (5bp inverted) as a buffer against measurement noise. v1 recommendation: strict `< 0` to keep the threshold canon-load-bearing; the FRED T10Y3M is published to 2 decimals so measurement noise at the basis-point level is unlikely.
+
+3. **Backtest gate for the new category.** ADR-004 deflation pipeline (DSR + PBO + HLZ) was designed for strategy-level metrics, not single-input regime categories. Does this category need a separate backtest before being added to phase1_v3+, or does the Estrella-Mishkin canon citation discharge that burden? Recommendation: the canon discharges it for v1 (single input, no parameters, no in-sample tuning) but the operator brief should LOG the category alongside trades for 50+ closed trades before any downstream consumer treats it as a hard filter. This matches the gap-inventory README principle #5 ("informational-first before gating").
+
+4. **Cycle-position SPEC §4 Phase C — explicit retirement vs deprecation note.** v1 recommendation: rewrite SPEC §4 Phase C as "RETIRED — see ADR-041" with the section preserved for history. SPEC §6 fallback's "Layer-5 LLM context" path is the new permanent home of `cycle_v1`.
+
+**Dependencies (state of):**
+
+- ✓ T10Y3M ingestion via `fred:ingest` (DEFAULT_SERIES already includes T10Y3M).
+- ✓ Daemon `[fred-fetch]` step auto-refreshes FRED daily (s88-cont #2, commit 9a45832).
+- ✓ phase1_v3 classifier framework exists with `categories_firing_today` enumeration ([`src/server/macro_regime_v3.ts`](../../src/server/macro_regime_v3.ts)).
+- ✓ `quantlab.macro_regimes` table receives phase1_v3 writes per daemon cycle.
+- ✓ cycle-position snapshots + brief + dashboard continue rendering against `cycle_v1` unchanged.
+- ☐ Implementation: a new helper in `macro_regime_v3.ts` (or peer module) that reads the latest T10Y3M FRED observation and tests `< 0`; the daemon adds the category to the firing list on positive evaluation. Backtest harness reuses the cycle-position backfill data (`scripts/backfill_cycle_position_history.ts`) for historical T10Y3M coverage.
+- ☐ Test additions: pure unit tests on the threshold check (boundary cases at 0.00, +0.01, -0.01, null/missing T10Y3M).
+- ☐ ADR-041 Accept step: this Proposed ADR transitions to Accepted when the implementation lands AND the operator brief shows the new category firing on the next observation that satisfies it (historical or live).
+
+**Consequences:**
+
+- **No code touches the cycle-position composite as part of this ADR.** Implementation lands purely in the phase1_v3 classifier + macro_regimes pipeline + brief rendering. The composite's snapshots, schema, dashboard, and brief section #7 are unchanged.
+- **The `yield_curve_inverted` category enters Layer-0 immediately on Accept.** Per gap-inventory README principle #5, it logs informationally for the first 50+ closed trades before any consumer is permitted to use it as a hard filter. Strategies that already use the phase1_v3 `categories_firing_today` enumeration get the new category in their feature vector for free — they may choose to use it or not.
+- **The brief gains a one-line `yield-curve` indicator** (likely under the existing phase1_v3 categories line) showing current T10Y3M value, fire/no-fire status, and trailing 20d count of inversion days.
+- **No new CH migration.** The new category is a value in the existing `categories_firing_today` field; no schema change.
+- **The cycle-position SPEC's Phase C path is permanently closed.** A future Pejman wanting to revisit composite-based recession leading-indicator work must write a NEW ADR proposing a NEW design (not amending ADR-041); ADR-041 is the gate on returning to that path.
+- **Open question §3 (deflation-pipeline applicability)** will need a one-paragraph addendum at the Accept step documenting why ADR-004's DSR / PBO gates are or aren't load-bearing for a single-input canon-cited category. The principle: ADR-004 protects against multiple-testing / parameter-sweep bias; a single canon-cited threshold with no tuning has no such bias to deflate against. But the operator brief should LOG-FIRST before HARD-GATE-LATER per principle #5.
+
+**Watch-outs:**
+
+- **Estrella-Mishkin's out-of-sample window stops at 1995.** Subsequent literature (Estrella-Trubin 2006, Bauer-Mertens 2018 *"Economic Forecasts with the Yield Curve"* FRBSF Economic Letter) confirms the signal continued to predict the 2001 and 2007-09 recessions, but the 2019 inversion → 2020 COVID recession was unusual (the inversion preceded a recession caused by an exogenous shock, not a credit/monetary cycle). The signal IS canon-load-bearing but not infallible; this is why the new category is added to `categories_firing_today` as a fires-or-not signal, not as a probability-weighted output.
+- **The 2020 COVID recession is a recession the literature debates whether yield-curve inversion "caused" or "coincided with."** This ADR doesn't take a position on that debate — the signal fires on `T10Y3M < 0` regardless of subsequent causality.
+- **T10Y3M occasionally goes inverted for brief periods that don't precede a recession.** Estrella-Mishkin 1998 §4 documents the 1966-67 mid-cycle inversion (no recession followed). Open question §1 (sustained-inversion requirement) addresses this; v1 recommendation is to log inversions transparently and let the operator + LLM consume the sustained-vs-flash distinction via the `inversionDays20d` counter, NOT to filter them at the classifier.
+- **The category-fires count for phase1_v3 will increment by 1 on Accept.** Any consumer (strategies, dashboards, LLM prompts) that counts categories firing today as a magnitude proxy MUST be re-checked — adding a new category shifts the implicit "regime is stressed" threshold all consumers were tuned against. Likely consumers: morning brief rendering, regime dashboard, any LLM-context assembly that lists `regime.categories_firing_today.length`.
+- **The composite's brief section #7 will look identical** to the operator after Accept — the brief is rendering the cycle-position composite, not the new yield-curve-inverted category. The new category surfaces in the macro-regime panel (phase1_v3 categories), not in section #7.
+
+**Source:** s89 Phase B validation report [`docs/analysis/cycle-position-validation-2026-05.md`](../analysis/cycle-position-validation-2026-05.md) (verdict + three-paths surface); operator decision (this message) selecting Path B; Estrella-Mishkin 1998 *Review of Economics and Statistics* 80(1), 45-61 (canon foundation); Estrella-Trubin 2006 FRBNY Current Issues (practical-implementation guidance).
+
+---
+
 ## Index of ADRs by topic
 
-- **Methodology / canon:** ADR-001, ADR-004, ADR-015, ADR-016, ADR-017, ADR-018, ADR-019, ADR-020, ADR-021, ADR-022, ADR-023, ADR-024, ADR-025, ADR-026, ADR-027, ADR-028, ADR-029, ADR-030, ADR-031, ADR-032, ADR-033
+- **Methodology / canon:** ADR-001, ADR-004, ADR-015, ADR-016, ADR-017, ADR-018, ADR-019, ADR-020, ADR-021, ADR-022, ADR-023, ADR-024, ADR-025, ADR-026, ADR-027, ADR-028, ADR-029, ADR-030, ADR-031, ADR-032, ADR-033, ADR-041 (Proposed)
 - **Architecture / language:** ADR-002, ADR-003
 - **Data integrity:** ADR-005, ADR-006, ADR-013, ADR-015, ADR-035, ADR-037, ADR-038
 - **Process / discipline:** ADR-007, ADR-009, ADR-011, ADR-019, ADR-034, ADR-036
-- **Roadmap-shaping:** ADR-008, ADR-010, ADR-012, ADR-014, ADR-016, ADR-017, ADR-018, ADR-020, ADR-021, ADR-022, ADR-023, ADR-024, ADR-025, ADR-026, ADR-027, ADR-028, ADR-029, ADR-030, ADR-031, ADR-032, ADR-033, ADR-034, ADR-036, ADR-037
+- **Roadmap-shaping:** ADR-008, ADR-010, ADR-012, ADR-014, ADR-016, ADR-017, ADR-018, ADR-020, ADR-021, ADR-022, ADR-023, ADR-024, ADR-025, ADR-026, ADR-027, ADR-028, ADR-029, ADR-030, ADR-031, ADR-032, ADR-033, ADR-034, ADR-036, ADR-037, ADR-041 (Proposed — retires cycle-position composite Phase C path)
 - **Operations / capital deployment:** ADR-039 (Proposed), ADR-040 (Proposed)
