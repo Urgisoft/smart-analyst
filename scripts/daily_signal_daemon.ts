@@ -141,6 +141,12 @@ import {
   etfSharesOutstandingTableExists,
   runDaemonEtfFlowEvaluation,
 } from '../src/server/etf_flow_repository.js';
+import {
+  EightKClassifierRepository,
+  eightKClassifierSnapshotsTableExists,
+  eightKEventsTableExists,
+  runDaemonEightKClassifierEvaluation,
+} from '../src/server/eight_k_classifier_repository.js';
 import { runFredFetch } from '../src/server/daemon_fred_fetch.js';
 import { CLASSIFIER_VERSION_V3 } from '../src/server/macro_regime_v3.js';
 import {
@@ -1318,6 +1324,59 @@ async function main() {
       anomalies.push({
         severity: 'info',
         message: `etf-flow evaluation failed: ${(e as Error).message}`,
+      });
+    }
+  }
+
+  // 1k. 8-K classifier evaluation (informational Layer-0 input).
+  //     SPEC: docs/specs/event-driven-filings-processor.md §3 component
+  //     diagram + §7 daemon hook position — runs AFTER etf-flow (step 1j);
+  //     consumes the SEC EDGAR 8-K broader-item event rows (from
+  //     `scripts/sec_edgar_8k_event_ingest.py`) + the SPY-500 PIT
+  //     constituent panel + the equity-midcap watch universe. Output is
+  //     informational only in v1; does NOT fire a regime category. Same
+  //     non-fatal posture as all prior Layer-0 composites.
+  //
+  //     Two table gates (mirrors etf-flow step 1j): both the source table
+  //     `eight_k_events` and the snapshot table `eight_k_classifier_snapshots`
+  //     must exist. The source gate handles "EK-A3 migration applied but
+  //     EK-A1 ingest never run" (composite would emit all-empty rows; skip
+  //     the daemon call entirely instead of writing a noise snapshot). The
+  //     snapshot gate handles "EK-A3 migration not yet applied" (skip with
+  //     operator nudge).
+  //
+  //     v1 GICS-sector resolution (SPEC §11 canon-thin fork; identical
+  //     posture to gap #8 exec-departure): the aggregate-sector layer is
+  //     structurally inactive — `inputs.sectors` is empty in v1 and
+  //     `eight_k_cluster_flag` never fires. Per-ticker layer (90d high-
+  //     signal item flags + material_event_flag disjunction) is fully
+  //     active. See src/server/eight_k_classifier_repository.ts module
+  //     header for the three-criterion analysis + v2 deliverable definition.
+  if (NO_MACRO || DRY_RUN) {
+    console.log(`[eight-k] skipped (${NO_MACRO ? '--no-macro' : '--dry-run'})`);
+  } else if (!(await eightKEventsTableExists(ch))) {
+    console.log(
+      '[eight-k] source table absent (`quantlab.eight_k_events`) — ' +
+      'skipped. Run `npm run edgar:8k-event:ingest` to populate.',
+    );
+  } else if (!(await eightKClassifierSnapshotsTableExists(ch))) {
+    console.log(
+      '[eight-k] snapshots table absent (`quantlab.eight_k_classifier_snapshots`) — ' +
+      'skipped. Run `npm run migrate:create-eight-k-classifier-snapshots:apply` to enable.',
+    );
+  } else {
+    try {
+      const eightKRepo = new EightKClassifierRepository({ ch });
+      const eightKResult = await runDaemonEightKClassifierEvaluation({
+        repo: eightKRepo,
+        asOf: new Date(t0),
+      });
+      console.log(eightKResult.summaryLine);
+    } catch (e) {
+      console.warn(`[eight-k] evaluation failed (non-fatal): ${(e as Error).message}`);
+      anomalies.push({
+        severity: 'info',
+        message: `eight-k evaluation failed: ${(e as Error).message}`,
       });
     }
   }
