@@ -68,6 +68,7 @@ function brief(overrides?: Partial<MorningBrief>): MorningBrief {
     shortInterest: null,
     executiveDeparture: null,
     etfFlow: null,
+    eightK: null,
     ...overrides,
   };
 }
@@ -2184,6 +2185,311 @@ describe('renderBriefMarkdown — etf-flow panel', () => {
         inputsAvailableAggregateBroad: 6,
         inputsAvailablePerEtf: 21,
         compositeVersion: 'etf_flow_v1',
+      },
+    }));
+    assert.match(md, /Last evaluated: `2026-05-19T13:30:00\.123Z` · snapshot date: `2026-05-19`/);
+  });
+});
+
+// ───── 8-K classifier panel (SPEC docs/specs/event-driven-filings-processor.md §8.1, §9.5) ─────
+
+describe('renderBriefMarkdown — 8-K classifier panel', () => {
+  const FLAGGED_PER_TICKER = {
+    ticker: 'ABCD', cik: '0000111111', sector: null,
+    recentEventCount90d: 2, daysSinceLatestEvent: 12,
+    materialEventFlag: true,
+    impairmentFlag: false, restatementFlag: true,
+    auditorChangeFlag: true, delistingFlag: false,
+    controlChangeFlag: false, materialAgreementFlag: false,
+    acquisitionFlag: false,
+  };
+
+  it('renders the "not yet evaluated" panel when eightK is null', () => {
+    const md = renderBriefMarkdown(brief({ eightK: null }));
+    assert.match(md, /## 14\. 8-K material events — not yet evaluated/);
+    assert.match(md, /quantlab\.eight_k_classifier_snapshots.*empty/);
+    assert.match(md, /migrate:create-eight-k-classifier-snapshots:apply/);
+  });
+
+  // T-OBR-EK-1 — section #14 renders AFTER section #13 (byte-equal protection
+  // on sections #1-#13 preserved per SPEC EK-A5 lock + F4-12 forward-carry).
+  it('T-OBR-EK-1 section ordering: 8-K classifier renders AFTER etf-flow', () => {
+    const md = renderBriefMarkdown(brief({
+      cyclePosition: null, volStructure: null, sectorRotation: null,
+      crossAsset: null, shortInterest: null, executiveDeparture: null,
+      etfFlow: null, eightK: null,
+    }));
+    const efIdx = md.indexOf('## 13.');
+    const ekIdx = md.indexOf('## 14.');
+    assert.ok(efIdx > -1, 'expected etf-flow section');
+    assert.ok(ekIdx > -1, 'expected 8-K classifier section');
+    assert.ok(ekIdx > efIdx, '8-K classifier must render after etf-flow section');
+  });
+
+  // T-OBR-EK-3 — `eight_k_cluster: YES` rendering on a fixture with a flagged sector.
+  it('T-OBR-EK-3 renders CLUSTER header + flagged-sector table when eightKClusterFlag is true', () => {
+    const md = renderBriefMarkdown(brief({
+      eightK: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [{
+          sector: 'Information Technology', sectorSize: 70,
+          eventRateT: 0.071, z: 2.4, baselineSize: 503,
+        }],
+        eightKClusterFlag: true,
+        perTickerRows: [],
+        inputsAvailableAggregate: 503,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 0,
+        watchUniverseTickerCount: 60,
+        compositeVersion: 'eight_k_classifier_v1',
+      },
+    }));
+    assert.match(md, /## 14\. 8-K material events — CLUSTER/);
+    assert.match(md, /1 sector\(s\) with \|z\| > 2\.0/);
+    assert.match(md, /Information Technology \| 7\.1% \| \+2\.40σ \| 503 \| 70/);
+  });
+
+  it('renders NORMAL header when eightKClusterFlag is false', () => {
+    const md = renderBriefMarkdown(brief({
+      eightK: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        eightKClusterFlag: false,
+        perTickerRows: [],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 0,
+        watchUniverseTickerCount: 60,
+        compositeVersion: 'eight_k_classifier_v1',
+      },
+    }));
+    assert.match(md, /## 14\. 8-K material events — NORMAL/);
+  });
+
+  // T-OBR-EK-4 — Cold-start fallback (no sectors with z != null → flaggedSectors empty).
+  it('T-OBR-EK-4 renders the v1 GICS-deferred footer when flaggedSectors is empty (cold-start)', () => {
+    const md = renderBriefMarkdown(brief({
+      eightK: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        eightKClusterFlag: false,
+        perTickerRows: [],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 0,
+        watchUniverseTickerCount: 60,
+        compositeVersion: 'eight_k_classifier_v1',
+      },
+    }));
+    assert.match(md, /GICS sector mapping deferred to v2/);
+    assert.match(md, /SPEC §11/);
+    // Cold-start path skips the flagged-sectors table.
+    assert.doesNotMatch(md, /\| Sector \| Rate \| z \| Baseline n \| Constituents \|/);
+  });
+
+  // T-OBR-EK-6 — Staleness arrow on `bd_since_last_query > 3` (>= 4).
+  it('T-OBR-EK-6 renders staleness warning when bdSinceLastQuery >= 4', () => {
+    const md = renderBriefMarkdown(brief({
+      eightK: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-12T13:25:00Z',
+        bdSinceLastQuery: 5,
+        flaggedSectors: [],
+        eightKClusterFlag: false,
+        perTickerRows: [],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 0,
+        watchUniverseTickerCount: 60,
+        compositeVersion: 'eight_k_classifier_v1',
+      },
+    }));
+    assert.match(md, /Last EDGAR query:\*\* 2026-05-12T13:25:00Z \(5 business days ago\) ⚠ stale \(≥4bd\)/);
+  });
+
+  it('omits staleness warning when bdSinceLastQuery < 4', () => {
+    const md = renderBriefMarkdown(brief({
+      eightK: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        eightKClusterFlag: false,
+        perTickerRows: [],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 0,
+        watchUniverseTickerCount: 60,
+        compositeVersion: 'eight_k_classifier_v1',
+      },
+    }));
+    assert.doesNotMatch(md, /⚠ stale/);
+  });
+
+  it('renders no-EDGAR-data fallback when lastEdgarQueryAt is null', () => {
+    const md = renderBriefMarkdown(brief({
+      eightK: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: null,
+        bdSinceLastQuery: null,
+        flaggedSectors: [],
+        eightKClusterFlag: false,
+        perTickerRows: [],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 0,
+        watchUniverseTickerCount: 0,
+        compositeVersion: 'eight_k_classifier_v1',
+      },
+    }));
+    assert.match(md, /Last EDGAR query:\*\* — \(run `npm run edgar:8k-event:ingest:apply`/);
+  });
+
+  // T-OBR-EK-5 — "No tickers flagged." fallback when per-ticker rows empty (or none flagged).
+  it('T-OBR-EK-5 renders "No tickers flagged." when no perTickerRows fire materialEventFlag', () => {
+    const md = renderBriefMarkdown(brief({
+      eightK: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        eightKClusterFlag: false,
+        perTickerRows: [
+          { ticker: 'AAPL', cik: '0000320193', sector: null,
+            recentEventCount90d: 0, daysSinceLatestEvent: null,
+            materialEventFlag: false,
+            impairmentFlag: false, restatementFlag: false,
+            auditorChangeFlag: false, delistingFlag: false,
+            controlChangeFlag: false, materialAgreementFlag: false,
+            acquisitionFlag: false },
+        ],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 1,
+        watchUniverseTickerCount: 1,
+        compositeVersion: 'eight_k_classifier_v1',
+      },
+    }));
+    assert.match(md, /### Flagged tickers \(universe: equity-midcap\)/);
+    assert.match(md, /No tickers flagged\./);
+  });
+
+  // T-OBR-EK-7 — Multi-item ticker renders both flagged items in one line
+  // joined by " + " (SPEC §8.1 "restatement (4.02) + auditor change (4.01)").
+  // v1 carries a single daysSinceLatestEvent per ticker (no per-item recency);
+  // the renderer suffixes ONE recency value for the whole line.
+  it('T-OBR-EK-7 multi-item ticker renders both items joined with " + "', () => {
+    const md = renderBriefMarkdown(brief({
+      eightK: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        eightKClusterFlag: false,
+        perTickerRows: [FLAGGED_PER_TICKER],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 1,
+        watchUniverseTickerCount: 60,
+        compositeVersion: 'eight_k_classifier_v1',
+      },
+    }));
+    assert.match(md, /material_event \(1\):/);
+    assert.match(md, /- ABCD — auditor change \(4\.01\) \+ restatement \(4\.02\) \(12d ago\)/);
+  });
+
+  // T-OBR-EK-2 — Top-N truncation at N=5 with "X more not shown" note.
+  it('T-OBR-EK-2 truncates flagged tickers at top N=5 and notes the remainder', () => {
+    const flaggedRows = Array.from({ length: 7 }, (_, i) => ({
+      ticker: `T${i}`, cik: `00000${i}`, sector: null,
+      recentEventCount90d: 1, daysSinceLatestEvent: i + 1,
+      materialEventFlag: true,
+      impairmentFlag: i % 2 === 0, restatementFlag: i % 2 === 1,
+      auditorChangeFlag: false, delistingFlag: false,
+      controlChangeFlag: false, materialAgreementFlag: false,
+      acquisitionFlag: false,
+    }));
+    const md = renderBriefMarkdown(brief({
+      eightK: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        eightKClusterFlag: false,
+        perTickerRows: flaggedRows,
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 7,
+        watchUniverseTickerCount: 60,
+        compositeVersion: 'eight_k_classifier_v1',
+      },
+    }));
+    // First 5 (T0..T4) render; T5 + T6 do not (sorted by daysSinceLatestEvent ascending).
+    assert.match(md, /- T0 —/);
+    assert.match(md, /- T4 —/);
+    assert.doesNotMatch(md, /- T5 —/);
+    assert.doesNotMatch(md, /- T6 —/);
+    assert.match(md, /material_event \(7\):/);
+    assert.match(md, /Truncated at top 5/);
+    assert.match(md, /2 more not shown/);
+    assert.match(md, /query `quantlab\.eight_k_classifier_snapshots`/);
+  });
+
+  it('renders the universe coverage line with composer-stamped CIK-only count (S93-28)', () => {
+    const md = renderBriefMarkdown(brief({
+      eightK: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        eightKClusterFlag: false,
+        perTickerRows: [],
+        // Composite's inputsAvailablePerTicker is 0 in v1 (sector-gated); the
+        // composer stamps a separate CIK-only count via tickersWithCikCount.
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 58,
+        watchUniverseTickerCount: 60,
+        compositeVersion: 'eight_k_classifier_v1',
+      },
+    }));
+    assert.match(md, /Universe coverage: 58\/60 mid-cap tickers have current CIK mapping/);
+    assert.match(md, /v1: always 0 — GICS deferred/);
+    assert.match(md, /Composite: `eight_k_classifier_v1`/);
+    assert.match(md, /INFORMATIONAL — does NOT fire a regime category in v1/);
+  });
+
+  it('renders the evaluatedAt + snapshotDate footer', () => {
+    const md = renderBriefMarkdown(brief({
+      eightK: {
+        evaluatedAt: '2026-05-19T13:30:00.123Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        eightKClusterFlag: false,
+        perTickerRows: [],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 0,
+        watchUniverseTickerCount: 0,
+        compositeVersion: 'eight_k_classifier_v1',
       },
     }));
     assert.match(md, /Last evaluated: `2026-05-19T13:30:00\.123Z` · snapshot date: `2026-05-19`/);

@@ -983,3 +983,184 @@ describe('buildEtfFlowSection', () => {
     assert.equal(section!.aggregateRiskOnFlow, null);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// composeMorningBrief — 8-K classifier section wiring (s93 EK-A5).
+// SPEC: docs/specs/event-driven-filings-processor.md §9.6 T-OB-EK-1..3.
+// ─────────────────────────────────────────────────────────────────────────
+describe('composeMorningBrief — 8-K classifier section wiring', () => {
+  // T-OB-EK-3 — null pass-through: composer threads null through to brief.eightK.
+  it('T-OB-EK-3 eightK=null when fetchLatestEightKClassifier returns null', async () => {
+    const brief = await composeMorningBrief({
+      fetchRegimeState: async () => stubRegime(),
+      fetchPaperTradingState: async () => stubPaper(),
+      fetchLastDaemonRun: async () => stubDaemonRow(),
+      fetchCellAllowlists: async () => new Map(),
+      fetchClosedTrades: async () => [],
+      fetchLatestEightKClassifier: async () => null,
+      now: () => FIXED_NOW,
+    });
+    assert.equal(brief.eightK, null);
+  });
+
+  // T-OB-EK-1 — composeMorningBrief threads the snapshot through Promise.all.
+  it('T-OB-EK-1 eightK populated when fetchLatestEightKClassifier returns a snapshot', async () => {
+    const brief = await composeMorningBrief({
+      fetchRegimeState: async () => stubRegime(),
+      fetchPaperTradingState: async () => stubPaper(),
+      fetchLastDaemonRun: async () => stubDaemonRow(),
+      fetchCellAllowlists: async () => new Map(),
+      fetchClosedTrades: async () => [],
+      fetchLatestEightKClassifier: async () => ({
+        snapshotDate: new Date('2026-05-19T13:30:00Z'),
+        lastEdgarQueryAt: new Date('2026-05-19T13:25:00Z'),
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        eightKClusterFlag: false,
+        perTickerRows: [
+          {
+            ticker: 'ABCD', cik: '0000111111', sector: null,
+            recentEventCount90d: 2, daysSinceLatestEvent: 12,
+            materialEventFlag: true,
+            impairmentFlag: false, restatementFlag: true,
+            auditorChangeFlag: true, delistingFlag: false,
+            controlChangeFlag: false, materialAgreementFlag: false,
+            acquisitionFlag: false,
+          },
+          {
+            ticker: 'EFGH', cik: '', sector: null,
+            recentEventCount90d: 0, daysSinceLatestEvent: null,
+            materialEventFlag: false,
+            impairmentFlag: false, restatementFlag: false,
+            auditorChangeFlag: false, delistingFlag: false,
+            controlChangeFlag: false, materialAgreementFlag: false,
+            acquisitionFlag: false,
+          },
+        ],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 0,
+        version: 'eight_k_classifier_v1',
+      }),
+      now: () => FIXED_NOW,
+    });
+    assert.ok(brief.eightK !== null);
+    assert.equal(brief.eightK!.snapshotDate, '2026-05-19');
+    assert.equal(brief.eightK!.lastEdgarQueryAt, '2026-05-19T13:25:00.000Z');
+    assert.equal(brief.eightK!.bdSinceLastQuery, 0);
+    assert.equal(brief.eightK!.eightKClusterFlag, false);
+    assert.equal(brief.eightK!.flaggedSectors.length, 0);
+    assert.equal(brief.eightK!.perTickerRows.length, 2);
+    assert.equal(brief.eightK!.perTickerRows[0].ticker, 'ABCD');
+    assert.equal(brief.eightK!.perTickerRows[0].materialEventFlag, true);
+    // S93-28: composer-stamped CIK-only count (one row has empty CIK).
+    assert.equal(brief.eightK!.tickersWithCikCount, 1);
+    assert.equal(brief.eightK!.watchUniverseTickerCount, 2);
+    assert.equal(brief.eightK!.compositeVersion, 'eight_k_classifier_v1');
+  });
+
+  // T-OB-EK-2 — graceful-degrade on fetcher throw (mirrors prior A5 panels).
+  it('T-OB-EK-2 eightK=null when the explicit fetcher rejects (graceful degrade)', async () => {
+    const brief = await composeMorningBrief({
+      fetchRegimeState: async () => stubRegime(),
+      fetchPaperTradingState: async () => stubPaper(),
+      fetchLastDaemonRun: async () => stubDaemonRow(),
+      fetchCellAllowlists: async () => new Map(),
+      fetchClosedTrades: async () => [],
+      fetchLatestEightKClassifier: async () => {
+        try {
+          throw new Error('simulated CH read failure');
+        } catch {
+          return null;
+        }
+      },
+      now: () => FIXED_NOW,
+    });
+    assert.equal(brief.eightK, null);
+  });
+});
+
+describe('buildEightKClassifierSection', () => {
+  it('returns null when snapshot is null', async () => {
+    const { buildEightKClassifierSection } = await import('../../src/server/operator_brief.js');
+    assert.equal(buildEightKClassifierSection(null), null);
+  });
+
+  it('maps EightKClassifierSnapshot fields into the brief section (Date→ISO, version→compositeVersion)', async () => {
+    const { buildEightKClassifierSection } = await import('../../src/server/operator_brief.js');
+    const snapshotDate = new Date('2026-05-19T13:30:00.123Z');
+    const lastEdgarQueryAt = new Date('2026-05-19T13:25:00Z');
+    const section = buildEightKClassifierSection({
+      snapshotDate,
+      lastEdgarQueryAt,
+      bdSinceLastQuery: 2,
+      flaggedSectors: [],
+      eightKClusterFlag: false,
+      perTickerRows: [
+        { ticker: 'ABCD', cik: '0000111111', sector: null,
+          recentEventCount90d: 1, daysSinceLatestEvent: 5,
+          materialEventFlag: true,
+          impairmentFlag: true, restatementFlag: false,
+          auditorChangeFlag: false, delistingFlag: false,
+          controlChangeFlag: false, materialAgreementFlag: false,
+          acquisitionFlag: false },
+      ],
+      inputsAvailableAggregate: 0,
+      inputsAvailablePerTicker: 0,
+      version: 'eight_k_classifier_v1',
+    });
+    assert.ok(section !== null);
+    assert.equal(section!.evaluatedAt, '2026-05-19T13:30:00.123Z');
+    assert.equal(section!.snapshotDate, '2026-05-19');
+    assert.equal(section!.lastEdgarQueryAt, '2026-05-19T13:25:00.000Z');
+    assert.equal(section!.bdSinceLastQuery, 2);
+    assert.equal(section!.eightKClusterFlag, false);
+    assert.equal(section!.perTickerRows.length, 1);
+    assert.equal(section!.perTickerRows[0].impairmentFlag, true);
+    assert.equal(section!.tickersWithCikCount, 1);
+    assert.equal(section!.watchUniverseTickerCount, 1);
+    assert.equal(section!.compositeVersion, 'eight_k_classifier_v1');
+  });
+
+  it('S93-28 — stamps CIK-only count separately from sector-gated inputsAvailablePerTicker', async () => {
+    const { buildEightKClassifierSection } = await import('../../src/server/operator_brief.js');
+    const section = buildEightKClassifierSection({
+      snapshotDate: new Date('2026-05-19T13:30:00Z'),
+      lastEdgarQueryAt: null,
+      bdSinceLastQuery: null,
+      flaggedSectors: [],
+      eightKClusterFlag: false,
+      perTickerRows: [
+        { ticker: 'A', cik: '0000000001', sector: null,
+          recentEventCount90d: 0, daysSinceLatestEvent: null,
+          materialEventFlag: false,
+          impairmentFlag: false, restatementFlag: false,
+          auditorChangeFlag: false, delistingFlag: false,
+          controlChangeFlag: false, materialAgreementFlag: false,
+          acquisitionFlag: false },
+        { ticker: 'B', cik: '', sector: null,
+          recentEventCount90d: 0, daysSinceLatestEvent: null,
+          materialEventFlag: false,
+          impairmentFlag: false, restatementFlag: false,
+          auditorChangeFlag: false, delistingFlag: false,
+          controlChangeFlag: false, materialAgreementFlag: false,
+          acquisitionFlag: false },
+        { ticker: 'C', cik: '0000000003', sector: null,
+          recentEventCount90d: 0, daysSinceLatestEvent: null,
+          materialEventFlag: false,
+          impairmentFlag: false, restatementFlag: false,
+          auditorChangeFlag: false, delistingFlag: false,
+          controlChangeFlag: false, materialAgreementFlag: false,
+          acquisitionFlag: false },
+      ],
+      // Composite reports 0 (sector-gated; v1 always null sector).
+      inputsAvailableAggregate: 0,
+      inputsAvailablePerTicker: 0,
+      version: 'eight_k_classifier_v1',
+    });
+    assert.ok(section !== null);
+    // S93-28: brief uses CIK-only count, NOT inputsAvailablePerTicker.
+    assert.equal(section!.tickersWithCikCount, 2);
+    assert.equal(section!.watchUniverseTickerCount, 3);
+    assert.equal(section!.inputsAvailablePerTicker, 0);
+  });
+});

@@ -82,6 +82,11 @@ import {
   etfFlowSnapshotsTableExists,
 } from './etf_flow_repository.js';
 import type { EtfFlowSnapshot } from './etf_flow.js';
+import {
+  EightKClassifierRepository,
+  eightKClassifierSnapshotsTableExists,
+} from './eight_k_classifier_repository.js';
+import type { EightKClassifierSnapshot } from './eight_k_classifier.js';
 import { DEPLOYMENT_STAGES } from './capital_deployment_config.js';
 import {
   computePerCellCapital,
@@ -100,6 +105,7 @@ import type {
   BriefDaemonSection,
   BriefDrawdownSection,
   BriefDrawdownStrategyRow,
+  BriefEightKClassifierSection,
   BriefEtfFlowSection,
   BriefExecutiveDepartureSection,
   BriefSectorRotationSection,
@@ -274,6 +280,14 @@ export interface BriefDeps {
    */
   fetchLatestEtfFlow?: () => Promise<EtfFlowSnapshot | null>;
   /**
+   * 8-K classifier composite reader. Defaults to
+   * `EightKClassifierRepository.loadLatestSnapshot()`, returning null when
+   * `quantlab.eight_k_classifier_snapshots` is absent or empty. SPEC:
+   * docs/specs/event-driven-filings-processor.md §3 + §8.1. Tests stub to
+   * drive the panel deterministically.
+   */
+  fetchLatestEightKClassifier?: () => Promise<EightKClassifierSnapshot | null>;
+  /**
    * Kill-criteria daily history probe — true iff
    * `quantlab.kill_criteria_daily` exists. Drives the brief stage panel's
    * "streak source" warning (SPEC docs/specs/kill-criteria-daily-history.md
@@ -332,6 +346,8 @@ export async function composeMorningBrief(deps?: Partial<BriefDeps>): Promise<Mo
     deps?.fetchLatestExecutiveDeparture ?? fetchLatestExecutiveDepartureFromCH;
   const fetchLatestEtfFlow =
     deps?.fetchLatestEtfFlow ?? fetchLatestEtfFlowFromCH;
+  const fetchLatestEightKClassifier =
+    deps?.fetchLatestEightKClassifier ?? fetchLatestEightKClassifierFromCH;
   // Critic H-2 (SPEC docs/specs/kill-criteria-daily-history.md §10) — probe
   // the table at compose time so the stage panel can surface "streak source"
   // when the daemon falls back to the rolling-asOf shortcut. Defaulted via
@@ -342,7 +358,7 @@ export async function composeMorningBrief(deps?: Partial<BriefDeps>): Promise<Mo
     deps?.fetchCellWeightsForBrief ?? defaultFetchCellWeightsForBrief;
   const now = deps?.now ?? (() => new Date());
 
-  const [regime, paper, lastRun, allowlists, closedTrades, latestDrawdown, latestDrawdownPerStrategy, latestStage, killCritDailyPresent, latestCyclePosition, latestVolStructure, latestSectorRotation, latestCrossAsset, latestShortInterest, latestExecutiveDeparture, latestEtfFlow] = await Promise.all([
+  const [regime, paper, lastRun, allowlists, closedTrades, latestDrawdown, latestDrawdownPerStrategy, latestStage, killCritDailyPresent, latestCyclePosition, latestVolStructure, latestSectorRotation, latestCrossAsset, latestShortInterest, latestExecutiveDeparture, latestEtfFlow, latestEightKClassifier] = await Promise.all([
     fetchRegime({ asOf: null, lookbackDays: LOOKBACK_DAYS_DEFAULT }),
     fetchPaper({ runHistoryLimit: 14 }),
     fetchDaemon(),
@@ -359,6 +375,7 @@ export async function composeMorningBrief(deps?: Partial<BriefDeps>): Promise<Mo
     fetchLatestShortInterest(),
     fetchLatestExecutiveDeparture(),
     fetchLatestEtfFlow(),
+    fetchLatestEightKClassifier(),
   ]);
 
   if (!regime.biasNote || !regime.biasNote.body) {
@@ -408,6 +425,7 @@ export async function composeMorningBrief(deps?: Partial<BriefDeps>): Promise<Mo
   const shortInterest = buildShortInterestSection(latestShortInterest);
   const executiveDeparture = buildExecutiveDepartureSection(latestExecutiveDeparture);
   const etfFlow = buildEtfFlowSection(latestEtfFlow);
+  const eightK = buildEightKClassifierSection(latestEightKClassifier);
 
   return {
     generatedAt: now().toISOString().slice(0, 19) + 'Z',
@@ -429,6 +447,7 @@ export async function composeMorningBrief(deps?: Partial<BriefDeps>): Promise<Mo
     shortInterest,
     executiveDeparture,
     etfFlow,
+    eightK,
   };
 }
 
@@ -738,6 +757,80 @@ async function fetchLatestEtfFlowFromCH(): Promise<EtfFlowSnapshot | null> {
   try {
     if (!(await etfFlowSnapshotsTableExists())) return null;
     const repo = new EtfFlowRepository();
+    return await repo.loadLatestSnapshot();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Build the morning-brief 8-K classifier section from the repository
+ * snapshot. Returns null when no snapshot exists yet; the renderer handles
+ * null with a friendly "not yet evaluated" message. Mirrors
+ * buildEtfFlowSection / buildExecutiveDepartureSection structurally.
+ *
+ * Stamps the composer-side `tickersWithCikCount` + `watchUniverseTickerCount`
+ * onto the section so the renderer's universe-coverage line uses a CIK-only
+ * count (per S93-28: the composite's `inputsAvailablePerTicker` is gated on
+ * sector presence and is therefore always 0 in v1 — using it directly in the
+ * brief would render a misleading "0/60 with CIK mapping" line).
+ */
+export function buildEightKClassifierSection(
+  snapshot: EightKClassifierSnapshot | null,
+): BriefEightKClassifierSection | null {
+  if (snapshot === null) return null;
+  const watchUniverseTickerCount = snapshot.perTickerRows.length;
+  let tickersWithCikCount = 0;
+  for (const r of snapshot.perTickerRows) {
+    if (r.cik !== '') tickersWithCikCount++;
+  }
+  return {
+    evaluatedAt: snapshot.snapshotDate.toISOString(),
+    snapshotDate: snapshot.snapshotDate.toISOString().slice(0, 10),
+    lastEdgarQueryAt: snapshot.lastEdgarQueryAt != null
+      ? snapshot.lastEdgarQueryAt.toISOString()
+      : null,
+    bdSinceLastQuery: snapshot.bdSinceLastQuery,
+    flaggedSectors: snapshot.flaggedSectors.map(f => ({
+      sector: f.sector,
+      sectorSize: f.sectorSize,
+      eventRateT: f.eventRateT,
+      z: f.z,
+      baselineSize: f.baselineSize,
+    })),
+    eightKClusterFlag: snapshot.eightKClusterFlag,
+    perTickerRows: snapshot.perTickerRows.map(r => ({
+      ticker: r.ticker,
+      cik: r.cik,
+      sector: r.sector,
+      recentEventCount90d: r.recentEventCount90d,
+      daysSinceLatestEvent: r.daysSinceLatestEvent,
+      materialEventFlag: r.materialEventFlag,
+      impairmentFlag: r.impairmentFlag,
+      restatementFlag: r.restatementFlag,
+      auditorChangeFlag: r.auditorChangeFlag,
+      delistingFlag: r.delistingFlag,
+      controlChangeFlag: r.controlChangeFlag,
+      materialAgreementFlag: r.materialAgreementFlag,
+      acquisitionFlag: r.acquisitionFlag,
+    })),
+    inputsAvailableAggregate: snapshot.inputsAvailableAggregate,
+    inputsAvailablePerTicker: snapshot.inputsAvailablePerTicker,
+    tickersWithCikCount,
+    watchUniverseTickerCount,
+    compositeVersion: snapshot.version,
+  };
+}
+
+/**
+ * Default fetcher for the morning-brief 8-K classifier section. Mirrors the
+ * prior seven Layer-0 composites' graceful-degrade posture — returns null
+ * on absent table OR any read error.
+ */
+async function fetchLatestEightKClassifierFromCH(): Promise<EightKClassifierSnapshot | null> {
+  try {
+    if (!(await eightKClassifierSnapshotsTableExists())) return null;
+    const repo = new EightKClassifierRepository();
     return await repo.loadLatestSnapshot();
   } catch {
     return null;

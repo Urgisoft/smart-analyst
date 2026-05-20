@@ -282,6 +282,15 @@ export interface MorningBrief {
    * sections 1-12 (F-11 lock).
    */
   etfFlow: BriefEtfFlowSection | null;
+  /**
+   * 8-K classifier composite — informational Layer-0 context.
+   * SPEC: docs/specs/event-driven-filings-processor.md §8.1 (brief panel) +
+   * §1 non-goal #1 (does NOT fire a regime category in v1; informational).
+   * `null` when the table is absent or empty.
+   * APPENDED as section #14 to preserve byte-equal-stdout protection on
+   * sections 1-13 (EK-A5 lock; SPEC F4-12 carries the invariant to #15).
+   */
+  eightK: BriefEightKClassifierSection | null;
 }
 
 /**
@@ -601,6 +610,86 @@ export const ETF_FLOW_STALENESS_BD_THRESHOLD = 3;
  *  apply"). */
 export const ETF_FLOW_COLD_START_BD_SENTINEL = 9999;
 
+/**
+ * 8-K classifier panel — informational Layer-0 context.
+ * SPEC: docs/specs/event-driven-filings-processor.md §§3, 5.1-5.2, 8.1.
+ *
+ * v1 GICS-sector resolution (SPEC §11 canon-thin fork; see
+ * src/server/eight_k_classifier_repository.ts module header for the
+ * three-criterion analysis): the aggregate-sector layer is structurally
+ * inactive. `flaggedSectors` is always empty in v1; `eightKClusterFlag`
+ * is always false. The renderer emits a "GICS sector mapping deferred to v2"
+ * footer for the aggregate panel. Per-ticker layer is fully active.
+ *
+ * `tickersWithCikCount` + `watchUniverseTickerCount` are populated by the
+ * composer (`buildEightKClassifierSection`) — NOT by the composite — because
+ * `inputsAvailablePerTicker` is gated on sector presence (always 0 in v1
+ * per S93-28). The renderer uses the composer-computed CIK-only count for
+ * the universe-coverage line so it does not render "0/60" in v1 cold-start.
+ */
+export interface BriefEightKClassifierSection {
+  /** Composite computation timestamp (ISO 8601). */
+  evaluatedAt: string;
+  /** Snapshot date (YYYY-MM-DD). */
+  snapshotDate: string;
+  /** ISO 8601 of the most-recent EDGAR acceptance ≤ asOf (null pre-ingest). */
+  lastEdgarQueryAt: string | null;
+  /** Business days between lastEdgarQueryAt and asOf (null pre-ingest). */
+  bdSinceLastQuery: number | null;
+  /** Sectors with |z| > 2.0 (v1: always empty — see module note). */
+  flaggedSectors: ReadonlyArray<{
+    sector: string;
+    sectorSize: number;
+    eventRateT: number;
+    z: number;
+    baselineSize: number;
+  }>;
+  /** Flag: ANY sector has |z| > 2.0 (v1: always false — see module note). */
+  eightKClusterFlag: boolean;
+  /** Per-ticker rows for the watch universe. */
+  perTickerRows: ReadonlyArray<{
+    ticker: string;
+    cik: string;
+    sector: string | null;
+    recentEventCount90d: number;
+    daysSinceLatestEvent: number | null;
+    materialEventFlag: boolean;
+    impairmentFlag: boolean;
+    restatementFlag: boolean;
+    auditorChangeFlag: boolean;
+    delistingFlag: boolean;
+    controlChangeFlag: boolean;
+    materialAgreementFlag: boolean;
+    acquisitionFlag: boolean;
+  }>;
+  /** Count of SPY-500 constituents with usable sector mapping (v1: always 0). */
+  inputsAvailableAggregate: number;
+  /** Count of watch-universe tickers with CIK + sector mapping (v1: always 0
+   *  because composite gates on both per S93-28; the universe-coverage line
+   *  uses `tickersWithCikCount` instead). */
+  inputsAvailablePerTicker: number;
+  /** S93-28: CIK-only count of watch-universe tickers, computed by the
+   *  composer. Used for the "58/60 mid-cap tickers have current CIK mapping"
+   *  line in place of `inputsAvailablePerTicker` (which is sector-gated). */
+  tickersWithCikCount: number;
+  /** Watch-universe total ticker count, computed by the composer
+   *  (= snapshot.perTickerRows.length). Used as the denominator for the
+   *  universe-coverage line. */
+  watchUniverseTickerCount: number;
+  /** Composite version stamp ('eight_k_classifier_v1' in v1). */
+  compositeVersion: string;
+}
+
+/** Top-N flagged tickers shown in section #14 (SPEC §8.1: "Top-N truncation
+ *  = 5 per side"). */
+export const EIGHT_K_CLASSIFIER_FLAGGED_TOP_N = 5;
+
+/** Staleness threshold for the bd-since-last-query warning. EDGAR is real-
+ *  time (4bd statutory deadline for 8-K under Sarbanes-Oxley §409) — a 4bd+
+ *  gap means the daemon's ingest is stale. Matches gap #8 exec-departure
+ *  threshold (same source: SEC EDGAR). */
+export const EIGHT_K_CLASSIFIER_STALENESS_BD_THRESHOLD = 4;
+
 /** Render the brief as operator-facing markdown. Pure. */
 export function renderBriefMarkdown(brief: MorningBrief): string {
   const parts: string[] = [];
@@ -631,6 +720,8 @@ export function renderBriefMarkdown(brief: MorningBrief): string {
   parts.push(renderExecutiveDepartureSection(brief));
   parts.push('');
   parts.push(renderEtfFlowSection(brief));
+  parts.push('');
+  parts.push(renderEightKClassifierSection(brief));
   parts.push('');
   return parts.join('\n');
 }
@@ -1789,6 +1880,160 @@ function renderEtfFlowSection(b: MorningBrief): string {
     `_Last evaluated: \`${e.evaluatedAt}\` · snapshot date: \`${e.snapshotDate}\`._`,
   );
   return lines.join('\n');
+}
+
+/**
+ * Section #14 — 8-K classifier composite. Informational only in v1
+ * (SPEC §1 non-goal #1).
+ *
+ * v1 GICS-sector deferral: the aggregate-sector panel renders a brief
+ * "deferred to v2" note instead of a flagged-sectors table. Per-ticker
+ * layer renders fully (top-N material_event flags with per-item join +
+ * universe coverage). See SPEC §11 + repository module header for the
+ * three-criterion analysis.
+ *
+ * Multi-item per-ticker rendering joins per-item flags with " + " in fixed
+ * item-code order (1.01 → 5.01). The single `daysSinceLatestEvent` value
+ * applies to the most-recent high-signal event for the ticker; v1 does NOT
+ * carry per-item recency (would require an A4 schema extension). Matches
+ * SPEC §8.1 intent with the v1 payload constraint.
+ *
+ * Universe-coverage line uses the composer-stamped `tickersWithCikCount`
+ * (CIK-only count) instead of `inputsAvailablePerTicker` (sector-gated;
+ * always 0 in v1) per S93-28.
+ */
+function renderEightKClassifierSection(b: MorningBrief): string {
+  const lines: string[] = [];
+  if (b.eightK === null) {
+    lines.push(`## 14. 8-K material events — not yet evaluated`);
+    lines.push(``);
+    lines.push(
+      `\`quantlab.eight_k_classifier_snapshots\` is empty (or absent). ` +
+      `Apply \`npm run migrate:create-eight-k-classifier-snapshots:apply\` and run ` +
+      `\`npm run daemon:daily\` to populate. ` +
+      `SPEC: docs/specs/event-driven-filings-processor.md §3.`,
+    );
+    return lines.join('\n');
+  }
+  const s = b.eightK;
+  const clusterLabel = s.eightKClusterFlag ? 'CLUSTER' : 'NORMAL';
+  lines.push(`## 14. 8-K material events — ${clusterLabel}`);
+  lines.push(``);
+
+  // Aggregate sector panel (v1: deferred).
+  if (s.flaggedSectors.length === 0) {
+    lines.push(
+      `**Aggregate (SPY 500 by GICS sector):** GICS sector mapping deferred ` +
+      `to v2 (SPEC §11). Aggregate-cluster panel inactive in v1; the ` +
+      `composite math is implemented + tested but the sector-slicing input ` +
+      `requires a follow-on slice (either A1-extended SIC capture or a ` +
+      `separate \`quantlab.gics_sector_map\` table).`,
+    );
+  } else {
+    lines.push(`**Aggregate (SPY 500 by GICS sector):** ` +
+      `${s.flaggedSectors.length} sector(s) with |z| > 2.0`);
+    lines.push(``);
+    lines.push(`| Sector | Rate | z | Baseline n | Constituents |`);
+    lines.push(`|---|---|---|---|---|`);
+    for (const f of s.flaggedSectors) {
+      const ratePct = (f.eventRateT * 100).toFixed(1);
+      const zStr = `${f.z >= 0 ? '+' : ''}${f.z.toFixed(2)}σ`;
+      lines.push(`| ${f.sector} | ${ratePct}% | ${zStr} | ${f.baselineSize} | ${f.sectorSize} |`);
+    }
+  }
+
+  // Staleness indicator.
+  if (s.lastEdgarQueryAt != null) {
+    const bdSince = s.bdSinceLastQuery;
+    const staleSuffix =
+      bdSince != null && bdSince >= EIGHT_K_CLASSIFIER_STALENESS_BD_THRESHOLD
+        ? ` ⚠ stale (≥${EIGHT_K_CLASSIFIER_STALENESS_BD_THRESHOLD}bd)`
+        : '';
+    lines.push(
+      `**Last EDGAR query:** ${s.lastEdgarQueryAt}` +
+      ` (${bdSince != null ? `${bdSince} business days ago` : '—'})${staleSuffix}`,
+    );
+  } else {
+    lines.push(
+      `**Last EDGAR query:** — (run \`npm run edgar:8k-event:ingest:apply\` to populate)`,
+    );
+  }
+  lines.push(``);
+
+  // Per-ticker flagged rows.
+  const flagged = s.perTickerRows
+    .filter(r => r.materialEventFlag)
+    .slice()
+    .sort((a, b) => sortByRecency(a.daysSinceLatestEvent, b.daysSinceLatestEvent));
+  const totalFlagged = flagged.length;
+  const shown = flagged.slice(0, EIGHT_K_CLASSIFIER_FLAGGED_TOP_N);
+
+  lines.push(`### Flagged tickers (universe: equity-midcap)`);
+  lines.push(``);
+  if (shown.length === 0) {
+    lines.push(`No tickers flagged.`);
+  } else {
+    lines.push(`material_event (${totalFlagged}):`);
+    for (const r of shown) {
+      const items = formatEightKItemList(r);
+      const daysStr = formatDaysSince(r.daysSinceLatestEvent);
+      lines.push(`- ${r.ticker} — ${items} (${daysStr})`);
+    }
+    if (totalFlagged > shown.length) {
+      lines.push(``);
+      lines.push(
+        `_Truncated at top ${EIGHT_K_CLASSIFIER_FLAGGED_TOP_N} ` +
+        `(${totalFlagged - shown.length} more not shown — query ` +
+        `\`quantlab.eight_k_classifier_snapshots\` for the full list)._`,
+      );
+    }
+  }
+  lines.push(``);
+  lines.push(
+    `_Universe coverage: ${s.tickersWithCikCount}/${s.watchUniverseTickerCount} ` +
+    `mid-cap tickers have current CIK mapping · ${s.inputsAvailableAggregate} ` +
+    `aggregate constituents have usable sector mapping (v1: always 0 — GICS deferred)._`,
+  );
+  lines.push(
+    `_Composite: \`${s.compositeVersion}\` ` +
+    `(high-signal items {1.01, 2.01, 2.06, 3.01, 4.01, 4.02, 5.01}; ` +
+    `90d rolling window; aggregate-sector layer dormant per §11). ` +
+    `INFORMATIONAL — does NOT fire a regime category in v1 (SPEC §1 non-goal #1)._`,
+  );
+  lines.push(``);
+  lines.push(
+    `_Last evaluated: \`${s.evaluatedAt}\` · snapshot date: \`${s.snapshotDate}\`._`,
+  );
+  return lines.join('\n');
+}
+
+/**
+ * Per-ticker item-flag list formatter. Joins fired per-item flags with " + "
+ * in fixed item-code order so byte-equal stdout is stable across runs. Each
+ * item renders as `<label> (<code>)`. Returns "(no items)" when no flag is
+ * set — defensive guard for malformed rows; the renderer only invokes this
+ * for tickers where `materialEventFlag === true`, which is derived from
+ * `recentEventCount90d >= 1`, so a normal payload always fires at least one
+ * per-item flag.
+ */
+function formatEightKItemList(row: {
+  materialAgreementFlag: boolean;
+  acquisitionFlag: boolean;
+  impairmentFlag: boolean;
+  delistingFlag: boolean;
+  auditorChangeFlag: boolean;
+  restatementFlag: boolean;
+  controlChangeFlag: boolean;
+}): string {
+  const items: string[] = [];
+  if (row.materialAgreementFlag) items.push('material agreement (1.01)');
+  if (row.acquisitionFlag) items.push('acquisition (2.01)');
+  if (row.impairmentFlag) items.push('impairment (2.06)');
+  if (row.delistingFlag) items.push('delisting (3.01)');
+  if (row.auditorChangeFlag) items.push('auditor change (4.01)');
+  if (row.restatementFlag) items.push('restatement (4.02)');
+  if (row.controlChangeFlag) items.push('change in control (5.01)');
+  return items.length > 0 ? items.join(' + ') : '(no items)';
 }
 
 /**
