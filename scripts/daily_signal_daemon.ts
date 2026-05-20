@@ -125,6 +125,7 @@ import {
   crossAssetSnapshotsTableExists,
   runDaemonCrossAssetEvaluation,
 } from '../src/server/cross_asset_signals_repository.js';
+import { runFredFetch } from '../src/server/daemon_fred_fetch.js';
 import { CLASSIFIER_VERSION_V3 } from '../src/server/macro_regime_v3.js';
 import {
   formatEvaluatorCapitalLogLine,
@@ -997,6 +998,33 @@ async function main() {
       anomalies.push({
         severity: 'warning',
         message: `macro candle refresh failed (mode=${r.mode}): ${r.error}`,
+      });
+    }
+  }
+
+  // 1b'. FRED macro indicators refresh — required by phase1_v3 (T10Y3M /
+  //     T10Y2Y / DGS10/3MO/2 / BAA10Y / BAMLH0A0HYM2 / UNRATE / ICSA) +
+  //     cycle-position (curve + credit + employment) + cross-asset (real
+  //     rates DFII10/DFII5 + broad dollar DTWEXBGS). Discovered s88 cont:
+  //     `[macro-fetch]` (1b) covers YF tickers only — `macro_regime_ingest.py`
+  //     does NOT touch FRED. Without this step the FRED-dependent
+  //     composites operate on stale inputs over time. Default series list
+  //     comes from fred_ingest.py's DEFAULT_SERIES (no --series filter
+  //     here so additions auto-propagate). Gated by the same NO_MACRO ||
+  //     NO_FETCH posture as 1b — same operational intent, same skip flags.
+  //     Non-fatal: failure surfaces as a warning anomaly. Idempotent
+  //     under ReplacingMergeTree on (series_id, observation_date).
+  if (NO_MACRO || NO_FETCH) {
+    console.log(`[fred-fetch] skipped (${NO_MACRO ? '--no-macro' : '--no-fetch'})`);
+  } else {
+    const r = runFredFetch(DRY_RUN);
+    if (r.ok) {
+      console.log(`[fred-fetch] OK | ${r.seconds.toFixed(1)}s`);
+    } else {
+      console.warn(`[fred-fetch] failed (non-fatal): ${r.error}`);
+      anomalies.push({
+        severity: 'warning',
+        message: `FRED macro refresh failed: ${r.error}`,
       });
     }
   }
