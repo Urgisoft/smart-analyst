@@ -83,6 +83,8 @@
     "migrate:strategies-add-asset-class:apply": "tsx scripts/migrate_strategies_add_asset_class.ts --apply",
     "migrate:create-cycle-position-snapshots": "tsx scripts/migrate_create_cycle_position_snapshots.ts",
     "migrate:create-cycle-position-snapshots:apply": "tsx scripts/migrate_create_cycle_position_snapshots.ts --apply",
+    "migrate:create-vol-structure-snapshots": "tsx scripts/migrate_create_vol_structure_snapshots.ts",
+    "migrate:create-vol-structure-snapshots:apply": "tsx scripts/migrate_create_vol_structure_snapshots.ts --apply",
     "migrate:stage-state-history": "tsx scripts/migrate_stage_state_history.ts",
     "migrate:stage-state-history:apply": "tsx scripts/migrate_stage_state_history.ts --apply",
     "migrate:kill-criteria-daily": "tsx scripts/migrate_kill_criteria_daily.ts",

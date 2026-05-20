@@ -109,6 +109,11 @@ import {
   cyclePositionSnapshotsTableExists,
   runDaemonCyclePositionEvaluation,
 } from '../src/server/cycle_position_repository.js';
+import {
+  VolStructureRepository,
+  volStructureSnapshotsTableExists,
+  runDaemonVolStructureEvaluation,
+} from '../src/server/vol_structure_repository.js';
 import { CLASSIFIER_VERSION_V3 } from '../src/server/macro_regime_v3.js';
 import {
   formatEvaluatorCapitalLogLine,
@@ -968,6 +973,36 @@ async function main() {
       anomalies.push({
         severity: 'info',
         message: `cycle-position evaluation failed: ${(e as Error).message}`,
+      });
+    }
+  }
+
+  // 1e. Vol-structure evaluation (informational Layer-0 input).
+  //     SPEC: docs/specs/expanded-vol-structure.md §3 component diagram —
+  //     runs AFTER macro-classify-v3 (consumes the VIX-family candles that
+  //     the macro_regime_ingest step refreshed earlier). The output is
+  //     informational only in v1; it does NOT fire a regime category.
+  //     Same non-fatal posture as cycle-position.
+  if (NO_MACRO || DRY_RUN) {
+    console.log(`[vol-structure] skipped (${NO_MACRO ? '--no-macro' : '--dry-run'})`);
+  } else if (!(await volStructureSnapshotsTableExists(ch))) {
+    console.log(
+      '[vol-structure] table absent (`quantlab.vol_structure_snapshots`) — ' +
+      'skipped. Run `npm run migrate:create-vol-structure-snapshots:apply` to enable.',
+    );
+  } else {
+    try {
+      const volRepo = new VolStructureRepository({ ch });
+      const volResult = await runDaemonVolStructureEvaluation({
+        repo: volRepo,
+        asOf: new Date(t0),
+      });
+      console.log(volResult.summaryLine);
+    } catch (e) {
+      console.warn(`[vol-structure] evaluation failed (non-fatal): ${(e as Error).message}`);
+      anomalies.push({
+        severity: 'info',
+        message: `vol-structure evaluation failed: ${(e as Error).message}`,
       });
     }
   }

@@ -70,7 +70,14 @@ import clickhouse_connect
 # included so a fresh box can be bootstrapped without running
 # `_backfill_spy_regime.py` separately; ReplacingMergeTree handles the
 # overlap if SPY_USD already exists.
-YF_TICKERS: tuple[str, ...] = ("^VIX", "^VIX3M", "HYG", "SPY", "LQD", "TLT")
+YF_TICKERS: tuple[str, ...] = (
+    "^VIX", "^VIX3M", "HYG", "SPY", "LQD", "TLT",
+    # Expanded vol-structure additions (SPEC docs/specs/expanded-vol-structure.md §3).
+    # All three were not in the original ingest; YF history for ^VIX9D starts
+    # ~2011, ^VIX6M ~2008, ^VVIX 2007. Backfill failures are non-fatal per the
+    # per-ticker error handling below — the rest of the ingest continues.
+    "^VIX9D", "^VIX6M", "^VVIX",
+)
 
 YF_TICKER_TO_ADDR: dict[str, str] = {
     "^VIX": "VIX_USD",
@@ -79,6 +86,10 @@ YF_TICKER_TO_ADDR: dict[str, str] = {
     "SPY": "SPY_USD",
     "LQD": "LQD_USD",   # phase1_v3 — credit-spread proxy (HYG/LQD ratio)
     "TLT": "TLT_USD",   # phase1_v3 — risk-on/off proxy (SPY/TLT ratio); proxies ETF flows
+    # Expanded vol-structure (SPEC docs/specs/expanded-vol-structure.md §3 ingest unit).
+    "^VIX9D": "VIX9D_USD",  # 9-day VIX; near-term implied vol
+    "^VIX6M": "VIX6M_USD",  # 6-month VIX; structural complacency proxy
+    "^VVIX": "VVIX_USD",    # vol-of-vol; option pricing on VIX options
 }
 
 # Stooq daily-history CSV for S&P 500 % above 50DMA. Covers ~2007+ through
