@@ -1,29 +1,22 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-05-19 (session 91 mid-session — **gap #8 SPEC + A1 + A2 + A3 landed; A4 + A5 next.** Four commits this session under the autonomous-execution protocol with zero permission pauses (`c04b706` SPEC + `bdd4d4f` A1 + `84e69be` A2 + `c11edb3` A3). Tests grew 2070 → 2134 (+64 TS net new across A2 + A3) plus 182 → 210 (+28 pytest from A1). 47 commits ahead of `origin/main`, push still held. Slice queue: **gap #8 A4 + A5 next** to close the arc, then #9 etf-flow-monitoring, then #7 event-driven-filings-processor.)
+Last updated: 2026-05-19 (session 91 close — **gap #8 executive-departure-signal arc DONE end-to-end.** Six commits this session under the autonomous-execution protocol with zero permission pauses (`c04b706` SPEC + `bdd4d4f` A1 + `84e69be` A2 + `c11edb3` A3 + `db2f7b2` A4 + `f96ff5c` A5). Tests grew 2070 → 2210 (+140 TS net new across A2/A3/A4/A5) plus 182 → 210 (+28 pytest from A1). 49 commits ahead of `origin/main`, push still held. Slice queue: **gap #9 etf-flow-monitoring next**, then gap #7 event-driven-filings-processor (Form 4 lands there per E-11).)
 
-## What this turn delivered
+## What this session delivered
 
-Four commits across the gap #8 executive-departure-signal arc:
+Six commits across the gap #8 executive-departure-signal arc:
 
-1. **SPEC — executive-departure-signal (`exec_departure_v1`)** — commit `c04b706`. `docs/specs/executive-departure-signal.md` (~445 LOC). Sixth Layer-0 informational composite. Mirrors short-interest SPEC structure §1-§12. Decisions table E-1..E-14. Three canon-thin forks (E-2 sub-item-code-only classification, E-5 no role weighting, E-11 Form 4 deferred to gap #7) resolved autonomously per the CLAUDE.md three-criterion test.
+1. **SPEC — executive-departure-signal (`exec_departure_v1`)** — commit `c04b706`. `docs/specs/executive-departure-signal.md` (~445 LOC). Sixth Layer-0 informational composite. Three canon-thin forks (E-2, E-5, E-11) resolved autonomously.
 
-2. **A1 — SEC EDGAR 8-K Item 5.02 ingest (Python)** — commit `bdd4d4f`. Three files:
-   - `scripts/sec_edgar_8k_item_5_02_ingest.py` (~575 LOC). EDGAR full-text search API poll + Item 5.02 sub-item-code header regex + CIK→ticker resolution via submissions API + ReplacingMergeTree writes. Three operator paths (--url / --from-file / default) matching FINRA A1 precedent.
-   - `scripts/tests/test_sec_edgar_8k_item_5_02_ingest.py` (~340 LOC, 28 pytest). SPEC §9.4 T-EDI-1..T-EDI-7 fully covered + helper coverage.
-   - `package.json` — `edgar:exec-departure:ingest:dry`/`:apply` npm scripts.
+2. **A1 — SEC EDGAR 8-K Item 5.02 ingest (Python)** — commit `bdd4d4f`. `scripts/sec_edgar_8k_item_5_02_ingest.py` (~575 LOC) + 28 pytest + `package.json` ingest scripts.
 
-3. **A2 — pure composite + 41 tests** — commit `84e69be`. Two files:
-   - `src/server/executive_departure.ts` (~330 LOC). Pure functions: `dedupeEvents`, `filterEventsInWindow`, `countEventsInWindow`, `flagExecutiveDeparture`, `flagExecutiveAppointment`, `daysSinceLatestEvent`, `computeSectorDepartureRate`, `computeZ`, `flagExecutiveClusterDeparture`, `evaluateExecutiveDepartureComposite`. Composite version stamp = `exec_departure_v1`.
-   - `scripts/tests/executiveDeparture.test.ts` (~370 LOC, 41 node:test). SPEC §9.1 T-ED-1..T-ED-13 fully covered + orchestrator-integration + constants-sanity.
+3. **A2 — pure composite + 41 tests** — commit `84e69be`. `src/server/executive_departure.ts` (~330 LOC) + `scripts/tests/executiveDeparture.test.ts` (41 node:test).
 
-4. **A3 — CH snapshot migration + 23 tests** — commit `c11edb3`. Four files:
-   - `scripts/migrate_create_executive_departure_snapshots.ts` (~210 LOC). PLANNED_DDL byte-pinned per SPEC §6 (with Float32 / DateTime64(3) computed_at / composite_version / index_granularity 8192 deviations matching the short-interest A3 precedent).
-   - `scripts/tests/migrateCreateExecutiveDepartureSnapshots.test.ts` (~220 LOC, 23 node:test). PLANNED_DDL byte-pin + EXPECTED_COLUMNS alignment + FakeClickHouse runPreChecks/runPostChecks + EXPLAIN PLAN grammar check (skipped when CH unreachable).
-   - `scripts/help.ts` — EXTRA_HELP entries for edgar:exec-departure:ingest + the two A3 migrate scripts.
-   - `package.json` — `migrate:create-executive-departure-snapshots:dry`/`:apply` npm scripts.
+4. **A3 — CH snapshot migration + 23 tests** — commit `c11edb3`. `scripts/migrate_create_executive_departure_snapshots.ts` + tests + help/npm registration.
 
-The CH snapshot table is created exclusively by A3; the raw event stream `executive_departures` + the `cik_ticker_map` cache are created lazily by A1's `ensure_*_table` calls on first --apply. Same separation as gap #10's FINRA precedent.
+5. **A4 — repository + daemon step 1i + 59 tests** — commit `db2f7b2`. `src/server/executive_departure_repository.ts` (~430 LOC) + `scripts/tests/executiveDepartureRepository.test.ts` (59 node:test) + step 1i wired between 1h (short-interest) and §2 (cells/bundles). Includes the GICS-sector autonomous resolution (SPEC §11 OQ-2): v1 ships with `sector = null` for all per-ticker rows; aggregate-sector layer dormant; per-ticker layer fully active. Three-criterion justification documented in repo + daemon.
+
+6. **A5 — brief section #12 + 17 tests** — commit `f96ff5c`. `src/server/operator_brief_render.ts` BriefExecutiveDepartureSection + renderExecutiveDepartureSection + `src/server/operator_brief.ts` buildExecutiveDepartureSection + fetchLatestExecutiveDepartureFromCH composer wiring. 12 render tests + 3 composer tests + 2 sub-tests.
 
 ## Where we are
 
@@ -34,52 +27,40 @@ The CH snapshot table is created exclusively by A3; the raw event stream `execut
 | Autonomous-execution canon-thin fork rule (CLAUDE.md) | ✓ s89c#2 |
 | ADR-041 Accepted (cycle-position v2 = yield-curve-only) | ✓ s89c#2 |
 | Gap #10 short-interest-tracking arc | ✓ DONE end-to-end (s89-s90) |
-| Gap #8 SPEC — executive-departure-signal | ✓ s91 (`c04b706`) |
-| Gap #8 A1 — SEC EDGAR 8-K Item 5.02 ingest + 28 pytest | ✓ s91 (`bdd4d4f`) |
-| Gap #8 A2 — pure composite + 41 TS tests | ✓ s91 (`84e69be`) |
-| Gap #8 A3 — CH snapshot migration + 23 TS tests | ✓ s91 (`c11edb3`) |
-| **Gap #8 A4 — repository + daemon step 1i + tests** | **☐ NEXT** |
-| Gap #8 A5 — brief section #12 + tests | ☐ queued after A4 |
-| Gap #9 etf-flow-monitoring | ☐ queued after #8 |
-| Gap #7 event-driven-filings-processor | ☐ queued after #9 (Form 4 deferred from gap #8 lands here) |
+| **Gap #8 executive-departure-signal arc** | **✓ DONE end-to-end (s91)** |
+| **Gap #9 etf-flow-monitoring** | **☐ NEXT** |
+| Gap #7 event-driven-filings-processor | ☐ queued after #9 (Form 4 lands here per #8 E-11) |
+| Gap #8 v2 enhancement — GICS sector mapping activation | ☐ deferred (operator-pickable insertion) |
 | C-12 Phase B (AlpacaAdapter) | ⏸ INDEFINITELY PAUSED |
 | ADR-041 implementation (`yield_curve_inverted` category) | ☐ DEFERRED — operator-pickable insertion |
-| Phase B for cycle/vol/sector/cross-asset/short-interest | ⏸ deferred — calendar OR backfill arc |
+| Phase B for cycle/vol/sector/cross-asset/short-interest/exec-departure | ⏸ deferred — calendar OR backfill arc |
 | #5 capital-deployment-ramp ADR | ☐ operator self-assigned ~1 week; not blocking |
 | Drawdown framework §12 90d empirical retune | ☐ scheduled — earliest 2026-08-29 |
-| Push 47 commits to origin/main | ☐ operator-gated, HOLD |
+| Push 49 commits to origin/main | ☐ operator-gated, HOLD |
 
 ## Decisions locked in
 
-### Session 91 (this turn)
+### Session 91 (this session, this commit)
 
-**S91-1. Gap #8 SPEC structure mirrors short-interest section-for-section.** §1-§12 with 14 decision lock-ins (E-1..E-14). Three new CH tables in SPEC §6: `executive_departures` (raw event stream), `executive_departure_snapshots` (per-snapshot composite output), `cik_ticker_map` (CIK↔ticker, separate from `cusip_ticker_map`).
-`Why:` precedent-respecting matches the cross-asset / short-interest / sector-rotation pattern; uniformity speeds A1-A5 execution.
-`How to apply:` A4 (next) reads SPEC §5 (composite formulas) + §7 (daemon hook position 1i) + §4 (input table); A5 reads §8 (brief panel mock) + §9.5-§9.6 (test plan).
+**S91-7. Gap #8 A4 GICS-sector resolution (SPEC §11 OQ-2 canon-thin fork): v1 ships with `sector = null` for all per-ticker rows.** The aggregate-sector layer is structurally dormant in v1 — `inputs.sectors` is always an empty array, `executive_cluster_departure` never fires, and the brief panel renders a "GICS sector mapping deferred to v2" footer for the aggregate section. The per-ticker layer (binary in-window flag) is fully active.
+`Why:` Neither the `sp500_constituents` table (ticker + effective_date only) nor the `cik_ticker_map` cache (ticker, CIK, former_tickers, company_name) carries a SIC code or GICS field. The existing SPDR-sector mapping in src/server/sector_rotation.ts is at the ETF level (XLK/XLF/...), not at the constituent level. Three-criterion analysis: (1) canon foundations equal across alternatives (SPEC §11 OQ-2 explicitly punts); (2) null path has zero ingest-time changes (no A1 schema bump, no separate Wikipedia scraper); (3) zero free parameters vs. 11+ for a SIC→GICS bridge or 503+ for a static ticker→sector table.
+`How to apply:` v2 deliverable = a dedicated slice that either extends A1 to capture sicDescription from EDGAR submissions API + a SIC→GICS bridge, OR ships a separate `quantlab.gics_sector_map` table populated from Wikipedia + a daily refresh job. The composite's aggregate-layer math is already implemented + tested; v2 simply populates `inputs.sectors`. Documented in the executive_departure_repository.ts module header + the daemon step 1i comment block + the A5 brief rendering footer.
 
-**S91-2. Three canon-thin forks resolved (E-2 / E-5 / E-11) — documented in commit + SPEC.** No permission pauses; each resolution carries a three-criterion justification in the §2 decisions table.
-`Why:` per CLAUDE.md autonomous-execution canon-thin rule; v1 is conservative-by-design (zero classification heuristics, zero role-weighting, zero free parameters beyond the inherited |z|>2 aggregate threshold).
-`How to apply:` if Phase B reveals v1 lacks predictive power, a v2 ADR can re-open any of E-2 / E-5 / E-11 with explicit canon support (e.g. Cohen-Malloy-Pomorski 2012 for Form 4; Warner-Watts-Wruck-derived weights for CEO weighting).
+**S91-8. A4 step 1i wiring posture mirrors 1d-1h byte-for-byte.** `NO_MACRO || DRY_RUN`-gated, absent-table-safe (via `executiveDepartureSnapshotsTableExists`), non-fatal try/catch with anomalies push. Standard Layer-0 informational evaluation cadence.
+`Why:` Established pattern; predictable failure surface; no surprises in operator workflow.
+`How to apply:` Same posture should be inherited by gap #9 (etf-flow-monitoring) when its step 1j lands.
 
-**S91-3. A1 implementation: full-text search → body-parse → submissions-API resolution → CH write.** The EDGAR full-text search API gives the filing list with broad-item codes (e.g. "5.02"); the sub-item LETTER (a/b/c/d/e) requires per-filing body fetch + header regex `Item\s*5\.02\s*\(\s*([a-e])\s*\)`. CIK→ticker resolution uses the submissions API with `formerNames` preserved in `former_tickers` array. In-memory `ticker_cache` avoids duplicate fetches per ingest pass. Rate-limit: 429 → 1s backoff + retry up to 3 times.
-`Why:` SEC requires User-Agent header (default `SignalForge/exec-departure-ingest u0249898@gmail.com`); 10 req/s rate limit. The two-tier fetch pattern (search → body-per-filing) is necessary because the broad items field in EDGAR's response does NOT include the sub-letter.
-`How to apply:` A4 reads from `quantlab.executive_departures` (already populated by A1's --apply runs); never re-fetches the body. Daemon doesn't touch EDGAR.
+**S91-9. A5 brief section #12 byte-equal protection preserved.** Section #12 renders AFTER section #11 (short-interest); sections #1-#11 are byte-for-byte unchanged. Test `section ordering: executive-departure renders AFTER short-interest` pins this.
+`Why:` Established invariant across the prior five Layer-0 composites. Section-add-at-tail is the operator-visible protection against accidental panel-reordering churn.
+`How to apply:` Gap #9 A5 will append section #13 after #12; same byte-equal-protection test applies.
 
-**S91-4. A2 composite is dimensionally-agnostic about event sparsity per E-13.** Per-stock layer is BINARY (≥1 event in 90d → flag fires; otherwise false). The z-score baseline lives at the sector-aggregate layer ONLY. Same `computeZ` shape as short-interest with MIN_Z_BASELINE = 30 + 1e-12 degenerate-stddev guard.
-`Why:` events are sparse (0-1 per ticker per year); a per-ticker z-score against trailing 2y would be ill-defined for most tickers (division by zero or near-zero stddev).
-`How to apply:` A4 repository assembles `ExecutiveDepartureInputs` from CH reads; the composite consumes the assembled inputs unchanged. A5 brief renders the binary per-stock flags + the sector-aggregate flagged-sectors table.
+**S91-10. EXECUTIVE_DEPARTURE_STALENESS_BD_THRESHOLD = 4 bd.** SEC's statutory 4bd filing deadline for Item 5.02 (Sarbanes-Oxley §409; 17 CFR 249.308) is the bright line. A `bdSinceLastQuery >= 4` means the daemon's ingest hasn't caught a filing that SEC has accepted as far back as 4bd — i.e. the ingest path itself is stale, not just the underlying data.
+`Why:` Contrast with short-interest's 14bd threshold: FINRA biweekly publishes every 2 weeks, so 14bd ≈ one missed cycle. EDGAR is real-time → a 4bd threshold catches missed daemon ingest runs.
+`How to apply:` Operator should re-run `npm run edgar:exec-departure:ingest:apply` if the brief shows the staleness warning. The script is idempotent under ReplacingMergeTree.
 
-**S91-5. A3 migration: snapshot table only (separation-of-concerns with A1).** A1's `ensure_executive_departures_table` + `ensure_cik_ticker_map_table` calls handle the raw event stream + CIK cache lazily on first --apply. A3 migration handles the snapshot table only. Same pattern as the short-interest A3 vs FINRA A1 division.
-`Why:` snapshot table has a structurally different lifecycle (created when daemon first writes a snapshot; idempotently re-applied); raw event stream tables are created when ingest first runs.
-`How to apply:` A4 reads from all three tables; the daemon's step 1i hook checks `executive_departure_snapshots` existence via the `executiveDepartureSnapshotsTableExists` gate (absent-table-safe), matching the short-interest A4 posture.
+### Sessions 84-90 + S91 prior decisions (carried)
 
-**S91-6. Sub-slice cadence sustained: SPEC + A1 + A2 + A3 each as own commit.** Four commits in one session matches the s90 mid-session HANDOFF cadence (which rewrote after A1+A2+A3 of gap #10). Atomic git history; `git bisect` precise.
-`Why:` matches the prior Layer-0 composites' commit pattern (s86/s87/s88/s89/s90); the HANDOFF rewrite cadence is multi-commit-slice-boundary, not after-every-commit.
-`How to apply:` A4 + A5 follow as the next two commits; HANDOFF rewrites at end-of-arc (after A5 lands).
-
-### Sessions 84-90 + continuations (carried)
-
-All prior decisions preserved unchanged. The s90 close-out brief is now in git history (`a5c0751`).
+All prior decisions preserved unchanged. S91-1 through S91-6 (SPEC + A1-A3 lock-ins) are now historical context; the implementation is complete in the source tree + git history.
 
 ## Open questions
 
@@ -97,20 +78,11 @@ All prior decisions preserved unchanged. The s90 close-out brief is now in git h
 - Compounding-live-equity backtest semantic (ADR-class).
 - 78,399 zero-trade sentinels in `bt_runs_regime` (deferred).
 - ADR-041 implementation slot in slice queue — operator-pickable.
-- Push 47 commits to origin/main — operator-gated.
+- Push 49 commits to origin/main — operator-gated.
 
-### NEW from gap #8 SPEC (§11 — 10 implementation-deferred OQs)
+### NEW from this session
 
-1. EDGAR full-text search API exact query syntax (A1 first-run discovery posture; placeholder `?q="Item 5.02"&forms=8-K&dateRange=custom&startdt=...&enddt=...`).
-2. GICS sector mapping source (reuse SPDR-sector map vs pull SIC from submissions). A4 implementation decision.
-3. CIK-to-ticker fallback for delisted tickers (cache forever, mirror short-interest).
-4. EDGAR rate-limit + User-Agent compliance (10 req/s, hard-coded SignalForge UA; ALREADY IMPLEMENTED in A1).
-5. `8-K/A` amendment handling (additive-event treatment in v1; A1 sets is_amendment column; composite treats both equally).
-6. Voluntary-vs-involuntary classification (v2 ADR; gap doc OQ).
-7. Role-severity weighting (v2 ADR; gap doc OQ).
-8. Form 4 integration (gap #7 OR v2 ADR; gap doc primary signal).
-9. Snapshot retention (v1: no pruning, ~5.5MB/year cumulative).
-10. Source-table retention (negligible, ~560 rows/year).
+1. **Gap #8 v2 enhancement — GICS sector activation.** Operator-pickable insertion. Path α = extend A1 to capture `sicDescription` from EDGAR submissions API + ship a SIC→GICS bridge table (10-15 rows). Path β = separate Wikipedia ingest writing to `quantlab.gics_sector_map`. Path γ = SPDR fund-holdings scrape (most fragile; lowest-priority). All three activate the aggregate-sector panel; composite math + render are ready.
 
 ### Closed this session
 
@@ -118,37 +90,31 @@ All prior decisions preserved unchanged. The s90 close-out brief is now in git h
 - ~~Gap #8 A1 SEC EDGAR ingest~~ — DONE (`bdd4d4f`).
 - ~~Gap #8 A2 pure composite~~ — DONE (`84e69be`).
 - ~~Gap #8 A3 snapshot migration~~ — DONE (`c11edb3`).
+- ~~Gap #8 A4 repository + daemon step 1i~~ — DONE (`db2f7b2`).
+- ~~Gap #8 A5 brief section #12~~ — DONE (`f96ff5c`).
+- ~~SPEC §11 OQ-2 (GICS sector mapping source)~~ — RESOLVED autonomously per S91-7 (v1 ships with sector=null; v2 deliverable defined).
 
 ## Next stage
 
 ### Default on "continue"
 
-**Gap #8 A4 — repository + daemon step 1i.** Mirrors the short-interest A4 pattern (`src/server/short_interest_repository.ts` + `runDaemonShortInterestEvaluation`).
+**Gap #9 — etf-flow-monitoring SPEC.** Per the locked queue. The seventh Layer-0 informational composite. Reuses the established template: SPEC (~400-500 LOC) → A1 (ingest from ETF.com / ETF Database public pages via Playwright per CLAUDE.md data-source policy) → A2 (pure composite + tests) → A3 (CH snapshot table) → A4 (repository + daemon step 1j) → A5 (brief section #13).
 
-Concrete deliverables:
+Concrete first move on "continue": open the gap doc (`docs/obsidian/gaps/etf-flow-monitoring.md` if it exists; otherwise read the broader gap inventory at `docs/obsidian/gaps/README.md`) → write `docs/specs/etf-flow-monitoring.md` mirroring the short-interest / executive-departure SPEC structure (§1 goals/non-goals, §2 decision lock-ins with three-criterion forks where canon-thin, §3 component diagram, §4 inputs, §5 composite formulas, §6 CH snapshot schema, §7 daemon hook position 1j, §8 brief panel mock-up, §9 test plan, §10 implementation phases, §11 deferred OQs, §12 references).
 
-- `src/server/executive_departure_repository.ts` (~500-600 LOC). Will export:
-  - `ExecutiveDepartureRepository` class with reads: `readLatestEvents` (rolling 90d window per ticker), `readDistinctSettlementDates` (not applicable here — EDGAR is real-time; use `readLatestAcceptedAt` instead), `readPerTickerEventsAsOf` (per-ticker event panel for the watch universe), `readSectorPanelAsOf` (SPY-500 PIT × GICS sector × event count), `readSectorDepartureRateBaseline2y` (trailing 2y daily panel of per-sector rates), `readSp500ConstituentsPIT` (already exists; reuse), `readEquityMidcapWatchUniverse` (already exists; reuse from short-interest A4).
-  - `writeSnapshot` + `loadLatestSnapshot` (JSON-encoded per-ticker + flagged-sectors payload columns).
-  - Module-level `executiveDepartureSnapshotsTableExists` absent-table-safe gate.
-  - `runDaemonExecutiveDepartureEvaluation` orchestrator wiring repository reads → composite evaluation → snapshot write.
-- `scripts/tests/executiveDepartureRepository.test.ts` — FakeClickHouse-backed coverage: query-shape regression (subquery-around-FINAL pattern per a52c964 regression class), parameter binding, snapshot round-trip, malformed-payload degradation, absent-table gate, EXPLAIN PLAN grammar.
-- `scripts/daily_signal_daemon.ts` — wire step 1i between 1h (short-interest) and §2 (cells/bundles). Same posture as 1d-1h: `NO_MACRO || DRY_RUN`-gated, absent-table-safe, non-fatal anomaly-pushed on failure.
+ETF.com + ETF Database are pre-authorized free public sources per CLAUDE.md; required scraper discipline (schema validation on every fetch + alert on parse failures + fallback to cached last-good + no silent stale-data propagation) is the established posture.
 
-GICS sector mapping resolution (SPEC §11 OQ-2): the simplest path is to look at what cycle/cross-asset/sector-rotation already use. If that mapping exists in a reusable form, import it; otherwise A4 introduces a minimal per-ticker GICS sector lookup keyed off SPY constituents.
+### After gap #9 SPEC lands
 
-### After A4 ships
+A1-A5 phases mirror the prior five Layer-0 arcs structurally. Estimated 5-7 commits to gap #9 end-to-end at the established cadence.
 
-**Gap #8 A5 — brief section #12.** Mirrors short-interest A5 pattern (`renderShortInterestSection` + composer wiring + 12 tests). Brief section #12 appends AFTER section #11 (preserves byte-equal-stdout protection on #1-#11).
-
-### After gap #8 ships
+### After gap #9 ships
 
 Per the locked queue:
 
-- Gap #9 etf-flow-monitoring (ETF.com / ETF Database scrapers + flow analytics).
-- Gap #7 event-driven-filings-processor (8-K classifier broader than gap #8's narrow exec-departure cut; Form 4 path arrives here per gap #8 E-11).
+- Gap #7 event-driven-filings-processor (8-K classifier broader than gap #8's narrow exec-departure cut; **Form 4 path arrives here per gap #8 E-11**).
 
-Then the deferred-but-on-queue work: ADR-041 implementation, C-12 Phase B AlpacaAdapter (paused), Phase B campaigns for the six Layer-0 composites.
+Then the deferred-but-on-queue work: gap #8 v2 GICS-sector activation, ADR-041 implementation, C-12 Phase B AlpacaAdapter (paused), Phase B campaigns for the six Layer-0 composites.
 
 ## Files / code state
 
@@ -156,29 +122,36 @@ Then the deferred-but-on-queue work: ADR-041 implementation, C-12 Phase B Alpaca
 
 | Path | Status | Notes |
 | --- | --- | --- |
-| `docs/specs/executive-departure-signal.md` | NEW (`c04b706`) | 445 LOC, mirrors short-interest SPEC structure. §1-§12 complete; §2 decisions table E-1..E-14. |
+| `docs/specs/executive-departure-signal.md` | NEW (`c04b706`) | 445 LOC, §1-§12, 14 decision lock-ins. |
 | `scripts/sec_edgar_8k_item_5_02_ingest.py` | NEW (`bdd4d4f`) | ~575 LOC. EDGAR ingest + sub-item header regex + CIK→ticker resolve + RM-tree writes. |
 | `scripts/tests/test_sec_edgar_8k_item_5_02_ingest.py` | NEW (`bdd4d4f`) | 28 pytest. SPEC §9.4 T-EDI-1..T-EDI-7 fully covered. |
 | `src/server/executive_departure.ts` | NEW (`84e69be`) | ~330 LOC. Pure composite per SPEC §5. |
 | `scripts/tests/executiveDeparture.test.ts` | NEW (`84e69be`) | 41 node:test. SPEC §9.1 T-ED-1..T-ED-13 fully covered. |
 | `scripts/migrate_create_executive_departure_snapshots.ts` | NEW (`c11edb3`) | ~210 LOC. PLANNED_DDL byte-pinned per SPEC §6. |
 | `scripts/tests/migrateCreateExecutiveDepartureSnapshots.test.ts` | NEW (`c11edb3`) | 23 node:test. PLANNED_DDL byte-pin + FakeClickHouse coverage + EXPLAIN PLAN. |
-| `scripts/help.ts` | EDITED (`c11edb3`) | EXTRA_HELP entries for edgar:exec-departure:ingest + migrate:create-executive-departure-snapshots. |
+| `src/server/executive_departure_repository.ts` | NEW (`db2f7b2`) | ~430 LOC. SPEC §11 OQ-2 GICS-deferred autonomous resolution in module header. |
+| `scripts/tests/executiveDepartureRepository.test.ts` | NEW (`db2f7b2`) | 59 node:test. Subquery-around-FINAL + writeSnapshot round-trip + EXPLAIN PLAN. |
+| `scripts/daily_signal_daemon.ts` | EDITED (`db2f7b2`) | Step 1i wired between 1h short-interest + §2 cells/bundles. |
+| `src/server/operator_brief_render.ts` | EDITED (`f96ff5c`) | BriefExecutiveDepartureSection + renderExecutiveDepartureSection + #12 section ordering. |
+| `src/server/operator_brief.ts` | EDITED (`f96ff5c`) | buildExecutiveDepartureSection + fetchLatestExecutiveDepartureFromCH + Promise.all thread. |
+| `scripts/tests/operatorBriefRender.test.ts` | EDITED (`f96ff5c`) | brief() fixture extended + 12 rendering tests. |
+| `scripts/tests/operatorBrief.test.ts` | EDITED (`f96ff5c`) | 3 composer-wiring tests (null + populated + graceful-degrade). |
+| `scripts/help.ts` | EDITED (`c11edb3`) | EXTRA_HELP entries for edgar ingest + migrate scripts. |
 | `package.json` | EDITED (`bdd4d4f` + `c11edb3`) | 4 new scripts: 2 ingest + 2 migrate (dry/apply each). |
-| `.claude/HANDOFF.md` | EDITED (this commit) | Rewritten from scratch. |
+| `.claude/HANDOFF.md` | EDITED (this commit) | Rewritten from scratch for end-of-arc state. |
 
 ### CH state
 
 - `quantlab.short_interest` + `quantlab.cusip_ticker_map` — NOT yet created (operator-gated FINRA ingest first run).
 - `quantlab.short_interest_snapshots` — migration script exists; not yet applied.
 - `quantlab.executive_departures` + `quantlab.cik_ticker_map` — NOT yet created (operator-gated EDGAR ingest first run).
-- `quantlab.executive_departure_snapshots` — migration script exists (`c11edb3`); needs operator `npm run migrate:create-executive-departure-snapshots:apply`. A4 daemon hook (NEXT) will fail-safe (absent-table-safe gate) until migration applied.
+- `quantlab.executive_departure_snapshots` — migration script exists (`c11edb3`); needs operator `npm run migrate:create-executive-departure-snapshots:apply`. Daemon step 1i is absent-table-safe; until operator runs migration, step 1i logs the "table absent" message + skips.
 
 ### Tests
 
 ```text
-npm test                       2134 / 2134 pass / 0 fail / 11 skipped   ✓ (was 2070 pre-A2; +64 net new from A2 + A3)
-npx tsc --noEmit               13 errors (unchanged baseline)
+npm test                       2210 / 2210 pass / 0 fail / 15 skipped   ✓ (was 2070 pre-A2; +140 net new from A2 + A3 + A4 + A5)
+npx tsc --noEmit               13 errors (unchanged baseline — pre-existing files)
 npm run check:help             ✓ green
 .venv/Scripts/python.exe -m pytest scripts/tests   210 / 210 (was 182 pre-A1; +28 net new from A1)
 ```
@@ -187,22 +160,23 @@ npm run check:help             ✓ green
 
 ### NEW from this session (s91)
 
-- **EDGAR User-Agent compliance is hard-fail.** SEC explicitly bans programmatic access without a `User-Agent: name email@domain` header. A1 hard-codes `SignalForge/exec-departure-ingest u0249898@gmail.com` (operator-overridable via `--user-agent`); without it, all requests will 403. Already implemented; documented in script docstring.
-- **EDGAR rate limit is 10 req/sec.** A1 implements back-off on 429 with 1s initial delay, doubling each retry, up to 3 retries. CIK→ticker resolution for ~60 equity-midcap tickers + ~500 SPY-500 tickers is ~560 total requests at first cold-cache run = ~60 seconds at 10 req/s. After cache populates, ongoing daemon runs do ~0 lookups (cache hits).
-- **`accepted_at` vs `period_of_report` is the load-bearing anti-leak gate.** Per E-7, the daemon's snapshot-as-of-D filter MUST use `accepted_at` (the wall-clock EDGAR-acceptance moment), NOT `period_of_report`. A1's `filter_by_acceptance_date` enforces this. A2's `filterEventsInWindow` also operates on `acceptedAt`. A4 reads MUST not mix.
-- **Item 5.02 sub-item parsing requires per-filing body fetch.** EDGAR's broad `items` field returns "5.02" not "5.02(b)". A1 fetches the filing's primary doc HTML and regex-matches the structurally-encoded `Item 5.02(X)` header. This is SEC-encoded structure per 17 CFR 249.308, NOT free-text NLP (E-2 fork).
-- **CIK ≠ CUSIP.** CIK (Central Index Key) is EDGAR's primary key; CUSIP is FINRA's primary key. `cik_ticker_map` (gap #8) is a separate table from `cusip_ticker_map` (gap #10). Both coexist; both ReplacingMergeTree.
-- **A2 per-ticker layer is BINARY.** Per E-13, no per-ticker z-score baseline. A4 repository reads must surface event-presence-in-window, not continuous per-ticker statistics. The composite's `inputsAvailablePerTicker` counts rows with both `cik` and `sector` populated (i.e., resolvable to GICS sector AND with a valid CIK→ticker mapping).
-- **A2 `computeZ` uses sample stddev (n-1)** per López de Prado AFML §1.3 + 1e-12 degenerate-stddev guard, identical shape to short-interest A2. Sector baselines must contain ≥ 30 valid prints; below the floor, z is null and `executive_cluster_departure` is false.
-- **A3 PLANNED_DDL has 10 columns** (vs short-interest A3's 12). The narrower column set reflects the simpler per-snapshot data: only one boolean flag + two JSON payloads + four metadata + composite version. NOT a missing column issue; the snapshot data is structurally simpler.
-- **A3 creates the SNAPSHOT table only.** Source `executive_departures` + cache `cik_ticker_map` are created lazily by A1. Documented in commit message + migration docstring.
-- **Section #12 byte-equal protection.** A5 (next) MUST append after `## 11.` to preserve byte-equality on sections #1-#11. Will follow same pattern as short-interest A5 (commit `1543d7d`).
+- **A4 GICS-sector resolution is structurally dormant.** The composite's aggregate-sector layer + the brief's flagged-sectors table render code paths are implemented + tested but receive zero inputs in v1. A regression test (`renders the v1 GICS-deferred footer when flaggedSectors is empty`) catches an accidental activation that doesn't populate the GICS mapping. v2 activation lands when either A1's SIC capture or a separate gics_sector_map ingest goes in.
+- **EDGAR User-Agent compliance is hard-fail.** A1 hard-codes `SignalForge/exec-departure-ingest u0249898@gmail.com`; without a properly-formed UA header, SEC returns 403. Documented in A1 docstring + watch-out preserved from prior HANDOFF.
+- **EDGAR rate limit is 10 req/sec.** A1 backs off on 429; cold-cache first run for ~560 unique CIKs is ~60 seconds.
+- **`accepted_at` vs `period_of_report` is the load-bearing anti-leak gate.** The daemon's snapshot-as-of-D filter MUST use `accepted_at` (the wall-clock EDGAR-acceptance moment), NOT `period_of_report`. A4 reads enforce this; A2 composite operates on `acceptedAt`. A refactor that swapped to `period_of_report` would introduce a look-ahead-leak vector.
+- **Item 5.02 sub-item parsing requires per-filing body fetch.** EDGAR's broad `items` field returns "5.02" not "5.02(b)". A1 fetches the filing's primary doc HTML and regex-matches the structurally-encoded `Item 5.02(X)` header per 17 CFR 249.308.
+- **CIK ≠ CUSIP.** `cik_ticker_map` (gap #8) is a separate table from `cusip_ticker_map` (gap #10). Both coexist; both ReplacingMergeTree.
+- **A2 per-ticker layer is BINARY.** Per E-13, no per-ticker z-score baseline. A4 repository reads surface event-presence-in-window, not continuous per-ticker statistics.
+- **A3 PLANNED_DDL has 10 columns** (vs short-interest A3's 12). The narrower column set reflects the simpler per-snapshot data: boolean cluster flag + two JSON payloads + four metadata + composite version.
+- **A3 creates the SNAPSHOT table only.** Source `executive_departures` + cache `cik_ticker_map` are created lazily by A1's `ensure_*_table` calls on first --apply.
+- **A5 byte-equal protection on sections #1-#11.** Test pins #12 to render AFTER #11. Future composites (#13 etf-flow, #14+) MUST append at the tail.
+- **A5 staleness threshold = 4bd** (vs short-interest's 14bd). Tighter because EDGAR is real-time + filings are statutorily due within 4 business days. A 4bd-stale ingest is a missed daemon run, not a publication-cadence artifact.
 
 ### Carried (s89-s90 + earlier)
 
-All s90 watch-outs preserved unchanged. Key carry-overs:
+All prior watch-outs preserved unchanged. Key carry-overs:
 
-- 47 commits ahead of `origin/main`; push is operator-gated.
+- 49 commits ahead of `origin/main`; push is operator-gated.
 - `cycle_v1` composite continues rendering as Layer-5 LLM context only.
 - ADR-041 `yield_curve_inverted` implementation NOT yet started.
 - Repository reads use subquery-around-FINAL pattern (a52c964 regression class).
@@ -216,10 +190,10 @@ All s90 watch-outs preserved unchanged. Key carry-overs:
 ### Daily-keep-it-fresh
 
 ```text
-npm run daemon:daily                                    # all 5 Layer-0 composites; auto-refreshes FRED
+npm run daemon:daily                                    # all 6 Layer-0 composites; auto-refreshes FRED
 npm run audit:positions
 npx tsx scripts/_paper_trading_review.ts
-npm run brief:morning                                   # sections #7-#11 with real data
+npm run brief:morning                                   # sections #7-#12 with real data
 ```
 
 ### Gap #10 short-interest activation (post-merge / per-operator-decision)
@@ -233,20 +207,21 @@ npm run daemon:daily
 npm run brief:morning
 ```
 
-### Gap #8 executive-departure activation (post-A4→A5-merge / per-operator-decision; PARTIALLY READY)
+### Gap #8 executive-departure activation (post-merge / per-operator-decision; FULLY READY)
 
 ```text
 .venv/Scripts/python.exe scripts/sec_edgar_8k_item_5_02_ingest.py --dry-run
 .venv/Scripts/python.exe scripts/sec_edgar_8k_item_5_02_ingest.py --apply
 npm run migrate:create-executive-departure-snapshots
 npm run migrate:create-executive-departure-snapshots:apply
-# (daemon hook + brief panel pending A4 + A5)
+npm run daemon:daily       # step 1i fires; populates executive_departure_snapshots
+npm run brief:morning      # section #12 renders the per-ticker flagged-tickers panel
 ```
 
 ### Tests + dev
 
 ```text
-npm test                                                                       # TS — 2134 pass / 0 fail / 11 skipped
+npm test                                                                       # TS — 2210 pass / 0 fail / 15 skipped
 .venv/Scripts/python.exe -m pytest scripts/tests                               # Python — 210 / 210
 npm run dev                                                                    # http://localhost:3000
 npm run check:help                                                             # FULLY GREEN
@@ -254,9 +229,9 @@ npm run check:help                                                             #
 
 ## For the next session — priority order
 
-**Recommended immediate continuation:** Gap #8 A4 — repository + daemon step 1i. First commit = `src/server/executive_departure_repository.ts` + `scripts/tests/executiveDepartureRepository.test.ts` + daemon-hook wiring in `scripts/daily_signal_daemon.ts`. Mirrors `src/server/short_interest_repository.ts` structurally; SPEC §4 + §7 + §9.2 are the contract.
+**Recommended immediate continuation:** Gap #9 — etf-flow-monitoring SPEC. First commit = `docs/specs/etf-flow-monitoring.md` mirroring the executive-departure SPEC structure (§1-§12). Read the gap doc (`docs/obsidian/gaps/etf-flow-monitoring.md` if present; else the broader gap inventory) first; resolve any canon-thin forks autonomously per the CLAUDE.md three-criterion test.
 
-After A4 lands, A5 follows immediately (brief section #12 in `src/server/operator_brief_render.ts` + composer wiring in `src/server/operator_brief.ts`).
+After the SPEC commits, A1-A5 phases follow at the established cadence (one commit per phase).
 
 **Pejman decisions carried + queued:**
 
@@ -264,29 +239,31 @@ After A4 lands, A5 follows immediately (brief section #12 in `src/server/operato
 - CBOE DataShop subscription (blocked under data-source policy).
 - #5 capital-deployment-ramp ADR (self-assigned, ~1 week, not blocking).
 - ADR-041 implementation slot (operator-pickable insertion).
-- Push 47 commits to origin/main (operator-gated, HOLD).
+- Gap #8 v2 enhancement — GICS sector activation (operator-pickable insertion).
+- Push 49 commits to origin/main (operator-gated, HOLD).
 
 **Calendar-gated:**
 
 - Drawdown framework §12 90d empirical retune — earliest 2026-08-29.
-- Vol-structure / sector-rotation / cross-asset / cycle-position / short-interest Phase B campaigns — calendar or backfill arcs.
+- Vol-structure / sector-rotation / cross-asset / cycle-position / short-interest / executive-departure Phase B campaigns — calendar or backfill arcs.
 
 **DO NOT auto-open without operator green-light:**
 
 - ADR-041 implementation (Accepted methodology but slot un-queued).
+- Gap #8 v2 GICS-sector activation (operator-pickable; deferred-but-defined).
 - C-12 Phase B AlpacaAdapter.
 - Phase B campaigns for the six Layer-0 composites.
 - `git push` to origin/main.
 
 ## Important framing for the next chat
 
-s91 opened with gap #10 short-interest closed end-to-end (s89-s90) and four commits of gap #8 landed this session under the autonomous-execution protocol (SPEC + A1 + A2 + A3). Zero permission pauses across all four; three canon-thin forks resolved autonomously (E-2 / E-5 / E-11).
+s91 closed with gap #8 executive-departure-signal DONE end-to-end. Six commits this session under the autonomous-execution protocol; zero permission pauses across all six. Four autonomous canon-thin forks resolved (E-2 sub-item-code classification, E-5 no role weighting, E-11 Form 4 deferred to gap #7, A4 GICS-sector deferral per §11 OQ-2).
 
-**The next session's default behavior on "continue":** read this HANDOFF's "Next stage" section, open gap #8 A4 — repository + daemon step 1i. Mirror the short-interest A4 pattern (`src/server/short_interest_repository.ts`). After A4 lands, A5 (brief section #12) follows immediately under the autonomous-execution protocol.
+**The next session's default behavior on "continue":** read this HANDOFF's "Next stage" section, open gap #9 etf-flow-monitoring. Write `docs/specs/etf-flow-monitoring.md` mirroring the executive-departure SPEC structure. After SPEC lands, A1-A5 follow at the established cadence.
 
-**Parallel-tracks posture continues.** This session did NOT affect C-12 / paper-trading / real-money-flip arcs.
+**Parallel-tracks posture continues.** s91 did NOT affect C-12 / paper-trading / real-money-flip arcs.
 
-**The chain through s91 mid-session:**
+**The chain through s91 close:**
 
 ```text
 ALL S41-S90 WORK                               ✓ as documented
@@ -296,10 +273,12 @@ S91: gap #8 SPEC executive-departure-signal    ✓ committed (c04b706) — 445 L
 S91: gap #8 A1 EDGAR ingest + 28 pytest        ✓ committed (bdd4d4f)
 S91: gap #8 A2 pure composite + 41 TS tests    ✓ committed (84e69be)
 S91: gap #8 A3 snapshot migration + 23 tests   ✓ committed (c11edb3)
+S91: gap #8 A4 repository + daemon step 1i     ✓ committed (db2f7b2) + 59 tests
+S91: gap #8 A5 brief section #12 + 17 tests    ✓ committed (f96ff5c)
 S91: HANDOFF rewrite                           ✓ this commit
-  → next: gap #8 A4 repository + daemon step 1i
-  → after A4: gap #8 A5 brief section #12
-  → after #8 ships: gap #9 etf-flow → gap #7 event-driven-filings (Form 4 lands here)
-  → operator-pickable insertion: ADR-041 implementation
-  → background: daemon writes per-cycle snapshots for the five Layer-0 composites that have applied migrations
+  → next: gap #9 etf-flow-monitoring SPEC
+  → after SPEC: A1 (ETF.com / ETF Database scraper) → A2-A5 at established cadence
+  → after #9 ships: gap #7 event-driven-filings-processor (Form 4 lands here)
+  → operator-pickable insertions: ADR-041 impl, Gap #8 v2 GICS activation
+  → background: daemon writes per-cycle snapshots for the six Layer-0 composites that have applied migrations
 ```
