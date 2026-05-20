@@ -135,6 +135,12 @@ import {
   executiveDepartureSnapshotsTableExists,
   runDaemonExecutiveDepartureEvaluation,
 } from '../src/server/executive_departure_repository.js';
+import {
+  EtfFlowRepository,
+  etfFlowSnapshotsTableExists,
+  etfSharesOutstandingTableExists,
+  runDaemonEtfFlowEvaluation,
+} from '../src/server/etf_flow_repository.js';
 import { runFredFetch } from '../src/server/daemon_fred_fetch.js';
 import { CLASSIFIER_VERSION_V3 } from '../src/server/macro_regime_v3.js';
 import {
@@ -1265,6 +1271,53 @@ async function main() {
       anomalies.push({
         severity: 'info',
         message: `exec-departure evaluation failed: ${(e as Error).message}`,
+      });
+    }
+  }
+
+  // 1j. ETF-flow evaluation (informational Layer-0 input).
+  //     SPEC: docs/specs/etf-flow-monitoring.md §3 component diagram + §7
+  //     daemon hook position — runs AFTER exec-departure (step 1i); consumes
+  //     the densified shares-outstanding + close panel for the F-UNIVERSE v1
+  //     21-ETF universe (sourced from `scripts/etf_flow_ingest.py`),
+  //     assembles 21-element windows + trailing-1y baselines, computes the
+  //     A2 composite, writes one row to `quantlab.etf_flow_snapshots`.
+  //
+  //     Two table gates (per S92-9 + S92-10): both the source table
+  //     `etf_shares_outstanding` and the snapshot table `etf_flow_snapshots`
+  //     must exist. The source gate handles "A3 migration applied but A1
+  //     ingest never run" cleanly (the composite would emit all-cold-start
+  //     rows; skip the daemon call entirely instead of writing a noise
+  //     snapshot). The snapshot gate handles "A3 migration not yet applied"
+  //     (skip with operator nudge).
+  //
+  //     Output informational only in v1; does NOT fire a regime category.
+  //     Same non-fatal posture as all prior Layer-0 composites.
+  if (NO_MACRO || DRY_RUN) {
+    console.log(`[etf-flow] skipped (${NO_MACRO ? '--no-macro' : '--dry-run'})`);
+  } else if (!(await etfSharesOutstandingTableExists(ch))) {
+    console.log(
+      '[etf-flow] source table absent (`quantlab.etf_shares_outstanding`) — ' +
+      'skipped. Run `npm run etf:flow:ingest` to populate.',
+    );
+  } else if (!(await etfFlowSnapshotsTableExists(ch))) {
+    console.log(
+      '[etf-flow] snapshots table absent (`quantlab.etf_flow_snapshots`) — ' +
+      'skipped. Run `npm run migrate:create-etf-flow-snapshots:apply` to enable.',
+    );
+  } else {
+    try {
+      const etfFlowRepo = new EtfFlowRepository({ ch });
+      const etfFlowResult = await runDaemonEtfFlowEvaluation({
+        repo: etfFlowRepo,
+        asOf: new Date(t0),
+      });
+      console.log(etfFlowResult.summaryLine);
+    } catch (e) {
+      console.warn(`[etf-flow] evaluation failed (non-fatal): ${(e as Error).message}`);
+      anomalies.push({
+        severity: 'info',
+        message: `etf-flow evaluation failed: ${(e as Error).message}`,
       });
     }
   }
