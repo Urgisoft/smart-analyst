@@ -1,14 +1,22 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-05-20 (session 93 #1 — **gap #7 SPEC + teach-doc landed** as commit `48e0da1`. First slice of the gap #7 event-driven-filings-processor arc — **two parallel Layer-0 composites under one gap**: `eight_k_classifier_v1` + `form_4_insider_v1`. Three canon-thin forks resolved autonomously (EDF-1 two-siblings, EDF-2 daily-cadence, EDF-3 no 13D/13G v1). 65 commits ahead of `origin/main`, push still held. **EK-A1 NEXT (8-K event ingest extending gap #8 infrastructure)**.)
+Last updated: 2026-05-20 (session 93 #2 — **gap #7 EK-A1 DONE** as commit `79b3ffa`. Shared EDGAR helper extraction + new 8-K broader event ingest + source-table migration + 25 pytest tests landed in a single slice. All gates green (TS 2364/2364, Python 259/259 — 234 baseline + 25 new, check:help ✓, tsc 13 errors unchanged baseline). 66 commits ahead of `origin/main`, push still held. **EK-A2 NEXT (pure composite `eight_k_classifier_v1`)**.)
 
 ## What this turn delivered
 
-First slice of the gap #7 event-driven-filings-processor arc (s93 #1):
+Second slice of the gap #7 event-driven-filings-processor arc (s93 #2 — first behavior-affecting slice):
 
-1. **Gap #7 SPEC + teach-doc** — commit `48e0da1`. Two files / 832 LOC:
-   - `docs/specs/event-driven-filings-processor.md` (~600 LOC) — SPEC covers BOTH `eight_k_classifier_v1` + `form_4_insider_v1` composites under one document. §2 splits decisions into gap-level (EDF-1..EDF-10), 8-K-specific (EK-1..EK-8), Form-4-specific (F4-1..F4-12). §10 phasing = SPEC + 5 EK-A* + 5 F4-A* = 11 slices, ~14 working days estimated.
-   - `docs/teach/2026-05-20-event-driven-filings-architecture.md` (~220 LOC) — walks the three canon-thin forks (composite shape / cadence / CMP classifier deferral) with intuition + mechanism + failure mode + explicit "if you push back, here is what changes" review framing.
+1. **Shared EDGAR helpers extracted** — `scripts/_sec_edgar_helpers.py` (NEW, ~350 LOC). Per SPEC §2.1 EDF-10: rate-limit + 429 retry + User-Agent + acceptance-date filter + CIK→ticker resolver + cik_ticker_map DDL/writer + endpoint constants live in a single shared module. Reused by both `sec_edgar_8k_item_5_02_ingest.py` (refactor) and the new `sec_edgar_8k_event_ingest.py`; F4-A1 will reuse later.
+
+2. **Gap #8 ingest refactor (behavior-preserving)** — `scripts/sec_edgar_8k_item_5_02_ingest.py` now imports from `_sec_edgar_helpers` and re-exports for test-compat. All 28 gap-#8 pytest tests stay green byte-for-byte. The local `resolve_cik_to_ticker` wrapper preserves test-time `patch.object(edgar, "fetch_edgar", ...)` behavior.
+
+3. **Gap #7 EK-A1 ingest** — `scripts/sec_edgar_8k_event_ingest.py` (NEW, ~370 LOC). Item-code-only classification per SPEC EK-2 (no body fetch — cheaper than gap #8's per-filing HTML download); default item set = `1.01,2.01,2.06,3.01,4.01,4.02,5.01` per EK-1; writes to `quantlab.eight_k_events` (separate from gap #8's `executive_departures` per EK-5). Operator paths: `--items` / `--url` / `--from-file` / `--start-date` / `--end-date` / `--snapshot-date` / `--user-agent`.
+
+4. **Source-table migration** — `scripts/migrate_create_eight_k_events.ts` (NEW, ~210 LOC). PLANNED_DDL byte-pinned; tests cover ingest lazy-create vs migration parity. Single-table migration (per HANDOFF S93 step 5 — snapshot table is EK-A3 co-bootstrap).
+
+5. **Tests** — `scripts/tests/test_sec_edgar_8k_event_ingest.py` (NEW, 25 tests). T-EKI-1..T-EKI-8 per SPEC §9.4 + multi-item expansion + item-filter subset + DDL parity gate.
+
+6. **npm scripts + help** — `edgar:8k-event:ingest{:dry}` + `migrate:create-eight-k-events{:apply}` in package.json; EXTRA_HELP entries for the Python scripts; migration's own `help` export auto-collects. `check:help` green.
 
 ## Where we are
 
@@ -21,9 +29,10 @@ First slice of the gap #7 event-driven-filings-processor arc (s93 #1):
 | Gap #10 short-interest-tracking arc | ✓ DONE end-to-end (s89-s90) |
 | Gap #8 executive-departure-signal arc | ✓ DONE end-to-end (s91) |
 | Gap #9 etf-flow-monitoring arc | ✓ DONE end-to-end (s92, 6 commits) |
-| **Gap #7 event-driven-filings-processor SPEC + teach-doc** | **✓ s93 #1 (`48e0da1`)** |
-| **Gap #7 EK-A1 (8-K event ingest)** | **☐ NEXT** |
-| Gap #7 EK-A2..A5 (8-K composite → migration → repository+daemon → brief #14) | ☐ queued after EK-A1 |
+| Gap #7 event-driven-filings-processor SPEC + teach-doc | ✓ s93 #1 (`48e0da1`) |
+| **Gap #7 EK-A1 (8-K event ingest + helper extraction + migration)** | **✓ s93 #2 (`79b3ffa`)** |
+| **Gap #7 EK-A2 (pure composite `eight_k_classifier_v1`)** | **☐ NEXT** |
+| Gap #7 EK-A3..A5 (snapshot-migration co-bootstrap → repository+daemon → brief #14) | ☐ queued after EK-A2 |
 | Gap #7 F4-A1..A5 (Form 4 ingest → composite → migration → repository+daemon → brief #15) | ☐ queued after EK arc |
 | Gap #8 v2 enhancement — GICS sector mapping activation | ☐ deferred (operator-pickable insertion) |
 | Gap #9 v2 enhancement — ETF.com/issuer-CSV cross-validation | ☐ deferred (operator-pickable insertion) |
@@ -32,51 +41,39 @@ First slice of the gap #7 event-driven-filings-processor arc (s93 #1):
 | Phase B for cycle/vol/sector/cross-asset/short-interest/exec-departure/etf-flow | ⏸ deferred — calendar OR backfill arc |
 | #5 capital-deployment-ramp ADR | ☐ operator self-assigned ~1 week; not blocking |
 | Drawdown framework §12 90d empirical retune | ☐ scheduled — earliest 2026-08-29 |
-| Push 65 commits to origin/main | ☐ operator-gated, HOLD |
+| Push 66 commits to origin/main | ☐ operator-gated, HOLD |
 
 ## Decisions locked in
 
-### Session 93 part 1 (this turn, this commit) — gap-level forks
+### Session 93 part 2 (this turn, this commit) — EK-A1 implementation forks
 
-**S93-1. Gap #7 ships as TWO parallel Layer-0 composites, not one combined signal (EDF-1).**
-`Why:` Three-criterion canon-thin test favored two siblings: (1) Lerman-Livnat 2010 anchors 8-K canon; Seyhun 1986 / Lakonishok-Lee 2001 / Cohen-Malloy-Pomorski 2012 anchor Form 4 canon — no paper combines them. (2) Combining heterogeneous streams (binary event indicators vs dollar-weighted transactions) requires an invented cross-source weight that violates Bailey-LdP 2014 no-in-sample-tuning canon. (3) Two siblings = 0 cross-source weights; combined = ≥1 cross-source weight. Matches gap #8 E-11 precedent ("Path-α single-source over Path-β combined").
-`How to apply:` Both composites ship independently end-to-end. 8-K arc (EK-A1..A5) ships FIRST, then Form 4 arc (F4-A1..A5). Brief sections #14 + #15 added separately; daemon steps 1k + 1l added separately; each composite has its own snapshot table. A future v2 ADR could fuse them once Phase B reveals empirical reasons; the v2 ADR would need to confront free-parameter cost openly.
+**S93-10. Refactor pattern: local `resolve_cik_to_ticker` wrapper in each ingest module.**
+`Why:` The gap-#8 test `test_resolve_cik_to_ticker_uses_cache` does `patch.object(edgar, "fetch_edgar", ...)` to verify single-fetch behavior. If `resolve_cik_to_ticker` is imported directly from `_sec_edgar_helpers`, its internal `fetch_edgar` call resolves to the helpers-module's namespace, which the per-module patch does NOT intercept. The local wrapper resolves `fetch_edgar` via the gap-#8 module's global namespace, where the patch lands.
+`How to apply:` Both `sec_edgar_8k_item_5_02_ingest.py` and `sec_edgar_8k_event_ingest.py` define `resolve_cik_to_ticker` as a thin local wrapper around the helpers (cik10 / submissions_url / fetch_edgar / parse_submissions_response). Identical 9-line body in both. F4-A1 will follow the same pattern. The helpers-module's `resolve_cik_to_ticker` remains for any caller that does NOT need module-local patching.
 
-**S93-2. Gap #7 runs on daily-daemon cadence in v1, NOT event-driven polling (EDF-2).**
-`Why:` The gap doc's framing is "event-driven" architecture, but three-criterion test favored daily-daemon: (1) Warner-Watts-Wruck 1988 event-study methodology operates at daily horizon; no canon prescribes intra-day cadence. (2) Real-time polling adds process supervision, retry, dedupe-under-concurrent-polling complexity without canon backing. (3) Daily-daemon = 0 new parameters; event-driven = N (poll interval, batch size, retry policy, dedupe window). Latency cost bounded — worst 23h, typical 12h for US-market-close filing.
-`How to apply:` Steps 1k (8-K) + 1l (Form 4) hook into the existing daily daemon between etf-flow (1j) and §2 cells/bundles. No new process-supervision infrastructure. v2 ADR can promote to event-driven if Phase B reveals 4-23h latency is decision-affecting (test: run daily + event-driven in parallel for 90d, compare signal predictive power).
+**S93-11. `time` + `urllib.request` + `urllib.error` re-imported at module-top in each ingest (test-compat).**
+`Why:` The gap-#8 pytest does `patch.object(edgar.urllib.request, "urlopen", ...)` and `patch.object(edgar.time, "sleep", ...)`. Both `urllib.request` and `time` are Python module singletons; patching attributes on the resolved module object (via `edgar.urllib.request`) affects ALL callers, including the helpers-module's `fetch_edgar`. But the patch resolves the path via `edgar.urllib.request` — that attribute MUST exist on the ingest module's namespace.
+`How to apply:` Each ingest script keeps top-level `import time`, `import urllib.error`, `import urllib.request`, even though only `urllib.error` is locally referenced. Comments + `# noqa: F401` mark the test-compat intent. F4-A1 will follow the same pattern.
 
-**S93-3. Gap #7 v1 OMITS 13D / 13G filings (EDF-3).**
-`Why:` Brav-Jiang-Partnoy-Thomas 2008 anchors activist-13D canon; passive 13G has thinner literature. The activist-vs-passive split + filer-reputation classification (well-known activist vs first-time filer) is a non-trivial separate problem deserving its own SPEC. v1 with 13D/13G would add ≥2 free parameters (activist-vs-passive weight + filer-reputation tier table) without offsetting canon backing.
-`How to apply:` 13D/13G deferred to v2 ADR OR a separate gap arc. The gap doc text references all four filing types (Form 4 + 13D + 13G + 8-K); the SPEC's §1 non-goal #7 explicitly excludes 13D/13G in v1. Operator pickable for queue insertion.
+**S93-12. EK-A1 ingest writes to `quantlab.eight_k_events` (NEW table; parallel to gap #8's `executive_departures`).**
+`Why:` Per SPEC §2.2 EK-5 + S93-5 (carried from s93 #1). Implementation confirmation: the lazy-create DDL in `ensure_eight_k_events_table` is byte-equal to the migration's PLANNED_DDL — pinned by `test_ingest_lazy_create_ddl_matches_migration_planned_ddl`. Both tables include 5.02 rows when both ingest scripts run; gap #8 composite reads `executive_departures` (sub-item-coded), gap #7 composite reads `eight_k_events` (item-coded). Documented in the migration script's scope-note + the ingest script's docstring.
+`How to apply:` Operator running both `npm run edgar:exec-departure:ingest --apply` + `npm run edgar:8k-event:ingest --apply` will see 5.02 events in BOTH tables. Do NOT consolidate.
 
-**S93-4. EDGAR ingest infrastructure refactor at EK-A1 time: extract gap #8 helpers into `scripts/_sec_edgar_helpers.py` (EDF-10).**
-`Why:` Both new ingest scripts (`sec_edgar_8k_event_ingest.py` for 8-K broader; `sec_edgar_form4_ingest.py` for Form 4) reuse gap #8's rate-limit + User-Agent + 429-backoff + acceptance-date-filter + CIK→ticker submissions-API resolver. Duplicating these across 3 scripts would diverge; refactoring at EK-A1 time keeps the 8-K-narrow + 8-K-broad + Form-4 scripts consistent.
-`How to apply:` EK-A1 first commits the helper extraction (refactor; no behavior change in gap #8 script — its tests stay green byte-for-byte), then commits the new 8-K-broader ingest using the helpers. Test the refactor by re-running gap #8 ingest pytest suite (`scripts/tests/secEdgar8kItem502Ingest.test.ts` — verify byte-identical results).
+**S93-13. EK-A1 default item set = `1.01,2.01,2.06,3.01,4.01,4.02,5.01` (matches SPEC EK-1).**
+`Why:` Lerman-Livnat 2010 §4 high-signal subset. Pinned in `DEFAULT_HIGH_SIGNAL_ITEMS` constant + tested by `test_default_high_signal_items_matches_spec_ek_1`. Operator can override via `--items 2.06,4.02` for subset queries.
+`How to apply:` EK-A2 composite reads `eight_k_events.item_code` directly; the high-signal-set filter is at composite read time, NOT at ingest. Ingest writes ALL rows matching the requested item set; composite picks the subset for `material_event_flag` / per-item flags.
 
-**S93-5. 8-K storage: NEW table `quantlab.eight_k_events` (parallel to gap #8's `executive_departures`); 5.02 data intentionally duplicated (EK-5).**
-`Why:` Gap #8's `executive_departures` table does 5.02 sub-item-code parsing (rows keyed on `sub_item_code` = '5.02(b)' / '5.02(c)' etc.); gap #7's broader-item ingest does ITEM-level parsing only (rows keyed on `item_code` = '1.01' / '2.06' etc.). Refactoring gap #8 to share storage would force a destructive schema migration on a working table. Duplication cost: ~560 issuers × ~3-5 8-K filings per issuer per year ≈ ~2000 rows/year of 5.02 redundancy in `eight_k_events` — negligible.
-`How to apply:` `executive_departures` (gap #8) stays unchanged + continues to be the source of truth for the gap #8 executive-departure composite. `eight_k_events` (gap #7) is the source of truth for the broader 8-K classifier composite. Operator running both `sec_edgar_8k_item_5_02_ingest.py` + `sec_edgar_8k_event_ingest.py` will see 5.02 events in BOTH tables — this is expected.
+**S93-14. EK-A1 source-table migration ships even though ingest lazy-creates.**
+`Why:` Per HANDOFF S93-A1 step 5 — operator-friendliness. Allows operator to prep `quantlab.eight_k_events` independent of a first ingest run (e.g. for schema review or for population by a `--from-file` fixture during EK-A2 testing). Pattern departs from gap #8 (which only lazy-creates); EK-A1 establishes the v2 pattern for all future ingest-arc A1 slices.
+`How to apply:` `npm run migrate:create-eight-k-events` + `:apply` available; idempotent (CREATE IF NOT EXISTS). EK-A3 will co-bootstrap source + snapshot tables in a single migration script per gap #9 A3 precedent (the EK-A1 single-table migration will continue to exist as a no-op pre-flight).
 
-**S93-6. Form 4 v1 OMITS Cohen-Malloy-Pomorski opportunistic-vs-routine classifier (F4-1).**
-`Why:` CMP 2012 IS the Tier-1 anchor for Form 4 — strongest single piece of insider-trading canon. But the classifier has a structural cold-start problem: requires ≥5 historical trades per insider over ≥3 years. At v1 first-run, `insider_trades` table is empty. Even after 6 months, most insiders in equity-midcap universe will have 0-3 trades. v1 with classifier would be silent on >95% of insiders. v1 ships raw-activity-only (Seyhun 1986 + Lakonishok-Lee 2001 canon — weaker but legitimate signal).
-`How to apply:` v1 composite tracks raw P (purchase) + S (sale) counts + net $ + cluster-of-3-distinct-insiders-in-30d flag. v2 ADR enabled by ≥6 months of warm-up ingest history adds the CMP classifier (per-insider seasonal-pattern detection + opportunistic-deviation threshold). Phase B validation gate must be aware: v1 captures the weaker (~near-zero-to-weak) raw-cluster signal, not the stronger (~6% annualized) CMP signal — if Phase B shows v1 signal is too weak, the path is to add CMP, not abandon the gap.
+**S93-15. Multi-item OR-clause URL construction for EK-A1.**
+`Why:` EDGAR full-text search does NOT have a native multi-item filter; the only path is an OR-of-Item-phrases in the `q` parameter. `build_event_search_url` constructs `"Item 1.01" OR "Item 2.01" OR ...`. Per SPEC §11 OQ-1, this is a best-guess; first-apply-run will confirm or surface alternative paths.
+`How to apply:` Operator's escape hatches are: (a) `--items 2.06` to narrow to a single-item URL (no OR clause); (b) `--url <custom-verified-url>` to bypass the builder entirely; (c) `--from-file <browser-download.json>` to skip network fetch.
 
-**S93-7. Form 4 cluster threshold: 3 distinct insiders in 30 calendar days (F4-2).**
-`Why:` Gap doc explicit OQ ("3 in 30 OR 5 in 60?"). Three-criterion: (1) Canon-thin for the exact threshold — Seyhun + Lakonishok-Lee document cluster patterns matter but don't prescribe specific count/window. (2) 3-in-30 is the simpler test (lower threshold, faster signal); 5-in-60 introduces TWO free parameters where 3-in-30 introduces ONE (the window is fixed at gap-level 30d). (3) Distinct on `person_cik`, NOT on filing — a single insider filing 3 separate buys in 30d counts as 1 insider.
-`How to apply:` Pinned in tests T-F4-6 + T-F4-8. v2 sensitivity-test could explore 5-in-60 / 4-in-45 alternatives if Phase B reveals miscalibration.
+### Sessions 84-92 + s93 #1 prior decisions (carried)
 
-**S93-8. Form 4 transaction-code filter: open-market codes "P" + "S" only (F4-4).**
-`Why:` Lakonishok-Lee 2001 §3 standard filter; CMP 2012 same filter. Other codes (A grants, M exercises, F payments, G gifts) are externally constrained and NOT informative about discretionary conviction. Stored at ingest layer (forensic) but excluded from composite.
-`How to apply:` `transaction_code IN ('P', 'S')` filter applied at composite-read time, not at ingest. Composite tests T-F4-1..T-F4-3 pin the filter.
-
-**S93-9. Brief section numbering + daemon step numbering (EDF-9).**
-`Why:` Established byte-equal-stdout-protection invariant: existing brief sections #1-#13 MUST remain byte-equal under new section addition. EK section ships first (#14, after etf-flow #13); F4 section ships second (#15, after EK #14).
-`How to apply:` Daemon chain: `1a → 1b → 1c → 1d cycle → 1e vol → 1f sector → 1g cross-asset → 1h short-interest → 1i exec-departure → 1j etf-flow → 1k eight-k → 1l form-4 → §2 cells/bundles`. Brief sections #14 + #15 strictly append.
-
-### Sessions 84-92 prior decisions (carried)
-
-All prior decisions preserved unchanged. S92-1..S92-18 + S91-7..S91-10 + S89/S90 + earlier carry through.
+All prior decisions preserved unchanged. S92-1..S92-18 + S93-1..S93-9 + S91-7..S91-10 + S89/S90 + earlier carry through.
 
 ## Open questions
 
@@ -94,61 +91,49 @@ All prior decisions preserved unchanged. S92-1..S92-18 + S91-7..S91-10 + S89/S90
 - Compounding-live-equity backtest semantic (ADR-class).
 - 78,399 zero-trade sentinels in `bt_runs_regime` (deferred).
 - ADR-041 implementation slot in slice queue — operator-pickable.
-- Push 65 commits to origin/main — operator-gated.
+- Push commits to origin/main — operator-gated.
 - Gap #8 v2 enhancement — GICS sector activation (operator-pickable).
 - Gap #9 v2 cross-validation enhancement — operator-pickable.
 
 ### Closed this turn
 
-- ~~Gap #7 SPEC scope (8-K alone? 8-K + Form 4? 8-K + Form 4 + 13D + 13G?)~~ — RESOLVED per EDF-1/EDF-3: TWO parallel composites (`eight_k_classifier_v1` + `form_4_insider_v1`); 13D/13G OUT-OF-SCOPE v1.
-- ~~Gap #7 cadence (daily-daemon vs event-driven polling)~~ — RESOLVED per EDF-2: daily-daemon v1; event-driven deferred to v2 ADR.
-- ~~Gap #7 composite shape (combined signal vs two siblings)~~ — RESOLVED per EDF-1: two siblings.
-- ~~Form 4 CMP classifier scope v1~~ — RESOLVED per F4-1: deferred to v2 ADR pending ≥6mo per-insider warm-up.
-- ~~Form 4 cluster threshold~~ — RESOLVED per F4-2: 3 distinct insiders in 30d.
-- ~~8-K storage: refactor gap #8 table or new sibling?~~ — RESOLVED per EK-5: new sibling `eight_k_events`; gap #8 `executive_departures` unchanged.
+- ~~EDGAR full-text-search Item-code filter query syntax (EK-A1 OQ from s93 #1)~~ — RESOLVED at SPEC-time defaults; verification deferred to first-apply-run (operator action). Best-guess OR-of-Items in `build_event_search_url`; fallback paths documented.
+- ~~Helper extraction shape~~ — RESOLVED per S93-10/S93-11/S93-12: shared `_sec_edgar_helpers.py` + local `resolve_cik_to_ticker` wrappers + module-top `urllib.request`/`time` for patch.object compat.
+- ~~Source-table migration in EK-A1 vs deferred-to-EK-A3 only~~ — RESOLVED per S93-14: ship in EK-A1 for operator-friendliness; EK-A3 co-bootstraps source + snapshot idempotently.
 
 ### Newly opened
 
-- **8-K full-text-search Item-code filter query syntax (EK-A1 OQ)** — EDGAR `items=` filter behavior verified on first-apply-run; operator paths `--url` / `--from-file` / `--items` parametric override for fallback.
-- **Form 4 XML parser bootstrap on first-run (F4-A1 OQ)** — Form 4 XSD stable but wrapping envelope formats vary; F4-A1 handles both compressed + uncompressed + logs clear errors on schema drift.
-- **`insider_ciks` name cache cold-start (F4-A1 OQ)** — first-run resolves ~100-500 insider CIKs across equity-midcap universe; bursty fetch ~10-50s.
-- **Cohen-Malloy-Pomorski v2 ADR slot** — operator-pickable insertion AFTER ≥6 months of Form 4 warm-up history (earliest ~2026-11-20).
-- **Brav-Jiang-Partnoy-Thomas 13D arc** — separate SPEC OR gap; operator-pickable insertion.
-- **Event-driven architecture v2 ADR slot** — operator-pickable insertion AFTER Phase B reveals daily-daemon latency is decision-affecting (earliest ~2026-08-20 = 90d Phase B parallel-comparison window).
+- **EK-A2 aggregate baseline cold-start cascade.** First daemon run after EK-A4 deploy will have empty 2y baseline → all sector z-scores null → `eight_k_cluster_flag = false`. Matches gap #8 / #9 / #10 cold-start posture. Phase B validation cannot begin for ~6-8 weeks of ingest history.
+- **EK-A4 daemon step 1k absent-table-safety.** Same posture as gap #8 / #9 / #10 — daemon hook must be no-fatal when `eight_k_events` doesn't exist yet (composite returns null + per-ticker-empty). EK-A4 implementation gate.
+- **EK-A5 byte-equal stdout protection on sections #1-#13.** Section #14 must append AFTER section #13; sections #1-#13 must render byte-equal under fixture conditions. Carries from gap #9 A5 / gap #8 A5 / s89/s90/s91 protection.
+- **First-apply-run EDGAR Item-filter OR-clause behavior.** S93-15 best-guess: `"Item 1.01" OR "Item 2.01" OR ...` in `q=` param. Operator-action verification deferred. EDGAR's documented support is at https://www.sec.gov/edgar/sec-api-documentation.
 
 ## Next stage
 
 ### Default on "continue"
 
-**Gap #7 EK-A1 — 8-K broader event ingest.** Concrete first move:
+**Gap #7 EK-A2 — pure composite `eight_k_classifier_v1`.** Concrete first move:
 
-1. Read `scripts/sec_edgar_8k_item_5_02_ingest.py` (gap #8 A1) end-to-end — anchor the helper-extraction refactor.
-2. Create `scripts/_sec_edgar_helpers.py` (NEW shared module). Extract:
-   - `fetch_edgar(url, user_agent, timeout_sec)` — HTTP fetch with rate-limit + 429 retry (lines 278-316 in gap #8 script).
-   - `parse_edgar_search_response(json_bytes)` — full-text search JSON parser (lines 321-401).
-   - `_parse_edgar_datetime(s)` — ISO-8601 + date fallback (lines 404-420).
-   - `filter_by_acceptance_date(filings, snapshot_date)` — E-7 anti-leak gate (lines 451-465).
-   - `cik10(cik)` + `submissions_url(cik)` + `parse_submissions_response(json_bytes)` + `resolve_cik_to_ticker(cik, user_agent, cache)` — CIK→ticker resolver (lines 264-273 + 470-532).
-   - Constants: `EDGAR_SEARCH_BASE`, `EDGAR_SUBMISSIONS_URL`, `EDGAR_ARCHIVES_BASE`, `SEC_RATE_LIMIT_*`, `DEFAULT_USER_AGENT`.
-3. Refactor `scripts/sec_edgar_8k_item_5_02_ingest.py` to import from the helpers module. Goal: gap #8 ingest tests pass byte-equal (`scripts/tests/secEdgar8kItem502Ingest.test.ts` if it exists, or the Python pytest suite — need to locate).
-4. Create `scripts/sec_edgar_8k_event_ingest.py` — sibling ingest using the helpers. Key differences from gap #8 script:
-   - `--items` flag (comma-separated; default = "1.01,2.01,2.06,3.01,4.01,4.02,5.01" per EK-1).
-   - NO sub-item-letter body parse (item-level only).
-   - Writes to `quantlab.eight_k_events` (parallel to `executive_departures`).
-   - Source-table schema: `(accession, cik, ticker, form_type, item_code, accepted_at, period_of_report, filing_url, is_amendment, source, ingested_at)` per SPEC §6.1.
-5. Create migration script `scripts/migrate_create_eight_k_events.ts` (just the source table; the snapshot table is EK-A3). Co-bootstrap pattern: idempotent CREATE.
-6. Write tests under `scripts/tests/secEdgar8kEventIngest.test.ts` per SPEC §9.4 (T-EKI-1..T-EKI-8).
-7. Add npm scripts to `package.json`:
-   - `"eight-k:event:ingest:dry": "..."`
-   - `"eight-k:event:ingest": "..."`
-   - `"migrate:create-eight-k-events": "..."`
-   - `"migrate:create-eight-k-events:apply": "..."`
-8. Add EXTRA_HELP entries to `scripts/help.ts`.
-9. Commit as a single slice (EK-A1).
+1. Read `src/server/executive_departure.ts` (gap #8 composite, ~200 LOC) end-to-end — anchor the pure-function shape.
+2. Read `src/server/etf_flow.ts` (gap #9 composite) for the per-ticker + aggregate split pattern.
+3. Create `src/server/eight_k_classifier.ts` (NEW). Per SPEC §5.1 + §5.2:
+   - Per-stock composite: read `eight_k_events` rows in `[D - 90d, D]`; compute `material_event_flag` (any high-signal item) + per-item flags (impairment / restatement / auditor_change / delisting / control_change / material_agreement / acquisition_disposition).
+   - Aggregate composite: per-sector count of `material_event_flag` events / sector size; z-score against trailing 2y baseline; `eight_k_cluster_flag` fires on `|z| > 2.0`.
+   - `MIN_Z_BASELINE = 30` floor per EDF-7 (matches all prior six Layer-0 composites byte-for-byte).
+   - High-signal-set distinct on `(ticker, accession)` so a single filing with multiple high-signal items counts once toward sector rate.
+4. Add types: `EightKEventRow`, `EightKClassifierPerTicker`, `EightKClassifierAggregate`, `EightKClassifierSnapshot` (per SPEC §5.5 snapshot payload).
+5. Create `scripts/tests/eightKClassifier.test.ts` (NEW). Tests T-EK-1..T-EK-14 per SPEC §9.1:
+   - Per-stock flag firing (T-EK-1..T-EK-6 + T-EK-12).
+   - Per-item flag round-trip (T-EK-4).
+   - Sector event-rate + z-score + cold-start (T-EK-7..T-EK-11).
+   - Distinct-on-(ticker,accession) dedup (T-EK-13).
+   - Same-key dedup at source (T-EK-14).
+6. Run `npm test` + `.venv/Scripts/python.exe -m pytest scripts/tests` — both must stay green.
+7. Commit as a single EK-A2 slice.
 
-### After EK-A1 lands
+### After EK-A2 lands
 
-Standard arc: EK-A2 (pure composite) → EK-A3 (snapshot-table migration) → EK-A4 (repository + daemon step 1k) → EK-A5 (brief section #14). Then F4-A1 → F4-A5. Each commits as its own slice.
+Standard arc: EK-A3 (snapshot-table migration; co-bootstraps source + snapshot) → EK-A4 (repository + daemon step 1k) → EK-A5 (brief section #14). Then F4-A1 → F4-A5. Each commits as its own slice.
 
 ### After both EK + F4 arcs ship
 
@@ -165,13 +150,25 @@ Operator-pickable deferred insertions:
 
 ## Files / code state
 
-### NEW this turn (s93 part 1)
+### NEW this turn (s93 part 2)
 
 | Path | Status | Notes |
 | --- | --- | --- |
-| `docs/specs/event-driven-filings-processor.md` | NEW (`48e0da1`) | ~600 LOC. SPEC for both `eight_k_classifier_v1` + `form_4_insider_v1`. Sections: §1 goals/non-goals, §2.1 gap-level decisions (EDF-1..EDF-10), §2.2 8-K decisions (EK-1..EK-8), §2.3 Form 4 decisions (F4-1..F4-12), §3 component diagram, §4 inputs, §5 composite formulas, §6 CH DDL, §7 daemon hooks (1k+1l), §8 brief panels (#14+#15), §9 test plan, §10 implementation phases (11 slices), §11 OQs, §12 references. |
-| `docs/teach/2026-05-20-event-driven-filings-architecture.md` | NEW (`48e0da1`) | ~220 LOC. Three canon-thin forks walked: composite shape (two-vs-one) / cadence (daily-vs-event-driven) / CMP classifier deferral. Each: intuition + mechanism + failure mode + "if you push back, here is what changes". |
-| `.claude/HANDOFF.md` | EDITED (this commit) | Rewritten from scratch for end-of-SPEC-slice state. |
+| `scripts/_sec_edgar_helpers.py` | NEW (`79b3ffa`) | ~350 LOC. Shared EDGAR ingest helpers per SPEC §2.1 EDF-10. Functions: cik10, submissions_url, build_search_url, fetch_edgar, parse_edgar_search_response, _parse_edgar_datetime, filter_by_acceptance_date, parse_submissions_response, resolve_cik_to_ticker, ensure_cik_ticker_map_table, write_cik_ticker_map. Constants: EDGAR_SEARCH_BASE, EDGAR_SUBMISSIONS_URL, EDGAR_ARCHIVES_BASE, SEC_RATE_LIMIT_*, DEFAULT_USER_AGENT. |
+| `scripts/sec_edgar_8k_event_ingest.py` | NEW (`79b3ffa`) | ~370 LOC. Broader 8-K item ingest per SPEC §2.2 EK-1..EK-8. Functions: parse_args, build_event_search_url, resolve_cik_to_ticker (local wrapper), filter_filings_by_items, ensure_eight_k_events_table, build_eight_k_event_rows, write_events, main. Default item set DEFAULT_HIGH_SIGNAL_ITEMS = ("1.01","2.01","2.06","3.01","4.01","4.02","5.01"). |
+| `scripts/migrate_create_eight_k_events.ts` | NEW (`79b3ffa`) | ~210 LOC. Source-table migration per SPEC §6.1. PLANNED_DDL byte-pinned; pre-/post-check pattern matches `migrate_create_executive_departure_snapshots.ts`. |
+| `scripts/tests/test_sec_edgar_8k_event_ingest.py` | NEW (`79b3ffa`) | 25 tests covering T-EKI-1..T-EKI-8 per SPEC §9.4 + multi-item expansion + item-filter subset + URL builder + DEFAULT_HIGH_SIGNAL_ITEMS pin + DDL parity gate (ingest lazy-create vs migration PLANNED_DDL). |
+| `scripts/sec_edgar_8k_item_5_02_ingest.py` | EDITED (`79b3ffa`) | Refactored to import from `_sec_edgar_helpers`. Re-exports preserved via `__all__`. Local `resolve_cik_to_ticker` wrapper kept for test-compat. All 28 gap-#8 pytest tests stay green byte-for-byte. |
+| `package.json` | EDITED (`79b3ffa`) | +4 scripts: `edgar:8k-event:ingest`, `edgar:8k-event:ingest:dry`, `migrate:create-eight-k-events`, `migrate:create-eight-k-events:apply`. |
+| `scripts/help.ts` | EDITED (`79b3ffa`) | +2 EXTRA_HELP entries for the Python edgar:8k-event scripts. Migration's `help` export auto-collects. |
+| `.claude/HANDOFF.md` | EDITED (this commit) | Rewritten from scratch for end-of-EK-A1 state. |
+
+### From s93 #1 (carried; unchanged)
+
+| Path | Status | Notes |
+| --- | --- | --- |
+| `docs/specs/event-driven-filings-processor.md` | EXISTS (`48e0da1`) | ~600 LOC. SPEC unchanged. |
+| `docs/teach/2026-05-20-event-driven-filings-architecture.md` | EXISTS (`48e0da1`) | ~220 LOC. Teach-doc unchanged. |
 
 ### From s92 (carried; unchanged)
 
@@ -189,41 +186,39 @@ All s91 files (`executive_departure*`, EDGAR ingest, brief section #12) preserve
 - `quantlab.executive_departure_snapshots` — migration script exists; not yet applied.
 - `quantlab.etf_shares_outstanding` — NOT yet created. A1 ingest creates it lazily; A3 migration ALSO creates it idempotently via co-bootstrap.
 - `quantlab.etf_flow_snapshots` — NOT yet created. A3 migration script exists; not yet applied.
-- **`quantlab.eight_k_events` — NOT yet created (gap #7 EK-A1 will create).**
-- **`quantlab.eight_k_classifier_snapshots` — NOT yet created (gap #7 EK-A3 will create).**
-- **`quantlab.insider_trades` — NOT yet created (gap #7 F4-A1 will create).**
-- **`quantlab.insider_ciks` — NOT yet created (gap #7 F4-A1 will create).**
-- **`quantlab.form_4_insider_snapshots` — NOT yet created (gap #7 F4-A3 will create).**
+- **`quantlab.eight_k_events` — NOT yet created. EK-A1 ingest creates it lazily on first `--apply`; EK-A1 migration (`migrate:create-eight-k-events`) also creates it idempotently for operator pre-flight.**
+- `quantlab.eight_k_classifier_snapshots` — NOT yet created (gap #7 EK-A3 will create).
+- `quantlab.insider_trades` — NOT yet created (gap #7 F4-A1 will create).
+- `quantlab.insider_ciks` — NOT yet created (gap #7 F4-A1 will create).
+- `quantlab.form_4_insider_snapshots` — NOT yet created (gap #7 F4-A3 will create).
 
 ### Tests
 
 ```text
-npm test                       2383 / 2364 pass / 0 fail / 19 skipped   ✓ (unchanged from s92 end — no code change this slice)
-npx tsc --noEmit               13 errors (unchanged baseline — pre-existing files)
-npm run check:help             ✓ green
-.venv/Scripts/python.exe -m pytest scripts/tests   234 / 234 (unchanged from s92)
+npm test                       2364 / 2364 pass / 0 fail / 19 skipped   ✓ (unchanged from s92 end — EK-A1 added 0 TS tests; tests are Python)
+npx tsc --noEmit               13 errors (unchanged baseline — pre-existing _-prefixed files)
+npm run check:help             ✓ green (new entries auto-validated)
+.venv/Scripts/python.exe -m pytest scripts/tests   259 / 259 (234 baseline + 25 new EK-A1)
 ```
 
 ## Watch-outs
 
-### NEW from this turn (s93 #1)
+### NEW from this turn (s93 #2)
 
-- **SPEC + teach-doc commit DOES NOT change any code or tests.** Future EK-A1 commit will be the first behavior-affecting slice of gap #7. The full TS test suite (2364 pass) and Python test suite (234 pass) are unchanged baselines for EK-A1's tests-pass gate.
-- **EK-A1 helper-extraction is a NON-trivial refactor of gap #8 script.** The 350+ lines of helpers extracted from `sec_edgar_8k_item_5_02_ingest.py` are load-bearing for the existing gap #8 ingest. EK-A1 must run gap #8's ingest tests after extraction to verify byte-identical behavior. If Python pytest suite for gap #8 ingest doesn't exist (only A2 composite tests do), the verification gate is reading the script + verifying no logic moved.
-- **8-K table duplication is INTENTIONAL.** Per EK-5 + S93-5: `executive_departures` (gap #8) + `eight_k_events` (gap #7) both hold 5.02 records when both ingest scripts run. The gap #8 composite reads only `executive_departures`; the gap #7 composite reads only `eight_k_events`. Do not "consolidate" — the schemas differ (sub_item_code vs item_code as primary partition key).
-- **Form 4 XML structure is DIFFERENT from 8-K HTML.** F4-A1 ingest must parse XML with namespace `http://www.sec.gov/edgar/ownershipDocument`. The Form 4 XSD is stable but envelope format varies (compressed `.xml` vs uncompressed). F4-A1 must handle both + log clear errors on schema drift. NOT a copy-paste of 8-K body parser.
-- **Form 4 transaction codes: ONLY "P" + "S" in composite.** All other codes (A, M, F, G, H, I, J, K, L, O, U, V, W, X, Z) stored at ingest BUT excluded from composite. Lakonishok-Lee + CMP standard filter. Documented in F4-4.
-- **`person_cik` ≠ `issuer_cik` ≠ `cusip_ticker_map` key.** Form 4's `person_cik` is the INSIDER's CIK (a different SEC keyspace from issuer CIK). The `insider_ciks` table (NEW) is the insider keyspace cache; the existing `cik_ticker_map` is the issuer keyspace cache. Two distinct tables; do not merge.
-- **CMP classifier deferred. v1 signal is WEAKER than the gap-doc-cited 6% annualized.** Per F4-1: v1 ships raw-activity-only (Seyhun + Lakonishok-Lee canon — weaker signal). Phase B validation gate must be aware this is not the CMP-grade signal. If Phase B shows v1 signal is too weak, the path is to add CMP via v2 ADR, NOT to abandon gap.
-- **Daily-daemon cadence cap on signal latency: 23h worst-case.** Per EDF-2 daemon catches all filings within 1bd of acceptance. If Phase B reveals signal decays sharply within first few hours post-filing, v2 ADR can promote to event-driven (test path: parallel-run daily + event-driven for 90d, compare predictive power).
-- **3-in-30d cluster threshold is DISTINCT on `person_cik`, NOT on filing.** Per F4-2 + test T-F4-8: a single insider filing 3 separate trades in 30d counts as 1 insider, not 3. Cluster fires on 3 DISTINCT insiders.
-- **13D/13G OUT-OF-SCOPE v1.** Brav-Jiang-Partnoy-Thomas + filer-reputation classification deserves its own SPEC. Defer to v2 ADR OR separate gap arc.
+- **Refactor pattern: local `resolve_cik_to_ticker` wrapper in EACH ingest module.** Per S93-10. Don't be tempted to "DRY up" by importing the helpers version directly — `patch.object(<module>, "fetch_edgar", ...)` will fail to intercept the call. F4-A1 must follow the same pattern: 9-line local wrapper calling `cik10` / `submissions_url` / `fetch_edgar` / `parse_submissions_response` via the module's own namespace.
+- **Module-top `time` + `urllib.request` re-imports per ingest (test-compat).** Per S93-11. Each ingest script keeps `import time`, `import urllib.error`, `import urllib.request` at the top WITH `# noqa: F401` markers explaining the test-compat intent. F4-A1 must follow the same pattern even though Form 4 ingest doesn't otherwise need `time` directly.
+- **`build_event_search_url` raises ValueError on empty items.** Programming error, not user error — tests pin this. If F4-A1 reuses the URL builder shape, replicate the guard.
+- **`filter_filings_by_items` keeps empty-items filings.** Per the function's docstring: a filing whose `items_broad` is empty is KEPT (operator inspection path). The downstream row-builder emits 0 rows for such filings (no intersection). If F4-A1 reuses the filter shape, replicate the empty-handling.
+- **EK-A1 source-table migration co-exists with EK-A3 co-bootstrap.** Per S93-14: EK-A3 will create `eight_k_classifier_snapshots` AND co-bootstrap `eight_k_events` (idempotent — CREATE IF NOT EXISTS). The EK-A1 standalone migration continues to exist as a no-op pre-flight. Both must keep their PLANNED_DDL byte-equal (tests will catch drift in EK-A3).
+- **DDL parity test (`test_ingest_lazy_create_ddl_matches_migration_planned_ddl`) substitutes TS template placeholders.** The migration's PLANNED_DDL is `\`CREATE TABLE IF NOT EXISTS ${DATABASE}.${TABLE} ...\``; the test substitutes `${DATABASE}` → `quantlab` and `${TABLE}` → `eight_k_events` before whitespace-canonical comparison. If EK-A3 adds a snapshot-table version of this parity test, follow the same substitution pattern.
+- **`scripts/_sec_edgar_helpers.py` is a `_`-prefixed helper module.** Auto-excluded from `scripts/help.ts`'s file walker (per `listScriptFiles` filter). Won't appear in `npm run help` output (correct — it's not user-invocable). Has no `help` export.
+- **Multi-item OR-clause URL is a SPEC §11 OQ-1 best-guess.** Per S93-15: `"Item 1.01" OR "Item 2.01" OR ...` in `q=` param. Real EDGAR behavior verified on first `--apply` run (operator action). Three escape hatches documented: `--items` subset, `--url` custom-verified, `--from-file` skip-network.
 
-### Carried (s89-s92 + earlier)
+### Carried (s89-s92 + s93 #1 + earlier)
 
 All prior watch-outs preserved unchanged. Key carry-overs:
 
-- 65 commits ahead of `origin/main`; push is operator-gated.
+- 66 commits ahead of `origin/main`; push is operator-gated.
 - yfinance `get_shares_full` API surface (caught in `ticker_factory` test seam at A1).
 - yfinance `Ticker.info` rate-limit risk on tight loops (21 calls/day fine).
 - `quantlab.daily_bars` does NOT exist; daily OHLCV is in `quantlab.candles`. A1 sidesteps by fetching close directly from yfinance.
@@ -234,11 +229,15 @@ All prior watch-outs preserved unchanged. Key carry-overs:
 - Repository reads use subquery-around-FINAL pattern (a52c964 regression class).
 - Short-interest Path A4-β shim is in the repository layer ONLY; A2 composite math is dimensionally agnostic.
 - A4 GICS-sector resolution (gap #8) is structurally dormant; v2 activation defined.
-- `accepted_at` vs `period_of_report` is the load-bearing anti-leak gate (gap #8 E-7 + carried into gap #7 EDF-5 + F4-10).
-- Item 5.02 sub-item parsing requires per-filing body fetch (gap #8 A1).
+- `accepted_at` vs `period_of_report` is the load-bearing anti-leak gate (gap #8 E-7 + gap #7 EDF-5 + F4-10).
+- Item 5.02 sub-item parsing requires per-filing body fetch (gap #8 A1) — gap #7 EK-A1 does NOT (item-level only per EK-2; cheaper).
+- 8-K storage duplication of 5.02 events between `executive_departures` (gap #8) + `eight_k_events` (gap #7) is INTENTIONAL per EK-5; do not "consolidate."
 - CIK ≠ CUSIP (separate tables; both ReplacingMergeTree).
 - Person CIK ≠ Issuer CIK (NEW for gap #7 Form 4; separate `insider_ciks` table).
-- A5 byte-equal protection on sections #1-#13 PLUS now planned #14 (8-K) + #15 (Form 4) appended at tail.
+- Form 4 v1 OMITS Cohen-Malloy-Pomorski opportunistic-vs-routine classifier per F4-1.
+- Form 4 cluster threshold: 3 distinct insiders in 30 calendar days per F4-2.
+- Form 4 transaction-code filter: open-market "P" + "S" only per F4-4.
+- A5 byte-equal protection on sections #1-#13 PLUS planned #14 (8-K) + #15 (Form 4) appended at tail.
 - `runFredFetch` is NOT unit-tested directly — only `buildFredFetchArgs` is.
 - F-CADENCE staleness flag (`bd_since_last_share_update > 3`) lives in A2 composite + threaded by A4 repository + rendered by A5 with ETF_FLOW_STALENESS_BD_THRESHOLD = 3.
 - HYG/JNK/TLT/GLD overlap with cross-asset composite — Phase B independence-testing gate (>0.7 correlation = demote).
@@ -306,12 +305,20 @@ npm run daemon:daily       # step 1i fires
 npm run brief:morning      # section #12 renders
 ```
 
-### Gap #7 8-K classifier activation (NOT YET READY — EK-A1..A5 pending)
+### Gap #7 8-K classifier activation (EK-A1 READY; EK-A2..A5 pending)
 
 ```text
-# EK-A1 (PENDING):
-.venv/Scripts/python.exe scripts/sec_edgar_8k_event_ingest.py --dry-run
-.venv/Scripts/python.exe scripts/sec_edgar_8k_event_ingest.py --apply
+# EK-A1 (READY — operator can run dry-run / apply against real EDGAR):
+npm run edgar:8k-event:ingest:dry
+npm run edgar:8k-event:ingest
+# Or with operator-chosen item subset:
+.venv/Scripts/python.exe scripts/sec_edgar_8k_event_ingest.py --items 2.06,4.02 --apply
+# Or with manual JSON fixture:
+.venv/Scripts/python.exe scripts/sec_edgar_8k_event_ingest.py --from-file ~/Downloads/edgar_8k_broader.json --apply
+
+# EK-A1 migration (READY — idempotent CREATE IF NOT EXISTS):
+npm run migrate:create-eight-k-events
+npm run migrate:create-eight-k-events:apply
 
 # EK-A3 (PENDING):
 npm run migrate:create-eight-k-classifier-snapshots
@@ -346,19 +353,19 @@ npm run brief:morning      # section #15 will render
 
 ```text
 npm test                                                                       # TS — 2364 pass / 0 fail / 19 skipped
-.venv/Scripts/python.exe -m pytest scripts/tests                               # Python — 234 / 234
+.venv/Scripts/python.exe -m pytest scripts/tests                               # Python — 259 / 259
 npm run dev                                                                    # http://localhost:3000
 npm run check:help                                                             # FULLY GREEN
 ```
 
 ## For the next session — priority order
 
-**Recommended immediate continuation:** Gap #7 EK-A1 — 8-K broader event ingest. Two atomic commits possible:
+**Recommended immediate continuation:** Gap #7 EK-A2 — pure composite `eight_k_classifier_v1`. Single atomic slice:
 
-1. **(Sub-slice 1)** Refactor: extract gap #8 helpers into `scripts/_sec_edgar_helpers.py`. Update `scripts/sec_edgar_8k_item_5_02_ingest.py` to import. Verify gap #8 ingest tests pass byte-equal.
-2. **(Sub-slice 2)** Add NEW: `scripts/sec_edgar_8k_event_ingest.py` using helpers. Migration script for `quantlab.eight_k_events` source table. Tests per SPEC §9.4 (T-EKI-1..T-EKI-8). npm scripts + EXTRA_HELP.
-
-Operator may prefer to commit these as a single EK-A1 slice (matches gap #9 A1 / gap #8 A1 atomicity); the SPEC §10 phasing also estimates EK-A1 as one slice. Recommend single slice unless the refactor proves substantively larger than expected.
+1. **(Read)** `src/server/executive_departure.ts` end-to-end + `src/server/etf_flow.ts` per-ticker+aggregate split.
+2. **(Write)** `src/server/eight_k_classifier.ts` per SPEC §5.1 (per-stock) + §5.2 (aggregate). Per-item flags + material_event_flag + sector clustering + `MIN_Z_BASELINE = 30` cold-start floor.
+3. **(Tests)** `scripts/tests/eightKClassifier.test.ts` per SPEC §9.1 (T-EK-1..T-EK-14).
+4. **(Gates)** `npm test` + `pytest` green; commit as EK-A2 slice.
 
 **Pejman decisions carried + queued:**
 
@@ -368,7 +375,7 @@ Operator may prefer to commit these as a single EK-A1 slice (matches gap #9 A1 /
 - ADR-041 implementation slot (operator-pickable insertion).
 - Gap #8 v2 enhancement — GICS sector activation (operator-pickable insertion).
 - Gap #9 v2 enhancement — ETF.com / issuer-CSV cross-validation + per-ETF panel threading (operator-pickable insertion).
-- Push 65 commits to origin/main (operator-gated, HOLD).
+- Push 66 commits to origin/main (operator-gated, HOLD).
 
 **Calendar-gated:**
 
@@ -391,13 +398,13 @@ Operator may prefer to commit these as a single EK-A1 slice (matches gap #9 A1 /
 
 ## Important framing for the next chat
 
-s93 #1 opens the gap #7 event-driven-filings-processor arc with the SPEC + teach-doc landing as a single slice. The arc structure differs from the prior six gap arcs (all single-composite) — gap #7 ships TWO parallel Layer-0 composites (`eight_k_classifier_v1` + `form_4_insider_v1`) under one gap doc, with a shared infrastructure refactor at EK-A1 (extracting gap #8 helpers into `scripts/_sec_edgar_helpers.py`).
+s93 #2 lands the first behavior-affecting slice of the gap #7 event-driven-filings-processor arc. The shared EDGAR helper module (`scripts/_sec_edgar_helpers.py`) is now the canonical home for rate-limit + 429 retry + User-Agent + acceptance-date filter + CIK→ticker resolver + cik_ticker_map DDL/writer. Gap #8 ingest refactored to use it with full behavior preservation (28/28 tests byte-equal). The new EK-A1 ingest (`scripts/sec_edgar_8k_event_ingest.py`) ships item-code-only classification for the broader 8-K item set, writing to `quantlab.eight_k_events` (parallel to gap #8's `executive_departures`).
 
-**The next session's default behavior on "continue":** read this HANDOFF's "Next stage" section, open EK-A1. First atomic move: extract gap #8 EDGAR helpers into `scripts/_sec_edgar_helpers.py` and refactor `scripts/sec_edgar_8k_item_5_02_ingest.py` to use them. Then add `scripts/sec_edgar_8k_event_ingest.py` (NEW, sibling) + migration for `quantlab.eight_k_events` + tests per SPEC §9.4. Commit as one EK-A1 slice (matches gap #9 A1 / gap #8 A1 atomicity).
+**The next session's default behavior on "continue":** read this HANDOFF's "Next stage" section, open EK-A2. Build `src/server/eight_k_classifier.ts` per SPEC §5.1 + §5.2 + tests per SPEC §9.1 (T-EK-1..T-EK-14). Single atomic slice (matches gap #9 A2 / gap #8 A2 atomicity).
 
 **Parallel-tracks posture continues.** s93 did NOT affect C-12 / paper-trading / real-money-flip arcs.
 
-**The chain through s93 #1:**
+**The chain through s93 #2:**
 
 ```text
 ALL S41-S91 WORK                                       ✓ as documented
@@ -407,9 +414,11 @@ S91: HANDOFF rewrite                                   ✓ committed (6e9ffe0)
 S92 #1..#6: gap #9 etf-flow-monitoring arc             ✓ COMPLETE end-to-end (6 commits)
 S92 HANDOFF rewrite                                    ✓ committed (706a8b8)
 S93 #1: gap #7 SPEC + teach-doc                        ✓ committed (48e0da1)
-S93 HANDOFF rewrite (this commit)                      ✓ this commit
-  → next: gap #7 EK-A1 — 8-K broader event ingest (refactor gap #8 helpers + new sibling script)
-  → gap #7 EK arc: A1 → A2 → A3 → A4 (daemon 1k) → A5 (brief #14)
+S93 #1 HANDOFF rewrite                                 ✓ committed (87985b1)
+S93 #2: gap #7 EK-A1 — 8-K event ingest               ✓ committed (79b3ffa)
+S93 #2 HANDOFF rewrite (this commit)                   ✓ this commit
+  → next: gap #7 EK-A2 — pure composite eight_k_classifier_v1
+  → gap #7 EK arc: A1 ✓ → A2 → A3 → A4 (daemon 1k) → A5 (brief #14)
   → gap #7 F4 arc: A1 → A2 → A3 → A4 (daemon 1l) → A5 (brief #15)
   → operator-pickable insertions: ADR-041 impl, gap #8 v2 GICS, gap #9 v2 cross-validation,
                                    gap #7 v2 CMP classifier (calendar-gated),
