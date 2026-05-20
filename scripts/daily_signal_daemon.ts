@@ -125,6 +125,11 @@ import {
   crossAssetSnapshotsTableExists,
   runDaemonCrossAssetEvaluation,
 } from '../src/server/cross_asset_signals_repository.js';
+import {
+  ShortInterestRepository,
+  shortInterestSnapshotsTableExists,
+  runDaemonShortInterestEvaluation,
+} from '../src/server/short_interest_repository.js';
 import { runFredFetch } from '../src/server/daemon_fred_fetch.js';
 import { CLASSIFIER_VERSION_V3 } from '../src/server/macro_regime_v3.js';
 import {
@@ -1176,6 +1181,45 @@ async function main() {
       anomalies.push({
         severity: 'info',
         message: `cross-asset evaluation failed: ${(e as Error).message}`,
+      });
+    }
+  }
+
+  // 1h. Short-interest evaluation (informational Layer-0 input).
+  //     SPEC: docs/specs/short-interest-tracking.md §3 component diagram +
+  //     §7 daemon hook position — runs AFTER cross-asset (step 1g);
+  //     consumes the FINRA biweekly short-interest rows (from
+  //     `scripts/finra_short_interest_ingest.py`) + the SPY-500 PIT
+  //     constituent panel. Output is informational only in v1; does NOT
+  //     fire a regime category. Same non-fatal posture as cycle-position /
+  //     vol-structure / sector-rotation / cross-asset.
+  //
+  //     Path A4-β (HANDOFF s90): the per-stock signal is the ROC of
+  //     `shares_short` directly (no SIR normalization in v1). The repository
+  //     passes `sharesOutstanding = 1` into the A2 composite so
+  //     `computeSIR(shares_short, 1) === shares_short`. See SPEC §5.1
+  //     "v1 implementation note" + src/server/short_interest_repository.ts
+  //     module header for the three-criterion analysis.
+  if (NO_MACRO || DRY_RUN) {
+    console.log(`[short-interest] skipped (${NO_MACRO ? '--no-macro' : '--dry-run'})`);
+  } else if (!(await shortInterestSnapshotsTableExists(ch))) {
+    console.log(
+      '[short-interest] table absent (`quantlab.short_interest_snapshots`) — ' +
+      'skipped. Run `npm run migrate:create-short-interest-snapshots:apply` to enable.',
+    );
+  } else {
+    try {
+      const shortInterestRepo = new ShortInterestRepository({ ch });
+      const shortInterestResult = await runDaemonShortInterestEvaluation({
+        repo: shortInterestRepo,
+        asOf: new Date(t0),
+      });
+      console.log(shortInterestResult.summaryLine);
+    } catch (e) {
+      console.warn(`[short-interest] evaluation failed (non-fatal): ${(e as Error).message}`);
+      anomalies.push({
+        severity: 'info',
+        message: `short-interest evaluation failed: ${(e as Error).message}`,
       });
     }
   }
