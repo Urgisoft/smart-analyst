@@ -1125,6 +1125,35 @@ describe('runDaemonForm4InsiderEvaluation', () => {
     assert.match(r.summaryLine, /buy_clusters=0/);
     assert.match(r.summaryLine, /sell_clusters=0/);
   });
+
+  // G2-DAEMON-F4-1 — Step 5 / SPEC §1.3 + §5.5. Mirrors G2-DAEMON-XD-1 with
+  // the `[f4-aggregate]` prefix + the F4 composite's form4ClusterFlag.
+  it('G2-DAEMON-F4-1: emits aggregateLogLine matching the §5.5 regex', async () => {
+    const { repo, fake } = makeRepo();
+    fake.route(q => q.includes('max(accepted_at)'), [{ last: '2026-05-14 10:35:21' }]);
+    fake.route(q => q.includes(`FROM quantlab.cik_ticker_map`), [
+      { ticker: 'AAPL', cik: '0000320193' },
+    ]);
+    fake.route(q => q.includes('transaction_code IN'), []);
+    fake.route(_ => true, []);
+
+    const r = await runDaemonForm4InsiderEvaluation({
+      repo,
+      asOf: DATE,
+      watchUniverse: ['AAPL'],
+      constituents: ['AAPL'],
+    });
+
+    assert.match(
+      r.aggregateLogLine,
+      /\[(xd|ek|f4)-aggregate\] sectors_with_z=\d+\/11 floor_cleared=\d+\/11 max_z=(\S+):(\S+) cluster_flag=(true|false)/,
+      'shape pinned by SPEC §5.5',
+    );
+    assert.match(r.aggregateLogLine, /^\[f4-aggregate\] /, 'F4 composite prefix');
+    assert.match(r.aggregateLogLine, /sectors_with_z=0\/11 floor_cleared=0\/11/);
+    assert.match(r.aggregateLogLine, /max_z=n\/a:n\/a/);
+    assert.match(r.aggregateLogLine, /cluster_flag=false$/);
+  });
 });
 
 // ───── EXPLAIN PLAN grammar (skipped when CH down) ──────────────────

@@ -997,6 +997,40 @@ describe('runDaemonExecutiveDepartureEvaluation', () => {
     assert.ok(r.snapshot);
     assert.match(r.summaryLine, /last_edgar=—/);
   });
+
+  // G2-DAEMON-XD-1 — Step 5 / SPEC §1.3 + §5.5. Pins the daemon-cycle
+  // aggregate log-line shape on the `[xd-aggregate]` prefix. v1 Option C
+  // semantic per ADR-042 §"Watch-outs": sectors_with_z and floor_cleared
+  // both report inputsAvailableAggregate; cold-start (empty PIT panel)
+  // emits max_z=n/a:n/a.
+  it('G2-DAEMON-XD-1: emits aggregateLogLine matching the §5.5 regex', async () => {
+    const { repo, fake } = makeRepo();
+    fake.route(q => q.includes('max(accepted_at)'), [{ last: '2026-05-14 10:35:21' }]);
+    fake.route(q => q.includes(`FROM quantlab.cik_ticker_map`), [
+      { ticker: 'AAPL', cik: '0000320193' },
+    ]);
+    fake.route(q => q.includes('sub_item_code IN'), []);
+    // populateSectorsForCycle CH routes left empty → sectors=[] → cold-start.
+    fake.route(_ => true, []);
+
+    const r = await runDaemonExecutiveDepartureEvaluation({
+      repo,
+      asOf: DATE,
+      watchUniverse: ['AAPL'],
+      constituents: ['AAPL'],
+    });
+
+    assert.match(
+      r.aggregateLogLine,
+      /\[(xd|ek|f4)-aggregate\] sectors_with_z=\d+\/11 floor_cleared=\d+\/11 max_z=(\S+):(\S+) cluster_flag=(true|false)/,
+      'shape pinned by SPEC §5.5',
+    );
+    assert.match(r.aggregateLogLine, /^\[xd-aggregate\] /, 'XD composite prefix');
+    // Cold-start (empty sectors[]) → both counts 0; max_z slot is the n/a sentinel.
+    assert.match(r.aggregateLogLine, /sectors_with_z=0\/11 floor_cleared=0\/11/);
+    assert.match(r.aggregateLogLine, /max_z=n\/a:n\/a/);
+    assert.match(r.aggregateLogLine, /cluster_flag=false$/);
+  });
 });
 
 // ───── EXPLAIN PLAN grammar (skipped when CH down) ──────────────────

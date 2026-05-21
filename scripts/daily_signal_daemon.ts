@@ -1278,6 +1278,7 @@ async function main() {
         asOf: new Date(t0),
       });
       console.log(execDepartureResult.summaryLine);
+      console.log(execDepartureResult.aggregateLogLine);
     } catch (e) {
       console.warn(`[exec-departure] evaluation failed (non-fatal): ${(e as Error).message}`);
       anomalies.push({
@@ -1378,6 +1379,7 @@ async function main() {
         asOf: new Date(t0),
       });
       console.log(eightKResult.summaryLine);
+      console.log(eightKResult.aggregateLogLine);
     } catch (e) {
       console.warn(`[eight-k] evaluation failed (non-fatal): ${(e as Error).message}`);
       anomalies.push({
@@ -1433,6 +1435,7 @@ async function main() {
         asOf: new Date(t0),
       });
       console.log(form4Result.summaryLine);
+      console.log(form4Result.aggregateLogLine);
     } catch (e) {
       console.warn(`[form-4] evaluation failed (non-fatal): ${(e as Error).message}`);
       anomalies.push({

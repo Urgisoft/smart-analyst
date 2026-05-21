@@ -109,6 +109,16 @@ export interface ExecutiveDepartureDaemonResult {
   snapshot: ExecutiveDepartureSnapshot;
   inputs: ExecutiveDepartureInputs;
   summaryLine: string;
+  /** Per-cycle GICS aggregate-panel log line per gics-sector-baseline-computation
+   *  SPEC §1.3 (Step 5). Distinct from `summaryLine`: one line per composite per
+   *  cycle, prefixed `[xd-aggregate]`, shape pinned by §5.5 regex G2-DAEMON-XD-1.
+   *  v1 semantic per ADR-042 §"Watch-outs" (Option C): `sectors_with_z` and
+   *  `floor_cleared` both report `inputsAvailableAggregate` — the floor's only
+   *  practical failure is the empty-baseline2y cold-start case (which fires only
+   *  when inputsAvailableAggregate=0), so the two counts agree in v1. v2
+   *  tightening (separate `sectorsClearedFloor` snapshot field) is operator-
+   *  pickable per HANDOFF.md s94 #10 NEXT. */
+  aggregateLogLine: string;
 }
 
 interface RawEventRow {
@@ -882,7 +892,22 @@ export async function runDaemonExecutiveDepartureEvaluation(opts: {
     `agg=${snapshot.inputsAvailableAggregate}/${constituents.length} ` +
     `last_edgar=${lastQueryStr} (${bdSince != null ? `${bdSince}bd` : '—'})`;
 
-  return { snapshot, inputs, summaryLine };
+  // gics-sector-baseline-computation.md §1.3 (Step 5) per-cycle aggregate log.
+  // Sector names containing spaces (e.g. "Consumer Discretionary") are
+  // underscore-tokenized so the §5.5 G2-DAEMON regex `max_z=(\S+):(\S+)` matches
+  // without bleeding into the next field.
+  const aggMaxSector = snapshot.maxAggregateZSector;
+  const aggMaxZ = snapshot.maxAggregateZ;
+  const aggMaxToken = aggMaxSector != null && aggMaxZ != null
+    ? `${aggMaxSector.replace(/\s+/g, '_')}:${aggMaxZ.toFixed(2)}`
+    : 'n/a:n/a';
+  const aggregateLogLine =
+    `[xd-aggregate] sectors_with_z=${snapshot.inputsAvailableAggregate}/11 ` +
+    `floor_cleared=${snapshot.inputsAvailableAggregate}/11 ` +
+    `max_z=${aggMaxToken} ` +
+    `cluster_flag=${snapshot.executiveClusterDeparture ? 'true' : 'false'}`;
+
+  return { snapshot, inputs, summaryLine, aggregateLogLine };
 }
 
 /**

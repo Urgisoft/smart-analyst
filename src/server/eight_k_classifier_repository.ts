@@ -114,6 +114,12 @@ export interface EightKClassifierDaemonResult {
   snapshot: EightKClassifierSnapshot;
   inputs: EightKClassifierInputs;
   summaryLine: string;
+  /** Per-cycle GICS aggregate-panel log line per gics-sector-baseline-computation
+   *  SPEC §1.3 (Step 5). Distinct from `summaryLine`: one line per composite per
+   *  cycle, prefixed `[ek-aggregate]`, shape pinned by §5.5 regex G2-DAEMON-EK-1.
+   *  v1 semantic per ADR-042 §"Watch-outs" Option C — see executive_departure_repository.ts
+   *  ExecutiveDepartureDaemonResult.aggregateLogLine doc for the full rationale. */
+  aggregateLogLine: string;
 }
 
 interface RawEventRow {
@@ -831,7 +837,20 @@ export async function runDaemonEightKClassifierEvaluation(opts: {
     `agg=${snapshot.inputsAvailableAggregate}/${constituents.length} ` +
     `last_edgar=${lastQueryStr} (${bdSince != null ? `${bdSince}bd` : '—'})`;
 
-  return { snapshot, inputs, summaryLine };
+  // gics-sector-baseline-computation.md §1.3 (Step 5) per-cycle aggregate log.
+  // See executive_departure_repository.ts for the tokenization rationale.
+  const aggMaxSector = snapshot.maxAggregateZSector;
+  const aggMaxZ = snapshot.maxAggregateZ;
+  const aggMaxToken = aggMaxSector != null && aggMaxZ != null
+    ? `${aggMaxSector.replace(/\s+/g, '_')}:${aggMaxZ.toFixed(2)}`
+    : 'n/a:n/a';
+  const aggregateLogLine =
+    `[ek-aggregate] sectors_with_z=${snapshot.inputsAvailableAggregate}/11 ` +
+    `floor_cleared=${snapshot.inputsAvailableAggregate}/11 ` +
+    `max_z=${aggMaxToken} ` +
+    `cluster_flag=${snapshot.eightKClusterFlag ? 'true' : 'false'}`;
+
+  return { snapshot, inputs, summaryLine, aggregateLogLine };
 }
 
 /**
