@@ -688,12 +688,24 @@ async function fetchLatestShortInterestFromCH(): Promise<ShortInterestSnapshot |
  * Build the morning-brief executive-departure section from the repository
  * snapshot. Returns null when no snapshot exists yet; the renderer handles
  * null with a friendly "not yet evaluated" message. Mirrors
- * buildShortInterestSection structurally.
+ * buildEightKClassifierSection / buildForm4InsiderSection structurally.
+ *
+ * Stamps the composer-side `tickersWithCikCount` + `watchUniverseTickerCount`
+ * onto the section so the renderer's universe-coverage line uses a CIK-only
+ * count (the composite's `inputsAvailablePerTicker` is gated on BOTH cik +
+ * sector and would render a misleading "0/60 with CIK mapping" line on cold-
+ * start before the GICS ingest first runs; same fix as EK-A5 / F4-A5 S93-28
+ * mirrored to section #12 per G1-A4).
  */
 export function buildExecutiveDepartureSection(
   snapshot: ExecutiveDepartureSnapshot | null,
 ): BriefExecutiveDepartureSection | null {
   if (snapshot === null) return null;
+  const watchUniverseTickerCount = snapshot.perTickerRows.length;
+  let tickersWithCikCount = 0;
+  for (const r of snapshot.perTickerRows) {
+    if (r.cik !== '') tickersWithCikCount++;
+  }
   return {
     evaluatedAt: snapshot.snapshotDate.toISOString(),
     snapshotDate: snapshot.snapshotDate.toISOString().slice(0, 10),
@@ -706,6 +718,8 @@ export function buildExecutiveDepartureSection(
     perTickerRows: snapshot.perTickerRows,
     inputsAvailableAggregate: snapshot.inputsAvailableAggregate,
     inputsAvailablePerTicker: snapshot.inputsAvailablePerTicker,
+    tickersWithCikCount,
+    watchUniverseTickerCount,
     compositeVersion: snapshot.version,
   };
 }

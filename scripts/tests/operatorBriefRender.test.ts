@@ -1634,7 +1634,9 @@ describe('renderBriefMarkdown — executive-departure panel', () => {
         executiveClusterDeparture: true,
         perTickerRows: [],
         inputsAvailableAggregate: 503,
-        inputsAvailablePerTicker: 58,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 58,
+        watchUniverseTickerCount: 60,
         compositeVersion: 'exec_departure_v1',
       },
     }));
@@ -1652,14 +1654,19 @@ describe('renderBriefMarkdown — executive-departure panel', () => {
         executiveClusterDeparture: false,
         perTickerRows: [],
         inputsAvailableAggregate: 0,
-        inputsAvailablePerTicker: 58,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 58,
+        watchUniverseTickerCount: 60,
         compositeVersion: 'exec_departure_v1',
       },
     }));
     assert.match(md, /## 12\. Executive departures — NORMAL/);
   });
 
-  it('renders the v1 GICS-deferred footer when flaggedSectors is empty', () => {
+  // T-OBR-XD-4 — Cold-start fallback (flaggedSectors empty → G1-A4
+  // OQ-G2-1-awaiting footer). Mirrors T-OBR-EK-4 / T-OBR-F4-4 byte-for-byte
+  // (only the SPEC section + composite-version differ).
+  it('T-OBR-XD-4 renders the G1-A4 OQ-G2-1-awaiting footer when flaggedSectors is empty', () => {
     const md = renderBriefMarkdown(brief({
       executiveDeparture: {
         evaluatedAt: '2026-05-19T13:30:00Z',
@@ -1670,12 +1677,15 @@ describe('renderBriefMarkdown — executive-departure panel', () => {
         executiveClusterDeparture: false,
         perTickerRows: [],
         inputsAvailableAggregate: 0,
-        inputsAvailablePerTicker: 58,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 58,
+        watchUniverseTickerCount: 60,
         compositeVersion: 'exec_departure_v1',
       },
     }));
-    assert.match(md, /GICS sector mapping deferred to v2/);
-    assert.match(md, /SPEC §11 OQ-2/);
+    assert.match(md, /Aggregate-cluster panel awaits OQ-G2-1 ADR/);
+    assert.match(md, /per-sector daily departure-rate baseline-computation strategy/);
+    assert.match(md, /Per-ticker sector annotations are active from `quantlab\.gics_sector_map`/);
   });
 
   it('renders the flagged-sectors table when sectors are flagged', () => {
@@ -1695,7 +1705,9 @@ describe('renderBriefMarkdown — executive-departure panel', () => {
         executiveClusterDeparture: true,
         perTickerRows: [],
         inputsAvailableAggregate: 503,
-        inputsAvailablePerTicker: 58,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 58,
+        watchUniverseTickerCount: 60,
         compositeVersion: 'exec_departure_v1',
       },
     }));
@@ -1714,7 +1726,9 @@ describe('renderBriefMarkdown — executive-departure panel', () => {
         executiveClusterDeparture: false,
         perTickerRows: [],
         inputsAvailableAggregate: 0,
-        inputsAvailablePerTicker: 58,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 58,
+        watchUniverseTickerCount: 60,
         compositeVersion: 'exec_departure_v1',
       },
     }));
@@ -1732,7 +1746,9 @@ describe('renderBriefMarkdown — executive-departure panel', () => {
         executiveClusterDeparture: false,
         perTickerRows: [],
         inputsAvailableAggregate: 0,
-        inputsAvailablePerTicker: 58,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 58,
+        watchUniverseTickerCount: 60,
         compositeVersion: 'exec_departure_v1',
       },
     }));
@@ -1751,6 +1767,8 @@ describe('renderBriefMarkdown — executive-departure panel', () => {
         perTickerRows: [],
         inputsAvailableAggregate: 0,
         inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 0,
+        watchUniverseTickerCount: 0,
         compositeVersion: 'exec_departure_v1',
       },
     }));
@@ -1773,7 +1791,9 @@ describe('renderBriefMarkdown — executive-departure panel', () => {
             executiveDepartureFlag: false, executiveAppointmentFlag: false },
         ],
         inputsAvailableAggregate: 0,
-        inputsAvailablePerTicker: 58,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 58,
+        watchUniverseTickerCount: 60,
         compositeVersion: 'exec_departure_v1',
       },
     }));
@@ -1800,7 +1820,9 @@ describe('renderBriefMarkdown — executive-departure panel', () => {
             executiveDepartureFlag: false, executiveAppointmentFlag: true },
         ],
         inputsAvailableAggregate: 0,
-        inputsAvailablePerTicker: 58,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 58,
+        watchUniverseTickerCount: 60,
         compositeVersion: 'exec_departure_v1',
       },
     }));
@@ -1825,7 +1847,9 @@ describe('renderBriefMarkdown — executive-departure panel', () => {
         executiveClusterDeparture: false,
         perTickerRows: departureRows,
         inputsAvailableAggregate: 0,
-        inputsAvailablePerTicker: 58,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 58,
+        watchUniverseTickerCount: 60,
         compositeVersion: 'exec_departure_v1',
       },
     }));
@@ -1833,7 +1857,7 @@ describe('renderBriefMarkdown — executive-departure panel', () => {
     assert.match(md, /2 more executive_departure/);
   });
 
-  it('renders the universe coverage line + v1 GICS caveat', () => {
+  it('renders the universe coverage line with composer-stamped CIK-only count (G1-A4)', () => {
     const md = renderBriefMarkdown(brief({
       executiveDeparture: {
         evaluatedAt: '2026-05-19T13:30:00Z',
@@ -1843,14 +1867,19 @@ describe('renderBriefMarkdown — executive-departure panel', () => {
         flaggedSectors: [],
         executiveClusterDeparture: false,
         perTickerRows: [],
+        // Composite's inputsAvailablePerTicker is 0 cold-start (sector-gated);
+        // the composer stamps a separate CIK-only count via tickersWithCikCount.
         inputsAvailableAggregate: 0,
-        inputsAvailablePerTicker: 58,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 58,
+        watchUniverseTickerCount: 60,
         compositeVersion: 'exec_departure_v1',
       },
     }));
-    assert.match(md, /Universe coverage: 58 watch-universe tickers have CIK mapping/);
-    assert.match(md, /v1: always 0 — GICS deferred/);
+    assert.match(md, /Universe coverage: 58\/60 watch-universe tickers have current CIK mapping/);
+    assert.match(md, /G1-A4: per-ticker sector active; aggregate-layer 0 pending OQ-G2-1 baseline ADR/);
     assert.match(md, /Composite: `exec_departure_v1`/);
+    assert.match(md, /aggregate-sector layer dormant pending OQ-G2-1 ADR/);
     assert.match(md, /INFORMATIONAL — does NOT fire a regime category in v1/);
   });
 
@@ -1866,6 +1895,8 @@ describe('renderBriefMarkdown — executive-departure panel', () => {
         perTickerRows: [],
         inputsAvailableAggregate: 0,
         inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 0,
+        watchUniverseTickerCount: 0,
         compositeVersion: 'exec_departure_v1',
       },
     }));
@@ -1882,6 +1913,75 @@ describe('renderBriefMarkdown — executive-departure panel', () => {
     assert.ok(siIdx > -1, 'expected short-interest section');
     assert.ok(edIdx > -1, 'expected executive-departure section');
     assert.ok(edIdx > siIdx, 'executive-departure must render after short-interest section');
+  });
+
+  // T-OBR-XD-8 — G1-A4 (s94 #4): null sector renders WITHOUT the bracket
+  // annotation. Cold-start (gics_sector_map empty for ticker) MUST hit this
+  // branch. Load-bearing for the formatSectorAnnotation contract (mirrors
+  // T-OBR-EK-8 / T-OBR-F4-8 byte-for-byte — only the per-row format
+  // differs because section #12 uses a table-cell position).
+  it('T-OBR-XD-8 omits sector annotation when sector is null', () => {
+    const md = renderBriefMarkdown(brief({
+      executiveDeparture: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        executiveClusterDeparture: false,
+        perTickerRows: [
+          { ticker: 'NOMAP', cik: '0000123456', sector: null,
+            recentDepartureCount90d: 1, recentAppointmentCount90d: 0,
+            daysSinceLatestDeparture: 5,
+            executiveDepartureFlag: true, executiveAppointmentFlag: false },
+        ],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 1,
+        watchUniverseTickerCount: 1,
+        compositeVersion: 'exec_departure_v1',
+      },
+    }));
+    // Cold-start row renders without the bracket annotation.
+    assert.match(md, /\| executive_departure \| NOMAP \| 1 \| 5d ago \|/);
+    // Negative guard: must NOT contain a double-space or empty brackets.
+    assert.doesNotMatch(md, /NOMAP  /);
+    assert.doesNotMatch(md, /NOMAP \[\]/);
+  });
+
+  // T-OBR-XD-9 — G1-A4 (s94 #4): non-null sector renders the bracket
+  // annotation inline in the Ticker table-cell (between ticker + next pipe).
+  // Mirrors T-OBR-EK-9 / T-OBR-F4-9 (different per-row format because
+  // section #12 is a table, not a list).
+  it('T-OBR-XD-9 renders [Sector] annotation inline when sector is non-null', () => {
+    const md = renderBriefMarkdown(brief({
+      executiveDeparture: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        executiveClusterDeparture: false,
+        perTickerRows: [
+          { ticker: 'AAPL', cik: '0000320193', sector: 'Information Technology',
+            recentDepartureCount90d: 1, recentAppointmentCount90d: 0,
+            daysSinceLatestDeparture: 3,
+            executiveDepartureFlag: true, executiveAppointmentFlag: false },
+          { ticker: 'XOM', cik: '0000034088', sector: 'Energy',
+            recentDepartureCount90d: 0, recentAppointmentCount90d: 2,
+            daysSinceLatestDeparture: null,
+            executiveDepartureFlag: false, executiveAppointmentFlag: true },
+        ],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 2,
+        tickersWithCikCount: 2,
+        watchUniverseTickerCount: 60,
+        compositeVersion: 'exec_departure_v1',
+      },
+    }));
+    // Non-null sector renders `[Sector]` after the ticker in the Ticker cell.
+    assert.match(md, /\| executive_departure \| AAPL \[Information Technology\] \| 1 \| 3d ago \|/);
+    assert.match(md, /\| executive_appointment \| XOM \[Energy\] \| 2 \| — \|/);
   });
 });
 

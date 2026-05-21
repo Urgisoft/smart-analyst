@@ -502,12 +502,20 @@ export const SHORT_INTEREST_STALENESS_BD_THRESHOLD = 14;
  * Executive-departure panel — informational Layer-0 context.
  * SPEC: docs/specs/executive-departure-signal.md §§3, 5, 8.
  *
- * v1 GICS-sector resolution (SPEC §11 OQ-2 canon-thin fork; see
- * src/server/executive_departure_repository.ts module header for the
- * three-criterion analysis): the aggregate-sector layer is structurally
- * inactive. `flaggedSectors` is always empty in v1; `executiveClusterDeparture`
- * is always false. The renderer emits a "GICS sector mapping deferred to v2"
- * footer for the aggregate panel. Per-ticker layer is fully active.
+ * Gap #7+#8 v2 G1-A4 (s94 #4) sector wiring: per-ticker sector resolved
+ * from the shared `quantlab.gics_sector_map` (s94 #1 G1-A1). The aggregate-
+ * sector layer is STILL DORMANT in G1-A4 — `flaggedSectors` is always empty
+ * pending OQ-G2-1 (per-sector daily departure-rate baseline-computation
+ * strategy ADR); the renderer emits the OQ-G2-1-awaiting footer in place of
+ * the flagged-sectors table. Per-ticker layer is fully active.
+ *
+ * `tickersWithCikCount` + `watchUniverseTickerCount` are populated by the
+ * composer (`buildExecutiveDepartureSection`) — NOT by the composite — because
+ * `inputsAvailablePerTicker` is gated on BOTH cik + sector (now meaningful
+ * post-G1-A4 but 0 on cold-start before the GICS ingest first runs). The
+ * renderer uses the composer-computed CIK-only count for the universe-
+ * coverage line so it does not render "0/60" in cold-start (S93-28 fix
+ * mirrored from EK/F4 per G1-A4).
  */
 export interface BriefExecutiveDepartureSection {
   /** Composite computation timestamp (ISO 8601). */
@@ -518,7 +526,7 @@ export interface BriefExecutiveDepartureSection {
   lastEdgarQueryAt: string | null;
   /** Business days between lastEdgarQueryAt and asOf (null pre-ingest). */
   bdSinceLastQuery: number | null;
-  /** Sectors with |z| > 2.0 (v1: always empty — see module note). */
+  /** Sectors with |z| > 2.0 (G1-A4: always empty pending OQ-G2-1 ADR). */
   flaggedSectors: ReadonlyArray<{
     sector: string;
     sectorSize: number;
@@ -526,7 +534,7 @@ export interface BriefExecutiveDepartureSection {
     z: number;
     baselineSize: number;
   }>;
-  /** Flag: ANY sector has |z| > 2.0 (v1: always false — see module note). */
+  /** Flag: ANY sector has |z| > 2.0 (G1-A4: always false pending OQ-G2-1 ADR). */
   executiveClusterDeparture: boolean;
   /** Per-ticker rows for the watch universe. */
   perTickerRows: ReadonlyArray<{
@@ -539,10 +547,18 @@ export interface BriefExecutiveDepartureSection {
     executiveDepartureFlag: boolean;
     executiveAppointmentFlag: boolean;
   }>;
-  /** Count of SPY-500 constituents with usable sector mapping (v1: always 0). */
+  /** Count of SPY-500 constituents with usable sector mapping
+   *  (G1-A4: always 0 pending OQ-G2-1 baseline ADR). */
   inputsAvailableAggregate: number;
-  /** Count of watch-universe tickers with CIK + sector mapping (v1 counts only CIK). */
+  /** Count of watch-universe tickers with BOTH CIK + sector mapping
+   *  (composite-side gate; can be 0 on cold-start). */
   inputsAvailablePerTicker: number;
+  /** Composer-stamped count of watch-universe tickers with a non-empty CIK
+   *  (no sector gate). Used by the renderer's universe-coverage line. */
+  tickersWithCikCount: number;
+  /** Composer-stamped total count of watch-universe tickers (denominator
+   *  for the universe-coverage line). */
+  watchUniverseTickerCount: number;
   /** Composite version stamp ('exec_departure_v1' in v1). */
   compositeVersion: string;
 }
@@ -1703,10 +1719,19 @@ function formatShortInterestD2c(v: number | null): string {
  * Section #12 — executive-departure composite. Informational only in v1
  * (SPEC §1 non-goal #1).
  *
- * v1 GICS-sector deferral: the aggregate-sector panel renders a brief
- * "deferred to v2" note instead of a flagged-sectors table. Per-ticker
- * layer renders fully (top-N executive_departure / executive_appointment
- * flags + universe coverage). See SPEC §11 OQ-2.
+ * G1-A4 (s94 #4) per-ticker sector annotation: each flagged-ticker row
+ * inserts ` [Sector]` between the ticker and the next cell when the row
+ * carries a non-null sector resolved from `quantlab.gics_sector_map`. Cold-
+ * start (sector = null) renders without the annotation. The aggregate-sector
+ * panel still renders an "OQ-G2-1-awaiting" footer instead of a flagged-
+ * sectors table — G2 (aggregate-panel activation) blocks on the operator
+ * ADR for per-sector baseline computation. Mirrors sections #14 (EK) and
+ * #15 (F4) byte-for-byte per S94-5..S94-11.
+ *
+ * Universe-coverage line uses the composer-stamped `tickersWithCikCount`
+ * (CIK-only count) instead of `inputsAvailablePerTicker` (sector-gated;
+ * can be 0 on cold-start) — same S93-28 fix mirrored across all three
+ * per-composite consumers at G1-A4.
  */
 function renderExecutiveDepartureSection(b: MorningBrief): string {
   const lines: string[] = [];
@@ -1726,14 +1751,15 @@ function renderExecutiveDepartureSection(b: MorningBrief): string {
   lines.push(`## 12. Executive departures — ${clusterLabel}`);
   lines.push(``);
 
-  // Aggregate sector panel (v1: deferred).
+  // Aggregate sector panel (G1-A4: per-ticker active; aggregate pending OQ-G2-1).
   if (s.flaggedSectors.length === 0) {
     lines.push(
-      `**Aggregate (SPY 500 by GICS sector):** GICS sector mapping deferred ` +
-      `to v2 (SPEC §11 OQ-2). Aggregate-cluster panel inactive in v1; the ` +
-      `composite math is implemented + tested but the sector-slicing input ` +
-      `requires a follow-on slice (either A1-extended SIC capture or a ` +
-      `separate \`quantlab.gics_sector_map\` table).`,
+      `**Aggregate (SPY 500 by GICS sector):** ` +
+      `Aggregate-cluster panel awaits OQ-G2-1 ADR (per-sector daily ` +
+      `departure-rate baseline-computation strategy; SPEC §11). Per-ticker ` +
+      `sector annotations are active from \`quantlab.gics_sector_map\` ` +
+      `(s94 #1 G1-A1); aggregate-layer composite math is implemented + ` +
+      `tested but the trailing-2y baseline series requires the operator ADR.`,
     );
   } else {
     lines.push(`**Aggregate (SPY 500 by GICS sector):** ` +
@@ -1785,14 +1811,16 @@ function renderExecutiveDepartureSection(b: MorningBrief): string {
     lines.push(`| Flag | Ticker | Count (90d) | Days since latest |`);
     lines.push(`|---|---|---|---|`);
     for (const r of departed) {
+      const sectorAnnotation = formatSectorAnnotation(r.sector);
       lines.push(
-        `| executive_departure | ${r.ticker} | ${r.recentDepartureCount90d} ` +
+        `| executive_departure | ${r.ticker}${sectorAnnotation} | ${r.recentDepartureCount90d} ` +
         `| ${formatDaysSince(r.daysSinceLatestDeparture)} |`,
       );
     }
     for (const r of appointed) {
+      const sectorAnnotation = formatSectorAnnotation(r.sector);
       lines.push(
-        `| executive_appointment | ${r.ticker} | ${r.recentAppointmentCount90d} | — |`,
+        `| executive_appointment | ${r.ticker}${sectorAnnotation} | ${r.recentAppointmentCount90d} | — |`,
       );
     }
     if (totalDeparted > departed.length || totalAppointed > appointed.length) {
@@ -1812,14 +1840,15 @@ function renderExecutiveDepartureSection(b: MorningBrief): string {
   }
   lines.push(``);
   lines.push(
-    `_Universe coverage: ${s.inputsAvailablePerTicker} watch-universe tickers ` +
-    `have CIK mapping · ${s.inputsAvailableAggregate} aggregate constituents have ` +
-    `usable sector mapping (v1: always 0 — GICS deferred)._`,
+    `_Universe coverage: ${s.tickersWithCikCount}/${s.watchUniverseTickerCount} ` +
+    `watch-universe tickers have current CIK mapping · ${s.inputsAvailableAggregate} ` +
+    `aggregate constituents have usable sector mapping (G1-A4: per-ticker ` +
+    `sector active; aggregate-layer 0 pending OQ-G2-1 baseline ADR)._`,
   );
   lines.push(
     `_Composite: \`${s.compositeVersion}\` ` +
     `(v1 reads SEC EDGAR 8-K Item 5.02(b)/(c) only per SPEC E-2; ` +
-    `aggregate-sector layer dormant per §11 OQ-2). ` +
+    `aggregate-sector layer dormant pending OQ-G2-1 ADR). ` +
     `INFORMATIONAL — does NOT fire a regime category in v1 (SPEC §1 non-goal #1)._`,
   );
   lines.push(``);
@@ -2366,22 +2395,28 @@ function formatNetDollar(v: number): string {
  *    in the SPEC mockup is intentionally OMITTED in v1 — adding it requires
  *    a Form4InsiderPerTickerRow shape change (daysSinceLatestBuy/Sell fields),
  *    which would invalidate the F4-A4 snapshot DDL. v2 enhancement deferred.
- *  - Section #14 + #15 G1-A2/A3 (s94 #2/#3) sector annotation:
+ *  - Section #12 + #14 + #15 G1-A2/A3/A4 (s94 #2/#3/#4) sector annotation:
  *    `formatSectorAnnotation` returns ` [Sector]` (leading space) when non-null
- *    OR empty-string when null. The call site (both sections) relies on the
- *    leading-space convention — DO NOT factor the space out into the per-row
- *    template, else the cold-start (sector = null) case would render
- *    `AAPL  — …` with a double space. T-OBR-F4-8 / T-OBR-EK-8 (null sector
- *    renders without annotation) + T-OBR-F4-9 / T-OBR-EK-9 (non-null sector
- *    renders inline) pin this contract per composite. Section #12 (exec
- *    departure) is the third copy pending at G1-A4 — at that point consider
- *    rule-of-three extraction of `formatSectorAnnotation` (still in-file)
- *    versus the current shared in-file helper.
- *  - Section #14 + #15 G1-A2/A3 aggregate-panel footer wording references
- *    OQ-G2-1 (per-sector baseline-computation strategy ADR). When that ADR
- *    resolves and the G2 slice activates the aggregate layer, BOTH footers
- *    must be updated AND the "GICS deferred / OQ-G2-1-awaiting" hints in
+ *    OR empty-string when null. The call site (all three sections) relies on
+ *    the leading-space convention — DO NOT factor the space out into the
+ *    per-row template, else the cold-start (sector = null) case would render
+ *    `AAPL  — …` with a double space. T-OBR-F4-8 / T-OBR-EK-8 / T-OBR-XD-8
+ *    (null sector renders without annotation) + T-OBR-F4-9 / T-OBR-EK-9 /
+ *    T-OBR-XD-9 (non-null sector renders inline) pin this contract per
+ *    composite. At G1-A4 close the three-copy rule-of-three trigger fires
+ *    (per S94-9); the current shared in-file helper paid its rent across all
+ *    three sites and stays where it is — SEPARATE-MODULE extraction would
+ *    only add import noise without removing duplication (one definition
+ *    already serves three call sites). Note that section #12 inserts the
+ *    annotation in a TABLE-CELL position (after the ticker, before the next
+ *    pipe) while sections #14 + #15 insert it in a LIST-ITEM position (after
+ *    the ticker, before " — "); the annotation contract (leading space + the
+ *    sector name in brackets) is identical, so the helper covers both.
+ *  - Section #12 + #14 + #15 G1-A2/A3/A4 aggregate-panel footer wording
+ *    references OQ-G2-1 (per-sector baseline-computation strategy ADR).
+ *    When that ADR resolves and the G2 slice activates the aggregate layer,
+ *    ALL THREE footers must be updated AND the "OQ-G2-1-awaiting" hints in
  *    `inputsAvailableAggregate = 0` cold-start MUST be revised — else the
  *    footers would mis-state v2 status post-G2. A coordinated triple-edit
- *    (sections #12 + #14 + #15) lands when G2 ships.
+ *    (sections #12 + #14 + #15) lands when G2 ships per S94-11.
  */

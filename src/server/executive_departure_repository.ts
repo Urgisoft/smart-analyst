@@ -7,49 +7,54 @@
  *       §5 (composite formulas), §6 (snapshot schema), §7 (daemon hook),
  *       §10 Phase A4 (this unit).
  *
- * Responsibility split (mirrors short_interest_repository.ts):
+ * Responsibility split (mirrors short_interest_repository.ts and
+ * eight_k_classifier_repository.ts byte-for-byte where mechanics line up):
  *   - Pure composite logic lives in src/server/executive_departure.ts.
  *   - This repository is the I/O boundary: pulls the trailing 90d event panel
  *     per ticker from `quantlab.executive_departures`, the SPY-500 PIT
- *     constituent panel + GICS sector slicing (deferred — see §11 OQ-2
- *     autonomous resolution below), the per-sector trailing 2y daily
- *     departure-rate baselines, the CIK↔ticker reverse cache; feeds the
- *     composite; writes the snapshot to quantlab.executive_departure_snapshots.
+ *     constituent panel + GICS sector slicing (per-ticker active from G1-A4
+ *     wiring below; aggregate still pending OQ-G2-1 ADR), the per-sector
+ *     trailing 2y daily departure-rate baselines, the CIK↔ticker reverse
+ *     cache; feeds the composite; writes the snapshot to
+ *     quantlab.executive_departure_snapshots.
  *
- * GICS sector mapping — v1 autonomous resolution (SPEC §11 OQ-2 canon-thin fork):
+ * GICS sector mapping — gap #7+#8 v2 G1-A4 wiring (s94 #4; UPGRADED from
+ * v1 null-sector posture; third per-composite mirror of the s94 #1 shared
+ * `quantlab.gics_sector_map` infrastructure per HANDOFF S94-5..S94-11):
  *
- *   The SPEC formulates the aggregate signal at the GICS-sector slice of the
- *   SPY-500 constituent panel. Neither the SP500 constituents table nor the
- *   `cik_ticker_map` cache (gap #8 A1) carries a SIC code or GICS sector
- *   field; the existing SPDR-sector mapping in src/server/sector_rotation.ts
- *   is at the ETF level (XLK/XLF/...), NOT at the constituent level.
+ *   SPEC §5 + §6 formulate the aggregate signal at the GICS-sector slice of
+ *   the SPY-500 constituent panel. The shared `quantlab.gics_sector_map`
+ *   table (s94 #1 / commit 8cfdd72) now sources GICS sector + sub-industry
+ *   keyed by ticker from the Wikipedia "List of S&P 500 companies" scrape.
  *
- *   v1 ships with `sector = null` for ALL per-ticker rows. Per E-13 the
- *   per-ticker layer is binary (≥ 1 5.02(b) event in 90d → flag fires) and
- *   does NOT require sector. The composite's `inputs.sectors` array is empty
- *   in v1 — the aggregate `executive_cluster_departure` flag is cold-start
- *   and never fires. The brief panel renders a "GICS sector mapping deferred
- *   to v2" footer for the aggregate panel.
+ *   Per-ticker layer: `readSectorByTicker` reads PIT-DESC LIMIT 1 BY ticker
+ *   (`snapshot_date <= asOf ORDER BY snapshot_date DESC LIMIT 1`) so v1
+ *   snapshot-only ingest (today-only) AND a future v2 PIT backfill (via
+ *   Wikipedia's "Selected changes" changelog table) both work without
+ *   breaking the consumer. `perTicker[].sector` is now populated from the
+ *   map whenever a row exists; absent rows still emit `sector = null`
+ *   (graceful cold-start before the GICS ingest first runs).
  *
- *   Three-criterion analysis (per CLAUDE.md autonomous-execution canon-thin
- *   rule):
- *     1. **Canon foundations** — equal across alternatives (null-sector,
- *        Wikipedia static table, SIC→GICS via cik_ticker_map extension,
- *        SPDR-holdings scrape). SPEC §11 OQ-2 explicitly punts.
- *     2. **Methodology rigor** — null-sector v1 has zero ingest-time changes
- *        (no A1 modification; A4 is the standing precedent that A1 stays
- *        immutable within a slice arc). All other paths require either an
- *        A1 schema bump + re-ingest OR a separate new ingest script with
- *        its own canon-thin parsing fragility.
- *     3. **Minimum free parameters** — null path has zero. SIC→GICS bridge
- *        is an 11-row free-parameter table; Wikipedia static is a 503-row
- *        free-parameter table with drift risk every quarterly rebalance.
+ *   Aggregate-sector layer: STILL DORMANT in G1-A4 — `inputs.sectors` remains
+ *   an empty array. The aggregate layer needs a per-sector daily departure-
+ *   rate 2y baseline; the baseline-computation strategy (re-compute vs
+ *   persist sibling table vs hybrid) is OQ-G2-1, a separate operator ADR.
+ *   Activation ships as G2 once the ADR lands.
  *
- *   v2 deliverable: a dedicated slice that either (a) extends A1 to capture
- *   sicDescription from the EDGAR submissions API payload + maps SIC→GICS,
- *   or (b) ships a separate `quantlab.gics_sector_map` table populated from
- *   Wikipedia + a daily refresh job. The composite's aggregate-layer math is
- *   already implemented; v2 simply needs to populate `inputs.sectors`.
+ *   Three-criterion analysis (canon-thin fork resolution per CLAUDE.md): the
+ *   per-ticker / aggregate decomposition has zero free parameters, mirrors
+ *   the PIT-DESC pattern used elsewhere in the repository (see
+ *   readSp500ConstituentsPIT), and aligns the consumer read pattern with v2
+ *   PIT backfill without touching the schema (s94 #1 S94-2 lock). The
+ *   readSectorByTicker SQL shape is byte-equal to form_4_insider_repository.ts
+ *   AND eight_k_classifier_repository.ts per S94-5; G1-A4 is the third copy
+ *   that triggers the rule-of-three extraction evaluation per S94-10.
+ *
+ * Anti-leak gate (load-bearing per E-7):
+ *   All event reads filter on `accepted_at <= asOf` (NOT `period_of_report`).
+ *   A refactor that swapped to period_of_report would introduce a look-ahead
+ *   leak — filings can be retroactively dated up to 4bd before acceptance
+ *   under Sarbanes-Oxley §409 / 17 CFR 249.308.
  */
 import type { ClickHouseClient } from '@clickhouse/client';
 import { getClickHouse } from './clickhouse.js';
@@ -63,6 +68,10 @@ import {
   type ExecutiveDeparturePerTickerRow,
   type ExecutiveDepartureSnapshot,
 } from './executive_departure.js';
+import {
+  readGicsSectorByTicker,
+  type GicsSectorEntry,
+} from './gics_sector_repository_helper.js';
 
 /** Baseline window for sector-aggregate z-score: 2 calendar years.
  *  Matches the short-interest BASELINE_CALENDAR_DAYS constant. Per E-14 the
@@ -86,6 +95,10 @@ export interface ExecutiveDepartureRepositoryOptions {
   cikTickerMapTable?: string;
   candlesTable?: string;
   snapshotsTable?: string;
+  /** GICS sector map source — defaults to 'quantlab.gics_sector_map'
+   *  (s94 #1 / G1-A1). Read by `readSectorByTicker` for the per-ticker
+   *  sector annotation in section #12 of the morning brief. */
+  gicsSectorMapTable?: string;
 }
 
 export interface ExecutiveDepartureDaemonResult {
@@ -115,6 +128,15 @@ interface RawCikRow {
   cik: string;
 }
 
+/** Per-ticker GICS resolution shape returned by `readSectorByTicker`.
+ *  Composite-specific typed alias for the shared `GicsSectorEntry` shape
+ *  (see `src/server/gics_sector_repository_helper.ts`); kept distinct from
+ *  the F4 / EK aliases for type-graph clarity at the consumer boundary.
+ *  `subIndustry` is captured at ingest but currently UNUSED by the
+ *  G1-A4 brief render (v3 enhancement); the field is exposed for
+ *  forensic/operator queries against the snapshot JSON. */
+export type ExecutiveDepartureSectorEntry = GicsSectorEntry;
+
 interface RawSnapshotRow {
   snapshot_date: string;
   computed_at_ms: string | number;
@@ -135,6 +157,7 @@ export class ExecutiveDepartureRepository {
   readonly cikTickerMapTable: string;
   readonly candlesTable: string;
   readonly snapshotsTable: string;
+  readonly gicsSectorMapTable: string;
 
   constructor(opts: ExecutiveDepartureRepositoryOptions = {}) {
     this.ch = opts.ch ?? getClickHouse();
@@ -143,6 +166,7 @@ export class ExecutiveDepartureRepository {
     this.cikTickerMapTable = opts.cikTickerMapTable ?? 'quantlab.cik_ticker_map';
     this.candlesTable = opts.candlesTable ?? 'quantlab.candles';
     this.snapshotsTable = opts.snapshotsTable ?? 'quantlab.executive_departure_snapshots';
+    this.gicsSectorMapTable = opts.gicsSectorMapTable ?? 'quantlab.gics_sector_map';
   }
 
   /**
@@ -358,6 +382,33 @@ export class ExecutiveDepartureRepository {
   }
 
   /**
+   * Read ticker → GICS sector + sub-industry mapping from
+   * `quantlab.gics_sector_map`, PIT-DESC LIMIT 1 BY ticker. Per S94-2 the v1
+   * ingest writes `snapshot_date = today` on every row; v2 PIT backfill via
+   * Wikipedia's changelog table will write multiple rows per ticker. This
+   * read pattern handles both shapes — always the most recent snapshot
+   * dated ≤ asOf — without breaking the consumer.
+   *
+   * Returns a Map of ticker → {sector, subIndustry}. Tickers with no row
+   * in the map (e.g. mid-cap names outside the SP500 universe, or pre-
+   * first-ingest cold start) get no map entry; consumers treat absent as
+   * "sector unknown" + render the row WITHOUT the bracket annotation.
+   *
+   * Thin wrapper over the shared `readGicsSectorByTicker` helper
+   * (`src/server/gics_sector_repository_helper.ts`) — extracted at G1-A4 per
+   * S94-10's rule-of-three (third byte-equal copy across F4 / EK / XD).
+   * The helper owns the SQL + parsing; this wrapper only narrows the return
+   * type to `ExecutiveDepartureSectorEntry` for type-graph clarity at the
+   * composite-API boundary.
+   */
+  async readSectorByTicker(
+    asOf: Date,
+    tickers: readonly string[],
+  ): Promise<Map<string, ExecutiveDepartureSectorEntry>> {
+    return readGicsSectorByTicker(this.ch, this.gicsSectorMapTable, asOf, tickers);
+  }
+
+  /**
    * Compose all inputs the A2 composite needs for `asOf`. Pure-function
    * composite consumes the result; the repository does ALL I/O + windowing.
    *
@@ -366,24 +417,30 @@ export class ExecutiveDepartureRepository {
    * `runDaemonExecutiveDepartureEvaluation` resolves these from CH; tests
    * inject fixed lists.
    *
-   * v1 aggregate-sector slicing is inactive — see module header. The
-   * `sectors` field on the returned inputs is an empty array.
+   * Per-ticker sector resolution: G1-A4 wiring (s94 #4) — sector + sub-
+   * industry resolved from `quantlab.gics_sector_map` via PIT-DESC LIMIT 1
+   * BY ticker. Composite's `inputsAvailablePerTicker` now counts rows with
+   * BOTH a CIK + a sector (previously structurally 0 in v1 cold-start).
+   *
+   * Aggregate-sector slicing: STILL inactive — `inputs.sectors` is an empty
+   * array. G2 activation gated on OQ-G2-1 baseline-computation ADR.
    */
   async readInputsForCycle(
     asOf: Date,
     watchUniverse: readonly string[],
     _constituents: readonly string[],
   ): Promise<ExecutiveDepartureInputs> {
-    const [latestAccepted, cikByTicker, perTickerEvents] = await Promise.all([
+    const [latestAccepted, cikByTicker, sectorByTicker, perTickerEvents] = await Promise.all([
       this.readLatestAcceptedAt(asOf),
       this.readCikByTicker(watchUniverse),
+      this.readSectorByTicker(asOf, watchUniverse),
       this.readEventsForTickersInWindow(asOf, watchUniverse, EVENT_WINDOW_DAYS),
     ]);
 
     const perTicker = watchUniverse.map(ticker => ({
       ticker,
       cik: cikByTicker.get(ticker) ?? '',
-      sector: null as string | null,
+      sector: sectorByTicker.get(ticker)?.sector ?? null,
       events: perTickerEvents.get(ticker) ?? [],
     }));
 
@@ -632,12 +689,24 @@ export async function runDaemonExecutiveDepartureEvaluation(opts: {
 
 /**
  * What could break this:
- *   - The v1 GICS-sector deferral means `inputs.sectors` is always empty +
- *     `inputsAvailableAggregate` is always 0. The composite's aggregate
- *     layer is structurally dormant. v2 simply needs to populate the
- *     sectors array; the composite math is already implemented + tested.
- *     A regression test would catch a future change that activated sectors
- *     without populating the GICS mapping.
+ *   - G1-A4 sector wiring (s94 #4): `readSectorByTicker` reads
+ *     `quantlab.gics_sector_map` via PIT-DESC LIMIT 1 BY ticker. The
+ *     aggregate-sector slicing remains DORMANT (`inputs.sectors` still
+ *     empty) — G2 activation blocks on OQ-G2-1 (per-sector daily departure-
+ *     rate baseline-computation strategy ADR). When G2 ADR lands and the
+ *     baseline approach is selected, this file populates `inputs.sectors`
+ *     with the SP500 PIT constituents grouped by sector + the trailing-2y
+ *     `departure_rate_s` baseline series; the composite math is already
+ *     implemented + tested in A2.
+ *   - `inputsAvailablePerTicker` from the composite counts rows with BOTH
+ *     a CIK + a sector. With G1-A4 wiring this is now meaningful (gates
+ *     on actual GICS coverage from the Wikipedia ingest). Pre-first-
+ *     ingest cold start: `readSectorByTicker` returns empty map →
+ *     `perTicker[].sector` is null on every row → `inputsAvailablePerTicker`
+ *     is 0. The brief now uses the composer-stamped CIK-only count
+ *     (`tickersWithCikCount`) for the universe-coverage line so the
+ *     "0/60 with sector" cold-start does NOT poison the rendered metric
+ *     (S93-28 fix mirrored to section #12 per G1-A4).
  *   - readEventsForTickersInWindow narrows to sub_item_code IN ('5.02(b)',
  *     '5.02(c)') — if the v2 ADR adds 5.02(a)/(d)/(e) to the composite,
  *     bump COMPOSITE_SUB_ITEM_CODES (and re-version the composite per E-9).

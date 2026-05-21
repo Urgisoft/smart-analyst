@@ -816,6 +816,9 @@ describe('composeMorningBrief — executive-departure section wiring', () => {
     assert.equal(brief.executiveDeparture!.perTickerRows.length, 1);
     assert.equal(brief.executiveDeparture!.perTickerRows[0].ticker, 'AAPL');
     assert.equal(brief.executiveDeparture!.perTickerRows[0].executiveDepartureFlag, true);
+    // G1-A4 (s94 #4): composer stamps CIK-only count + watch-universe denominator.
+    assert.equal(brief.executiveDeparture!.tickersWithCikCount, 1);
+    assert.equal(brief.executiveDeparture!.watchUniverseTickerCount, 1);
     assert.equal(brief.executiveDeparture!.compositeVersion, 'exec_departure_v1');
   });
 
@@ -836,6 +839,84 @@ describe('composeMorningBrief — executive-departure section wiring', () => {
       now: () => FIXED_NOW,
     });
     assert.equal(brief.executiveDeparture, null);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// buildExecutiveDepartureSection — composer-level (G1-A4 / s94 #4)
+// SPEC: HANDOFF S94-9 + S93-28 fix mirrored to section #12.
+// ─────────────────────────────────────────────────────────────────────────
+describe('buildExecutiveDepartureSection', () => {
+  it('returns null when snapshot is null', async () => {
+    const { buildExecutiveDepartureSection } = await import('../../src/server/operator_brief.js');
+    assert.equal(buildExecutiveDepartureSection(null), null);
+  });
+
+  it('maps ExecutiveDepartureSnapshot fields into the brief section (Date→ISO, version→compositeVersion)', async () => {
+    const { buildExecutiveDepartureSection } = await import('../../src/server/operator_brief.js');
+    const snapshotDate = new Date('2026-05-19T13:30:00.123Z');
+    const lastEdgarQueryAt = new Date('2026-05-19T13:25:00Z');
+    const section = buildExecutiveDepartureSection({
+      snapshotDate,
+      lastEdgarQueryAt,
+      bdSinceLastQuery: 2,
+      flaggedSectors: [],
+      executiveClusterDeparture: false,
+      perTickerRows: [
+        { ticker: 'ABCD', cik: '0000111111', sector: null,
+          recentDepartureCount90d: 1, recentAppointmentCount90d: 0,
+          daysSinceLatestDeparture: 5,
+          executiveDepartureFlag: true, executiveAppointmentFlag: false },
+      ],
+      inputsAvailableAggregate: 0,
+      inputsAvailablePerTicker: 0,
+      version: 'exec_departure_v1',
+    });
+    assert.ok(section !== null);
+    assert.equal(section!.evaluatedAt, '2026-05-19T13:30:00.123Z');
+    assert.equal(section!.snapshotDate, '2026-05-19');
+    assert.equal(section!.lastEdgarQueryAt, '2026-05-19T13:25:00.000Z');
+    assert.equal(section!.bdSinceLastQuery, 2);
+    assert.equal(section!.executiveClusterDeparture, false);
+    assert.equal(section!.perTickerRows.length, 1);
+    assert.equal(section!.perTickerRows[0].executiveDepartureFlag, true);
+    assert.equal(section!.tickersWithCikCount, 1);
+    assert.equal(section!.watchUniverseTickerCount, 1);
+    assert.equal(section!.compositeVersion, 'exec_departure_v1');
+  });
+
+  it('S93-28 (mirrored) — stamps CIK-only count separately from sector-gated inputsAvailablePerTicker', async () => {
+    const { buildExecutiveDepartureSection } = await import('../../src/server/operator_brief.js');
+    const section = buildExecutiveDepartureSection({
+      snapshotDate: new Date('2026-05-19T13:30:00Z'),
+      lastEdgarQueryAt: null,
+      bdSinceLastQuery: null,
+      flaggedSectors: [],
+      executiveClusterDeparture: false,
+      perTickerRows: [
+        { ticker: 'A', cik: '0000000001', sector: null,
+          recentDepartureCount90d: 0, recentAppointmentCount90d: 0,
+          daysSinceLatestDeparture: null,
+          executiveDepartureFlag: false, executiveAppointmentFlag: false },
+        { ticker: 'B', cik: '', sector: null,
+          recentDepartureCount90d: 0, recentAppointmentCount90d: 0,
+          daysSinceLatestDeparture: null,
+          executiveDepartureFlag: false, executiveAppointmentFlag: false },
+        { ticker: 'C', cik: '0000000003', sector: null,
+          recentDepartureCount90d: 0, recentAppointmentCount90d: 0,
+          daysSinceLatestDeparture: null,
+          executiveDepartureFlag: false, executiveAppointmentFlag: false },
+      ],
+      // Composite reports 0 (sector-gated; cold-start before GICS ingest).
+      inputsAvailableAggregate: 0,
+      inputsAvailablePerTicker: 0,
+      version: 'exec_departure_v1',
+    });
+    assert.ok(section !== null);
+    // S93-28 mirrored: brief uses CIK-only count, NOT inputsAvailablePerTicker.
+    assert.equal(section!.tickersWithCikCount, 2);
+    assert.equal(section!.watchUniverseTickerCount, 3);
+    assert.equal(section!.inputsAvailablePerTicker, 0);
   });
 });
 

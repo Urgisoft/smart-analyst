@@ -75,6 +75,10 @@ import {
   type Form4InsiderSnapshot,
   type InsiderTrade,
 } from './form_4_insider.js';
+import {
+  readGicsSectorByTicker,
+  type GicsSectorEntry,
+} from './gics_sector_repository_helper.js';
 
 /** Trailing window per F4-5 for the per-ticker rolling 90d net-dollar set. */
 export const TRADE_WINDOW_DAYS = ROLLING_WINDOW_DAYS;
@@ -138,20 +142,14 @@ interface RawCikRow {
   cik: string;
 }
 
-interface RawSectorRow {
-  ticker: string;
-  gics_sector: string;
-  gics_sub_industry: string;
-}
-
 /** Per-ticker GICS resolution shape returned by `readSectorByTicker`.
+ *  Composite-specific typed alias for the shared `GicsSectorEntry` shape
+ *  (see `src/server/gics_sector_repository_helper.ts`); kept distinct from
+ *  the EK / XD aliases for type-graph clarity at the consumer boundary.
  *  `subIndustry` is captured at ingest but currently UNUSED by the
  *  G1-A2 brief render (v3 enhancement); the field is exposed for
  *  forensic/operator queries against the snapshot JSON. */
-export interface Form4InsiderSectorEntry {
-  sector: string;
-  subIndustry: string;
-}
+export type Form4InsiderSectorEntry = GicsSectorEntry;
 
 interface RawSnapshotRow {
   snapshot_date: string;
@@ -376,39 +374,19 @@ export class Form4InsiderRepository {
    * in the map (e.g. mid-cap names outside the SP500 universe, or pre-
    * first-ingest cold start) get no map entry; consumers treat absent as
    * "sector unknown" + render the row WITHOUT the bracket annotation.
+   *
+   * Thin wrapper over the shared `readGicsSectorByTicker` helper
+   * (`src/server/gics_sector_repository_helper.ts`) — extracted at G1-A4
+   * close per S94-10's rule-of-three (third byte-equal copy across F4 / EK /
+   * XD lands the trigger). The helper owns the SQL + parsing; this wrapper
+   * only narrows the return type to `Form4InsiderSectorEntry` for type-graph
+   * clarity at the composite-API boundary.
    */
   async readSectorByTicker(
     asOf: Date,
     tickers: readonly string[],
   ): Promise<Map<string, Form4InsiderSectorEntry>> {
-    if (tickers.length === 0) return new Map();
-    const asOfStr = toIsoDate(asOf);
-    const q = await this.ch.query({
-      query: `
-        SELECT ticker, gics_sector, gics_sub_industry
-        FROM (
-          SELECT ticker, gics_sector, gics_sub_industry, snapshot_date
-          FROM ${this.gicsSectorMapTable} FINAL
-          WHERE ticker IN ({tickers:Array(String)})
-            AND snapshot_date <= {asOf:Date}
-          ORDER BY ticker, snapshot_date DESC
-        )
-        LIMIT 1 BY ticker
-      `,
-      query_params: { tickers: [...tickers], asOf: asOfStr },
-      format: 'JSONEachRow',
-    });
-    const rows = await q.json<RawSectorRow>();
-    const out = new Map<string, Form4InsiderSectorEntry>();
-    for (const r of rows) {
-      if (r.ticker && r.gics_sector) {
-        out.set(r.ticker, {
-          sector: r.gics_sector,
-          subIndustry: r.gics_sub_industry ?? '',
-        });
-      }
-    }
-    return out;
+    return readGicsSectorByTicker(this.ch, this.gicsSectorMapTable, asOf, tickers);
   }
 
   /**
