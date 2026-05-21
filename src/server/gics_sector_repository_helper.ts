@@ -128,16 +128,167 @@ export async function readGicsSectorByTicker(
   return out;
 }
 
+/** Per-day per-sector membership panel row emitted by
+ *  `readSectorMembershipPanel`. Used by the three composite repositories'
+ *  `populateSectorsForCycle` orchestrators (ADR-042 Option a / G2 wiring) to
+ *  build the trailing-2y daily rate denominator + the per-day sector slicing
+ *  of the events panel.
+ *
+ *  Day is ISO `YYYY-MM-DD`; sector is the canonical GICS name; memberCount is
+ *  the # of SP500 constituents in `sector` as-of `day`. Sectors with zero
+ *  members on day t are NOT emitted (consumer treats absent as memberCount=0). */
+export interface SectorMembershipPanelRow {
+  day: string;
+  sector: string;
+  memberCount: number;
+}
+
+interface RawConstituentRow {
+  ticker: string;
+  effective_date: string;
+}
+
+interface RawGicsTimelineRow {
+  ticker: string;
+  gics_sector: string;
+  snapshot_date: string;
+}
+
+/**
+ * Read the (day, sector, memberCount) panel over `[asOfStart, asOfEnd]`
+ * inclusive — the trailing-2y per-day per-sector denominator used by ADR-042
+ * Option (a) recompute-on-the-fly aggregate-panel population.
+ *
+ * Two CH reads (constituents timeline + GICS timeline) + in-JS composition;
+ * the join is performed in TypeScript because ClickHouse ASOF JOIN cannot
+ * cleanly express the (governing-effective_date → panel-membership-set)
+ * semantic when the underlying schema writes the FULL panel per effective_date
+ * (`quantlab.sp500_constituents` has one row per ticker per rebalance — see
+ * `src/server/clickhouse.ts` schema).
+ *
+ * Composition logic:
+ *   1. Group constituents by effective_date → Map<effective_date, ticker[]>.
+ *   2. For each day t in [asOfStart, asOfEnd]:
+ *      - Find governing effective_date = max(effective_date ≤ t) [strict PIT].
+ *      - Look up panel-ticker-set at that effective_date.
+ *      - For each ticker, find governing GICS sector = sector at
+ *        max(snapshot_date ≤ t) [strict PIT, supports mid-window sector swaps].
+ *      - Aggregate by sector → emit (day, sector, count) rows.
+ *
+ * Empty window (asOfStart > asOfEnd) short-circuits to empty array WITHOUT
+ * issuing CH queries.
+ *
+ * Returns rows in (day ASC, sector ASC) order.
+ *
+ * @param ch                 ClickHouse client (injected for testability).
+ * @param gicsTable          Fully-qualified gics_sector_map table.
+ * @param constituentsTable  Fully-qualified sp500_constituents table.
+ * @param asOfStart          Window start, inclusive.
+ * @param asOfEnd            Window end, inclusive.
+ */
+export async function readSectorMembershipPanel(
+  ch: ClickHouseClient,
+  gicsTable: string,
+  constituentsTable: string,
+  asOfStart: Date,
+  asOfEnd: Date,
+): Promise<readonly SectorMembershipPanelRow[]> {
+  const startStr = asOfStart.toISOString().slice(0, 10);
+  const endStr = asOfEnd.toISOString().slice(0, 10);
+  if (startStr > endStr) return [];
+
+  const cq = await ch.query({
+    query: `
+        SELECT ticker, toString(effective_date) AS effective_date
+        FROM ${constituentsTable} FINAL
+        WHERE effective_date <= {asOfEnd:Date}
+        ORDER BY effective_date ASC, ticker ASC
+      `,
+    query_params: { asOfEnd: endStr },
+    format: 'JSONEachRow',
+  });
+  const constituents = await cq.json<RawConstituentRow>();
+
+  const gq = await ch.query({
+    query: `
+        SELECT ticker, gics_sector, toString(snapshot_date) AS snapshot_date
+        FROM ${gicsTable} FINAL
+        WHERE snapshot_date <= {asOfEnd:Date}
+          AND gics_sector != ''
+        ORDER BY ticker ASC, snapshot_date ASC
+      `,
+    query_params: { asOfEnd: endStr },
+    format: 'JSONEachRow',
+  });
+  const gicsTimeline = await gq.json<RawGicsTimelineRow>();
+
+  const panelByEffective = new Map<string, string[]>();
+  for (const r of constituents) {
+    if (!r.ticker || !r.effective_date) continue;
+    const arr = panelByEffective.get(r.effective_date) ?? [];
+    arr.push(r.ticker);
+    panelByEffective.set(r.effective_date, arr);
+  }
+  const sortedEffectiveDates = [...panelByEffective.keys()].sort();
+
+  const gicsByTicker = new Map<string, Array<{ snapshotDate: string; sector: string }>>();
+  for (const r of gicsTimeline) {
+    if (!r.ticker || !r.gics_sector || !r.snapshot_date) continue;
+    const arr = gicsByTicker.get(r.ticker) ?? [];
+    arr.push({ snapshotDate: r.snapshot_date, sector: r.gics_sector });
+    gicsByTicker.set(r.ticker, arr);
+  }
+
+  const out: SectorMembershipPanelRow[] = [];
+  const startMs = Date.UTC(
+    asOfStart.getUTCFullYear(), asOfStart.getUTCMonth(), asOfStart.getUTCDate(),
+  );
+  const endMs = Date.UTC(
+    asOfEnd.getUTCFullYear(), asOfEnd.getUTCMonth(), asOfEnd.getUTCDate(),
+  );
+  const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+  for (let dayMs = startMs; dayMs <= endMs; dayMs += ONE_DAY_MS) {
+    const day = new Date(dayMs).toISOString().slice(0, 10);
+    let govEffective: string | null = null;
+    for (const ed of sortedEffectiveDates) {
+      if (ed <= day) govEffective = ed;
+      else break;
+    }
+    if (govEffective == null) continue;
+    const panelTickers = panelByEffective.get(govEffective) ?? [];
+
+    const sectorCounts = new Map<string, number>();
+    for (const ticker of panelTickers) {
+      const timeline = gicsByTicker.get(ticker);
+      if (!timeline) continue;
+      let govSector: string | null = null;
+      for (const entry of timeline) {
+        if (entry.snapshotDate <= day) govSector = entry.sector;
+        else break;
+      }
+      if (govSector == null) continue;
+      sectorCounts.set(govSector, (sectorCounts.get(govSector) ?? 0) + 1);
+    }
+
+    const sortedSectors = [...sectorCounts.keys()].sort();
+    for (const sector of sortedSectors) {
+      out.push({ day, sector, memberCount: sectorCounts.get(sector)! });
+    }
+  }
+  return out;
+}
+
 /**
  * What could break this:
- *   - The SQL shape is byte-load-bearing for the three per-composite test
- *     files (form4InsiderRepository.test.ts / eightKClassifierRepository.test.ts
- *     / executiveDepartureRepository.test.ts) — each one asserts the
- *     PIT-DESC LIMIT 1 BY ticker pattern. A refactor that paraphrases the
- *     SQL would need to coordinate with all three test files; the helper-
- *     level test (`gicsSectorRepositoryHelper.test.ts`) is the primary
- *     regression-catcher, but the per-composite tests pin the wiring at the
- *     consumer boundary too.
+ *   - The SQL shape of `readGicsSectorByTicker` is byte-load-bearing for the
+ *     three per-composite test files (form4InsiderRepository.test.ts /
+ *     eightKClassifierRepository.test.ts / executiveDepartureRepository.test.ts)
+ *     — each one asserts the PIT-DESC LIMIT 1 BY ticker pattern. A refactor
+ *     that paraphrases the SQL would need to coordinate with all three test
+ *     files; the helper-level test (`gicsSectorRepositoryHelper.test.ts`) is
+ *     the primary regression-catcher, but the per-composite tests pin the
+ *     wiring at the consumer boundary too.
  *   - asOf is rendered as `YYYY-MM-DD` (Date param, not DateTime). The
  *     snapshot table's `snapshot_date` column is a CH Date (not DateTime),
  *     so the cast is intentional. A future v2 schema upgrade that promoted
@@ -157,4 +308,20 @@ export async function readGicsSectorByTicker(
  *     rows in CH (the column has DEFAULT ''); if a future ingest writes
  *     literal null, the brief render is unaffected because v1/v2 do not
  *     surface sub-industry in the brief panel.
+ *   - `readSectorMembershipPanel` performs the panel-membership join in
+ *     TypeScript (NOT in CH) because `quantlab.sp500_constituents` writes
+ *     the FULL panel per `effective_date` — the canonical PIT semantic is
+ *     "governing effective_date = max(effective_date ≤ day); panel = all
+ *     tickers at that effective_date." This cannot be expressed cleanly
+ *     with ClickHouse ASOF JOIN (which picks one row per ticker, not the
+ *     full set at the governing effective_date). The JS composition cost
+ *     is ~503 days × ~503 tickers × ~10 effective_dates ≈ <2M ops per
+ *     helper call → sub-second under typical Node throughput.
+ *   - `readSectorMembershipPanel` strict-PIT semantic per ADR-042 §7: ticker
+ *     X contributes to sector S's memberCount on day t iff X is in sector S
+ *     as-of day t. Mid-window sector swaps (Wikipedia GICS revisions) ARE
+ *     reflected — the gicsByTicker timeline is fully scanned. A future v2
+ *     schema upgrade that promoted gics_sector_map snapshot_date to DateTime
+ *     would require coordinating the ISO-string comparison with the new
+ *     resolution.
  */
