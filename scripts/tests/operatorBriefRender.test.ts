@@ -2273,8 +2273,9 @@ describe('renderBriefMarkdown — 8-K classifier panel', () => {
     assert.match(md, /## 14\. 8-K material events — NORMAL/);
   });
 
-  // T-OBR-EK-4 — Cold-start fallback (no sectors with z != null → flaggedSectors empty).
-  it('T-OBR-EK-4 renders the v1 GICS-deferred footer when flaggedSectors is empty (cold-start)', () => {
+  // T-OBR-EK-4 — Cold-start fallback (flaggedSectors empty → G1-A3
+  // OQ-G2-1-awaiting footer; per-ticker layer active).
+  it('T-OBR-EK-4 renders the G1-A3 OQ-G2-1-awaiting footer when flaggedSectors is empty', () => {
     const md = renderBriefMarkdown(brief({
       eightK: {
         evaluatedAt: '2026-05-19T13:30:00Z',
@@ -2291,8 +2292,9 @@ describe('renderBriefMarkdown — 8-K classifier panel', () => {
         compositeVersion: 'eight_k_classifier_v1',
       },
     }));
-    assert.match(md, /GICS sector mapping deferred to v2/);
+    assert.match(md, /Aggregate-cluster panel awaits OQ-G2-1 ADR/);
     assert.match(md, /SPEC §11/);
+    assert.match(md, /Per-ticker sector annotations are active from `quantlab\.gics_sector_map`/);
     // Cold-start path skips the flagged-sectors table.
     assert.doesNotMatch(md, /\| Sector \| Rate \| z \| Baseline n \| Constituents \|/);
   });
@@ -2461,8 +2463,8 @@ describe('renderBriefMarkdown — 8-K classifier panel', () => {
         flaggedSectors: [],
         eightKClusterFlag: false,
         perTickerRows: [],
-        // Composite's inputsAvailablePerTicker is 0 in v1 (sector-gated); the
-        // composer stamps a separate CIK-only count via tickersWithCikCount.
+        // Composite's inputsAvailablePerTicker is 0 cold-start (sector-gated);
+        // the composer stamps a separate CIK-only count via tickersWithCikCount.
         inputsAvailableAggregate: 0,
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 58,
@@ -2471,8 +2473,10 @@ describe('renderBriefMarkdown — 8-K classifier panel', () => {
       },
     }));
     assert.match(md, /Universe coverage: 58\/60 mid-cap tickers have current CIK mapping/);
-    assert.match(md, /v1: always 0 — GICS deferred/);
+    // G1-A3 (s94 #3): per-ticker sector wired; aggregate still pending baseline ADR.
+    assert.match(md, /G1-A3: per-ticker sector active; aggregate-layer 0 pending OQ-G2-1 baseline ADR/);
     assert.match(md, /Composite: `eight_k_classifier_v1`/);
+    assert.match(md, /aggregate-sector layer dormant pending OQ-G2-1 ADR/);
     assert.match(md, /INFORMATIONAL — does NOT fire a regime category in v1/);
   });
 
@@ -2494,6 +2498,84 @@ describe('renderBriefMarkdown — 8-K classifier panel', () => {
       },
     }));
     assert.match(md, /Last evaluated: `2026-05-19T13:30:00\.123Z` · snapshot date: `2026-05-19`/);
+  });
+
+  // T-OBR-EK-8 — G1-A3 (s94 #3): null sector renders WITHOUT the bracket
+  // annotation. Cold-start (pre-first-ingest) AND non-SP500 mid-caps both
+  // hit this branch. Load-bearing for the formatSectorAnnotation contract
+  // (mirrors T-OBR-F4-8 byte-for-byte).
+  it('T-OBR-EK-8 omits sector annotation when sector is null', () => {
+    const md = renderBriefMarkdown(brief({
+      eightK: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        eightKClusterFlag: false,
+        perTickerRows: [
+          { ticker: 'NOMAP', cik: '0000999999', sector: null,
+            recentEventCount90d: 1, daysSinceLatestEvent: 5,
+            materialEventFlag: true,
+            impairmentFlag: true, restatementFlag: false,
+            auditorChangeFlag: false, delistingFlag: false,
+            controlChangeFlag: false, materialAgreementFlag: false,
+            acquisitionFlag: false },
+        ],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 1,
+        watchUniverseTickerCount: 1,
+        compositeVersion: 'eight_k_classifier_v1',
+      },
+    }));
+    // Per-row format: NO bracket annotation between ticker + " —".
+    assert.match(md, /- NOMAP — impairment \(2\.06\) \(5d ago\)/);
+    // Negative guard: no double space, no empty bracket.
+    assert.doesNotMatch(md, /- NOMAP  —/);
+    assert.doesNotMatch(md, /- NOMAP \[\]/);
+  });
+
+  // T-OBR-EK-9 — G1-A3 (s94 #3): non-null sector renders the bracket
+  // annotation inline between ticker + " —". Mirrors T-OBR-F4-9
+  // byte-for-byte. Load-bearing per the SPEC §8.1 mockup contract
+  // extended for G1-A3.
+  it('T-OBR-EK-9 renders [Sector] annotation inline when sector is non-null', () => {
+    const md = renderBriefMarkdown(brief({
+      eightK: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        eightKClusterFlag: false,
+        perTickerRows: [
+          { ticker: 'AAPL', cik: '0000320193', sector: 'Information Technology',
+            recentEventCount90d: 1, daysSinceLatestEvent: 3,
+            materialEventFlag: true,
+            impairmentFlag: false, restatementFlag: false,
+            auditorChangeFlag: true, delistingFlag: false,
+            controlChangeFlag: false, materialAgreementFlag: false,
+            acquisitionFlag: false },
+          { ticker: 'XOM', cik: '0000034088', sector: 'Energy',
+            recentEventCount90d: 1, daysSinceLatestEvent: 7,
+            materialEventFlag: true,
+            impairmentFlag: false, restatementFlag: true,
+            auditorChangeFlag: false, delistingFlag: false,
+            controlChangeFlag: false, materialAgreementFlag: false,
+            acquisitionFlag: false },
+        ],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 2,
+        tickersWithCikCount: 2,
+        watchUniverseTickerCount: 60,
+        compositeVersion: 'eight_k_classifier_v1',
+      },
+    }));
+    // Sector annotation between ticker + " —" — sorted by recency ascending,
+    // so AAPL (3d) renders before XOM (7d).
+    assert.match(md, /- AAPL \[Information Technology\] — auditor change \(4\.01\) \(3d ago\)/);
+    assert.match(md, /- XOM \[Energy\] — restatement \(4\.02\) \(7d ago\)/);
   });
 });
 
