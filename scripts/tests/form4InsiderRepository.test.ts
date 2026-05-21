@@ -12,7 +12,10 @@
  *   - readSp500ConstituentsPIT (PIT effective_date pattern)
  *   - readEquityMidcapWatchUniverse (candles-table filter shape + _USD strip)
  *   - readCikByTicker (subquery-around-FINAL + empty-CIK skip)
- *   - readInputsForCycle end-to-end (sectors empty in v1)
+ *   - readSectorByTicker (G1-A2 / s94 #2 — PIT-DESC LIMIT 1 BY ticker
+ *     pattern + empty-sector skip + cold-start absent-table-safe)
+ *   - readInputsForCycle end-to-end (sector populated via gics_sector_map
+ *     when present; cold-start fallback leaves sector null)
  *   - writeSnapshot round-trip (column-name mapping: version → composite_version,
  *     boolean → UInt8, JSON encoding)
  *   - loadLatestSnapshot (round-trip + null on empty + malformed JSON
@@ -365,15 +368,87 @@ describe('readCikByTicker', () => {
   });
 });
 
+// ───── readSectorByTicker (G1-A2 / s94 #2) ──────────────────────────
+
+describe('readSectorByTicker', () => {
+  it('returns empty map when no tickers requested', async () => {
+    const { repo, fake } = makeRepo();
+    const out = await repo.readSectorByTicker(DATE, []);
+    assert.equal(out.size, 0);
+    assert.equal(fake.queries.length, 0);
+  });
+
+  it('parses ticker → {sector, subIndustry}; skips empty-sector rows', async () => {
+    const { repo, fake } = makeRepo();
+    fake.route(_ => true, [
+      { ticker: 'AAPL', gics_sector: 'Information Technology', gics_sub_industry: 'Technology Hardware, Storage & Peripherals' },
+      { ticker: 'XOM', gics_sector: 'Energy', gics_sub_industry: 'Integrated Oil & Gas' },
+      { ticker: 'EMPTY', gics_sector: '', gics_sub_industry: '' },
+    ]);
+    const out = await repo.readSectorByTicker(DATE, ['AAPL', 'XOM', 'EMPTY']);
+    assert.equal(out.size, 2);
+    assert.equal(out.get('AAPL')?.sector, 'Information Technology');
+    assert.equal(out.get('AAPL')?.subIndustry, 'Technology Hardware, Storage & Peripherals');
+    assert.equal(out.get('XOM')?.sector, 'Energy');
+    assert.equal(out.has('EMPTY'), false);
+  });
+
+  it('uses PIT-DESC LIMIT 1 BY ticker pattern (v1 snapshot + v2 PIT both work)', async () => {
+    const { repo, fake } = makeRepo();
+    fake.route(_ => true, []);
+    await repo.readSectorByTicker(DATE, ['AAPL']);
+    const sql = fake.queries[0].query;
+    // PIT-DESC: snapshot_date <= asOf, ORDER BY snapshot_date DESC, LIMIT 1 BY ticker
+    assert.match(sql, /snapshot_date <= \{asOf:Date\}/);
+    assert.match(sql, /ORDER BY ticker, snapshot_date DESC/);
+    assert.match(sql, /LIMIT 1 BY ticker/);
+    // Subquery-around-FINAL idiom (a52c964 regression class).
+    assert.match(sql, /FROM \(\s*SELECT[\s\S]+FROM \S+ FINAL[\s\S]+WHERE/);
+  });
+
+  it('queries quantlab.gics_sector_map by default', async () => {
+    const { repo, fake } = makeRepo();
+    fake.route(_ => true, []);
+    await repo.readSectorByTicker(DATE, ['AAPL']);
+    const sql = fake.queries[0].query;
+    assert.match(sql, /FROM quantlab\.gics_sector_map FINAL/);
+  });
+
+  it('passes asOf as ISO date string', async () => {
+    const { repo, fake } = makeRepo();
+    fake.route(_ => true, []);
+    await repo.readSectorByTicker(new Date('2026-05-19T13:45:00.000Z'), ['AAPL']);
+    const params = fake.queries[0].query_params as Record<string, unknown>;
+    assert.equal(params.asOf, '2026-05-19');
+    assert.deepEqual(params.tickers, ['AAPL']);
+  });
+
+  it('coerces null subIndustry to empty string (defensive against partial rows)', async () => {
+    const { repo, fake } = makeRepo();
+    fake.route(_ => true, [
+      // Simulating a malformed row with missing sub-industry; the row should
+      // still appear (sector present), with subIndustry coerced to ''.
+      { ticker: 'AAPL', gics_sector: 'Information Technology', gics_sub_industry: null },
+    ]);
+    const out = await repo.readSectorByTicker(DATE, ['AAPL']);
+    assert.equal(out.size, 1);
+    assert.equal(out.get('AAPL')?.subIndustry, '');
+  });
+});
+
 // ───── readInputsForCycle ───────────────────────────────────────────
 
 describe('readInputsForCycle', () => {
-  it('composes inputs from EDGAR reads + CIK map; sectors empty in v1', async () => {
+  it('composes inputs from EDGAR reads + CIK map + GICS sector map (G1-A2)', async () => {
     const { repo, fake } = makeRepo();
     fake.route(q => q.includes('max(accepted_at)'), [{ last: '2026-05-14 10:35:21' }]);
     fake.route(q => q.includes(`FROM quantlab.cik_ticker_map`), [
       { ticker: 'AAPL', cik: '0000320193' },
       { ticker: 'MSFT', cik: '0000789019' },
+    ]);
+    fake.route(q => q.includes(`FROM quantlab.gics_sector_map`), [
+      { ticker: 'AAPL', gics_sector: 'Information Technology', gics_sub_industry: 'Technology Hardware, Storage & Peripherals' },
+      { ticker: 'MSFT', gics_sector: 'Information Technology', gics_sub_industry: 'Systems Software' },
     ]);
     fake.route(q => q.includes('transaction_code IN'), [
       {
@@ -399,14 +474,30 @@ describe('readInputsForCycle', () => {
     assert.equal(inputs.perTicker.length, 2);
     assert.equal(inputs.perTicker[0].ticker, 'AAPL');
     assert.equal(inputs.perTicker[0].cik, '0000320193');
-    // v1: sector is always null
-    assert.equal(inputs.perTicker[0].sector, null);
+    // G1-A2: sector populated from gics_sector_map
+    assert.equal(inputs.perTicker[0].sector, 'Information Technology');
     assert.equal(inputs.perTicker[0].trades.length, 1);
-    // MSFT had no trades
+    // MSFT also has sector mapping but no trades
     assert.equal(inputs.perTicker[1].ticker, 'MSFT');
+    assert.equal(inputs.perTicker[1].sector, 'Information Technology');
     assert.equal(inputs.perTicker[1].trades.length, 0);
-    // v1: sectors array is structurally empty (GICS deferred)
+    // Aggregate sectors array still structurally empty (G2 blocked on OQ-G2-1 ADR)
     assert.equal(inputs.sectors.length, 0);
+  });
+
+  it('leaves sector=null when gics_sector_map has no row for the ticker (cold start)', async () => {
+    const { repo, fake } = makeRepo();
+    fake.route(q => q.includes('max(accepted_at)'), [{ last: null }]);
+    fake.route(q => q.includes(`FROM quantlab.cik_ticker_map`), [
+      { ticker: 'WEIRDCAP', cik: '0000444444' },
+    ]);
+    // gics_sector_map returns nothing for WEIRDCAP (mid-cap outside SP500)
+    fake.route(q => q.includes(`FROM quantlab.gics_sector_map`), []);
+    fake.route(_ => true, []);
+    const inputs = await repo.readInputsForCycle(DATE, ['WEIRDCAP'], []);
+    assert.equal(inputs.perTicker[0].cik, '0000444444');
+    assert.equal(inputs.perTicker[0].sector, null);
+    assert.equal(inputs.perTicker[0].trades.length, 0);
   });
 
   it('handles empty watch universe (no rows propagate cleanly)', async () => {
@@ -845,6 +936,18 @@ describe('CH grammar validation (EXPLAIN PLAN)', () => {
     if (verdict.skipped) return t.skip('CH unreachable');
     if (!verdict.ok && /Unknown table expression identifier.*cik_ticker_map/.test(verdict.failure?.error ?? '')) {
       return t.skip('quantlab.cik_ticker_map not yet created — first edgar ingest activates this check');
+    }
+    if (!verdict.ok) assert.fail(`EXPLAIN PLAN rejected:\n${verdict.failure?.error}\n---\n${verdict.failure?.query}`);
+  });
+
+  it('readSectorByTicker is EXPLAIN-clean (G1-A2 / s94 #2)', async (t) => {
+    const { repo, fake } = makeRepo();
+    fake.route(_ => true, []);
+    await repo.readSectorByTicker(DATE, ['AAPL']);
+    const verdict = await assertCHGrammar({ queries: fake.queries });
+    if (verdict.skipped) return t.skip('CH unreachable');
+    if (!verdict.ok && /Unknown table expression identifier.*gics_sector_map/.test(verdict.failure?.error ?? '')) {
+      return t.skip('quantlab.gics_sector_map not yet created — first G1-A1 ingest activates this check');
     }
     if (!verdict.ok) assert.fail(`EXPLAIN PLAN rejected:\n${verdict.failure?.error}\n---\n${verdict.failure?.query}`);
   });

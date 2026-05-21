@@ -703,14 +703,16 @@ export const EIGHT_K_CLASSIFIER_STALENESS_BD_THRESHOLD = 4;
  * Form 4 insider panel — informational Layer-0 context.
  * SPEC: docs/specs/event-driven-filings-processor.md §§3, 5.3-5.4, 8.2.
  *
- * v1 GICS-sector resolution (SPEC §11 canon-thin fork; same posture as
- * eight_k_classifier — see src/server/form_4_insider_repository.ts module
- * header for the three-criterion analysis): the aggregate-sector layer is
- * structurally inactive. `flaggedSectors` is always empty in v1;
- * `form4ClusterFlag` is always false. The renderer emits a "GICS sector
- * mapping deferred to v2" footer for the aggregate panel. Per-ticker layer
- * is fully active (direction-split `insiderClusterBuyFlag` +
- * `insiderClusterSellFlag` fire on raw distinct-insider counts).
+ * GICS sector resolution — gap #7+#8 v2 G1-A2 (s94 #2; per-ticker activated):
+ * the per-ticker layer now annotates each flagged-ticker row with its GICS
+ * sector from `quantlab.gics_sector_map` (see form_4_insider_repository.ts).
+ * The aggregate-sector layer remains dormant — `flaggedSectors` is empty
+ * pending OQ-G2-1 (baseline-computation strategy ADR; see HANDOFF). The
+ * renderer emits a "Aggregate-cluster panel awaits OQ-G2-1 ADR" footer when
+ * `flaggedSectors` is empty. Per-row sector annotation: appended as ` [Sector]`
+ * after the ticker when non-null (e.g. `AAPL [Information Technology] — …`);
+ * omitted when the GICS map row is missing (mid-cap tickers outside SP500,
+ * or pre-first-ingest cold start).
  *
  * `tickersWithCikCount` + `watchUniverseTickerCount` are populated by the
  * composer (`buildForm4InsiderSection`) — NOT by the composite — because
@@ -2171,14 +2173,15 @@ function renderForm4InsiderSection(b: MorningBrief): string {
   lines.push(`## 15. Form 4 insider activity — ${clusterLabel}`);
   lines.push(``);
 
-  // Aggregate sector panel (v1: deferred).
+  // Aggregate sector panel (G1-A2: per-ticker active; aggregate pending OQ-G2-1).
   if (s.flaggedSectors.length === 0) {
     lines.push(
-      `**Aggregate (SPY 500 cluster-buy rate by GICS sector):** GICS sector ` +
-      `mapping deferred to v2 (SPEC §11). Aggregate-cluster panel inactive in ` +
-      `v1; the composite math is implemented + tested but the sector-slicing ` +
-      `input requires a follow-on slice (the shared \`quantlab.gics_sector_map\` ` +
-      `table covering both 8-K + Form 4 aggregate panels).`,
+      `**Aggregate (SPY 500 cluster-buy rate by GICS sector):** ` +
+      `Aggregate-cluster panel awaits OQ-G2-1 ADR (per-sector daily ` +
+      `cluster-rate baseline-computation strategy; SPEC §11). Per-ticker ` +
+      `sector annotations are active from \`quantlab.gics_sector_map\` ` +
+      `(s94 #1 G1-A1); aggregate-layer composite math is implemented + ` +
+      `tested but the trailing-2y baseline series requires the operator ADR.`,
     );
   } else {
     lines.push(`**Aggregate (SPY 500 cluster-buy rate by GICS sector):** ` +
@@ -2235,8 +2238,9 @@ function renderForm4InsiderSection(b: MorningBrief): string {
       lines.push(`cluster_buy (${buys.length}):`);
       for (const r of buysShown) {
         const netStr = formatNetDollar(r.insiderNetDollar90d);
+        const sectorAnnotation = formatSectorAnnotation(r.sector);
         lines.push(
-          `- ${r.ticker} — ${r.insiderBuyerCount90d} insiders bought ` +
+          `- ${r.ticker}${sectorAnnotation} — ${r.insiderBuyerCount90d} insiders bought ` +
           `(net ${netStr}), code P`,
         );
       }
@@ -2253,8 +2257,9 @@ function renderForm4InsiderSection(b: MorningBrief): string {
       lines.push(`cluster_sell (${sells.length}):`);
       for (const r of sellsShown) {
         const netStr = formatNetDollar(r.insiderNetDollar90d);
+        const sectorAnnotation = formatSectorAnnotation(r.sector);
         lines.push(
-          `- ${r.ticker} — ${r.insiderSellerCount90d} insiders sold ` +
+          `- ${r.ticker}${sectorAnnotation} — ${r.insiderSellerCount90d} insiders sold ` +
           `(net ${netStr}), code S`,
         );
       }
@@ -2271,14 +2276,15 @@ function renderForm4InsiderSection(b: MorningBrief): string {
   lines.push(
     `_Universe coverage: ${s.tickersWithCikCount}/${s.watchUniverseTickerCount} ` +
     `mid-cap tickers have current CIK mapping · ${s.inputsAvailableAggregate} ` +
-    `aggregate constituents have usable sector mapping (v1: always 0 — GICS deferred)._`,
+    `aggregate constituents have usable sector mapping (G1-A2: per-ticker ` +
+    `sector active; aggregate-layer 0 pending OQ-G2-1 baseline ADR)._`,
   );
   lines.push(
     `_Composite: \`${s.compositeVersion}\` ` +
     `(open-market codes {P, S}; 90d rolling window; 30d cluster window; ` +
     `≥3 distinct insiders → cluster flag; aggregate-sector layer dormant ` +
-    `per §11). INFORMATIONAL — does NOT fire a regime category in v1 ` +
-    `(SPEC §1 non-goal #1)._`,
+    `pending OQ-G2-1 ADR). INFORMATIONAL — does NOT fire a regime category ` +
+    `in v1 (SPEC §1 non-goal #1)._`,
   );
   lines.push(``);
   lines.push(
@@ -2296,6 +2302,16 @@ function sortByAbsNetDollar(
   const diff = Math.abs(b.insiderNetDollar90d) - Math.abs(a.insiderNetDollar90d);
   if (diff !== 0) return diff;
   return a.ticker < b.ticker ? -1 : a.ticker > b.ticker ? 1 : 0;
+}
+
+/** Format the GICS sector annotation as " [Sector]" when sector is non-null
+ *  + non-empty, OR empty-string when sector is null / empty. Returned string
+ *  is concatenated DIRECTLY after the ticker in the per-row format, so the
+ *  leading space is part of the return value (no separator handling at the
+ *  call site). G1-A2 (s94 #2); load-bearing per T-OBR-F4-8 + T-OBR-F4-9. */
+function formatSectorAnnotation(sector: string | null | undefined): string {
+  if (sector == null || sector === '') return '';
+  return ` [${sector}]`;
 }
 
 /** Format a signed dollar amount as "+$2.3M" / "-$11.2M" / "+$890K" / "$0".
@@ -2337,11 +2353,24 @@ function formatNetDollar(v: number): string {
  *    avoid pulling the ClickHouse-heavy repository into the pure renderer;
  *    drift detection is a code-review concern.
  *  - Section #15 Form 4 per-ticker line format is byte-pinned by T-OBR-F4-7:
- *    `${ticker} — N insiders ${bought/sold} (net ${signed$}), code ${P/S}`.
+ *    `${ticker}${[Sector]} — N insiders ${bought/sold} (net ${signed$}), code ${P/S}`.
  *    `formatNetDollar` is the load-bearing formatter; a refactor that changed
  *    the sign-placement convention (e.g. "net $-11.2M" instead of "net -$11.2M")
  *    would break the SPEC §8.2 mockup contract. The "last 23d" recency hint
  *    in the SPEC mockup is intentionally OMITTED in v1 — adding it requires
  *    a Form4InsiderPerTickerRow shape change (daysSinceLatestBuy/Sell fields),
  *    which would invalidate the F4-A4 snapshot DDL. v2 enhancement deferred.
+ *  - Section #15 G1-A2 (s94 #2) sector annotation: `formatSectorAnnotation`
+ *    returns ` [Sector]` (leading space) when non-null OR empty-string when
+ *    null. The call site relies on the leading-space convention — DO NOT
+ *    factor the space out into the per-row template, else the cold-start
+ *    (sector = null) case would render `AAPL  — 4 insiders…` with a double
+ *    space. T-OBR-F4-8 (null sector renders without annotation) +
+ *    T-OBR-F4-9 (non-null sector renders inline) pin this contract.
+ *  - Section #15 G1-A2 aggregate-panel footer wording references OQ-G2-1
+ *    (per-sector baseline-computation strategy ADR). When that ADR resolves
+ *    and the G2 slice activates the aggregate layer, this footer must be
+ *    updated AND the "GICS deferred" reference in
+ *    `inputsAvailableAggregate = 0` cold-start hint MUST be revised — else
+ *    the footer would mis-state v2 status post-G2.
  */

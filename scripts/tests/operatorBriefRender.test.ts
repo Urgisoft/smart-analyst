@@ -2584,8 +2584,9 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
     assert.match(md, /## 15\. Form 4 insider activity — NORMAL/);
   });
 
-  // T-OBR-F4-4 — Cold-start fallback (flaggedSectors empty → GICS-deferred footer).
-  it('T-OBR-F4-4 renders the v1 GICS-deferred footer when flaggedSectors is empty', () => {
+  // T-OBR-F4-4 — Cold-start fallback (flaggedSectors empty → G1-A2
+  // OQ-G2-1-awaiting footer; per-ticker layer active).
+  it('T-OBR-F4-4 renders the G1-A2 OQ-G2-1-awaiting footer when flaggedSectors is empty', () => {
     const md = renderBriefMarkdown(brief({
       formFour: {
         evaluatedAt: '2026-05-19T13:30:00Z',
@@ -2602,8 +2603,9 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         compositeVersion: 'form_4_insider_v1',
       },
     }));
-    assert.match(md, /GICS sector mapping deferred to v2/);
+    assert.match(md, /Aggregate-cluster panel awaits OQ-G2-1 ADR/);
     assert.match(md, /SPEC §11/);
+    assert.match(md, /Per-ticker sector annotations are active from `quantlab\.gics_sector_map`/);
     // Cold-start path skips the flagged-sectors table.
     assert.doesNotMatch(md, /\| Sector \| Cluster rate \| z \| Baseline n \| Constituents \|/);
   });
@@ -2791,10 +2793,12 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
       },
     }));
     assert.match(md, /Universe coverage: 58\/60 mid-cap tickers have current CIK mapping/);
-    assert.match(md, /v1: always 0 — GICS deferred/);
+    // G1-A2 (s94 #2): per-ticker sector wired; aggregate still pending baseline ADR.
+    assert.match(md, /G1-A2: per-ticker sector active; aggregate-layer 0 pending OQ-G2-1 baseline ADR/);
     assert.match(md, /Composite: `form_4_insider_v1`/);
     assert.match(md, /open-market codes \{P, S\}/);
     assert.match(md, /≥3 distinct insiders → cluster flag/);
+    assert.match(md, /aggregate-sector layer dormant pending OQ-G2-1 ADR/);
     assert.match(md, /INFORMATIONAL — does NOT fire a regime category in v1/);
   });
 
@@ -2871,5 +2875,76 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
     assert.match(md, /- AAB — 3 insiders bought \(net \+\$500\), code P/);
     // Zero: $0 (no sign)
     assert.match(md, /- BA — 3 insiders sold \(net \$0\), code S/);
+  });
+
+  // T-OBR-F4-8 — G1-A2 (s94 #2): null sector renders WITHOUT the bracket
+  // annotation. Cold-start (pre-first-ingest) AND non-SP500 mid-caps both
+  // hit this branch. Load-bearing for the formatSectorAnnotation contract.
+  it('T-OBR-F4-8 omits sector annotation when sector is null', () => {
+    const md = renderBriefMarkdown(brief({
+      formFour: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        form4ClusterFlag: false,
+        perTickerRows: [
+          { ticker: 'NOMAP', cik: '0000999999', sector: null,
+            insiderBuyCount90d: 6, insiderSellCount90d: 0,
+            insiderBuyerCount90d: 4, insiderSellerCount90d: 0,
+            insiderNetDollar90d: 1_500_000,
+            insiderClusterBuyFlag: true, insiderClusterSellFlag: false },
+        ],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 1,
+        watchUniverseTickerCount: 1,
+        compositeVersion: 'form_4_insider_v1',
+      },
+    }));
+    // Per-row format: NO bracket annotation between ticker + " —".
+    assert.match(md, /- NOMAP — 4 insiders bought \(net \+\$1\.5M\), code P/);
+    // Negative guard: no double space, no empty bracket.
+    assert.doesNotMatch(md, /- NOMAP  —/);
+    assert.doesNotMatch(md, /- NOMAP \[\]/);
+  });
+
+  // T-OBR-F4-9 — G1-A2 (s94 #2): non-null sector renders the bracket
+  // annotation inline between ticker + " —". Buy-side AND sell-side
+  // patterns both fire. Load-bearing per the SPEC §8.2 mockup contract
+  // extended for G1-A2.
+  it('T-OBR-F4-9 renders [Sector] annotation inline when sector is non-null', () => {
+    const md = renderBriefMarkdown(brief({
+      formFour: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        form4ClusterFlag: false,
+        perTickerRows: [
+          { ticker: 'AAPL', cik: '0000320193', sector: 'Information Technology',
+            insiderBuyCount90d: 6, insiderSellCount90d: 0,
+            insiderBuyerCount90d: 4, insiderSellerCount90d: 0,
+            insiderNetDollar90d: 2_300_000,
+            insiderClusterBuyFlag: true, insiderClusterSellFlag: false },
+          { ticker: 'XOM', cik: '0000034088', sector: 'Energy',
+            insiderBuyCount90d: 0, insiderSellCount90d: 8,
+            insiderBuyerCount90d: 0, insiderSellerCount90d: 5,
+            insiderNetDollar90d: -11_200_000,
+            insiderClusterBuyFlag: false, insiderClusterSellFlag: true },
+        ],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 2,
+        tickersWithCikCount: 2,
+        watchUniverseTickerCount: 60,
+        compositeVersion: 'form_4_insider_v1',
+      },
+    }));
+    // Buy-side: sector annotation between ticker + " —".
+    assert.match(md, /- AAPL \[Information Technology\] — 4 insiders bought \(net \+\$2\.3M\), code P/);
+    // Sell-side: same pattern mirrored.
+    assert.match(md, /- XOM \[Energy\] — 5 insiders sold \(net -\$11\.2M\), code S/);
   });
 });
