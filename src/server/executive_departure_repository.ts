@@ -59,6 +59,7 @@
 import type { ClickHouseClient } from '@clickhouse/client';
 import { getClickHouse } from './clickhouse.js';
 import {
+  computeSectorDepartureRate,
   evaluateExecutiveDepartureComposite,
   EXECUTIVE_DEPARTURE_COMPOSITE_VERSION,
   ROLLING_WINDOW_DAYS,
@@ -69,7 +70,10 @@ import {
   type ExecutiveDepartureSnapshot,
 } from './executive_departure.js';
 import {
+  findGoverningSector,
   readGicsSectorByTicker,
+  readGicsSectorTimeline,
+  readSectorMembershipPanel,
   type GicsSectorEntry,
 } from './gics_sector_repository_helper.js';
 
@@ -427,20 +431,25 @@ export class ExecutiveDepartureRepository {
    * BY ticker. Composite's `inputsAvailablePerTicker` now counts rows with
    * BOTH a CIK + a sector (previously structurally 0 in v1 cold-start).
    *
-   * Aggregate-sector slicing: STILL inactive — `inputs.sectors` is an empty
-   * array. G2 activation gated on OQ-G2-1 baseline-computation ADR.
+   * Aggregate-sector slicing: ACTIVE since s94 #9 (G2 Step 3 per
+   * docs/specs/gics-sector-baseline-computation.md §6 / ADR-042 Option a) —
+   * `populateSectorsForCycle(asOf)` populates `inputs.sectors` with per-day
+   * rolling-90d departure-rate baselines + today's 90d events for each GICS
+   * sector represented in the SP500 PIT panel.
    */
   async readInputsForCycle(
     asOf: Date,
     watchUniverse: readonly string[],
     _constituents: readonly string[],
   ): Promise<ExecutiveDepartureInputs> {
-    const [latestAccepted, cikByTicker, sectorByTicker, perTickerEvents] = await Promise.all([
-      this.readLatestAcceptedAt(asOf),
-      this.readCikByTicker(watchUniverse),
-      this.readSectorByTicker(asOf, watchUniverse),
-      this.readEventsForTickersInWindow(asOf, watchUniverse, EVENT_WINDOW_DAYS),
-    ]);
+    const [latestAccepted, cikByTicker, sectorByTicker, perTickerEvents, sectors] =
+      await Promise.all([
+        this.readLatestAcceptedAt(asOf),
+        this.readCikByTicker(watchUniverse),
+        this.readSectorByTicker(asOf, watchUniverse),
+        this.readEventsForTickersInWindow(asOf, watchUniverse, EVENT_WINDOW_DAYS),
+        this.populateSectorsForCycle(asOf),
+      ]);
 
     const perTicker = watchUniverse.map(ticker => ({
       ticker,
@@ -458,8 +467,178 @@ export class ExecutiveDepartureRepository {
       lastEdgarQueryAt: latestAccepted,
       bdSinceLastQuery,
       perTicker,
-      sectors: [],
+      sectors,
     };
+  }
+
+  /**
+   * Compose `inputs.sectors[]` for the composite evaluator per
+   * docs/specs/gics-sector-baseline-computation.md §1.2 + ADR-042 §4/§7/§8.
+   *
+   * Workflow:
+   *   1. PIT membership panel via `readSectorMembershipPanel` for the trailing
+   *      2y baseline window `[asOf - 730d, asOf - 1d]` (today EXCLUDED per
+   *      ADR-042 §4).
+   *   2. Today's PIT constituents via `readSp500ConstituentsPIT(asOf)` + per-
+   *      ticker GICS timeline via `readGicsSectorTimeline` (strict-PIT sector
+   *      attribution per ADR-042 §7).
+   *   3. Trailing-2y 5.02(b) events for today's PIT constituents via
+   *      `readDepartureEventsForBaseline` (already filters to '5.02(b)' per
+   *      composite intake spec E-2).
+   *   4. Bucket events by `(governing-sector-on-event-day)`; for each sector,
+   *      build the baseline2y[] panel where each entry = rolling-90d
+   *      departure-rate as-of day d (reuses composite's
+   *      `computeSectorDepartureRate` for unit consistency with the live
+   *      rate). Empty-sector days yield rate=0 per ADR-042 §8 (NOT dropped
+   *      from baseline2y).
+   *   5. Today's events for `s.events`: the (asOf - 90d, asOf] slice of
+   *      sector events (matches composite's `windowDays = ROLLING_WINDOW_DAYS`
+   *      = 90 default in `computeSectorDepartureRate`).
+   *
+   * Methodology choice (Path A — rolling rates):
+   *   The live aggregate rate is rolling-90d per the composite's locked
+   *   `windowDays = 90` default; each baseline2y[i] is also rolling-90d
+   *   as-of day d for unit consistency. SPEC §1.2 line 71-72 confirms the
+   *   "today's events" window is 90d, not single-day. Per-day windows near
+   *   the start of the baseline window are truncated at `[asOf - 730d, d]`
+   *   (~12% of baseline days affected); this v1 bias is small + favorable
+   *   (under-counts events, slightly inflates z-magnitude for true outliers
+   *   without introducing false positives).
+   *
+   * V1 simplifications (documented in watch-outs):
+   *   - Event-query universe is `todayConstituents` only. Historical-only
+   *     tickers (in SP500 at some point in trailing-2y but not today) have
+   *     their events dropped from baseline attribution. Consistent with v1
+   *     `gics_sector_map` snapshot-on-ingest schema (no historical ticker
+   *     coverage); a v2 widening would pull all-time-constituents + read
+   *     their sector timelines too.
+   *   - Sector attribution uses strict-PIT against `gics_sector_map`'s
+   *     timeline (POPSEC-XD-2 verified). v1 ingest writes a single
+   *     snapshot_date per ticker, so every event resolves to today's sector;
+   *     v2 PIT backfill via Wikipedia changelog would naturally activate
+   *     mid-window swap support without code changes here.
+   *
+   * Returns one `{sector, sectorSize, events, baseline2y}` entry per GICS
+   * sector represented in the panel OR today's PIT constituents (per
+   * ADR-042 §8 "only sectors with memberCount=0 across the entire window
+   * drop out"). Sorted by sector name for determinism.
+   *
+   * @param asOf Snapshot anchor (UTC end-of-day semantic).
+   */
+  async populateSectorsForCycle(
+    asOf: Date,
+  ): Promise<ExecutiveDepartureInputs['sectors']> {
+    const oneDay = 24 * 60 * 60 * 1000;
+    const baselineStart = new Date(asOf.getTime() - BASELINE_CALENDAR_DAYS * oneDay);
+    const baselineEnd = new Date(asOf.getTime() - oneDay);
+
+    const [panel, todayConstituents] = await Promise.all([
+      readSectorMembershipPanel(
+        this.ch,
+        this.gicsSectorMapTable,
+        this.sp500ConstituentsTable,
+        baselineStart,
+        baselineEnd,
+      ),
+      this.readSp500ConstituentsPIT(asOf),
+    ]);
+
+    if (todayConstituents.length === 0 && panel.length === 0) return [];
+
+    const [timeline, eventsByTicker] = await Promise.all([
+      readGicsSectorTimeline(this.ch, this.gicsSectorMapTable, todayConstituents, asOf),
+      this.readDepartureEventsForBaseline(asOf, todayConstituents, BASELINE_CALENDAR_DAYS),
+    ]);
+
+    // Bucket events by their PIT-governing sector on the event acceptance day.
+    const sectorEventsAll = new Map<string, ExecutiveDepartureEvent[]>();
+    for (const [ticker, events] of eventsByTicker) {
+      const tickerTimeline = timeline.get(ticker);
+      if (!tickerTimeline || tickerTimeline.length === 0) continue;
+      for (const ev of events) {
+        const dayIso = ev.acceptedAt.toISOString().slice(0, 10);
+        const sector = findGoverningSector(tickerTimeline, dayIso);
+        if (sector == null) continue;
+        const arr = sectorEventsAll.get(sector) ?? [];
+        arr.push(ev);
+        sectorEventsAll.set(sector, arr);
+      }
+    }
+
+    // Today's sectorSize per sector (governing sector at asOf).
+    const todayIso = asOf.toISOString().slice(0, 10);
+    const sectorSizeToday = new Map<string, number>();
+    for (const ticker of todayConstituents) {
+      const tickerTimeline = timeline.get(ticker);
+      if (!tickerTimeline || tickerTimeline.length === 0) continue;
+      const sector = findGoverningSector(tickerTimeline, todayIso);
+      if (sector == null) continue;
+      sectorSizeToday.set(sector, (sectorSizeToday.get(sector) ?? 0) + 1);
+    }
+
+    // (sector, day) → memberCount lookup for the baseline-day denominator.
+    const panelBySectorByDay = new Map<string, Map<string, number>>();
+    for (const row of panel) {
+      let bySector = panelBySectorByDay.get(row.sector);
+      if (!bySector) {
+        bySector = new Map();
+        panelBySectorByDay.set(row.sector, bySector);
+      }
+      bySector.set(row.day, row.memberCount);
+    }
+
+    const allSectors = new Set<string>([
+      ...panelBySectorByDay.keys(),
+      ...sectorSizeToday.keys(),
+    ]);
+    const sortedSectors = [...allSectors].sort();
+
+    const asOfMs = asOf.getTime();
+    const todayWindowStartMs = asOfMs - EVENT_WINDOW_DAYS * oneDay;
+    const out: Array<{
+      sector: string;
+      sectorSize: number;
+      events: ExecutiveDepartureEvent[];
+      baseline2y: number[];
+    }> = [];
+
+    for (const sector of sortedSectors) {
+      const panelDays = panelBySectorByDay.get(sector);
+      const sectorEvents = sectorEventsAll.get(sector) ?? [];
+
+      const baseline2y: number[] = [];
+      if (panelDays) {
+        const sortedDays = [...panelDays.keys()].sort();
+        for (const day of sortedDays) {
+          const memberCount = panelDays.get(day)!;
+          if (memberCount <= 0) continue;
+          // End-of-day asOf semantic so events accepted on `day` are included.
+          const dayAsOf = new Date(day + 'T23:59:59.999Z');
+          const rate = computeSectorDepartureRate(
+            sectorEvents, memberCount, dayAsOf, EVENT_WINDOW_DAYS,
+          );
+          // ADR-042 §8: empty-sector days yield rate=0 (NOT null). Since
+          // memberCount > 0 here, computeSectorDepartureRate returns a finite
+          // rate (0 when no events in the trailing-90d window).
+          if (rate != null) baseline2y.push(rate);
+        }
+      }
+
+      const todayEvents: ExecutiveDepartureEvent[] = [];
+      for (const ev of sectorEvents) {
+        const t = ev.acceptedAt.getTime();
+        if (t > todayWindowStartMs && t <= asOfMs) todayEvents.push(ev);
+      }
+
+      out.push({
+        sector,
+        sectorSize: sectorSizeToday.get(sector) ?? 0,
+        events: todayEvents,
+        baseline2y,
+      });
+    }
+
+    return out;
   }
 
   /** Persist one snapshot. Idempotent under

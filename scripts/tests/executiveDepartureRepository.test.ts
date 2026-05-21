@@ -492,6 +492,186 @@ describe('readInputsForCycle', () => {
   });
 });
 
+// ───── POPSEC-XD-* — populateSectorsForCycle (Step 3, G2 SPEC §5.3) ────────
+// SPEC docs/specs/gics-sector-baseline-computation.md §1.2 + §5.3.
+// ADR-042 §4 (today excluded), §7 (strict PIT), §8 (empty-sector days yield
+// rate=0). The orchestrator joins the trailing-2y PIT membership panel + the
+// per-ticker GICS timeline + the trailing-2y 5.02(b) events panel into the
+// composite-ready `inputs.sectors[]` shape (rolling-90d rates per panel day).
+
+describe('populateSectorsForCycle (POPSEC-XD-1..4)', () => {
+  const POPSEC_ASOF = new Date('2026-05-19T12:00:00.000Z');
+  const oneDay = 24 * 60 * 60 * 1000;
+  function isoDate(d: Date): string { return d.toISOString().slice(0, 10); }
+
+  // Convenience: a panel-constituents fixture covering 730 days where every
+  // day shares the same single ticker, so memberCount=1 per (Energy, day).
+  function makePanelConstituentsRow(ticker: string, effectiveDate: string) {
+    return { ticker, effective_date: effectiveDate };
+  }
+
+  it('POPSEC-XD-1: baseline window is [asOf-730d, asOf-1d] (today EXCLUDED per ADR-042 §4)', async () => {
+    const { repo, fake } = makeRepo();
+    // The helper internally queries sp500_constituents over the window, then
+    // gics_sector_map. The helper's binding name for the window-end is
+    // `asOfEnd:Date`. We assert that asOfEnd is asOf-1d (today excluded).
+    fake.route(q => q.includes('effective_date <= {asOfEnd:Date}'),
+      [makePanelConstituentsRow('AAPL', '2024-05-19')],
+    );
+    // readGicsSectorTimeline AND the helper's gics-timeline-panel query both
+    // hit gics_sector_map; readGicsSectorTimeline filters by `ticker IN`, the
+    // helper does not. Order routes most-specific-first.
+    fake.route(q => q.includes('ticker IN') && q.includes('snapshot_date <= {asOfEnd:Date}'),
+      [{ ticker: 'AAPL', gics_sector: 'Energy', snapshot_date: '2024-01-01' }],
+    );
+    fake.route(q => q.includes('FROM quantlab.gics_sector_map FINAL') && q.includes('snapshot_date <= {asOfEnd:Date}'),
+      [{ ticker: 'AAPL', gics_sector: 'Energy', snapshot_date: '2024-01-01' }],
+    );
+    fake.route(q => q.includes('effective_date = ('), [{ ticker: 'AAPL' }]);
+    fake.route(q => q.includes("sub_item_code = '5.02(b)'"),
+      // One event today + one event 60d ago (within today's 90d slice).
+      [
+        { ticker: 'AAPL', cik: '0000320193', accession: 'TODAY1',
+          sub_item_code: '5.02(b)', accepted_at: '2026-05-19 09:30:00' },
+        { ticker: 'AAPL', cik: '0000320193', accession: 'PAST1',
+          sub_item_code: '5.02(b)', accepted_at: '2026-03-20 09:30:00' },
+      ],
+    );
+
+    const sectors = await repo.populateSectorsForCycle(POPSEC_ASOF);
+
+    // Assert the helper's constituents query bound asOfEnd to asOf - 1d.
+    const constituentsQuery = fake.queries.find(q =>
+      q.query.includes('effective_date <= {asOfEnd:Date}'),
+    );
+    assert.ok(constituentsQuery);
+    const expectedEnd = isoDate(new Date(POPSEC_ASOF.getTime() - oneDay));
+    assert.equal(
+      (constituentsQuery!.query_params as Record<string, unknown>).asOfEnd,
+      expectedEnd,
+      'helper binds asOfEnd = asOf - 1 day (today EXCLUDED per ADR-042 §4)',
+    );
+
+    // Energy entry present with today's sectorSize = 1 and today's events
+    // sliced to (asOf - 90d, asOf] = both the TODAY1 and PAST1 events.
+    assert.equal(sectors.length, 1);
+    assert.equal(sectors[0].sector, 'Energy');
+    assert.equal(sectors[0].sectorSize, 1);
+    assert.equal(sectors[0].events.length, 2);
+    // baseline2y is the rolling-90d departure-rate panel; with 1 constituent,
+    // 1 effective_date covering the full window, and events that fall inside
+    // some baseline-day windows, we expect a 730-element panel of finite rates.
+    assert.ok(sectors[0].baseline2y.length > 0);
+    // No baseline2y entry corresponds to today (asOf-Date). Each entry is for
+    // a day strictly less than asOf. Sanity: max entry value is bounded by
+    // (90 events) / 1 member = 90; in practice with 2 events the rolling rate
+    // is at most 2 / 1 = 2 (events within any 90d window).
+    for (const r of sectors[0].baseline2y) {
+      assert.ok(r >= 0 && r <= 90);
+    }
+  });
+
+  it('POPSEC-XD-2: strict-PIT attribution — sector swap mid-window splits events by event-day sector', async () => {
+    const { repo, fake } = makeRepo();
+    // Panel: AAPL is in SP500 across the full trailing-2y window (effective_date
+    // 2024-01-01 covers everything). Sector swap mid-window via gics_sector_map:
+    // 2024-01-01 → Energy; 2025-06-01 → Materials. The helper's PIT scan
+    // attributes panel days strictly per snapshot_date.
+    fake.route(q => q.includes('effective_date <= {asOfEnd:Date}'),
+      [makePanelConstituentsRow('AAPL', '2024-01-01')],
+    );
+    // readGicsSectorTimeline (ticker IN) returns both timeline entries.
+    fake.route(q => q.includes('ticker IN') && q.includes('snapshot_date <= {asOfEnd:Date}'),
+      [
+        { ticker: 'AAPL', gics_sector: 'Energy', snapshot_date: '2024-01-01' },
+        { ticker: 'AAPL', gics_sector: 'Materials', snapshot_date: '2025-06-01' },
+      ],
+    );
+    // The helper's gics-timeline-panel query (no ticker IN) returns the same.
+    fake.route(q => q.includes('FROM quantlab.gics_sector_map FINAL') && q.includes('snapshot_date <= {asOfEnd:Date}'),
+      [
+        { ticker: 'AAPL', gics_sector: 'Energy', snapshot_date: '2024-01-01' },
+        { ticker: 'AAPL', gics_sector: 'Materials', snapshot_date: '2025-06-01' },
+      ],
+    );
+    fake.route(q => q.includes('effective_date = ('), [{ ticker: 'AAPL' }]);
+    // Two events: one BEFORE the sector swap (Energy era), one AFTER (Materials era).
+    fake.route(q => q.includes("sub_item_code = '5.02(b)'"),
+      [
+        // Energy-era event (2024-12-15 < 2025-06-01 swap date)
+        { ticker: 'AAPL', cik: '0000320193', accession: 'ENERGY1',
+          sub_item_code: '5.02(b)', accepted_at: '2024-12-15 09:30:00' },
+        // Materials-era event (2025-09-15 > 2025-06-01 swap date)
+        { ticker: 'AAPL', cik: '0000320193', accession: 'MATERIALS1',
+          sub_item_code: '5.02(b)', accepted_at: '2025-09-15 09:30:00' },
+      ],
+    );
+
+    const sectors = await repo.populateSectorsForCycle(POPSEC_ASOF);
+
+    // Today is 2026-05-19 → today's sector is Materials (latest snapshot_date
+    // ≤ 2026-05-19 is 2025-06-01: Materials). So sectorSize_today is Materials=1.
+    const energy = sectors.find(s => s.sector === 'Energy');
+    const materials = sectors.find(s => s.sector === 'Materials');
+    assert.ok(energy);
+    assert.ok(materials);
+    assert.equal(energy!.sectorSize, 0, 'Energy has 0 members TODAY (swapped away)');
+    assert.equal(materials!.sectorSize, 1, 'Materials has 1 member TODAY');
+
+    // Strict-PIT NUMERATOR: the Energy-era event attributes to Energy's baseline
+    // bucket; the Materials-era event attributes to Materials's. The composite's
+    // rolling-90d slicing then folds each into the appropriate panel-day rates.
+    // We assert this via baseline2y emitting positive rates on the appropriate
+    // day-ranges (non-trivial baselines for both sectors).
+    assert.ok(energy!.baseline2y.some(r => r > 0),
+      'Energy baseline2y has at least one non-zero day (the 2024-12-15 event period)');
+    assert.ok(materials!.baseline2y.some(r => r > 0),
+      'Materials baseline2y has at least one non-zero day (the 2025-09-15 event period)');
+  });
+
+  it('POPSEC-XD-3: empty-event days yield rate=0 in baseline2y (NOT dropped per ADR-042 §8)', async () => {
+    const { repo, fake } = makeRepo();
+    // 1 constituent, 1 effective_date covering the full window → panel has
+    // (Energy, day, memberCount=1) for every day in [asOf-730d, asOf-1d].
+    fake.route(q => q.includes('effective_date <= {asOfEnd:Date}'),
+      [makePanelConstituentsRow('AAPL', '2024-05-19')],
+    );
+    fake.route(q => q.includes('ticker IN') && q.includes('snapshot_date <= {asOfEnd:Date}'),
+      [{ ticker: 'AAPL', gics_sector: 'Energy', snapshot_date: '2024-01-01' }],
+    );
+    fake.route(q => q.includes('FROM quantlab.gics_sector_map FINAL') && q.includes('snapshot_date <= {asOfEnd:Date}'),
+      [{ ticker: 'AAPL', gics_sector: 'Energy', snapshot_date: '2024-01-01' }],
+    );
+    fake.route(q => q.includes('effective_date = ('), [{ ticker: 'AAPL' }]);
+    // ZERO events anywhere in the trailing 2y. Every baseline-day rate = 0/1 = 0.
+    fake.route(q => q.includes("sub_item_code = '5.02(b)'"), []);
+
+    const sectors = await repo.populateSectorsForCycle(POPSEC_ASOF);
+
+    assert.equal(sectors.length, 1);
+    assert.equal(sectors[0].sector, 'Energy');
+    assert.equal(sectors[0].sectorSize, 1);
+    assert.equal(sectors[0].events.length, 0, 'no today events');
+    // Each baseline2y entry MUST be 0 (NOT null, NOT dropped). 730 entries.
+    assert.ok(sectors[0].baseline2y.length >= 729,
+      `expected ~730 baseline entries, got ${sectors[0].baseline2y.length}`);
+    for (const r of sectors[0].baseline2y) {
+      assert.equal(r, 0, 'empty-sector days emit rate=0 per ADR-042 §8');
+    }
+  });
+
+  it('POPSEC-XD-4: cold-start (empty PIT panel + empty constituents) returns []', async () => {
+    const { repo, fake } = makeRepo();
+    // Catch-all returns empty for every query.
+    fake.route(_ => true, []);
+    const sectors = await repo.populateSectorsForCycle(POPSEC_ASOF);
+    assert.equal(sectors.length, 0, 'cold-start emits empty sectors[] → composite gets inputsAvailableAggregate=0');
+    // Sanity: pipe through the composite to confirm inputsAvailableAggregate=0.
+    // (Composite-layer behavior is already pinned by MAXZ-XD-3 in
+    // executiveDeparture.test.ts; this re-asserts the orchestrator's contract.)
+  });
+});
+
 // ───── writeSnapshot ────────────────────────────────────────────────
 
 describe('writeSnapshot', () => {

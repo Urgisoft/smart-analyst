@@ -471,6 +471,136 @@ describe('readInputsForCycle', () => {
   });
 });
 
+// ───── POPSEC-EK-* — populateSectorsForCycle (Step 3, G2 SPEC §5.3) ────────
+// SPEC docs/specs/gics-sector-baseline-computation.md §1.2 + §5.3. Byte-equal
+// shape to POPSEC-XD-* in executiveDepartureRepository.test.ts; only the event
+// shape (item_code IN HIGH_SIGNAL_ITEM_CODES) + composite rate function
+// (computeSectorEventRate with distinct-(ticker, accession) dedup) differ.
+
+describe('populateSectorsForCycle (POPSEC-EK-1..4)', () => {
+  const POPSEC_ASOF = new Date('2026-05-19T12:00:00.000Z');
+  const oneDay = 24 * 60 * 60 * 1000;
+  function isoDate(d: Date): string { return d.toISOString().slice(0, 10); }
+  function makePanelConstituentsRow(ticker: string, effectiveDate: string) {
+    return { ticker, effective_date: effectiveDate };
+  }
+
+  it('POPSEC-EK-1: baseline window is [asOf-730d, asOf-1d] (today EXCLUDED per ADR-042 §4)', async () => {
+    const { repo, fake } = makeRepo();
+    fake.route(q => q.includes('effective_date <= {asOfEnd:Date}'),
+      [makePanelConstituentsRow('AAPL', '2024-05-19')],
+    );
+    fake.route(q => q.includes('ticker IN') && q.includes('snapshot_date <= {asOfEnd:Date}'),
+      [{ ticker: 'AAPL', gics_sector: 'Information Technology', snapshot_date: '2024-01-01' }],
+    );
+    fake.route(q => q.includes('FROM quantlab.gics_sector_map FINAL') && q.includes('snapshot_date <= {asOfEnd:Date}'),
+      [{ ticker: 'AAPL', gics_sector: 'Information Technology', snapshot_date: '2024-01-01' }],
+    );
+    fake.route(q => q.includes('effective_date = ('), [{ ticker: 'AAPL' }]);
+    fake.route(q => q.includes('item_code IN'),
+      // One today event + one 60d-prior event (both in today's 90d slice).
+      [
+        { ticker: 'AAPL', cik: '0000320193', accession: 'TODAY1',
+          item_code: '2.06', accepted_at: '2026-05-19 09:30:00' },
+        { ticker: 'AAPL', cik: '0000320193', accession: 'PAST1',
+          item_code: '4.02', accepted_at: '2026-03-20 09:30:00' },
+      ],
+    );
+
+    const sectors = await repo.populateSectorsForCycle(POPSEC_ASOF);
+
+    const constituentsQuery = fake.queries.find(q =>
+      q.query.includes('effective_date <= {asOfEnd:Date}'),
+    );
+    assert.ok(constituentsQuery);
+    const expectedEnd = isoDate(new Date(POPSEC_ASOF.getTime() - oneDay));
+    assert.equal(
+      (constituentsQuery!.query_params as Record<string, unknown>).asOfEnd,
+      expectedEnd,
+      'helper binds asOfEnd = asOf - 1 day (today EXCLUDED per ADR-042 §4)',
+    );
+
+    assert.equal(sectors.length, 1);
+    assert.equal(sectors[0].sector, 'Information Technology');
+    assert.equal(sectors[0].sectorSize, 1);
+    assert.equal(sectors[0].events.length, 2);
+    assert.ok(sectors[0].baseline2y.length > 0);
+    for (const r of sectors[0].baseline2y) assert.ok(r >= 0 && r <= 90);
+  });
+
+  it('POPSEC-EK-2: strict-PIT attribution — sector swap mid-window splits events by event-day sector', async () => {
+    const { repo, fake } = makeRepo();
+    fake.route(q => q.includes('effective_date <= {asOfEnd:Date}'),
+      [makePanelConstituentsRow('AAPL', '2024-01-01')],
+    );
+    fake.route(q => q.includes('ticker IN') && q.includes('snapshot_date <= {asOfEnd:Date}'),
+      [
+        { ticker: 'AAPL', gics_sector: 'Information Technology', snapshot_date: '2024-01-01' },
+        { ticker: 'AAPL', gics_sector: 'Industrials', snapshot_date: '2025-06-01' },
+      ],
+    );
+    fake.route(q => q.includes('FROM quantlab.gics_sector_map FINAL') && q.includes('snapshot_date <= {asOfEnd:Date}'),
+      [
+        { ticker: 'AAPL', gics_sector: 'Information Technology', snapshot_date: '2024-01-01' },
+        { ticker: 'AAPL', gics_sector: 'Industrials', snapshot_date: '2025-06-01' },
+      ],
+    );
+    fake.route(q => q.includes('effective_date = ('), [{ ticker: 'AAPL' }]);
+    fake.route(q => q.includes('item_code IN'),
+      [
+        { ticker: 'AAPL', cik: '0000320193', accession: 'IT1',
+          item_code: '2.06', accepted_at: '2024-12-15 09:30:00' },
+        { ticker: 'AAPL', cik: '0000320193', accession: 'IND1',
+          item_code: '4.02', accepted_at: '2025-09-15 09:30:00' },
+      ],
+    );
+
+    const sectors = await repo.populateSectorsForCycle(POPSEC_ASOF);
+    const it_ = sectors.find(s => s.sector === 'Information Technology');
+    const ind = sectors.find(s => s.sector === 'Industrials');
+    assert.ok(it_);
+    assert.ok(ind);
+    assert.equal(it_!.sectorSize, 0, 'IT has 0 members TODAY (swapped away)');
+    assert.equal(ind!.sectorSize, 1, 'Industrials has 1 member TODAY');
+    assert.ok(it_!.baseline2y.some(r => r > 0),
+      'IT baseline2y has at least one non-zero day (2024-12-15 event period)');
+    assert.ok(ind!.baseline2y.some(r => r > 0),
+      'Industrials baseline2y has at least one non-zero day (2025-09-15 event period)');
+  });
+
+  it('POPSEC-EK-3: empty-event days yield rate=0 in baseline2y (NOT dropped per ADR-042 §8)', async () => {
+    const { repo, fake } = makeRepo();
+    fake.route(q => q.includes('effective_date <= {asOfEnd:Date}'),
+      [makePanelConstituentsRow('AAPL', '2024-05-19')],
+    );
+    fake.route(q => q.includes('ticker IN') && q.includes('snapshot_date <= {asOfEnd:Date}'),
+      [{ ticker: 'AAPL', gics_sector: 'Information Technology', snapshot_date: '2024-01-01' }],
+    );
+    fake.route(q => q.includes('FROM quantlab.gics_sector_map FINAL') && q.includes('snapshot_date <= {asOfEnd:Date}'),
+      [{ ticker: 'AAPL', gics_sector: 'Information Technology', snapshot_date: '2024-01-01' }],
+    );
+    fake.route(q => q.includes('effective_date = ('), [{ ticker: 'AAPL' }]);
+    fake.route(q => q.includes('item_code IN'), []);
+
+    const sectors = await repo.populateSectorsForCycle(POPSEC_ASOF);
+    assert.equal(sectors.length, 1);
+    assert.equal(sectors[0].sector, 'Information Technology');
+    assert.equal(sectors[0].sectorSize, 1);
+    assert.equal(sectors[0].events.length, 0);
+    assert.ok(sectors[0].baseline2y.length >= 729);
+    for (const r of sectors[0].baseline2y) {
+      assert.equal(r, 0, 'empty-sector days emit rate=0 per ADR-042 §8');
+    }
+  });
+
+  it('POPSEC-EK-4: cold-start (empty PIT panel + empty constituents) returns []', async () => {
+    const { repo, fake } = makeRepo();
+    fake.route(_ => true, []);
+    const sectors = await repo.populateSectorsForCycle(POPSEC_ASOF);
+    assert.equal(sectors.length, 0);
+  });
+});
+
 // ───── writeSnapshot ────────────────────────────────────────────────
 
 function fixtureSnapshot(overrides: Partial<EightKClassifierSnapshot> = {}): EightKClassifierSnapshot {

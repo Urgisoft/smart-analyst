@@ -279,6 +279,94 @@ export async function readSectorMembershipPanel(
   return out;
 }
 
+/** Per-ticker GICS timeline entry returned by `readGicsSectorTimeline`. Used by
+ *  the composite repositories' `populateSectorsForCycle` orchestrators (ADR-042
+ *  Option a / G2 Step 3) to attribute events to their PIT-correct sector at
+ *  event-acceptance day — required for POPSEC-*-2 strict-PIT semantics across
+ *  sector-swap days. */
+export interface GicsSectorTimelineEntry {
+  snapshotDate: string;
+  sector: string;
+}
+
+interface RawGicsTimelineByTickerRow {
+  ticker: string;
+  gics_sector: string;
+  snapshot_date: string;
+}
+
+/**
+ * Read per-ticker GICS sector timelines (snapshot_date ASC) over the trailing
+ * window ending at `asOfEnd`. Composite-agnostic; used by the three repository
+ * orchestrators (Step 3) to attribute trailing-2y events to their PIT-correct
+ * sector on the event's acceptance day, satisfying ADR-042 §7's strict-PIT
+ * requirement across mid-window sector swaps (POPSEC-*-2).
+ *
+ * Returns Map<ticker, GicsSectorTimelineEntry[]> with each ticker's timeline
+ * sorted ascending by snapshot_date. Findable via `findGoverningSector`.
+ *
+ * Empty `tickers` short-circuits to empty Map WITHOUT issuing a CH query
+ * (mirrors `readGicsSectorByTicker`'s defensive gate).
+ *
+ * @param ch        ClickHouse client.
+ * @param gicsTable Fully-qualified gics_sector_map table.
+ * @param tickers   Ticker list to look up.
+ * @param asOfEnd   Window end (inclusive). Snapshots with `snapshot_date > asOfEnd` are excluded.
+ */
+export async function readGicsSectorTimeline(
+  ch: ClickHouseClient,
+  gicsTable: string,
+  tickers: readonly string[],
+  asOfEnd: Date,
+): Promise<Map<string, GicsSectorTimelineEntry[]>> {
+  if (tickers.length === 0) return new Map();
+  const asOfEndStr = asOfEnd.toISOString().slice(0, 10);
+  const q = await ch.query({
+    query: `
+        SELECT ticker, gics_sector, toString(snapshot_date) AS snapshot_date
+        FROM ${gicsTable} FINAL
+        WHERE ticker IN ({tickers:Array(String)})
+          AND snapshot_date <= {asOfEnd:Date}
+          AND gics_sector != ''
+        ORDER BY ticker ASC, snapshot_date ASC
+      `,
+    query_params: { tickers: [...tickers], asOfEnd: asOfEndStr },
+    format: 'JSONEachRow',
+  });
+  const rows = await q.json<RawGicsTimelineByTickerRow>();
+  const out = new Map<string, GicsSectorTimelineEntry[]>();
+  for (const r of rows) {
+    if (!r.ticker || !r.gics_sector || !r.snapshot_date) continue;
+    const arr = out.get(r.ticker) ?? [];
+    arr.push({ snapshotDate: r.snapshot_date, sector: r.gics_sector });
+    out.set(r.ticker, arr);
+  }
+  return out;
+}
+
+/**
+ * Resolve the governing GICS sector for a ticker on a specific calendar day,
+ * given that ticker's pre-sorted (snapshot_date ASC) timeline. Strict PIT:
+ * returns the sector from the latest snapshot with `snapshotDate <= dayIso`.
+ * Returns null when no snapshot is dated ≤ `dayIso` (ticker had no GICS row
+ * yet on that day; the event is dropped from sector attribution).
+ *
+ * @param timeline Per-ticker timeline as returned by `readGicsSectorTimeline`
+ *                 (must be sorted ASC by snapshotDate).
+ * @param dayIso   Event acceptance day, ISO 'YYYY-MM-DD'.
+ */
+export function findGoverningSector(
+  timeline: ReadonlyArray<GicsSectorTimelineEntry>,
+  dayIso: string,
+): string | null {
+  let governing: string | null = null;
+  for (const e of timeline) {
+    if (e.snapshotDate <= dayIso) governing = e.sector;
+    else break;
+  }
+  return governing;
+}
+
 /**
  * What could break this:
  *   - The SQL shape of `readGicsSectorByTicker` is byte-load-bearing for the

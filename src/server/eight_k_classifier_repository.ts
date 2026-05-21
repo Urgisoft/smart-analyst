@@ -62,6 +62,7 @@
 import type { ClickHouseClient } from '@clickhouse/client';
 import { getClickHouse } from './clickhouse.js';
 import {
+  computeSectorEventRate,
   evaluateEightKClassifierComposite,
   EIGHT_K_CLASSIFIER_COMPOSITE_VERSION,
   HIGH_SIGNAL_ITEM_CODES,
@@ -73,7 +74,10 @@ import {
   type EightKEvent,
 } from './eight_k_classifier.js';
 import {
+  findGoverningSector,
   readGicsSectorByTicker,
+  readGicsSectorTimeline,
+  readSectorMembershipPanel,
   type GicsSectorEntry,
 } from './gics_sector_repository_helper.js';
 
@@ -388,20 +392,25 @@ export class EightKClassifierRepository {
    * BY ticker. Composite's `inputsAvailablePerTicker` now counts rows with
    * BOTH a CIK + a sector (previously structurally 0 in v1 cold-start).
    *
-   * Aggregate-sector slicing: STILL inactive — `inputs.sectors` is an empty
-   * array. G2 activation gated on OQ-G2-1 baseline-computation ADR.
+   * Aggregate-sector slicing: ACTIVE since s94 #9 (G2 Step 3 per
+   * docs/specs/gics-sector-baseline-computation.md §6 / ADR-042 Option a) —
+   * `populateSectorsForCycle(asOf)` populates `inputs.sectors` with per-day
+   * rolling-90d event-rate baselines + today's 90d events for each GICS
+   * sector represented in the SP500 PIT panel.
    */
   async readInputsForCycle(
     asOf: Date,
     watchUniverse: readonly string[],
     _constituents: readonly string[],
   ): Promise<EightKClassifierInputs> {
-    const [latestAccepted, cikByTicker, sectorByTicker, perTickerEvents] = await Promise.all([
-      this.readLatestAcceptedAt(asOf),
-      this.readCikByTicker(watchUniverse),
-      this.readSectorByTicker(asOf, watchUniverse),
-      this.readEventsForTickersInWindow(asOf, watchUniverse, EVENT_WINDOW_DAYS),
-    ]);
+    const [latestAccepted, cikByTicker, sectorByTicker, perTickerEvents, sectors] =
+      await Promise.all([
+        this.readLatestAcceptedAt(asOf),
+        this.readCikByTicker(watchUniverse),
+        this.readSectorByTicker(asOf, watchUniverse),
+        this.readEventsForTickersInWindow(asOf, watchUniverse, EVENT_WINDOW_DAYS),
+        this.populateSectorsForCycle(asOf),
+      ]);
 
     const perTicker = watchUniverse.map(ticker => ({
       ticker,
@@ -419,8 +428,140 @@ export class EightKClassifierRepository {
       lastEdgarQueryAt: latestAccepted,
       bdSinceLastQuery,
       perTicker,
-      sectors: [],
+      sectors,
     };
+  }
+
+  /**
+   * Compose `inputs.sectors[]` for the EK-A2 composite evaluator per
+   * docs/specs/gics-sector-baseline-computation.md §1.2 + ADR-042 §4/§7/§8.
+   * Byte-equivalent shape to the XD orchestrator; only the event reader +
+   * composite rate function differ.
+   *
+   * Workflow:
+   *   1. PIT membership panel via `readSectorMembershipPanel` for the trailing
+   *      2y baseline window `[asOf - 730d, asOf - 1d]` (today EXCLUDED per
+   *      ADR-042 §4).
+   *   2. Today's PIT constituents + per-ticker GICS timeline for strict-PIT
+   *      sector attribution.
+   *   3. Trailing-2y high-signal events for today's PIT constituents via
+   *      `readEventsForTickersInWindow` (already filters to
+   *      HIGH_SIGNAL_ITEM_CODES).
+   *   4. Bucket events by governing sector on event-day; build baseline2y[]
+   *      from rolling-90d `computeSectorEventRate` per panel day (sample
+   *      stddev applied in composite layer; ADR-042 §3 + §6).
+   *   5. Today's 90d events sliced for `s.events`.
+   *
+   * V1 simplifications + methodology defense are identical to the XD
+   * orchestrator — see the XD repository's docstring on `populateSectorsForCycle`.
+   */
+  async populateSectorsForCycle(
+    asOf: Date,
+  ): Promise<EightKClassifierInputs['sectors']> {
+    const oneDay = 24 * 60 * 60 * 1000;
+    const baselineStart = new Date(asOf.getTime() - BASELINE_CALENDAR_DAYS * oneDay);
+    const baselineEnd = new Date(asOf.getTime() - oneDay);
+
+    const [panel, todayConstituents] = await Promise.all([
+      readSectorMembershipPanel(
+        this.ch,
+        this.gicsSectorMapTable,
+        this.sp500ConstituentsTable,
+        baselineStart,
+        baselineEnd,
+      ),
+      this.readSp500ConstituentsPIT(asOf),
+    ]);
+
+    if (todayConstituents.length === 0 && panel.length === 0) return [];
+
+    const [timeline, eventsByTicker] = await Promise.all([
+      readGicsSectorTimeline(this.ch, this.gicsSectorMapTable, todayConstituents, asOf),
+      this.readEventsForTickersInWindow(asOf, todayConstituents, BASELINE_CALENDAR_DAYS),
+    ]);
+
+    const sectorEventsAll = new Map<string, EightKEvent[]>();
+    for (const [ticker, events] of eventsByTicker) {
+      const tickerTimeline = timeline.get(ticker);
+      if (!tickerTimeline || tickerTimeline.length === 0) continue;
+      for (const ev of events) {
+        const dayIso = ev.acceptedAt.toISOString().slice(0, 10);
+        const sector = findGoverningSector(tickerTimeline, dayIso);
+        if (sector == null) continue;
+        const arr = sectorEventsAll.get(sector) ?? [];
+        arr.push(ev);
+        sectorEventsAll.set(sector, arr);
+      }
+    }
+
+    const todayIso = asOf.toISOString().slice(0, 10);
+    const sectorSizeToday = new Map<string, number>();
+    for (const ticker of todayConstituents) {
+      const tickerTimeline = timeline.get(ticker);
+      if (!tickerTimeline || tickerTimeline.length === 0) continue;
+      const sector = findGoverningSector(tickerTimeline, todayIso);
+      if (sector == null) continue;
+      sectorSizeToday.set(sector, (sectorSizeToday.get(sector) ?? 0) + 1);
+    }
+
+    const panelBySectorByDay = new Map<string, Map<string, number>>();
+    for (const row of panel) {
+      let bySector = panelBySectorByDay.get(row.sector);
+      if (!bySector) {
+        bySector = new Map();
+        panelBySectorByDay.set(row.sector, bySector);
+      }
+      bySector.set(row.day, row.memberCount);
+    }
+
+    const allSectors = new Set<string>([
+      ...panelBySectorByDay.keys(),
+      ...sectorSizeToday.keys(),
+    ]);
+    const sortedSectors = [...allSectors].sort();
+
+    const asOfMs = asOf.getTime();
+    const todayWindowStartMs = asOfMs - EVENT_WINDOW_DAYS * oneDay;
+    const out: Array<{
+      sector: string;
+      sectorSize: number;
+      events: EightKEvent[];
+      baseline2y: number[];
+    }> = [];
+
+    for (const sector of sortedSectors) {
+      const panelDays = panelBySectorByDay.get(sector);
+      const sectorEvents = sectorEventsAll.get(sector) ?? [];
+
+      const baseline2y: number[] = [];
+      if (panelDays) {
+        const sortedDays = [...panelDays.keys()].sort();
+        for (const day of sortedDays) {
+          const memberCount = panelDays.get(day)!;
+          if (memberCount <= 0) continue;
+          const dayAsOf = new Date(day + 'T23:59:59.999Z');
+          const rate = computeSectorEventRate(
+            sectorEvents, memberCount, dayAsOf, EVENT_WINDOW_DAYS,
+          );
+          if (rate != null) baseline2y.push(rate);
+        }
+      }
+
+      const todayEvents: EightKEvent[] = [];
+      for (const ev of sectorEvents) {
+        const t = ev.acceptedAt.getTime();
+        if (t > todayWindowStartMs && t <= asOfMs) todayEvents.push(ev);
+      }
+
+      out.push({
+        sector,
+        sectorSize: sectorSizeToday.get(sector) ?? 0,
+        events: todayEvents,
+        baseline2y,
+      });
+    }
+
+    return out;
   }
 
   /** Persist one snapshot. Idempotent under

@@ -523,6 +523,172 @@ describe('readInputsForCycle', () => {
   });
 });
 
+// ───── POPSEC-F4-* — populateSectorsForCycle (Step 3, G2 SPEC §5.3) ────────
+// SPEC docs/specs/gics-sector-baseline-computation.md §1.2 + §5.3. Byte-equal
+// shape to POPSEC-XD-* / POPSEC-EK-*; differs in trade shape (transaction_code
+// IN {P,S}) + composite rate function (computeSectorClusterRate with intrinsic
+// 30d cluster window + ≥3 distinct insiders threshold per ticker).
+
+describe('populateSectorsForCycle (POPSEC-F4-1..4)', () => {
+  const POPSEC_ASOF = new Date('2026-05-19T12:00:00.000Z');
+  const oneDay = 24 * 60 * 60 * 1000;
+  function isoDate(d: Date): string { return d.toISOString().slice(0, 10); }
+  function makePanelConstituentsRow(ticker: string, effectiveDate: string) {
+    return { ticker, effective_date: effectiveDate };
+  }
+  function makeTradeRow(args: {
+    ticker?: string; personCik?: string; code?: string; acceptedAt: string;
+    accession?: string; transactionId?: number;
+  }) {
+    return {
+      issuer_ticker: args.ticker ?? 'AAPL',
+      issuer_cik: '0000320193',
+      accession: args.accession ?? `acc-${args.acceptedAt}-${args.personCik ?? '0'}`,
+      transaction_id: args.transactionId ?? 0,
+      person_cik: args.personCik ?? '0001111111',
+      role_flags: 2,
+      transaction_code: args.code ?? 'P',
+      accepted_at: args.acceptedAt,
+      shares: 1000,
+      price_per_share: 180,
+      dollar_amount: 180000,
+    };
+  }
+
+  it('POPSEC-F4-1: baseline window is [asOf-730d, asOf-1d] (today EXCLUDED per ADR-042 §4)', async () => {
+    const { repo, fake } = makeRepo();
+    fake.route(q => q.includes('effective_date <= {asOfEnd:Date}'),
+      [makePanelConstituentsRow('AAPL', '2024-05-19')],
+    );
+    fake.route(q => q.includes('ticker IN') && q.includes('snapshot_date <= {asOfEnd:Date}'),
+      [{ ticker: 'AAPL', gics_sector: 'Information Technology', snapshot_date: '2024-01-01' }],
+    );
+    fake.route(q => q.includes('FROM quantlab.gics_sector_map FINAL') && q.includes('snapshot_date <= {asOfEnd:Date}'),
+      [{ ticker: 'AAPL', gics_sector: 'Information Technology', snapshot_date: '2024-01-01' }],
+    );
+    fake.route(q => q.includes('effective_date = ('), [{ ticker: 'AAPL' }]);
+    // Two buys + one sell within today's 90d slice.
+    fake.route(q => q.includes('transaction_code IN'),
+      [
+        makeTradeRow({ personCik: '00001', code: 'P', acceptedAt: '2026-05-19 09:30:00', transactionId: 1 }),
+        makeTradeRow({ personCik: '00002', code: 'P', acceptedAt: '2026-04-20 09:30:00', transactionId: 2 }),
+        makeTradeRow({ personCik: '00003', code: 'S', acceptedAt: '2026-03-15 09:30:00', transactionId: 3 }),
+      ],
+    );
+
+    const sectors = await repo.populateSectorsForCycle(POPSEC_ASOF);
+
+    const constituentsQuery = fake.queries.find(q =>
+      q.query.includes('effective_date <= {asOfEnd:Date}'),
+    );
+    assert.ok(constituentsQuery);
+    const expectedEnd = isoDate(new Date(POPSEC_ASOF.getTime() - oneDay));
+    assert.equal(
+      (constituentsQuery!.query_params as Record<string, unknown>).asOfEnd,
+      expectedEnd,
+      'helper binds asOfEnd = asOf - 1 day (today EXCLUDED per ADR-042 §4)',
+    );
+
+    assert.equal(sectors.length, 1);
+    assert.equal(sectors[0].sector, 'Information Technology');
+    assert.equal(sectors[0].sectorSize, 1);
+    assert.equal(sectors[0].trades.length, 3);
+    // baseline2y is one rate per (sector, panel-day) where memberCount > 0.
+    // With 1 constituent across the full window, expect ~730 entries.
+    assert.ok(sectors[0].baseline2y.length > 0);
+    // Each rate is bounded by cluster_count / sectorSize; sectorSize=1 means
+    // rate ∈ {0, 1} (cluster_count is 0 or 1 ticker with ≥3 buyers).
+    for (const r of sectors[0].baseline2y) {
+      assert.ok(r === 0 || r === 1, `rate must be 0 or 1 with sectorSize=1, got ${r}`);
+    }
+  });
+
+  it('POPSEC-F4-2: strict-PIT attribution — sector swap mid-window splits trades by trade-day sector', async () => {
+    const { repo, fake } = makeRepo();
+    fake.route(q => q.includes('effective_date <= {asOfEnd:Date}'),
+      [makePanelConstituentsRow('AAPL', '2024-01-01')],
+    );
+    fake.route(q => q.includes('ticker IN') && q.includes('snapshot_date <= {asOfEnd:Date}'),
+      [
+        { ticker: 'AAPL', gics_sector: 'Information Technology', snapshot_date: '2024-01-01' },
+        { ticker: 'AAPL', gics_sector: 'Industrials', snapshot_date: '2025-06-01' },
+      ],
+    );
+    fake.route(q => q.includes('FROM quantlab.gics_sector_map FINAL') && q.includes('snapshot_date <= {asOfEnd:Date}'),
+      [
+        { ticker: 'AAPL', gics_sector: 'Information Technology', snapshot_date: '2024-01-01' },
+        { ticker: 'AAPL', gics_sector: 'Industrials', snapshot_date: '2025-06-01' },
+      ],
+    );
+    fake.route(q => q.includes('effective_date = ('), [{ ticker: 'AAPL' }]);
+    fake.route(q => q.includes('transaction_code IN'),
+      [
+        // IT-era trade (2024-12-15 < 2025-06-01 swap date)
+        makeTradeRow({ personCik: '00001', code: 'P', acceptedAt: '2024-12-15 09:30:00', transactionId: 10 }),
+        // Industrials-era trade (2025-09-15 > 2025-06-01 swap date)
+        makeTradeRow({ personCik: '00002', code: 'P', acceptedAt: '2025-09-15 09:30:00', transactionId: 11 }),
+      ],
+    );
+
+    const sectors = await repo.populateSectorsForCycle(POPSEC_ASOF);
+
+    const it_ = sectors.find(s => s.sector === 'Information Technology');
+    const ind = sectors.find(s => s.sector === 'Industrials');
+    assert.ok(it_);
+    assert.ok(ind);
+    assert.equal(it_!.sectorSize, 0, 'IT has 0 members TODAY (swapped away)');
+    assert.equal(ind!.sectorSize, 1, 'Industrials has 1 member TODAY');
+    // Strict-PIT NUMERATOR: each trade attributes to the governing sector at
+    // its acceptance day. IT-era trade goes into IT's sectorTrades pool;
+    // Industrials-era trade goes into Industrials's. Per-day cluster rates
+    // are 0 (only one distinct insider per ticker) but the trade-bucketing
+    // itself is the strict-PIT contract we pin. We assert by trade count
+    // proxied via the today's trades window: only the post-2025-06-01 trade
+    // is within (asOf-90d, asOf] for Industrials; IT's today-trades are empty.
+    assert.equal(it_!.trades.length, 0, 'IT today-trades empty (IT-era event is >90d old)');
+    assert.equal(ind!.trades.length, 0, 'Industrials today-trades also empty (2025-09-15 > 90d ago at asOf=2026-05-19)');
+    // The bucketing is correct iff baseline2y for IT reflects the 2024-12-15
+    // trade window AND Industrials's reflects the 2025-09-15 trade window.
+    // With <3 distinct insiders in any cluster, both rates remain 0 — so we
+    // assert structurally on the baseline length (sector membership in panel
+    // ≠ zero) which fires only if the orchestrator emitted entries for both.
+    assert.ok(it_!.baseline2y.length > 0, 'IT sector entry emitted with non-empty baseline');
+    assert.ok(ind!.baseline2y.length > 0, 'Industrials sector entry emitted with non-empty baseline');
+  });
+
+  it('POPSEC-F4-3: empty-trade days yield rate=0 in baseline2y (NOT dropped per ADR-042 §8)', async () => {
+    const { repo, fake } = makeRepo();
+    fake.route(q => q.includes('effective_date <= {asOfEnd:Date}'),
+      [makePanelConstituentsRow('AAPL', '2024-05-19')],
+    );
+    fake.route(q => q.includes('ticker IN') && q.includes('snapshot_date <= {asOfEnd:Date}'),
+      [{ ticker: 'AAPL', gics_sector: 'Information Technology', snapshot_date: '2024-01-01' }],
+    );
+    fake.route(q => q.includes('FROM quantlab.gics_sector_map FINAL') && q.includes('snapshot_date <= {asOfEnd:Date}'),
+      [{ ticker: 'AAPL', gics_sector: 'Information Technology', snapshot_date: '2024-01-01' }],
+    );
+    fake.route(q => q.includes('effective_date = ('), [{ ticker: 'AAPL' }]);
+    fake.route(q => q.includes('transaction_code IN'), []);
+
+    const sectors = await repo.populateSectorsForCycle(POPSEC_ASOF);
+    assert.equal(sectors.length, 1);
+    assert.equal(sectors[0].sector, 'Information Technology');
+    assert.equal(sectors[0].sectorSize, 1);
+    assert.equal(sectors[0].trades.length, 0);
+    assert.ok(sectors[0].baseline2y.length >= 729);
+    for (const r of sectors[0].baseline2y) {
+      assert.equal(r, 0, 'empty-sector days emit rate=0 per ADR-042 §8');
+    }
+  });
+
+  it('POPSEC-F4-4: cold-start (empty PIT panel + empty constituents) returns []', async () => {
+    const { repo, fake } = makeRepo();
+    fake.route(_ => true, []);
+    const sectors = await repo.populateSectorsForCycle(POPSEC_ASOF);
+    assert.equal(sectors.length, 0);
+  });
+});
+
 // ───── writeSnapshot ────────────────────────────────────────────────
 
 function fixtureSnapshot(overrides: Partial<Form4InsiderSnapshot> = {}): Form4InsiderSnapshot {

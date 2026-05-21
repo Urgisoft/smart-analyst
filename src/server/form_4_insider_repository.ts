@@ -65,6 +65,7 @@
 import type { ClickHouseClient } from '@clickhouse/client';
 import { getClickHouse } from './clickhouse.js';
 import {
+  computeSectorClusterRate,
   evaluateForm4InsiderComposite,
   FORM_4_INSIDER_COMPOSITE_VERSION,
   HIGH_SIGNAL_TRANSACTION_CODES,
@@ -76,7 +77,10 @@ import {
   type InsiderTrade,
 } from './form_4_insider.js';
 import {
+  findGoverningSector,
   readGicsSectorByTicker,
+  readGicsSectorTimeline,
+  readSectorMembershipPanel,
   type GicsSectorEntry,
 } from './gics_sector_repository_helper.js';
 
@@ -408,20 +412,28 @@ export class Form4InsiderRepository {
    * BY ticker. Composite's `inputsAvailablePerTicker` now counts rows with
    * BOTH a CIK + a sector (previously structurally 0 in v1 cold-start).
    *
-   * Aggregate-sector slicing: STILL inactive — `inputs.sectors` is an empty
-   * array. G2 activation gated on OQ-G2-1 baseline-computation ADR.
+   * Aggregate-sector slicing: ACTIVE since s94 #9 (G2 Step 3 per
+   * docs/specs/gics-sector-baseline-computation.md §6 / ADR-042 Option a) —
+   * `populateSectorsForCycle(asOf)` populates `inputs.sectors` with per-day
+   * rolling-30d-cluster-window cluster-rate baselines + today's 90d trades
+   * for each GICS sector represented in the SP500 PIT panel. The 90d trade
+   * window matches the composite's `filterTradesInWindow(..., 90)` filter
+   * applied before `computeSectorClusterRate`; the 30d cluster window applies
+   * internally per-ticker via `countDistinctInsidersByCode`.
    */
   async readInputsForCycle(
     asOf: Date,
     watchUniverse: readonly string[],
     _constituents: readonly string[],
   ): Promise<Form4InsiderInputs> {
-    const [latestAccepted, cikByTicker, sectorByTicker, perTickerTrades] = await Promise.all([
-      this.readLatestAcceptedAt(asOf),
-      this.readCikByTicker(watchUniverse),
-      this.readSectorByTicker(asOf, watchUniverse),
-      this.readTradesForTickersInWindow(asOf, watchUniverse, TRADE_WINDOW_DAYS),
-    ]);
+    const [latestAccepted, cikByTicker, sectorByTicker, perTickerTrades, sectors] =
+      await Promise.all([
+        this.readLatestAcceptedAt(asOf),
+        this.readCikByTicker(watchUniverse),
+        this.readSectorByTicker(asOf, watchUniverse),
+        this.readTradesForTickersInWindow(asOf, watchUniverse, TRADE_WINDOW_DAYS),
+        this.populateSectorsForCycle(asOf),
+      ]);
 
     const perTicker = watchUniverse.map(ticker => ({
       ticker,
@@ -439,8 +451,149 @@ export class Form4InsiderRepository {
       lastEdgarQueryAt: latestAccepted,
       bdSinceLastQuery,
       perTicker,
-      sectors: [],
+      sectors,
     };
+  }
+
+  /**
+   * Compose `inputs.sectors[]` for the F4-A2 composite evaluator per
+   * docs/specs/gics-sector-baseline-computation.md §1.2 + ADR-042 §4/§7/§8.
+   * Byte-equivalent structure to XD/EK orchestrators; differs only in that
+   * F4 baseline rates come from `computeSectorClusterRate` (intrinsic 30d
+   * cluster window per ticker) rather than a simple count/sectorSize.
+   *
+   * Workflow:
+   *   1. PIT membership panel via `readSectorMembershipPanel` for the trailing
+   *      2y baseline window `[asOf - 730d, asOf - 1d]` (today EXCLUDED per
+   *      ADR-042 §4).
+   *   2. Today's PIT constituents + per-ticker GICS timeline for strict-PIT
+   *      sector attribution.
+   *   3. Trailing-2y {P, S} trades for today's PIT constituents via
+   *      `readTradesForTickersInWindow` (already filters to
+   *      HIGH_SIGNAL_TRANSACTION_CODES at SQL time).
+   *   4. Bucket trades by governing sector on trade-acceptance day; build
+   *      baseline2y[] from `computeSectorClusterRate(sectorTrades,
+   *      memberCount, dayAsOf)` per panel day. The composite function
+   *      groups by ticker + counts distinct insiders in the 30d cluster
+   *      window ending at `dayAsOf` per ticker; per-ticker cluster_buy_flag
+   *      = (distinct buyers ≥ 3); rate = cluster-tickers / memberCount.
+   *   5. Today's 90d trades sliced for `s.trades` (composite re-applies
+   *      `dedupeTrades` + `filterTradesToHighSignalCodes` +
+   *      `filterTradesInWindow(..., 90)` defensively before its own
+   *      `computeSectorClusterRate` call).
+   *
+   * V1 simplifications + methodology defense are identical to the XD
+   * orchestrator — see the XD repository's docstring on
+   * `populateSectorsForCycle`.
+   */
+  async populateSectorsForCycle(
+    asOf: Date,
+  ): Promise<Form4InsiderInputs['sectors']> {
+    const oneDay = 24 * 60 * 60 * 1000;
+    const baselineStart = new Date(asOf.getTime() - BASELINE_CALENDAR_DAYS * oneDay);
+    const baselineEnd = new Date(asOf.getTime() - oneDay);
+
+    const [panel, todayConstituents] = await Promise.all([
+      readSectorMembershipPanel(
+        this.ch,
+        this.gicsSectorMapTable,
+        this.sp500ConstituentsTable,
+        baselineStart,
+        baselineEnd,
+      ),
+      this.readSp500ConstituentsPIT(asOf),
+    ]);
+
+    if (todayConstituents.length === 0 && panel.length === 0) return [];
+
+    const [timeline, tradesByTicker] = await Promise.all([
+      readGicsSectorTimeline(this.ch, this.gicsSectorMapTable, todayConstituents, asOf),
+      this.readTradesForTickersInWindow(asOf, todayConstituents, BASELINE_CALENDAR_DAYS),
+    ]);
+
+    const sectorTradesAll = new Map<string, InsiderTrade[]>();
+    for (const [ticker, trades] of tradesByTicker) {
+      const tickerTimeline = timeline.get(ticker);
+      if (!tickerTimeline || tickerTimeline.length === 0) continue;
+      for (const tr of trades) {
+        const dayIso = tr.acceptedAt.toISOString().slice(0, 10);
+        const sector = findGoverningSector(tickerTimeline, dayIso);
+        if (sector == null) continue;
+        const arr = sectorTradesAll.get(sector) ?? [];
+        arr.push(tr);
+        sectorTradesAll.set(sector, arr);
+      }
+    }
+
+    const todayIso = asOf.toISOString().slice(0, 10);
+    const sectorSizeToday = new Map<string, number>();
+    for (const ticker of todayConstituents) {
+      const tickerTimeline = timeline.get(ticker);
+      if (!tickerTimeline || tickerTimeline.length === 0) continue;
+      const sector = findGoverningSector(tickerTimeline, todayIso);
+      if (sector == null) continue;
+      sectorSizeToday.set(sector, (sectorSizeToday.get(sector) ?? 0) + 1);
+    }
+
+    const panelBySectorByDay = new Map<string, Map<string, number>>();
+    for (const row of panel) {
+      let bySector = panelBySectorByDay.get(row.sector);
+      if (!bySector) {
+        bySector = new Map();
+        panelBySectorByDay.set(row.sector, bySector);
+      }
+      bySector.set(row.day, row.memberCount);
+    }
+
+    const allSectors = new Set<string>([
+      ...panelBySectorByDay.keys(),
+      ...sectorSizeToday.keys(),
+    ]);
+    const sortedSectors = [...allSectors].sort();
+
+    const asOfMs = asOf.getTime();
+    const todayWindowStartMs = asOfMs - TRADE_WINDOW_DAYS * oneDay;
+    const out: Array<{
+      sector: string;
+      sectorSize: number;
+      trades: InsiderTrade[];
+      baseline2y: number[];
+    }> = [];
+
+    for (const sector of sortedSectors) {
+      const panelDays = panelBySectorByDay.get(sector);
+      const sectorTrades = sectorTradesAll.get(sector) ?? [];
+
+      const baseline2y: number[] = [];
+      if (panelDays) {
+        const sortedDays = [...panelDays.keys()].sort();
+        for (const day of sortedDays) {
+          const memberCount = panelDays.get(day)!;
+          if (memberCount <= 0) continue;
+          const dayAsOf = new Date(day + 'T23:59:59.999Z');
+          // computeSectorClusterRate internally applies CLUSTER_WINDOW_DAYS=30
+          // per ticker via countDistinctInsidersByCode; trades outside the
+          // 30d cluster window don't affect the distinct-insider count.
+          const rate = computeSectorClusterRate(sectorTrades, memberCount, dayAsOf);
+          if (rate != null) baseline2y.push(rate);
+        }
+      }
+
+      const todayTrades: InsiderTrade[] = [];
+      for (const tr of sectorTrades) {
+        const t = tr.acceptedAt.getTime();
+        if (t > todayWindowStartMs && t <= asOfMs) todayTrades.push(tr);
+      }
+
+      out.push({
+        sector,
+        sectorSize: sectorSizeToday.get(sector) ?? 0,
+        trades: todayTrades,
+        baseline2y,
+      });
+    }
+
+    return out;
   }
 
   /** Persist one snapshot. Idempotent under
