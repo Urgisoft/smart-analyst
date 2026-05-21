@@ -1,28 +1,31 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-05-20 (session 93 #8 — **gap #7 F4-A2 DONE** as commit `3983867`. Closes the pure-composite layer of the Form 4 insider arc: `src/server/form_4_insider.ts` (~480 LOC) + 63 new TS tests covering SPEC §9.7 T-F4-1..T-F4-14 + supplementals. Per-stock layer emits {`insiderBuyCount90d`, `insiderSellCount90d`, `insiderBuyerCount90d`, `insiderSellerCount90d`, `insiderNetDollar90d`, `insiderClusterBuyFlag`, `insiderClusterSellFlag`}; aggregate layer emits BUY-only per-sector cluster-rate z-scored vs 2y baseline (`form4ClusterFlag = OR over sectors at |z| > 2.0`). HIGH_SIGNAL_TRANSACTION_CODES = {P, S} enforced at composite READ time per S93-37 load-bearing (F4-A1 ingest stores ALL codes). Cluster threshold ≥3 distinct `personCik` in 30d, same direction (F4-2). All gates green (npm test 2602/2625 pass +63 vs baseline 2562, tsc 13 errors unchanged baseline, check:help ✓). 4 commits ahead of `origin/main`; push still operator-gated. **F4-A3 NEXT (snapshot-table migration co-bootstrap)**.)
+Last updated: 2026-05-20 (session 93 #9 — **gap #7 F4-A3 DONE** as commit `2b686bb`. Closes the three-table snapshot-migration co-bootstrap layer of the Form 4 insider arc: `scripts/migrate_create_form_4_insider_snapshots.ts` (~370 LOC) + 66 new TS tests covering SPEC §9.9 T-F4M-1..T-F4M-4 + cross-language Python↔TS DDL parity + EXPECTED_COLUMNS alignment + EXPLAIN PLAN grammar. Creates THREE tables idempotently: `quantlab.form_4_insider_snapshots` (snapshot, Layer-0 deviations applied) + `quantlab.insider_trades` (source, byte-pinned to F4-A1 ingest's `ensure_insider_trades_table` whitespace-canonically) + `quantlab.insider_ciks` (source, byte-pinned similarly). Cross-language parity test in TS reads `scripts/sec_edgar_form4_ingest.py`, extracts SQL from `ensure_*_table` via string indexing, asserts canonical equality with `PLANNED_DDL_INSIDER_TRADES` / `PLANNED_DDL_INSIDER_CIKS` — load-bearing drift catcher (inverts EK-A1's Python-side parity test). All gates green (npm test 2691/2668 pass +66 vs s93 #8 baseline of 2602, tsc 13 errors unchanged baseline, check:help ✓). 5 commits ahead of `origin/main`; push still operator-gated. **F4-A4 NEXT (repository + daemon step 1l)**.)
 
 ## What this turn delivered
 
-Eighth slice of the gap #7 event-driven-filings-processor arc (s93 #8 — Phase F4-A2), closing the pure-composite layer of the Form 4 insider arc:
+Ninth slice of the gap #7 event-driven-filings-processor arc (s93 #9 — Phase F4-A3), closing the snapshot-migration co-bootstrap layer of the Form 4 insider arc:
 
-1. **`src/server/form_4_insider.ts`** (~480 LOC). Per SPEC §2.3 (F4-1..F4-12) + §5.3 + §5.4 + §10 Phase F4-A2. Architecture:
-   - **Per-ticker layer (§5.3):** for each ticker T in equity-midcap universe as of D, emits the SPEC §5.5 `per_ticker_rows[i]` shape: `insiderBuyCount90d`, `insiderSellCount90d`, `insiderBuyerCount90d` (distinct `personCik`), `insiderSellerCount90d` (distinct `personCik`), `insiderNetDollar90d = Σ(P $) − Σ(S $)`, `insiderClusterBuyFlag` (≥3 distinct `personCik` with code P in 30d), `insiderClusterSellFlag` (mirror).
-   - **Aggregate layer (§5.4):** per sector, computes cluster-rate = `count(tickers with insiderClusterBuyFlag) / sectorSize`, z-scored against trailing 2y baseline; emits flagged-sector row when `|z| > 2.0`. `form4ClusterFlag = OR over sectors`. BUY-only per F4-6 (sell-cluster aggregation deferred to v2).
-   - **Load-bearing filter (S93-42):** `HIGH_SIGNAL_TRANSACTION_CODES = ['P', 'S']` enforced at composite READ time via `filterTradesToHighSignalCodes`. F4-A1 ingest stores ALL codes (S93-37); the composite MUST filter at read or grants/exercises/gifts dilute the signal.
-   - **Cluster window semantic (S93-43):** distinct-on-`personCik`, NOT on accession. A single insider filing 3 separate buys counts as 1 insider (test T-F4-8 pins this). Same-direction lock: 2-buy-1-sell mix fires neither flag (test T-F4-9b pins this).
-   - **Dedupe (S93-45):** defensive `dedupeTrades` on `(issuerCik, accession, transactionId)` mirrors ReplacingMergeTree ORDER BY. Re-ingest race or upstream replay can emit logical duplicates to the pure function; dedupe absorbs.
-   - **`roleFlags` pass-through (F4-3):** field is on `InsiderTrade` for forensic completeness but NOT consumed by any composite formula. v2 ADR can resurface for CEO-weighted variants.
-   - **Z-score helper byte-identical** to `eight_k_classifier.computeZ` + `executive_departure.computeZ` + `etf_flow.computeZ` (sample stddev n-1 per AFML §1.3, MIN_Z_BASELINE = 30, degenerate-stddev sentinel at 1e-12).
-   - Constants exported: `FORM_4_INSIDER_COMPOSITE_VERSION='form_4_insider_v1'`, `ROLLING_WINDOW_DAYS=90`, `CLUSTER_WINDOW_DAYS=30`, `CLUSTER_INSIDER_THRESHOLD=3`, `FORM_4_CLUSTER_Z_THRESHOLD=2.0`, `MIN_Z_BASELINE=30`, `HIGH_SIGNAL_TRANSACTION_CODES`, `BUY_CODE='P'`, `SELL_CODE='S'`.
-   - **Inputs shape** mirrors EK-A2: `{asOf, lastEdgarQueryAt, bdSinceLastQuery, perTicker[{ticker, cik, sector, trades}], sectors[{sector, sectorSize, trades, baseline2y}]}`. v1 GICS-deferred posture: `sectors` array empty by default until gap #7 v2 GICS activation ships.
+1. **`scripts/migrate_create_form_4_insider_snapshots.ts`** (~370 LOC). Per SPEC §6.2 + §9.9 + §10 Phase F4-A3. Architecture:
+   - **Three CREATE TABLE IF NOT EXISTS, all idempotent:**
+     1. `quantlab.form_4_insider_snapshots` — snapshot table. SPEC §6.2 deviations applied (mirrors Layer-0 idiom): `computed_at DateTime64(3)` instead of `ingested_at DateTime DEFAULT now()`; `ORDER BY (snapshot_date)` only (no `composite_version` in sort key); `composite_version` no DEFAULT (daemon writes explicitly); `index_granularity = 8192`.
+     2. `quantlab.insider_trades` — source table. F4-A1 ingest's `ensure_insider_trades_table` lazy-creates this; THIS migration is the third entry-point (no standalone EK-A1-style migration exists for F4 source tables). `index_granularity = 1024` per sparse-event convention.
+     3. `quantlab.insider_ciks` — source table. Same pattern as `insider_trades`. `ORDER BY (person_cik)` — natural primary key.
+   - **`runPreChecks`** queries `system.tables` once with `IN ({snap,trades,ciks})` clause + `system.mutations` for informational pending-count. Returns per-table absence flags + `ok=true` if at least one table absent (CREATE IF NOT EXISTS still safe when present).
+   - **`runPostChecks`** reads `system.columns` three times (once per table) + per-table missing-column lists.
+   - **`runDryRun`** prints all three DDLs without executing; **`runApply`** executes all three sequentially with timing logs + final per-table column-count verdict.
+   - Constants exported: `DATABASE='quantlab'`, `SNAPSHOT_TABLE='form_4_insider_snapshots'`, `INSIDER_TRADES_TABLE='insider_trades'`, `INSIDER_CIKS_TABLE='insider_ciks'`, three `PLANNED_DDL_*` strings, three `EXPECTED_COLUMNS_*` arrays (10 / 15 / 4).
 
-2. **`scripts/tests/form4Insider.test.ts`** (~63 tests, all pass):
-   - SPEC §9.7 T-F4-1..T-F4-14 all covered.
-   - Supplementals: 90d window boundary inclusion (4 tests), dedupe (4 tests), orchestrator integration (6 tests including a comprehensive 7-field per-ticker round-trip), cross-cutting S93-37 enforcement (3 tests including A-grant filter + M-exercise filter), constants sanity (1 test).
-   - Test infrastructure helpers: `makeTrade(overrides)`, `makeInputs(overrides)`, `assertClose(actual, expected, eps)` — mirror EK-A2 test pattern.
+2. **`scripts/tests/migrateCreateForm4InsiderSnapshots.test.ts`** (~66 tests, all pass):
+   - **SPEC §9.9 T-F4M-1 dry-run + T-F4M-2 apply idempotency**: 5 `runPreChecks` tests covering all-absent / partial-present (post-F4-A1-ingest) / snapshot-only-present / all-three-present (the `ok=false-but-safe` case) / pending-mutations propagation.
+   - **SPEC §9.9 T-F4M-3 DDL matches §6.2**: 12 regex-pin tests on the snapshot DDL covering each column type + engine + ORDER BY + granularity. 11 regex-pin tests on `PLANNED_DDL_INSIDER_TRADES`. 9 regex-pin tests on `PLANNED_DDL_INSIDER_CIKS`.
+   - **SPEC §9.9 T-F4M-4 three-table co-bootstrap**: cross-language Python↔TS parity (2 tests, load-bearing). Reads `scripts/sec_edgar_form4_ingest.py`, finds `def ensure_insider_trades_table(`, locates the `client.command("""..."""` block, extracts SQL, asserts whitespace-canonical equality with `PLANNED_DDL_INSIDER_TRADES`. Same for `insider_ciks`. If either drifts, test fails with explicit drift message. **This inverts EK-A1's Python-side parity test pattern** (which reads the .ts file from Python).
+   - **EXPECTED_COLUMNS alignment**: 6 tests on snapshot (10 cols), 6 on insider_trades (15 cols), 2 on insider_ciks (4 cols + shape assertion).
+   - **`runPostChecks`** behavior: 6 tests covering all-present / each-of-three-tables-missing / each-of-three-tables-with-column-gaps.
+   - **CH grammar validation**: 2 EXPLAIN PLAN tests via `assertCHGrammar`, skip-clean when CH unreachable.
+   - Test infrastructure: `FakeClickHouse` router with `.route(matcher, rows)` chain + `canon(sql)` whitespace-collapse helper.
 
-3. **Wiring**: No `package.json` / help.ts changes for F4-A2 (pure-function module; no operator-runnable script). F4-A3 (snapshot-table migration co-bootstrap) is where the next npm-script entries land.
+3. **Wiring**: `package.json` gains `migrate:create-form-4-insider-snapshots{,:apply}`. No `help.ts` EXTRA_HELP changes (migration exports `help` directly; help.ts walker auto-discovers).
 
 ## Where we are
 
@@ -38,9 +41,10 @@ Eighth slice of the gap #7 event-driven-filings-processor arc (s93 #8 — Phase 
 | Gap #7 event-driven-filings-processor SPEC + teach-doc | ✓ s93 #1 (`48e0da1`) |
 | Gap #7 EK arc (A1..A5) | ✓ DONE end-to-end (s93 #2-#6) |
 | Gap #7 F4-A1 (Form 4 EDGAR ingest CLI) | ✓ s93 #7 (`d368012`) |
-| **Gap #7 F4-A2 (pure composite `form_4_insider_v1`)** | **✓ s93 #8 (`3983867`)** |
-| **Gap #7 F4-A3 (snapshot-table migration co-bootstrap)** | **☐ NEXT** |
-| Gap #7 F4-A4..A5 (repository + daemon step 1l → brief #15) | ☐ queued after F4-A3 |
+| Gap #7 F4-A2 (pure composite `form_4_insider_v1`) | ✓ s93 #8 (`3983867`) |
+| **Gap #7 F4-A3 (snapshot-table migration co-bootstrap)** | **✓ s93 #9 (`2b686bb`)** |
+| **Gap #7 F4-A4 (repository + daemon step 1l)** | **☐ NEXT** |
+| Gap #7 F4-A5 (brief section #15 → closes F4 arc + gap #7) | ☐ queued after F4-A4 |
 | Gap #8 v2 enhancement — GICS sector mapping activation | ☐ deferred (operator-pickable insertion) |
 | Gap #9 v2 enhancement — ETF.com/issuer-CSV cross-validation | ☐ deferred (operator-pickable insertion) |
 | Gap #7 v2 — GICS sector mapping activation (8-K + F4 aggregate panels) | ☐ deferred (operator-pickable) |
@@ -52,51 +56,42 @@ Eighth slice of the gap #7 event-driven-filings-processor arc (s93 #8 — Phase 
 | Phase B for cycle/vol/sector/cross-asset/short-interest/exec-departure/etf-flow/8-K/F4 | ⏸ deferred — calendar OR backfill arc |
 | #5 capital-deployment-ramp ADR | ☐ operator self-assigned ~1 week; not blocking |
 | Drawdown framework §12 90d empirical retune | ☐ scheduled — earliest 2026-08-29 |
-| Push 4 commits to origin/main | ☐ operator-gated, HOLD |
+| Push 5 commits to origin/main | ☐ operator-gated, HOLD |
 
 ## Decisions locked in
 
-### Session 93 part 8 (this turn, this commit) — F4-A2 implementation forks
+### Session 93 part 9 (this turn, this commit) — F4-A3 implementation forks
 
-**S93-42. `HIGH_SIGNAL_TRANSACTION_CODES = ['P', 'S']` is enforced at the composite READ layer via `filterTradesToHighSignalCodes`.**
-`Why:` Per S93-37 (carried-forward warning), F4-A1 ingest stores ALL transaction codes (P, S, A, M, F, G, D, X, ...). The composite is the load-bearing gate for the {P, S} subset. Three-criterion analysis:
-  1. Canon foundations — F4-4 explicit: "All other transaction codes (A grants, M exercises, F payments, G gifts, etc.) are stored at ingest but excluded from the composite." Lakonishok-Lee 2001 §3 + CMP 2012 standard filter.
-  2. Methodology rigor — composite-layer filtering preserves forensic access at the raw `insider_trades` table for the v2 CMP classifier; a regression that read raw without filtering would dilute the cluster signal with non-discretionary trading (stock-based-comp, option exercises, gifts).
-  3. Minimum free parameters — the filter list is exported as a single `HIGH_SIGNAL_TRANSACTION_CODES` constant; a v2 widening (e.g., add "M") requires changing BOTH the Python ingest constant AND this TS constant, AND updating the constants-sanity test.
+**S93-46. F4-A3 owns the source-table DDLs directly (no standalone TS migrations for `insider_trades` or `insider_ciks`).**
+`Why:` F4-A1 (s93 #7 `d368012`) shipped ONLY the Python ingest with lazy-create `ensure_insider_trades_table` + `ensure_insider_ciks_table`. Unlike EK-A1 (which ALSO shipped a standalone `migrate_create_eight_k_events.ts` so EK-A3 could `import` from it), F4-A1 did not. Three-criterion analysis:
+  1. Canon foundations — SPEC §10 Phase F4-A3 line item: "scripts/migrate_create_form_4_insider_snapshots.ts. Migration test." Single-script scope; no separate source-table migrations enumerated.
+  2. Methodology rigor — fewer migration scripts → fewer entry-points → fewer places for DDL drift. The cross-language Python↔TS parity test (S93-47) replaces the load-time TS-↔-TS import linkage with a test-time canonicalized-string check.
+  3. Minimum free parameters — three DDL constants in one file vs three DDL constants split across three migration files (and a fourth file with import re-exports). The single-file shape is simpler.
 
-Result: `evaluateForm4InsiderComposite` calls `dedupeTrades → filterTradesToHighSignalCodes → window-filter` on both per-ticker and per-sector trade panels. Direct callers of `countTradesByCode` etc. must filter themselves OR pass an already-filtered slice.
-`How to apply:` A future PR that bypasses the composite filter (e.g., calls `countDistinctInsidersByCode` on raw trades for v2 backtests) MUST first apply `filterTradesToHighSignalCodes`. The cross-cutting test "composite does NOT count A-grants in insider_buy_count_90d" pins the inviolant contract; a regression that admitted A-grants would break it loudly.
+Result: `scripts/migrate_create_form_4_insider_snapshots.ts` defines all three `PLANNED_DDL_*` constants. The Python ingest's `ensure_insider_trades_table` + `ensure_insider_ciks_table` are the OTHER landing of the same DDLs; the parity test is the only thing keeping them in sync.
+`How to apply:` A future F4-A3.5 that wanted to split out standalone `migrate_create_insider_trades.ts` + `migrate_create_insider_ciks.ts` would need to: (a) move the DDL constants to those new files, (b) re-export from F4-A3 via the EK-A3 import-reference pattern, (c) drop the cross-language parity test in favor of an import-reference parity test (`PLANNED_DDL_INSIDER_TRADES === IT_PLANNED_DDL` via `===`). Until that happens, the cross-language parity test is the load-bearing drift catch.
 
-**S93-43. Cluster threshold is distinct-on-`personCik`, NOT on `accession`. Same-direction lock applies — mixed-direction clusters fire neither flag.**
-`Why:` Per F4-2 explicit: "≥3 distinct insiders within 30 calendar days, same direction. Distinct on insider identity (`person_cik`), not on filing." HANDOFF watch-out carried from s93 #7: "Same direction = same `transaction_code`. A mixed 2-buy-1-sell cluster does NOT fire either flag." Three-criterion analysis:
-  1. Canon foundations — F4-2 explicit; Lakonishok-Lee 2001 cluster effects.
-  2. Methodology rigor — distinct-on-`personCik` correctly absorbs the case where one prolific insider files multiple separate trades within 30d (test T-F4-8: 1 insider × 3 trades = 1 distinct insider, NOT 3). Distinct-on-accession would over-count.
-  3. Minimum free parameters — single threshold (3) + single window (30d); no per-role weighting (F4-3 lock).
+**S93-47. The cross-language Python↔TS DDL parity is a TS-side test that reads the .py source and extracts SQL via string indexing.**
+`Why:` Per HANDOFF s93 #8: "DDL-parity test for BOTH source tables (mirrors EK-A1's parity-test pattern)." EK-A1 has a Python-side test that reads the .ts file. F4-A3 inverts this: a TS-side test reads the .py file. Three-criterion analysis:
+  1. Canon foundations — direct mirror of EK-A1's `test_ingest_lazy_create_ddl_matches_migration_planned_ddl` pattern, but reversed because the canonical DDL home is the TS migration (per S93-46).
+  2. Methodology rigor — the test owns the parity check end-to-end (no Python pytest dependency for a TS migration's correctness). Falsity surfaces as a unit-test fail with explicit drift message; the test never silently passes a drifted DDL because `canon()` whitespace-collapse is a deterministic function.
+  3. Minimum free parameters — one canonicalization function (`canon(sql) = sql.split(/\s+/).filter(Boolean).join(' ')`) shared across both source-table parity tests.
 
-Result: `countDistinctInsidersByCode` uses `Set<personCik>` semantics. `evaluateForm4InsiderComposite` computes the cluster threshold separately for direction='P' (buy-cluster) and direction='S' (sell-cluster). A 2-P-1-S panel has `distinctBuyers30d=2` and `distinctSellers30d=1` — neither hits 3.
-`How to apply:` Any future v2 that wants the "any 3 insiders in 30d regardless of direction" semantic needs a NEW flag (e.g., `insiderActivityClusterFlag`); reusing the existing P/S flags for that semantic would change wire-format behavior and require a composite version bump. The aggregate layer reads only `insiderClusterBuyFlag` per F4-6 — v2 sell-cluster sector aggregation requires its own SPEC slice.
+Result: `scripts/tests/migrateCreateForm4InsiderSnapshots.test.ts:extractEnsureTableSql(fnName)` reads `scripts/sec_edgar_form4_ingest.py`, finds `def ${fnName}(`, locates the next `client.command("""` token, finds the closing `""")`, returns the SQL substring. The test asserts `canon(PLANNED_DDL_INSIDER_TRADES) === canon(extractEnsureTableSql('ensure_insider_trades_table'))` + the same for `_ciks`.
+`How to apply:` If a future PR restructures the Python ingest to use a heredoc constant (`SQL_CREATE_INSIDER_TRADES = """..."""`) instead of inline `client.command(""")`, the `extractEnsureTableSql` helper needs to be updated. The test will fail loudly first — fix is straightforward (re-anchor the string indexing). Similarly, if the Python migrates to a different DDL approach (e.g., SQLAlchemy or alembic), the parity test must adapt OR be replaced by the import-reference pattern (S93-46 alternative).
 
-**S93-44. Aggregate sector layer counts ONLY cluster-buy events (per F4-6); sell-cluster sector aggregation deferred to v2.**
-`Why:` Per F4-6 explicit: "Aggregate clustering: per-sector count of `insider_cluster_buy_flag` events, z-scored against trailing 2y baseline." The §5.4 pseudocode uses `per_stock_cluster_buy_flag(T)`. SPEC §9.7 T-F4-11 names "2 tickers with cluster-buy in sector of 20 constituents → rate = 0.1" — BUY-only language. Three-criterion analysis:
-  1. Canon foundations — F4-6 lock + Seyhun 1986 insider-buy predictability foundation. The sell side has weaker canon support (sells are diluted by liquidity/diversification motives — CMP 2012 §1 documents the asymmetry).
-  2. Methodology rigor — v1 ships fewer signals; v2 ADR can add sell-cluster sector aggregation once Phase B reveals whether the buy-side aggregate has independent signal vs the per-ticker `insiderClusterSellFlag`.
-  3. Minimum free parameters — one sector aggregate metric in v1; doubling to buy+sell would add a second threshold + second baseline panel.
+**S93-48. Snapshot DDL deviates from SPEC §6.2 per Layer-0 idiom — `computed_at DateTime64(3)`, `ORDER BY (snapshot_date)` only, `index_granularity = 8192`.**
+`Why:` SPEC §6.2 specifies `ingested_at DateTime DEFAULT now()` + `ORDER BY (snapshot_date, composite_version)` + `index_granularity = 1024`. Per s89-s92's Layer-0 idiom (cross-asset, short-interest, exec-departure, etf-flow, 8-K-classifier all using the same deviation), this snapshot table follows suit. Three-criterion analysis:
+  1. Canon foundations — eight prior Layer-0 snapshot tables, all with this shape. The pattern is established.
+  2. Methodology rigor — millisecond-resolution `computed_at` reduces dedup races; single-column `snapshot_date` ORDER BY keeps the snapshot read pattern simple (LATEST per date, then optional version filter on read).
+  3. Minimum free parameters — no new sort-key components; one fewer DEFAULT to maintain.
 
-Result: `computeSectorClusterRate` groups trades by `issuerTicker`, derives per-ticker `insiderClusterBuyFlag`, counts tickers where it fired, divides by `sectorSize`. The aggregate ONLY uses `BUY_CODE`. The per-ticker `insiderClusterSellFlag` is preserved in `perTickerRows` for forensic + downstream consumers but NOT surfaced at the sector level.
-`How to apply:` v2 sell-cluster sector aggregation needs its own SPEC fork — adding a parallel `form_4_sell_cluster_flag` + parallel `flaggedSectorsSell` would require a snapshot-shape change (new payload column) + composite version bump (`form_4_insider_v2`).
+Result: `PLANNED_DDL_SNAPSHOT` uses Layer-0 shape byte-for-byte. SPEC §6.2 stays as the intent doc; this migration is the precise impl. The deviation is documented in the migration's module docstring.
+`How to apply:` A future v2 of `form_4_insider` that bumps the composite version (e.g., `form_4_insider_v2` with CMP classifier) will write rows with the new `composite_version` value; readers filter by version. No new sort-key column needed; ORDER BY remains `(snapshot_date)`.
 
-**S93-45. `dedupeTrades` runs ahead of all per-ticker + per-sector math; key = `(issuerCik, accession, transactionId)`.**
-`Why:` Mirrors EK-A2's `dedupeEvents`. ReplacingMergeTree ORDER BY `(issuer_cik, accession, transaction_id)` handles physical dedupe at storage, but a re-ingest race or upstream replay can still emit duplicate logical rows to the pure function. Three-criterion analysis:
-  1. Canon foundations — defense-in-depth; canon-thin call.
-  2. Methodology rigor — `insiderBuyCount90d` and `insiderNetDollar90d` are NOT distinct-counts; they would double-count duplicates. Dedupe by the SAME tuple as the storage ORDER BY guarantees consistency.
-  3. Minimum free parameters — zero new constants.
+### Sessions 84-93 #1-#8 prior decisions (carried)
 
-Result: `dedupeTrades(trades)` uses `Set<string>` keyed on `${issuerCik} ${accession} ${transactionId}`. Per-ticker orchestrator calls `dedupeTrades → filterTradesToHighSignalCodes → math`. Per-sector orchestrator does the same on the sector-wide trade panel before grouping by `issuerTicker`.
-`How to apply:` A future caller that invokes `countTradesByCode` etc. directly on raw upstream data MUST `dedupeTrades` first OR the counts double-count duplicates. Test "per-ticker layer dedupes trades before counting" pins this.
-
-### Sessions 84-93 #1-#7 prior decisions (carried)
-
-All prior decisions preserved unchanged. S93-1..S93-41 + S92-1..S92-18 + S91-7..S91-10 + S89/S90 + earlier carry through.
+All prior decisions preserved unchanged. S93-1..S93-45 + S92-1..S92-18 + S91-7..S91-10 + S89/S90 + earlier carry through.
 
 ## Open questions
 
@@ -123,44 +118,46 @@ All prior decisions preserved unchanged. S93-1..S93-41 + S92-1..S92-18 + S91-7..
 
 ### Closed this turn
 
-- ~~F4-A2 composite-layer transaction-code filter location~~ — RESOLVED per S93-42: composite enforces {P, S} via `filterTradesToHighSignalCodes`.
-- ~~F4-A2 cluster-distinct semantic (personCik vs accession)~~ — RESOLVED per S93-43: distinct on `personCik`; same-direction lock.
-- ~~F4-A2 aggregate buy-vs-sell direction~~ — RESOLVED per S93-44: BUY-only in v1; sell-cluster sector aggregation v2 ADR.
-- ~~F4-A2 dedupe semantic~~ — RESOLVED per S93-45: dedupe by `(issuerCik, accession, transactionId)`; runs ahead of all math.
+- ~~F4-A3 source-table DDL ownership (standalone TS migrations vs in-file)~~ — RESOLVED per S93-46: F4-A3 owns all three DDLs in-file; no standalone migrations for `insider_trades` / `insider_ciks`.
+- ~~F4-A3 cross-language parity test direction~~ — RESOLVED per S93-47: TS-side test reads Python source; canonicalized-string comparison.
+- ~~F4-A3 snapshot DDL deviation from SPEC §6.2~~ — RESOLVED per S93-48: Layer-0 idiom applied (computed_at + ORDER BY snapshot_date only + 8192 granularity).
 
 ### Newly opened
 
-- **F4-A3 snapshot-table migration co-bootstrap** — third slice of the F4 arc. Per SPEC §6.2 + §9.9 (T-F4M-1..T-F4M-4). Mirrors EK-A3 architecturally:
-  - `scripts/migrate_create_form_4_insider_snapshots.ts` (~250 LOC est.). Three-table CREATE IF NOT EXISTS co-bootstrap: `quantlab.insider_trades` (source table, byte-pinned to F4-A1's ingest DDL via import-reference per S93-22 pattern) + `quantlab.insider_ciks` (insider name cache, byte-pinned similarly) + `quantlab.form_4_insider_snapshots` (snapshot table). The first two reproduce DDL that F4-A1 ingest lazy-creates; migration runs MAY happen BEFORE first ingest, so co-bootstrap must idempotently CREATE all three.
-  - `scripts/tests/migrateCreateForm4InsiderSnapshots.test.ts` (~6-10 tests est.) per SPEC §9.9: T-F4M-1 dry-run reports DDL; T-F4M-2 apply creates tables, re-apply no-op; T-F4M-3 DDL matches §6.2; T-F4M-4 all three tables created idempotently. Plus DDL-parity test mirroring EK-A1's `test_ingest_lazy_create_ddl_matches_migration_planned_ddl` (Python⇄TS byte-pin check via import-reference).
-  - npm scripts: `migrate:create-form-4-insider-snapshots` + `migrate:create-form-4-insider-snapshots:apply` + help.ts EXTRA_HELP entries.
+- **F4-A4 repository + daemon step 1l** — fourth slice of the F4 arc. Per SPEC §7 + §9.8 (T-F4R-1..T-F4R-Nplus6). Mirrors EK-A4 (s93 #5 `39b6024`) architecturally:
+  - `src/server/form_4_insider_repository.ts` (~600 LOC est.). Reads `insider_trades` rows-as-of-D via subquery-around-FINAL pattern + `cik_ticker_map` + `sp500_constituents` PIT, assembles `Form4InsiderInputs`, calls `evaluateForm4InsiderComposite`, writes `form_4_insider_snapshots`. Includes `readTradesForCycle`, `writeSnapshot`, `readLatest`, `form4InsiderSnapshotsTableExists`, `runDaemonForm4InsiderEvaluation` (the orchestrator). `composite_version` ↔ `version` field translation at the write boundary (mirrors EK-A4 pattern).
+  - `scripts/daily_signal_daemon.ts` step 1l hook between step 1k (8-K classifier) and §2 cells/bundles. Calls `runDaemonForm4InsiderEvaluation` with two-gate absent-table-safe posture (source `insider_trades` + snapshot `form_4_insider_snapshots`; gracefully degrades when either missing).
+  - `scripts/tests/form4InsiderRepository.test.ts` (~25-40 tests est.) per SPEC §9.8: writeSnapshot round-trip + readLatest + tableExists + runDaemonForm4InsiderEvaluation E2E + readTradesForCycle uses subquery-around-FINAL + malformed JSON graceful degrade + EXPLAIN PLAN regression (skip-clean when CH unavailable).
 
-- **F4-A3 byte-pinning to F4-A1 DDL.** EK-A3's S93-22 lock established the import-reference pattern: the migration imports the Python DDL string from the ingest module's pyi-equivalent. For F4-A3, the parity tests must cover BOTH `insider_trades` AND `insider_ciks` DDLs (whereas EK-A3 only covered `eight_k_events`). The `insider_ciks` table is NEW for F4 and has no analog in the EK arc.
+- **F4-A4 sector-input shape**. v1 GICS-deferred posture (mirrors EK-A4): the repository should call `evaluateForm4InsiderComposite` with `sectors: []` (empty array). Aggregate `form_4_cluster_flag` will be `false` in v1; per-ticker rows fully active. v2 GICS activation (deferred-operator-pickable) ships `quantlab.gics_sector_map` + activates the aggregate panel.
 
-- **F4-A4 repository + daemon step 1l** — fourth slice. Architecturally mirrors EK-A4 (s93 #5 `39b6024`): `src/server/form_4_insider_repository.ts` reads `insider_trades` + `cik_ticker_map` + `sp500_constituents` PIT, assembles `Form4InsiderInputs`, calls `evaluateForm4InsiderComposite`, writes `form_4_insider_snapshots`. Daemon step 1l in `scripts/daily_signal_daemon.ts` calls it absent-table-safe per EK-A4's two-gate pattern.
+- **F4-A4 `personCik` resolution at the read layer**. The repository reads `person_cik` directly from `insider_trades` (it's a column on the row). The composite consumes it for distinct-insider cluster counting per S93-43. NO join to `insider_ciks` is needed at composite-eval time (the name cache is render-only, used by F4-A5).
 
-- **F4-A5 brief section #15** — fifth slice. Architecturally mirrors EK-A5 (s93 #6 `7ee5852`): `BriefForm4InsiderSection` + `renderForm4InsiderSection` + `FORM_4_STALENESS_BD_THRESHOLD = 4` analog. Top-N flagged truncation + cold-start fallback + "No tickers flagged" fallback + staleness arrow + net-dollar formatting with sign ("net +$2.3M" / "net -$11.2M") per T-OBR-F4-1..T-OBR-F4-7.
+- **F4-A4 daemon-step ordering invariant**. Current chain per SPEC §7: `1a→1b→1c→1d→1e→1f→1g→1h→1i→1j→1k→1l→§2`. EK-A4 (s93 #5) wired step 1k between etf-flow (1j) and cells (§2). F4-A4 must wire step 1l between EK (1k) and cells. Operator-runnable via `npm run daemon:daily`.
+
+- **F4-A5 brief section #15** — fifth slice. Architecturally mirrors EK-A5 (s93 #6 `7ee5852`): `BriefForm4InsiderSection` + `renderForm4InsiderSection` + `FORM_4_STALENESS_BD_THRESHOLD = 4` analog. Top-N flagged truncation (5 per BUY-cluster + SELL-cluster side) + cold-start fallback + "No tickers flagged" fallback + staleness arrow + net-dollar formatting with sign ("net +$2.3M" / "net -$11.2M") per T-OBR-F4-1..T-OBR-F4-7.
 
 ## Next stage
 
 ### Default on "continue"
 
-**Gap #7 F4-A3 — snapshot-table migration co-bootstrap.** Concrete first move:
+**Gap #7 F4-A4 — repository + daemon step 1l.** Concrete first move:
 
-1. Read `docs/specs/event-driven-filings-processor.md` §6.2 + §9.9 (Form 4 CH tables + migration test plan).
-2. Read `scripts/migrate_create_eight_k_classifier_snapshots.ts` (s93 #4 EK-A3 precedent) end-to-end as the architectural template.
-3. Read `scripts/tests/migrateCreateEightKClassifierSnapshots.test.ts` (EK-A3 tests) as the test template.
-4. Re-read `scripts/sec_edgar_form4_ingest.py` `ensure_insider_trades_table` + `ensure_insider_ciks_table` to extract DDL strings for byte-pinning per S93-22 import-reference pattern.
-5. Write `scripts/migrate_create_form_4_insider_snapshots.ts` (~250 LOC est.). Three-table CREATE IF NOT EXISTS co-bootstrap.
-6. Write `scripts/tests/migrateCreateForm4InsiderSnapshots.test.ts` (~6-10 tests est.) per SPEC §9.9.
-7. Add `migrate:create-form-4-insider-snapshots{,:apply}` to `package.json` + help.ts EXTRA_HELP entries.
-8. `npm test` green; `npm run check:help` green; commit as F4-A3 slice.
+1. Read `docs/specs/event-driven-filings-processor.md` §5.3-§5.5 + §7 + §9.8 (Form 4 repository + daemon hook + test plan).
+2. Read `src/server/eight_k_classifier_repository.ts` (s93 #5 EK-A4 precedent) end-to-end as the architectural template (~600 LOC pattern).
+3. Read `scripts/tests/eightKClassifierRepository.test.ts` (EK-A4 tests) as the test template.
+4. Read `src/server/form_4_insider.ts` from s93 #8 to internalize the composite input/output shapes (`Form4InsiderInputs`, `Form4InsiderSnapshot`).
+5. Read `scripts/daily_signal_daemon.ts` step 1k hook (s93 #5) as the daemon-wiring template.
+6. Write `src/server/form_4_insider_repository.ts` (~600 LOC est.). Reads `insider_trades` + `cik_ticker_map` + `sp500_constituents` PIT; assembles `Form4InsiderInputs` with `sectors: []` (v1 GICS-deferred); calls `evaluateForm4InsiderComposite`; writes `form_4_insider_snapshots`. Subquery-around-FINAL pattern on read per a52c964 regression class.
+7. Write `scripts/tests/form4InsiderRepository.test.ts` (~25-40 tests est.) per SPEC §9.8 T-F4R-1..T-F4R-Nplus6 + EXPLAIN PLAN regression.
+8. Wire step 1l hook in `scripts/daily_signal_daemon.ts` between step 1k and cells.
+9. `npm test` green; `npm run check:help` green; commit as F4-A4 slice.
 
-### After F4-A3 lands
+### After F4-A4 lands
 
-Standard arc continues: F4-A4 (repository + daemon step 1l) → F4-A5 (brief section #15). Each commits as its own slice.
+F4-A5 (brief section #15 — closes the F4 arc AND closes gap #7 entirely).
 
-### After F4 arc ships
+### After F4 arc ships (gap #7 CLOSED)
 
 Operator-pickable deferred insertions:
 
@@ -174,72 +171,68 @@ Operator-pickable deferred insertions:
 - Gap #8 v2 — GICS sector activation.
 - Gap #9 v2 — ETF.com / issuer-CSV cross-validation + per-ETF brief panel threading.
 - C-12 Phase B AlpacaAdapter (paused).
-- Phase B campaigns for the eight (nine after F4) Layer-0 composites.
+- Phase B campaigns for the nine Layer-0 composites.
 
 ## Files / code state
 
-### NEW this turn (s93 part 8)
+### NEW this turn (s93 part 9)
 
 | Path | Status | Notes |
 | --- | --- | --- |
-| `src/server/form_4_insider.ts` | CREATED (`3983867`) | ~480 LOC. Pure functions + types per SPEC §5.3-§5.5. `HIGH_SIGNAL_TRANSACTION_CODES = ['P', 'S']` enforced at READ time per S93-42. Z-score helper byte-identical to EK/exec/etf. v1 GICS-deferred posture in `sectors` array empty default. |
-| `scripts/tests/form4Insider.test.ts` | CREATED (`3983867`) | ~63 tests. SPEC §9.7 T-F4-1..T-F4-14 all covered + supplementals. All pass. |
-| `.claude/HANDOFF.md` | EDITED (this commit) | Rewritten from scratch for F4-A2 close + F4-A3 next. |
+| `scripts/migrate_create_form_4_insider_snapshots.ts` | CREATED (`2b686bb`) | ~370 LOC. Three-table CREATE IF NOT EXISTS co-bootstrap. Three `PLANNED_DDL_*` exported constants. Layer-0 snapshot deviations per S93-48. |
+| `scripts/tests/migrateCreateForm4InsiderSnapshots.test.ts` | CREATED (`2b686bb`) | ~66 tests. SPEC §9.9 T-F4M-1..T-F4M-4 covered + cross-language Python↔TS DDL parity + EXPECTED_COLUMNS alignment + EXPLAIN PLAN grammar. All pass. |
+| `package.json` | EDITED (`2b686bb`) | +2 npm scripts: `migrate:create-form-4-insider-snapshots{,:apply}`. |
+| `.claude/HANDOFF.md` | EDITED (this commit) | Rewritten from scratch for F4-A3 close + F4-A4 next. |
 
-### From s93 #7 (carried; unchanged)
+### From s93 #7-#8 (carried; unchanged)
 
 | Path | Status | Notes |
 | --- | --- | --- |
-| `scripts/sec_edgar_form4_ingest.py` | EXISTS (`d368012`) | F4-A1 ingest. `parse_form4_xml` returns ALL transaction codes; the composite (this turn) enforces {P, S} filter. |
+| `scripts/sec_edgar_form4_ingest.py` | EXISTS (`d368012`) | F4-A1 ingest. `ensure_insider_trades_table` + `ensure_insider_ciks_table` SQL now ALSO under cross-language parity test surveillance per S93-47. |
 | `scripts/tests/test_sec_edgar_form4_ingest.py` | EXISTS (`d368012`) | 39 Python tests. |
-| `package.json` | EXISTS (`d368012`) | `edgar:form4:ingest{,:dry}` scripts. |
-| `scripts/help.ts` | EXISTS (`d368012`) | F4-A1 EXTRA_HELP entries. |
+| `src/server/form_4_insider.ts` | EXISTS (`3983867`) | F4-A2 composite. ~480 LOC. Pure functions. F4-A4 will import + call `evaluateForm4InsiderComposite`. |
+| `scripts/tests/form4Insider.test.ts` | EXISTS (`3983867`) | F4-A2 tests. 63 tests. |
 
 ### From s93 #2-#6 (carried; unchanged)
 
 All prior gap #7 EK arc files preserved unchanged.
 
-### CH state (unchanged from s93 #7)
+### CH state (unchanged from s93 #8)
 
 - All seven Layer-0 composite snapshot tables in same state as s93 #6 close.
 - `quantlab.eight_k_events` — NOT yet created (EK-A1 ingest creates lazily; EK-A1 standalone migration also creates; EK-A3 co-bootstrap also creates).
 - `quantlab.eight_k_classifier_snapshots` — NOT yet created (EK-A3 migration script exists; not yet applied).
-- `quantlab.insider_trades` — NOT yet created (F4-A1 ingest creates lazily; F4-A3 co-bootstrap WILL also create).
-- `quantlab.insider_ciks` — NOT yet created (F4-A1 ingest creates lazily; F4-A3 co-bootstrap WILL also create).
-- `quantlab.form_4_insider_snapshots` — NOT yet created (F4-A3 WILL create).
+- `quantlab.insider_trades` — NOT yet created (F4-A1 ingest creates lazily; F4-A3 co-bootstrap WILL also create when applied).
+- `quantlab.insider_ciks` — NOT yet created (F4-A1 ingest creates lazily; F4-A3 co-bootstrap WILL also create when applied).
+- `quantlab.form_4_insider_snapshots` — NOT yet created (F4-A3 migration script ready; not yet applied).
 
 ### Tests
 
 ```text
-npm test                       2625 tests / 2602 pass / 0 fail / 23 skipped   ✓ (+63 vs s93 #7 baseline of 2562 pass)
+npm test                       2691 tests / 2668 pass / 0 fail / 23 skipped   ✓ (+66 vs s93 #8 baseline of 2602 pass)
 npx tsc --noEmit               13 errors (unchanged baseline — pre-existing _-prefixed files)
 npm run check:help             ✓ green
-.venv/Scripts/python.exe -m pytest scripts/tests   298 / 298 (unchanged from s93 #7 — TS-only slice)
+.venv/Scripts/python.exe -m pytest scripts/tests   298 / 298 (unchanged from s93 #8 — TS-only slice)
 ```
 
 ## Watch-outs
 
-### NEW from this turn (s93 #8)
+### NEW from this turn (s93 #9)
 
-- **Composite-layer {P, S} filter is load-bearing per S93-42.** A regression that read `insider_trades` raw WITHOUT calling `filterTradesToHighSignalCodes` first would admit grants (code A), option exercises (code M), tax payments (code F), gifts (code G), etc. The cross-cutting test "composite does NOT count A-grants in insider_buy_count_90d" pins the contract; if it breaks, the cluster signal is silently diluted.
-- **`HIGH_SIGNAL_TRANSACTION_CODES` is conceptually byte-pinned to Python `DEFAULT_HIGH_SIGNAL_CODES` (cross-language drift uncaught).** No compile-time link between `src/server/form_4_insider.ts:HIGH_SIGNAL_TRANSACTION_CODES` and `scripts/sec_edgar_form4_ingest.py:DEFAULT_HIGH_SIGNAL_CODES`. Both pinned to `('P', 'S')` at v1; a v2 widening (e.g., add "M") MUST update BOTH ends + the constants-sanity test + the cross-cutting "composite does NOT count M-exercises as a buy" test.
-- **Same-direction cluster semantic per S93-43 / F4-2.** `evaluateForm4InsiderComposite` computes `distinctBuyers30d` and `distinctSellers30d` SEPARATELY. A 2-buy-1-sell mix has `distinctBuyers30d = 2`, `distinctSellers30d = 1` — neither hits the threshold of 3. A reader expecting "any 3 insiders in 30d regardless of direction" semantic would be surprised. Test T-F4-9b ("mixed 2-buy-1-sell does NOT fire either cluster flag") pins this.
-- **Distinct on `personCik`, NOT on accession.** A single prolific insider filing 3 separate trades within 30d contributes 1 to the distinct-insider count, NOT 3. Test T-F4-8 pins this. F4-A1's `resolve_person_cik_to_name` is load-bearing for this semantic — if a regression conflated `personCik` and accession (e.g., used `f"{accession}-{txn_id}"` as the distinct key), the cluster threshold would over-fire on prolific single-insider days.
-- **Aggregate is BUY-only per S93-44 / F4-6.** `form4ClusterFlag` fires on concentrated insider BUYING activity (bullish surprise), NOT on selling. The per-ticker `insiderClusterSellFlag` IS surfaced in `perTickerRows` for downstream forensic + brief rendering, but the sector-aggregate layer does NOT z-score sell-cluster events. v2 sell-cluster sector aggregation requires its own SPEC slice + composite version bump.
-- **`dedupeTrades` runs ahead of all math per S93-45.** Re-ingest race or upstream replay can emit logical duplicates. A direct caller of `countTradesByCode` etc. on raw upstream data MUST `dedupeTrades` first OR the count double-counts duplicates. The orchestrator handles this; ad-hoc analytical queries that bypass the orchestrator need to be aware.
-- **`roleFlags` is pass-through only in v1 (F4-3).** The `InsiderTrade` interface carries `roleFlags` as a UInt8 bitmask (`bit0=director, bit1=officer, bit2=10pct_owner, bit3=other`) for forensic completeness but NO composite formula consumes the field. v2 ADR for CEO-weighted variants would change this; until then, removing `roleFlags` from the interface would break the F4-A4 repository's row-shape contract.
-- **`dollarAmount` trusted as-is from ingest.** F4-A1 pre-computes `shares × pricePerShare` at the ingest layer per F4-5 + S93. A regression at the ingest layer that set `dollarAmount = 0` while preserving `shares` + `pricePerShare` would silently zero `insiderNetDollar90d`. Round-trip tests at the ingest layer (T-F4I-2) pin this; the composite trusts the field.
-- **`acceptedAt` is the load-bearing window-membership anchor per F4-10.** A regression that swapped to `transactionDate` (forensic-only) would inject look-ahead leakage — insiders have 2 business days to file post-trade per 17 CFR 240.16a-3. The composite is anchor-agnostic at the function boundary; the contract is enforced at the repository layer (F4-A4 will read `accepted_at`, NOT `transaction_date`).
-- **Z-score helper byte-identical to EK/exec/etf.** Sample stddev (n-1) per AFML §1.3; MIN_Z_BASELINE = 30; degenerate-stddev sentinel at 1e-12. A reader who has internalized one of the four prior implementations does NOT need to re-learn the Form 4 version — same semantic, same constants, same returns shape `{z, baselineSize}`.
-- **Cold-start cascade in aggregate.** A single missing-baseline sector forces its z to null but `form4ClusterFlag` still fires if any OTHER sector exceeds threshold. Mirrors EK + gap #8 + gap #9 posture. Operator sees the cold-start via `inputsAvailableAggregate < sector count` in the snapshot. The test "cold-start baseline does NOT flag cluster" pins the single-sector cold-start case.
-- **Window inclusivity on both ends.** A trade at `acceptedAt = asOf - 90d 00:00:00.000Z` IS in window; at `asOf - 90d - 1ms` is NOT. Same for the 30d cluster window. Tests pin both boundaries for both windows.
-- **30d cluster window can fire WITHIN the 90d main window.** A 3-distinct-insider buy cluster all dated within trailing 30d → `insiderClusterBuyFlag=true` AND those buys ALSO contribute to `insiderBuyCount90d` + `insiderBuyerCount90d` + `insiderNetDollar90d`. Test T-F4-10c pins "cluster fires when 3rd insider trades exactly at -30d boundary" — but T-F4-10d shows the 3rd insider 1ms beyond the cluster window still contributes to the 90d buy count (count=3) while the cluster flag stays false.
+- **Cross-language DDL parity is the load-bearing drift catch per S93-47.** A future PR that edits `ensure_insider_trades_table` or `ensure_insider_ciks_table` SQL in the Python ingest WITHOUT also updating `PLANNED_DDL_INSIDER_TRADES` / `PLANNED_DDL_INSIDER_CIKS` in the TS migration will fail the test "PLANNED_DDL_INSIDER_TRADES matches ensure_insider_trades_table (whitespace-canonical)" with an explicit drift message. The reverse is also caught.
+- **`extractEnsureTableSql` string-indexing is brittle to Python refactors.** The test helper does naive string matching: `py.indexOf('def ${fnName}(')` → `py.indexOf('client.command("""', fnIdx)` → `py.indexOf('""")', start)`. If a future PR moves the SQL to a heredoc constant (`SQL_CREATE_INSIDER_TRADES = """..."""`) or uses a different quoting style (`client.command("...")` or `client.command(f"""...""")`), the helper needs updating. Failure mode is loud (assert.ok on indexOf result, then helpful diagnostic).
+- **Migration is idempotent BUT silent on schema drift.** `CREATE TABLE IF NOT EXISTS` is a no-op when the table exists, regardless of whether the existing table's schema MATCHES the planned DDL. If an operator manually ALTERed a column type or added a column, the migration will not detect or correct the drift. Operator must `DESCRIBE quantlab.form_4_insider_snapshots` (or `insider_trades` / `insider_ciks`) manually before re-applying if drift is suspected. `runPostChecks` only validates that all `EXPECTED_COLUMNS_*` are PRESENT, not that types match SPEC.
+- **All three tables MUST be created in the same apply run for correctness.** If only the snapshot table is created (e.g., a hand-typed `CREATE TABLE quantlab.form_4_insider_snapshots`), the F4-A4 daemon hook will try to query `insider_trades` and fail at the "absent-table-safe" gate (gracefully). The migration's three-CREATE atomicity is operationally important for the daemon-step-1l absence-tolerance posture.
+- **Snapshot DDL diverges from SPEC §6.2 per S93-48.** A future ADR that explicitly RATIFIES the Layer-0 idiom OR explicitly REVERSES it (back to `ingested_at DateTime DEFAULT now()` + `ORDER BY (snapshot_date, composite_version)` + `index_granularity = 1024`) is the gate to change this. Until then, the test "ORDER BY (snapshot_date) only — no composite_version in sort key (Layer-0 deviation)" pins the deviation. A reader expecting SPEC-literal behavior will be surprised.
+- **`EXPECTED_COLUMNS_INSIDER_TRADES` includes 15 columns.** The Python ingest's `write_insider_trades` only passes 13 columns explicitly (`source` + `ingested_at` get CH defaults). The post-check is on table column COUNT (15), not on write-time column count. Operator-runnable `npm run edgar:form4:ingest:apply` will produce rows with default `source = 'sec_edgar_form4_xml'` + `ingested_at = now()`. A drift where the Python ingest forgot to rely on the default would NOT be caught by this migration (caught at the Python ingest's own tests).
+- **`runPreChecks` `ok=false` ONLY when all three tables present.** Partial-present states (any subset) still return `ok=true` because CREATE IF NOT EXISTS is no-op-safe. The pre-check's job is informational (which tables are missing); the apply always runs all three CREATEs. This differs slightly from a hypothetical "all-or-nothing" gate.
+- **Tests count = 66 not the SPEC's ~6-10.** The HANDOFF s93 #8 estimate was ~6-10 tests; reality is 66 because the SPEC §9.9 T-F4M-3 line "DDL matches §6.2" expanded into per-column regex pins on all three DDLs (12 + 11 + 9 = 32 tests), plus 14 EXPECTED_COLUMNS alignment tests, plus 11 runPreChecks/runPostChecks tests, plus 2 parity tests, plus 2 EXPLAIN PLAN tests, plus 4 identity-constant tests. Each regex-pin guards a specific column-type/engine/granularity contract; collapsing them would reduce coverage. Worth the tooling cost.
 
-### Carried (s89-s93 #1-#7 + earlier)
+### Carried (s89-s93 #1-#8 + earlier)
 
 All prior watch-outs preserved unchanged. Key carry-overs:
 
-- 4 commits ahead of `origin/main` (`origin/main` is at s93 #5 HANDOFF `1390fd9`); push is operator-gated.
+- 5 commits ahead of `origin/main` (`origin/main` is at s93 #5 HANDOFF `1390fd9`); push is operator-gated.
 - yfinance `get_shares_full` API surface (caught in `ticker_factory` test seam at A1).
 - yfinance `Ticker.info` rate-limit risk on tight loops (21 calls/day fine).
 - `quantlab.daily_bars` does NOT exist; daily OHLCV is in `quantlab.candles`.
@@ -254,7 +247,7 @@ All prior watch-outs preserved unchanged. Key carry-overs:
 - Item 5.02 sub-item parsing requires per-filing body fetch (gap #8 A1); gap #7 EK-A1 does NOT (item-level only per EK-2; cheaper). Form 4 F4-A1 does fetch the per-filing XML body.
 - 8-K storage duplication of 5.02 events between `executive_departures` (gap #8) + `eight_k_events` (gap #7) is INTENTIONAL per EK-5.
 - CIK ≠ CUSIP (separate tables; both ReplacingMergeTree).
-- Person CIK ≠ Issuer CIK (separate `insider_ciks` vs `cik_ticker_map` tables; F4-A1 + F4-A2 reinforce this).
+- Person CIK ≠ Issuer CIK (separate `insider_ciks` vs `cik_ticker_map` tables; F4-A1 + F4-A2 + F4-A3 reinforce this).
 - Form 4 v1 OMITS Cohen-Malloy-Pomorski opportunistic-vs-routine classifier per F4-1.
 - Form 4 cluster threshold: 3 distinct insiders in 30 calendar days per F4-2.
 - Form 4 transaction-code filter: open-market "P" + "S" only per F4-4 — at COMPOSITE layer (S93-37 + S93-42). Ingest stores all codes.
@@ -266,11 +259,11 @@ All prior watch-outs preserved unchanged. Key carry-overs:
 - 21-element panel-length invariant: `computeFlowDollar20bd` throws on wrong panel length.
 - Sample vs population stddev split (`computeZ` uses n-1; `computeSectorFlowDispersion` uses N).
 - Cold-start cascade in aggregate: single missing sector ETF → `sector_flow_dispersion = null`.
-- DDL drift between EK-A1 source-table CREATE and EK-A3 co-bootstrap — SOLVED at load-time level via import-reference (S93-22 carried). F4-A3 will need the SAME pattern for both `insider_trades` AND `insider_ciks` DDLs.
+- DDL drift between EK-A1 source-table CREATE and EK-A3 co-bootstrap — SOLVED at load-time level via import-reference (S93-22 carried). F4-A3 uses cross-language parity test instead per S93-47.
 - `composite_version` vs `version` mapping at the EK-A4 write boundary (load-bearing translation, tested). F4-A4 will need the same.
 - CREATE IF NOT EXISTS is idempotent BUT silent on schema drift (type-drift not caught; operator must ALTER manually).
 - bdSinceShareUpdate is ingest-staleness proxy not raw-shares-update tracker.
-- Float32 downcast at writeSnapshot boundary (silent until precision matters) — EK has no Float scalars; F4 has `insiderNetDollar90d` which is Float64 at storage per SPEC §6.2 (no downcast risk).
+- Float32 downcast at writeSnapshot boundary (silent until precision matters) — EK has no Float scalars; F4 has `insiderNetDollar90d` which is Float64 at storage per S93-48 (no downcast risk).
 - Defensive carry-forward at repository AND ingest layers must agree on semantic (carry-forward, NOT interpolation, NOT NaN-propagation).
 - BriefEtfFlowSection intentionally omits perEtfRows; v2 enhancement.
 - ETF_FLOW_COLD_START_BD_SENTINEL = 9999 deliberately duplicated at render layer.
@@ -284,6 +277,7 @@ All prior watch-outs preserved unchanged. Key carry-overs:
 - **EK-A4 (carried):** `inputsAvailablePerTicker` from composite is STRUCTURALLY 0 in v1 (sector-gated). Repository reuses ticker stored on `eight_k_events` row at read time (no per-event CIK JOIN). Two-gate daemon posture (source `eight_k_events` + snapshot `eight_k_classifier_snapshots`). EXPLAIN PLAN tests skip cleanly when source tables absent. F4-A4 mirrors this.
 - **EK-A5 (carried):** Single `daysSinceLatestEvent` per ticker (S93-32 v2 path); `formatEightKItemList` order fixed 1.01 → 5.01; `tickersWithCikCount` + `watchUniverseTickerCount` stamped by composer; section #14 always renders; `EIGHT_K_CLASSIFIER_STALENESS_BD_THRESHOLD = 4` matches gap #8. F4-A5 will reuse the analog `FORM_4_STALENESS_BD_THRESHOLD = 4`.
 - **F4-A1 (carried):** Namespace-insensitive XML parser; person-CIK ≠ issuer-CIK; transaction_id 0-based within filing; derivative-table transactions silently dropped; XML-supplied ticker first then API fallback; role_flags bitmask (`bit0=director, bit1=officer, bit2=10pct_owner, bit3=other`); ALL transaction codes stored at raw table.
+- **F4-A2 (carried):** `HIGH_SIGNAL_TRANSACTION_CODES = {P, S}` enforced at COMPOSITE READ layer per S93-42; distinct-on-`personCik` cluster semantic per S93-43; aggregate is BUY-only per S93-44; `dedupeTrades` runs ahead of all math per S93-45; z-score helper byte-identical to EK/exec/etf.
 
 ## Pre-loaded operational reminders
 
@@ -351,7 +345,7 @@ npm run daemon:daily
 npm run brief:morning
 ```
 
-### Gap #7 Form 4 activation (F4-A1+A2 SHIPPED — A3..A5 PENDING; NEXT slice arc)
+### Gap #7 Form 4 activation (F4-A1+A2+A3 SHIPPED — A4..A5 PENDING; NEXT slice arc)
 
 ```text
 # F4-A1 (READY — Python ingest + insider_trades + insider_ciks lazy-create):
@@ -361,11 +355,11 @@ npm run edgar:form4:ingest
 # F4-A2 (READY — pure composite; no operator-runnable script — imported by F4-A4 daemon hook):
 # import { evaluateForm4InsiderComposite } from 'src/server/form_4_insider.js';
 
-# F4-A3 (PENDING — next slice):
+# F4-A3 (READY this turn — three-table co-bootstrap: form_4_insider_snapshots + insider_trades + insider_ciks):
 npm run migrate:create-form-4-insider-snapshots
 npm run migrate:create-form-4-insider-snapshots:apply
 
-# F4-A4 (PENDING):
+# F4-A4 (PENDING — next slice):
 npm run daemon:daily       # step 1l will fire
 
 # F4-A5 (PENDING):
@@ -375,7 +369,7 @@ npm run brief:morning      # section #15 will render
 ### Tests + dev
 
 ```text
-npm test                                                                       # TS — 2625 / 2602 pass / 0 fail / 23 skipped
+npm test                                                                       # TS — 2691 / 2668 pass / 0 fail / 23 skipped
 .venv/Scripts/python.exe -m pytest scripts/tests                               # Python — 298 / 298
 npm run dev                                                                    # http://localhost:3000
 npm run check:help                                                             # FULLY GREEN
@@ -383,16 +377,17 @@ npm run check:help                                                             #
 
 ## For the next session — priority order
 
-**Recommended immediate continuation:** Gap #7 F4-A3 — snapshot-table migration co-bootstrap. Single atomic slice:
+**Recommended immediate continuation:** Gap #7 F4-A4 — repository + daemon step 1l. Single atomic slice:
 
-1. **(Read)** `docs/specs/event-driven-filings-processor.md` §6.2 + §9.9 (Form 4 CH tables + migration test plan).
-2. **(Read)** `scripts/migrate_create_eight_k_classifier_snapshots.ts` (s93 #4 EK-A3 precedent) end-to-end as the architectural template.
-3. **(Read)** `scripts/tests/migrateCreateEightKClassifierSnapshots.test.ts` (EK-A3 tests) as the test template.
-4. **(Re-read)** `scripts/sec_edgar_form4_ingest.py` `ensure_insider_trades_table` + `ensure_insider_ciks_table` to extract DDL strings for byte-pinning per S93-22 import-reference pattern.
-5. **(Write)** `scripts/migrate_create_form_4_insider_snapshots.ts` (~250 LOC est.). Three-table CREATE IF NOT EXISTS co-bootstrap: `insider_trades` + `insider_ciks` + `form_4_insider_snapshots`. The first two reproduce DDL that F4-A1 ingest lazy-creates; migration runs MAY happen BEFORE first ingest, so co-bootstrap must idempotently CREATE all three.
-6. **(Write)** `scripts/tests/migrateCreateForm4InsiderSnapshots.test.ts` (~6-10 tests est.) per SPEC §9.9 T-F4M-1..T-F4M-4 + DDL-parity test for BOTH source tables (mirrors EK-A1's parity-test pattern).
-7. **(Wire)** `package.json` `migrate:create-form-4-insider-snapshots{,:apply}` + help.ts EXTRA_HELP entries (2 new).
-8. **(Gates)** `npm test` green; `npm run check:help` green; commit as F4-A3 slice.
+1. **(Read)** `docs/specs/event-driven-filings-processor.md` §5.3-§5.5 + §7 + §9.8 (Form 4 repository + daemon hook + test plan).
+2. **(Read)** `src/server/eight_k_classifier_repository.ts` (s93 #5 EK-A4 precedent) end-to-end as the architectural template (~600 LOC pattern).
+3. **(Read)** `scripts/tests/eightKClassifierRepository.test.ts` (EK-A4 tests) as the test template.
+4. **(Read)** `src/server/form_4_insider.ts` from s93 #8 to internalize the composite input/output shapes (`Form4InsiderInputs`, `Form4InsiderSnapshot`).
+5. **(Read)** `scripts/daily_signal_daemon.ts` step 1k hook (s93 #5) as the daemon-wiring template.
+6. **(Write)** `src/server/form_4_insider_repository.ts` (~600 LOC est.). Reads `insider_trades` + `cik_ticker_map` + `sp500_constituents` PIT; assembles `Form4InsiderInputs` with `sectors: []` (v1 GICS-deferred); calls `evaluateForm4InsiderComposite`; writes `form_4_insider_snapshots`. Subquery-around-FINAL pattern on read per a52c964 regression class. `composite_version` ↔ `version` field translation at the write boundary per EK-A4 precedent.
+7. **(Write)** `scripts/tests/form4InsiderRepository.test.ts` (~25-40 tests est.) per SPEC §9.8 T-F4R-1..T-F4R-Nplus6 + EXPLAIN PLAN regression (skip-clean when CH unavailable).
+8. **(Wire)** Step 1l hook in `scripts/daily_signal_daemon.ts` between step 1k and §2 cells/bundles. Two-gate absent-table-safe posture (source `insider_trades` + snapshot `form_4_insider_snapshots`).
+9. **(Gates)** `npm test` green; `npm run check:help` green; commit as F4-A4 slice.
 
 **Pejman decisions carried + queued:**
 
@@ -408,7 +403,7 @@ npm run check:help                                                             #
 - Gap #7 v2 sell-cluster sector aggregation (per S93-44; operator-pickable).
 - Gap #8 v2 enhancement — GICS sector activation (operator-pickable insertion).
 - Gap #9 v2 enhancement — ETF.com / issuer-CSV cross-validation + per-ETF panel threading (operator-pickable insertion).
-- Push 4 commits to origin/main (operator-gated, HOLD).
+- Push 5 commits to origin/main (operator-gated, HOLD).
 
 **Calendar-gated:**
 
@@ -429,26 +424,26 @@ npm run check:help                                                             #
 - Gap #8 v2 GICS-sector activation (operator-pickable; deferred-but-defined).
 - Gap #9 v2 cross-validation / per-ETF panel (operator-pickable; deferred-but-defined).
 - C-12 Phase B AlpacaAdapter.
-- Phase B campaigns for the eight (nine after F4) Layer-0 composites.
+- Phase B campaigns for the nine Layer-0 composites.
 - `git push` to origin/main.
 
 ## Important framing for the next chat
 
-s93 #8 closes the pure-composite layer of the Form 4 insider arc. F4-A1 ✓ → F4-A2 ✓ → F4-A3 → F4-A4 (daemon step 1l) → F4-A5 (brief section #15). Estimated ~3 more slices to close the F4 arc; each commits as its own slice. Same architectural template as the EK arc (s93 #2-#6) and the prior three Layer-0 composites.
+s93 #9 closes the snapshot-migration co-bootstrap layer of the Form 4 insider arc. F4-A1 ✓ → F4-A2 ✓ → F4-A3 ✓ → F4-A4 (daemon step 1l) → F4-A5 (brief section #15). Estimated ~2 more slices to close the F4 arc AND close gap #7 entirely; each commits as its own slice.
 
-F4-A2 composite layer is importable now but NOT yet runnable end-to-end (no daemon hook, no repository). The next slice (F4-A3) ships the migration that creates the snapshot table; the slice after that (F4-A4) wires the daemon to call `evaluateForm4InsiderComposite` and persist a snapshot per day.
+F4-A3 migration is RUNNABLE now (`npm run migrate:create-form-4-insider-snapshots[:apply]`) but the daemon hook (F4-A4) is NOT wired yet, so applying the migration would create three empty tables that nothing reads/writes until F4-A4 lands.
 
-**Per S93-42 (carried-forward warning, reinforces S93-37):** `HIGH_SIGNAL_TRANSACTION_CODES = {P, S}` is enforced at the composite READ layer. F4-A1 stores ALL codes. A regression that bypassed `filterTradesToHighSignalCodes` in F4-A4's repository would silently dilute the cluster signal. The cross-cutting test in `form4Insider.test.ts` ("composite does NOT count A-grants in insider_buy_count_90d") pins the inviolant contract.
+**Per S93-46 + S93-47:** F4-A3 owns ALL THREE table DDLs (no standalone TS migrations for `insider_trades` / `insider_ciks`). The cross-language Python↔TS parity test is the load-bearing drift catcher. A future PR editing either Python `ensure_*_table` SQL OR the TS `PLANNED_DDL_INSIDER_*` constants MUST update both ends OR the test fails loudly.
 
-**Per S93-44:** The aggregate sector layer counts BUY-cluster events only. `form4ClusterFlag` fires on concentrated insider buying. Per-ticker `insiderClusterSellFlag` IS in the snapshot per-ticker rows but the sector aggregate does NOT z-score it. v2 sell-cluster sector aggregation is a separate slice with its own SPEC + composite version bump.
+**Per S93-48:** Snapshot DDL deviates from SPEC §6.2 per the Layer-0 idiom (computed_at + ORDER BY snapshot_date only + 8192 granularity). Same shape as all prior Layer-0 snapshot tables.
 
-v1 GICS-sector deferral mirrors gap #8 + gap #7 EK: per-ticker layer fully active, aggregate-sector layer dormant in v1 (sectors input empty by default). v2 GICS activation is a single operator-pickable insertion that ships `quantlab.gics_sector_map` and activates BOTH gap #7 8-K + gap #7 Form 4 + gap #8 exec-departure aggregate panels with one slice.
+v1 GICS-sector deferral mirrors gap #8 + gap #7 EK: per-ticker layer fully active, aggregate-sector layer dormant in v1 (sectors input empty by default at F4-A4 repository layer). v2 GICS activation is a single operator-pickable insertion that ships `quantlab.gics_sector_map` and activates BOTH gap #7 8-K + gap #7 Form 4 + gap #8 exec-departure aggregate panels with one slice.
 
-**The next session's default behavior on "continue":** read this HANDOFF's "Next stage" section, open F4-A3. Build `scripts/migrate_create_form_4_insider_snapshots.ts` mirroring EK-A3 (s93 #4 `58cc98f`) closely. ~6-10 new TS tests. Single atomic slice.
+**The next session's default behavior on "continue":** read this HANDOFF's "Next stage" section, open F4-A4. Build `src/server/form_4_insider_repository.ts` mirroring EK-A4 (s93 #5 `39b6024`) closely. ~25-40 new TS tests. Step 1l hook in daemon. Single atomic slice.
 
 **Parallel-tracks posture continues.** s93 did NOT affect C-12 / paper-trading / real-money-flip arcs.
 
-**The chain through s93 #8:**
+**The chain through s93 #9:**
 
 ```text
 ALL S41-S91 WORK                                       ✓ as documented
@@ -472,10 +467,12 @@ S93 #6 HANDOFF rewrite                                 ✓ committed (d5068da)
 S93 #7: gap #7 F4-A1 — Form 4 EDGAR ingest CLI         ✓ committed (d368012)
 S93 #7 HANDOFF rewrite                                 ✓ committed (f344502)
 S93 #8: gap #7 F4-A2 — pure composite form_4_insider_v1 ✓ committed (3983867)
-S93 #8 HANDOFF rewrite (this commit)                   ✓ this commit
-  → next: gap #7 F4-A3 — snapshot-table migration co-bootstrap
+S93 #8 HANDOFF rewrite                                 ✓ committed (ea89980)
+S93 #9: gap #7 F4-A3 — snapshot migration co-bootstrap ✓ committed (2b686bb)
+S93 #9 HANDOFF rewrite (this commit)                   ✓ this commit
+  → next: gap #7 F4-A4 — repository + daemon step 1l
   → gap #7 EK arc: A1 ✓ → A2 ✓ → A3 ✓ → A4 ✓ → A5 ✓ (COMPLETE)
-  → gap #7 F4 arc: A1 ✓ → A2 ✓ → A3 → A4 (daemon 1l) → A5 (brief #15)
+  → gap #7 F4 arc: A1 ✓ → A2 ✓ → A3 ✓ → A4 (daemon 1l) → A5 (brief #15)
   → operator-pickable insertions: ADR-041 impl, gap #7 v2 GICS, gap #7 v2 per-item recency,
                                    gap #8 v2 GICS, gap #9 v2 cross-validation,
                                    gap #7 v2 CMP classifier (calendar-gated),
