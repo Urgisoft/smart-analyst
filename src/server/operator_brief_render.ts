@@ -291,6 +291,15 @@ export interface MorningBrief {
    * sections 1-13 (EK-A5 lock; SPEC F4-12 carries the invariant to #15).
    */
   eightK: BriefEightKClassifierSection | null;
+  /**
+   * Form 4 insider composite — informational Layer-0 context.
+   * SPEC: docs/specs/event-driven-filings-processor.md §8.2 (brief panel) +
+   * §1 non-goal #1 (does NOT fire a regime category in v1; informational).
+   * `null` when the table is absent or empty.
+   * APPENDED as section #15 to preserve byte-equal-stdout protection on
+   * sections 1-14 (F4-A5 lock; closes gap #7 entirely).
+   */
+  formFour: BriefForm4InsiderSection | null;
 }
 
 /**
@@ -690,6 +699,94 @@ export const EIGHT_K_CLASSIFIER_FLAGGED_TOP_N = 5;
  *  threshold (same source: SEC EDGAR). */
 export const EIGHT_K_CLASSIFIER_STALENESS_BD_THRESHOLD = 4;
 
+/**
+ * Form 4 insider panel — informational Layer-0 context.
+ * SPEC: docs/specs/event-driven-filings-processor.md §§3, 5.3-5.4, 8.2.
+ *
+ * v1 GICS-sector resolution (SPEC §11 canon-thin fork; same posture as
+ * eight_k_classifier — see src/server/form_4_insider_repository.ts module
+ * header for the three-criterion analysis): the aggregate-sector layer is
+ * structurally inactive. `flaggedSectors` is always empty in v1;
+ * `form4ClusterFlag` is always false. The renderer emits a "GICS sector
+ * mapping deferred to v2" footer for the aggregate panel. Per-ticker layer
+ * is fully active (direction-split `insiderClusterBuyFlag` +
+ * `insiderClusterSellFlag` fire on raw distinct-insider counts).
+ *
+ * `tickersWithCikCount` + `watchUniverseTickerCount` are populated by the
+ * composer (`buildForm4InsiderSection`) — NOT by the composite — because
+ * `inputsAvailablePerTicker` is gated on sector presence (always 0 in v1).
+ * Renderer uses the composer-computed CIK-only count for the
+ * universe-coverage line so it does not render "0/60" in v1 cold-start.
+ *
+ * v2 deferral (informational): the SPEC §8.2 mockup includes a per-row
+ * "last 23d" recency hint ("4 insiders bought (net +$2.3M, last 23d), code P").
+ * The composite snapshot does NOT carry `daysSinceLatestBuy` /
+ * `daysSinceLatestSell` per ticker — adding them would require a
+ * Form4InsiderPerTickerRow shape change, which would invalidate the F4-A4
+ * snapshot DDL. The renderer omits the recency hint in v1 and documents
+ * the v2 enhancement here. T-OBR-F4-7's load-bearing requirement is the
+ * net-dollar formatting ("net +$2.3M" / "net -$11.2M") only.
+ */
+export interface BriefForm4InsiderSection {
+  /** Composite computation timestamp (ISO 8601). */
+  evaluatedAt: string;
+  /** Snapshot date (YYYY-MM-DD). */
+  snapshotDate: string;
+  /** ISO 8601 of the most-recent EDGAR acceptance ≤ asOf (null pre-ingest). */
+  lastEdgarQueryAt: string | null;
+  /** Business days between lastEdgarQueryAt and asOf (null pre-ingest). */
+  bdSinceLastQuery: number | null;
+  /** Sectors with |z| > 2.0 (v1: always empty — see module note). */
+  flaggedSectors: ReadonlyArray<{
+    sector: string;
+    sectorSize: number;
+    clusterRateT: number;
+    z: number;
+    baselineSize: number;
+  }>;
+  /** Flag: ANY sector has |z| > 2.0 (v1: always false — see module note). */
+  form4ClusterFlag: boolean;
+  /** Per-ticker rows for the watch universe. */
+  perTickerRows: ReadonlyArray<{
+    ticker: string;
+    cik: string;
+    sector: string | null;
+    insiderBuyCount90d: number;
+    insiderSellCount90d: number;
+    insiderBuyerCount90d: number;
+    insiderSellerCount90d: number;
+    insiderNetDollar90d: number;
+    insiderClusterBuyFlag: boolean;
+    insiderClusterSellFlag: boolean;
+  }>;
+  /** Count of SPY-500 constituents with usable sector mapping (v1: always 0). */
+  inputsAvailableAggregate: number;
+  /** Count of watch-universe tickers with CIK + sector mapping (v1: always 0
+   *  because composite gates on both; the universe-coverage line uses
+   *  `tickersWithCikCount` instead). */
+  inputsAvailablePerTicker: number;
+  /** Composer-stamped CIK-only count of watch-universe tickers. Used for the
+   *  "58/60 mid-cap tickers have current CIK mapping" line in place of
+   *  `inputsAvailablePerTicker` (which is sector-gated). Mirrors the EK-A5
+   *  S93-28 fix byte-for-byte. */
+  tickersWithCikCount: number;
+  /** Watch-universe total ticker count, computed by the composer
+   *  (= snapshot.perTickerRows.length). Used as the denominator for the
+   *  universe-coverage line. */
+  watchUniverseTickerCount: number;
+  /** Composite version stamp ('form_4_insider_v1' in v1). */
+  compositeVersion: string;
+}
+
+/** Top-N flagged tickers shown PER SIDE in section #15 (SPEC §8.2 "Same
+ *  top-N truncation convention"). Buys and sells each get up to N rows. */
+export const FORM_4_FLAGGED_TOP_N = 5;
+
+/** Staleness threshold for the bd-since-last-query warning. EDGAR Form 4
+ *  has a 2-business-day filing deadline (Sarbanes-Oxley §403(a)); ingest
+ *  treated as stale at the same threshold as 8-K classifier (4bd+). */
+export const FORM_4_STALENESS_BD_THRESHOLD = 4;
+
 /** Render the brief as operator-facing markdown. Pure. */
 export function renderBriefMarkdown(brief: MorningBrief): string {
   const parts: string[] = [];
@@ -722,6 +819,8 @@ export function renderBriefMarkdown(brief: MorningBrief): string {
   parts.push(renderEtfFlowSection(brief));
   parts.push('');
   parts.push(renderEightKClassifierSection(brief));
+  parts.push('');
+  parts.push(renderForm4InsiderSection(brief));
   parts.push('');
   return parts.join('\n');
 }
@@ -2037,6 +2136,182 @@ function formatEightKItemList(row: {
 }
 
 /**
+ * Section #15 — Form 4 insider composite. Informational only in v1 (SPEC
+ * §1 non-goal #1). Mirrors renderEightKClassifierSection (section #14)
+ * structurally: NORMAL/CLUSTER header → aggregate sector panel (v1 GICS-
+ * deferred footer when flaggedSectors empty) → staleness/last-query line →
+ * per-ticker flagged rows (top-N per side: cluster_buy + cluster_sell) →
+ * universe coverage + composite-version footer.
+ *
+ * Per-row format: `${ticker} — N insiders ${bought/sold} (net ${signed$}), code ${P/S}`.
+ * Net-dollar formatting is load-bearing per T-OBR-F4-7 (sign + dollar units;
+ * "+$2.3M" / "-$11.2M"). The SPEC §8.2 mockup also includes a "last 23d"
+ * recency hint — deferred to v2 per BriefForm4InsiderSection JSDoc
+ * (composite snapshot doesn't carry per-direction recency in v1).
+ *
+ * Universe-coverage line uses the composer-stamped `tickersWithCikCount`
+ * (CIK-only count) instead of `inputsAvailablePerTicker` (sector-gated;
+ * always 0 in v1) — mirrors the EK-A5 S93-28 fix.
+ */
+function renderForm4InsiderSection(b: MorningBrief): string {
+  const lines: string[] = [];
+  if (b.formFour === null) {
+    lines.push(`## 15. Form 4 insider activity — not yet evaluated`);
+    lines.push(``);
+    lines.push(
+      `\`quantlab.form_4_insider_snapshots\` is empty (or absent). ` +
+      `Apply \`npm run migrate:create-form-4-insider-snapshots:apply\` and run ` +
+      `\`npm run edgar:form4:ingest\` + \`npm run daemon:daily\` to populate. ` +
+      `SPEC: docs/specs/event-driven-filings-processor.md §3.`,
+    );
+    return lines.join('\n');
+  }
+  const s = b.formFour;
+  const clusterLabel = s.form4ClusterFlag ? 'CLUSTER' : 'NORMAL';
+  lines.push(`## 15. Form 4 insider activity — ${clusterLabel}`);
+  lines.push(``);
+
+  // Aggregate sector panel (v1: deferred).
+  if (s.flaggedSectors.length === 0) {
+    lines.push(
+      `**Aggregate (SPY 500 cluster-buy rate by GICS sector):** GICS sector ` +
+      `mapping deferred to v2 (SPEC §11). Aggregate-cluster panel inactive in ` +
+      `v1; the composite math is implemented + tested but the sector-slicing ` +
+      `input requires a follow-on slice (the shared \`quantlab.gics_sector_map\` ` +
+      `table covering both 8-K + Form 4 aggregate panels).`,
+    );
+  } else {
+    lines.push(`**Aggregate (SPY 500 cluster-buy rate by GICS sector):** ` +
+      `${s.flaggedSectors.length} sector(s) with |z| > 2.0`);
+    lines.push(``);
+    lines.push(`| Sector | Cluster rate | z | Baseline n | Constituents |`);
+    lines.push(`|---|---|---|---|---|`);
+    for (const f of s.flaggedSectors) {
+      const ratePct = (f.clusterRateT * 100).toFixed(1);
+      const zStr = `${f.z >= 0 ? '+' : ''}${f.z.toFixed(2)}σ`;
+      lines.push(`| ${f.sector} | ${ratePct}% | ${zStr} | ${f.baselineSize} | ${f.sectorSize} |`);
+    }
+  }
+
+  // Staleness indicator.
+  if (s.lastEdgarQueryAt != null) {
+    const bdSince = s.bdSinceLastQuery;
+    const staleSuffix =
+      bdSince != null && bdSince >= FORM_4_STALENESS_BD_THRESHOLD
+        ? ` ⚠ stale (≥${FORM_4_STALENESS_BD_THRESHOLD}bd)`
+        : '';
+    lines.push(
+      `**Last EDGAR query:** ${s.lastEdgarQueryAt}` +
+      ` (${bdSince != null ? `${bdSince} business days ago` : '—'})${staleSuffix}`,
+    );
+  } else {
+    lines.push(
+      `**Last EDGAR query:** — (run \`npm run edgar:form4:ingest\` to populate)`,
+    );
+  }
+  lines.push(``);
+
+  // Per-ticker flagged rows — top-N per side (cluster_buy + cluster_sell).
+  // Sort by abs(net dollar) descending so the largest-magnitude movers float
+  // to the top of each side. Ties resolve by ticker for deterministic output.
+  const buys = s.perTickerRows
+    .filter(r => r.insiderClusterBuyFlag)
+    .slice()
+    .sort(sortByAbsNetDollar);
+  const sells = s.perTickerRows
+    .filter(r => r.insiderClusterSellFlag)
+    .slice()
+    .sort(sortByAbsNetDollar);
+  const buysShown = buys.slice(0, FORM_4_FLAGGED_TOP_N);
+  const sellsShown = sells.slice(0, FORM_4_FLAGGED_TOP_N);
+  const totalFlagged = buys.length + sells.length;
+
+  lines.push(`### Flagged tickers (universe: equity-midcap)`);
+  lines.push(``);
+  if (totalFlagged === 0) {
+    lines.push(`No tickers flagged.`);
+  } else {
+    if (buysShown.length > 0) {
+      lines.push(`cluster_buy (${buys.length}):`);
+      for (const r of buysShown) {
+        const netStr = formatNetDollar(r.insiderNetDollar90d);
+        lines.push(
+          `- ${r.ticker} — ${r.insiderBuyerCount90d} insiders bought ` +
+          `(net ${netStr}), code P`,
+        );
+      }
+      if (buys.length > buysShown.length) {
+        lines.push(
+          `_Truncated at top ${FORM_4_FLAGGED_TOP_N} buy-side ` +
+          `(${buys.length - buysShown.length} more not shown — query ` +
+          `\`quantlab.form_4_insider_snapshots\` for the full list)._`,
+        );
+      }
+      if (sellsShown.length > 0) lines.push(``);
+    }
+    if (sellsShown.length > 0) {
+      lines.push(`cluster_sell (${sells.length}):`);
+      for (const r of sellsShown) {
+        const netStr = formatNetDollar(r.insiderNetDollar90d);
+        lines.push(
+          `- ${r.ticker} — ${r.insiderSellerCount90d} insiders sold ` +
+          `(net ${netStr}), code S`,
+        );
+      }
+      if (sells.length > sellsShown.length) {
+        lines.push(
+          `_Truncated at top ${FORM_4_FLAGGED_TOP_N} sell-side ` +
+          `(${sells.length - sellsShown.length} more not shown — query ` +
+          `\`quantlab.form_4_insider_snapshots\` for the full list)._`,
+        );
+      }
+    }
+  }
+  lines.push(``);
+  lines.push(
+    `_Universe coverage: ${s.tickersWithCikCount}/${s.watchUniverseTickerCount} ` +
+    `mid-cap tickers have current CIK mapping · ${s.inputsAvailableAggregate} ` +
+    `aggregate constituents have usable sector mapping (v1: always 0 — GICS deferred)._`,
+  );
+  lines.push(
+    `_Composite: \`${s.compositeVersion}\` ` +
+    `(open-market codes {P, S}; 90d rolling window; 30d cluster window; ` +
+    `≥3 distinct insiders → cluster flag; aggregate-sector layer dormant ` +
+    `per §11). INFORMATIONAL — does NOT fire a regime category in v1 ` +
+    `(SPEC §1 non-goal #1)._`,
+  );
+  lines.push(``);
+  lines.push(
+    `_Last evaluated: \`${s.evaluatedAt}\` · snapshot date: \`${s.snapshotDate}\`._`,
+  );
+  return lines.join('\n');
+}
+
+/** Sort comparator: rows with larger |insiderNetDollar90d| first, ties by
+ *  ticker ascending (deterministic for byte-equal stdout). */
+function sortByAbsNetDollar(
+  a: { ticker: string; insiderNetDollar90d: number },
+  b: { ticker: string; insiderNetDollar90d: number },
+): number {
+  const diff = Math.abs(b.insiderNetDollar90d) - Math.abs(a.insiderNetDollar90d);
+  if (diff !== 0) return diff;
+  return a.ticker < b.ticker ? -1 : a.ticker > b.ticker ? 1 : 0;
+}
+
+/** Format a signed dollar amount as "+$2.3M" / "-$11.2M" / "+$890K" / "$0".
+ *  Sign prefix comes BEFORE the dollar sign per SPEC §8.2 mockup + T-OBR-F4-7.
+ *  Zero renders as "$0" (no sign). */
+function formatNetDollar(v: number): string {
+  if (v === 0 || !Number.isFinite(v)) return '$0';
+  const sign = v > 0 ? '+' : '-';
+  const abs = Math.abs(v);
+  if (abs >= 1e9) return `${sign}$${(abs / 1e9).toFixed(1)}B`;
+  if (abs >= 1e6) return `${sign}$${(abs / 1e6).toFixed(1)}M`;
+  if (abs >= 1e3) return `${sign}$${(abs / 1e3).toFixed(0)}K`;
+  return `${sign}$${abs.toFixed(0)}`;
+}
+
+/**
  * What could break this:
  *  - A future refactor that paraphrases the bias note inline. Test #15 catches
  *    this — the rendered output must contain the active bias-note body
@@ -2061,4 +2336,12 @@ function formatEightKItemList(row: {
  *    sentinel value). The two constants are intentionally duplicated to
  *    avoid pulling the ClickHouse-heavy repository into the pure renderer;
  *    drift detection is a code-review concern.
+ *  - Section #15 Form 4 per-ticker line format is byte-pinned by T-OBR-F4-7:
+ *    `${ticker} — N insiders ${bought/sold} (net ${signed$}), code ${P/S}`.
+ *    `formatNetDollar` is the load-bearing formatter; a refactor that changed
+ *    the sign-placement convention (e.g. "net $-11.2M" instead of "net -$11.2M")
+ *    would break the SPEC §8.2 mockup contract. The "last 23d" recency hint
+ *    in the SPEC mockup is intentionally OMITTED in v1 — adding it requires
+ *    a Form4InsiderPerTickerRow shape change (daysSinceLatestBuy/Sell fields),
+ *    which would invalidate the F4-A4 snapshot DDL. v2 enhancement deferred.
  */

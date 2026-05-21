@@ -1164,3 +1164,178 @@ describe('buildEightKClassifierSection', () => {
     assert.equal(section!.inputsAvailablePerTicker, 0);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// composeMorningBrief — Form 4 insider section wiring (s93 F4-A5).
+// SPEC: docs/specs/event-driven-filings-processor.md §9.12 T-OB-F4-1..3.
+// ─────────────────────────────────────────────────────────────────────────
+describe('composeMorningBrief — Form 4 insider section wiring', () => {
+  // T-OB-F4-3 — null pass-through: composer threads null through to brief.formFour.
+  it('T-OB-F4-3 formFour=null when fetchLatestForm4Insider returns null', async () => {
+    const brief = await composeMorningBrief({
+      fetchRegimeState: async () => stubRegime(),
+      fetchPaperTradingState: async () => stubPaper(),
+      fetchLastDaemonRun: async () => stubDaemonRow(),
+      fetchCellAllowlists: async () => new Map(),
+      fetchClosedTrades: async () => [],
+      fetchLatestForm4Insider: async () => null,
+      now: () => FIXED_NOW,
+    });
+    assert.equal(brief.formFour, null);
+  });
+
+  // T-OB-F4-1 — composeMorningBrief threads the snapshot through Promise.all.
+  it('T-OB-F4-1 formFour populated when fetchLatestForm4Insider returns a snapshot', async () => {
+    const brief = await composeMorningBrief({
+      fetchRegimeState: async () => stubRegime(),
+      fetchPaperTradingState: async () => stubPaper(),
+      fetchLastDaemonRun: async () => stubDaemonRow(),
+      fetchCellAllowlists: async () => new Map(),
+      fetchClosedTrades: async () => [],
+      fetchLatestForm4Insider: async () => ({
+        snapshotDate: new Date('2026-05-19T13:30:00Z'),
+        lastEdgarQueryAt: new Date('2026-05-19T13:25:00Z'),
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        form4ClusterFlag: false,
+        perTickerRows: [
+          {
+            ticker: 'QRST', cik: '0000222222', sector: null,
+            insiderBuyCount90d: 6, insiderSellCount90d: 0,
+            insiderBuyerCount90d: 4, insiderSellerCount90d: 0,
+            insiderNetDollar90d: 2_300_000,
+            insiderClusterBuyFlag: true, insiderClusterSellFlag: false,
+          },
+          {
+            ticker: 'EMPTY', cik: '', sector: null,
+            insiderBuyCount90d: 0, insiderSellCount90d: 0,
+            insiderBuyerCount90d: 0, insiderSellerCount90d: 0,
+            insiderNetDollar90d: 0,
+            insiderClusterBuyFlag: false, insiderClusterSellFlag: false,
+          },
+        ],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 0,
+        version: 'form_4_insider_v1',
+      }),
+      now: () => FIXED_NOW,
+    });
+    assert.ok(brief.formFour !== null);
+    assert.equal(brief.formFour!.snapshotDate, '2026-05-19');
+    assert.equal(brief.formFour!.lastEdgarQueryAt, '2026-05-19T13:25:00.000Z');
+    assert.equal(brief.formFour!.bdSinceLastQuery, 0);
+    assert.equal(brief.formFour!.form4ClusterFlag, false);
+    assert.equal(brief.formFour!.flaggedSectors.length, 0);
+    assert.equal(brief.formFour!.perTickerRows.length, 2);
+    assert.equal(brief.formFour!.perTickerRows[0].ticker, 'QRST');
+    assert.equal(brief.formFour!.perTickerRows[0].insiderClusterBuyFlag, true);
+    assert.equal(brief.formFour!.perTickerRows[0].insiderNetDollar90d, 2_300_000);
+    // Composer-stamped CIK-only count (one row has empty CIK).
+    assert.equal(brief.formFour!.tickersWithCikCount, 1);
+    assert.equal(brief.formFour!.watchUniverseTickerCount, 2);
+    assert.equal(brief.formFour!.compositeVersion, 'form_4_insider_v1');
+  });
+
+  // T-OB-F4-2 — graceful-degrade on fetcher throw (mirrors prior A5 panels).
+  it('T-OB-F4-2 formFour=null when the explicit fetcher rejects (graceful degrade)', async () => {
+    const brief = await composeMorningBrief({
+      fetchRegimeState: async () => stubRegime(),
+      fetchPaperTradingState: async () => stubPaper(),
+      fetchLastDaemonRun: async () => stubDaemonRow(),
+      fetchCellAllowlists: async () => new Map(),
+      fetchClosedTrades: async () => [],
+      fetchLatestForm4Insider: async () => {
+        try {
+          throw new Error('simulated CH read failure');
+        } catch {
+          return null;
+        }
+      },
+      now: () => FIXED_NOW,
+    });
+    assert.equal(brief.formFour, null);
+  });
+});
+
+describe('buildForm4InsiderSection', () => {
+  it('returns null when snapshot is null', async () => {
+    const { buildForm4InsiderSection } = await import('../../src/server/operator_brief.js');
+    assert.equal(buildForm4InsiderSection(null), null);
+  });
+
+  it('maps Form4InsiderSnapshot fields into the brief section (Date→ISO, version→compositeVersion)', async () => {
+    const { buildForm4InsiderSection } = await import('../../src/server/operator_brief.js');
+    const snapshotDate = new Date('2026-05-19T13:30:00.123Z');
+    const lastEdgarQueryAt = new Date('2026-05-19T13:25:00Z');
+    const section = buildForm4InsiderSection({
+      snapshotDate,
+      lastEdgarQueryAt,
+      bdSinceLastQuery: 2,
+      flaggedSectors: [{
+        sector: 'Energy', sectorSize: 22, clusterRateT: 0.085,
+        z: 2.4, baselineSize: 503,
+      }],
+      form4ClusterFlag: true,
+      perTickerRows: [
+        { ticker: 'QRST', cik: '0000222222', sector: null,
+          insiderBuyCount90d: 5, insiderSellCount90d: 0,
+          insiderBuyerCount90d: 4, insiderSellerCount90d: 0,
+          insiderNetDollar90d: 2_300_000,
+          insiderClusterBuyFlag: true, insiderClusterSellFlag: false },
+      ],
+      inputsAvailableAggregate: 503,
+      inputsAvailablePerTicker: 0,
+      version: 'form_4_insider_v1',
+    });
+    assert.ok(section !== null);
+    assert.equal(section!.evaluatedAt, '2026-05-19T13:30:00.123Z');
+    assert.equal(section!.snapshotDate, '2026-05-19');
+    assert.equal(section!.lastEdgarQueryAt, '2026-05-19T13:25:00.000Z');
+    assert.equal(section!.bdSinceLastQuery, 2);
+    assert.equal(section!.form4ClusterFlag, true);
+    assert.equal(section!.flaggedSectors.length, 1);
+    assert.equal(section!.flaggedSectors[0].sector, 'Energy');
+    assert.equal(section!.flaggedSectors[0].clusterRateT, 0.085);
+    assert.equal(section!.perTickerRows.length, 1);
+    assert.equal(section!.perTickerRows[0].insiderClusterBuyFlag, true);
+    assert.equal(section!.perTickerRows[0].insiderNetDollar90d, 2_300_000);
+    assert.equal(section!.tickersWithCikCount, 1);
+    assert.equal(section!.watchUniverseTickerCount, 1);
+    assert.equal(section!.compositeVersion, 'form_4_insider_v1');
+  });
+
+  it('stamps CIK-only count separately from sector-gated inputsAvailablePerTicker', async () => {
+    const { buildForm4InsiderSection } = await import('../../src/server/operator_brief.js');
+    const section = buildForm4InsiderSection({
+      snapshotDate: new Date('2026-05-19T13:30:00Z'),
+      lastEdgarQueryAt: null,
+      bdSinceLastQuery: null,
+      flaggedSectors: [],
+      form4ClusterFlag: false,
+      perTickerRows: [
+        { ticker: 'A', cik: '0000000001', sector: null,
+          insiderBuyCount90d: 0, insiderSellCount90d: 0,
+          insiderBuyerCount90d: 0, insiderSellerCount90d: 0,
+          insiderNetDollar90d: 0,
+          insiderClusterBuyFlag: false, insiderClusterSellFlag: false },
+        { ticker: 'B', cik: '', sector: null,
+          insiderBuyCount90d: 0, insiderSellCount90d: 0,
+          insiderBuyerCount90d: 0, insiderSellerCount90d: 0,
+          insiderNetDollar90d: 0,
+          insiderClusterBuyFlag: false, insiderClusterSellFlag: false },
+        { ticker: 'C', cik: '0000000003', sector: null,
+          insiderBuyCount90d: 0, insiderSellCount90d: 0,
+          insiderBuyerCount90d: 0, insiderSellerCount90d: 0,
+          insiderNetDollar90d: 0,
+          insiderClusterBuyFlag: false, insiderClusterSellFlag: false },
+      ],
+      inputsAvailableAggregate: 0,
+      inputsAvailablePerTicker: 0,
+      version: 'form_4_insider_v1',
+    });
+    assert.ok(section !== null);
+    assert.equal(section!.tickersWithCikCount, 2);
+    assert.equal(section!.watchUniverseTickerCount, 3);
+    assert.equal(section!.inputsAvailablePerTicker, 0);
+  });
+});

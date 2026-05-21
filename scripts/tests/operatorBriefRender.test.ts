@@ -69,6 +69,7 @@ function brief(overrides?: Partial<MorningBrief>): MorningBrief {
     executiveDeparture: null,
     etfFlow: null,
     eightK: null,
+    formFour: null,
     ...overrides,
   };
 }
@@ -2493,5 +2494,382 @@ describe('renderBriefMarkdown — 8-K classifier panel', () => {
       },
     }));
     assert.match(md, /Last evaluated: `2026-05-19T13:30:00\.123Z` · snapshot date: `2026-05-19`/);
+  });
+});
+
+// ───── Form 4 insider panel (SPEC docs/specs/event-driven-filings-processor.md §8.2, §9.11) ─────
+
+describe('renderBriefMarkdown — Form 4 insider panel', () => {
+  const BUY_ROW = {
+    ticker: 'QRST', cik: '0000222222', sector: null,
+    insiderBuyCount90d: 6, insiderSellCount90d: 0,
+    insiderBuyerCount90d: 4, insiderSellerCount90d: 0,
+    insiderNetDollar90d: 2_300_000,
+    insiderClusterBuyFlag: true, insiderClusterSellFlag: false,
+  };
+  const SELL_ROW = {
+    ticker: 'YZAB', cik: '0000333333', sector: null,
+    insiderBuyCount90d: 0, insiderSellCount90d: 8,
+    insiderBuyerCount90d: 0, insiderSellerCount90d: 5,
+    insiderNetDollar90d: -11_200_000,
+    insiderClusterBuyFlag: false, insiderClusterSellFlag: true,
+  };
+
+  it('renders the "not yet evaluated" panel when formFour is null', () => {
+    const md = renderBriefMarkdown(brief({ formFour: null }));
+    assert.match(md, /## 15\. Form 4 insider activity — not yet evaluated/);
+    assert.match(md, /quantlab\.form_4_insider_snapshots.*empty/);
+    assert.match(md, /migrate:create-form-4-insider-snapshots:apply/);
+    assert.match(md, /edgar:form4:ingest/);
+  });
+
+  // T-OBR-F4-1 — section #15 renders AFTER section #14 (byte-equal protection
+  // on sections #1-#14 preserved; F4-A5 lock closes gap #7).
+  it('T-OBR-F4-1 section ordering: Form 4 renders AFTER 8-K classifier', () => {
+    const md = renderBriefMarkdown(brief({
+      cyclePosition: null, volStructure: null, sectorRotation: null,
+      crossAsset: null, shortInterest: null, executiveDeparture: null,
+      etfFlow: null, eightK: null, formFour: null,
+    }));
+    const ekIdx = md.indexOf('## 14.');
+    const f4Idx = md.indexOf('## 15.');
+    assert.ok(ekIdx > -1, 'expected 8-K classifier section');
+    assert.ok(f4Idx > -1, 'expected Form 4 insider section');
+    assert.ok(f4Idx > ekIdx, 'Form 4 insider section must render after 8-K classifier');
+  });
+
+  // T-OBR-F4-3 — `form_4_cluster: YES` rendering on a fixture with a flagged sector.
+  it('T-OBR-F4-3 renders CLUSTER header + flagged-sector table when form4ClusterFlag is true', () => {
+    const md = renderBriefMarkdown(brief({
+      formFour: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [{
+          sector: 'Energy', sectorSize: 22,
+          clusterRateT: 0.085, z: 2.4, baselineSize: 503,
+        }],
+        form4ClusterFlag: true,
+        perTickerRows: [],
+        inputsAvailableAggregate: 503,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 0,
+        watchUniverseTickerCount: 60,
+        compositeVersion: 'form_4_insider_v1',
+      },
+    }));
+    assert.match(md, /## 15\. Form 4 insider activity — CLUSTER/);
+    assert.match(md, /1 sector\(s\) with \|z\| > 2\.0/);
+    assert.match(md, /Energy \| 8\.5% \| \+2\.40σ \| 503 \| 22/);
+  });
+
+  it('renders NORMAL header when form4ClusterFlag is false', () => {
+    const md = renderBriefMarkdown(brief({
+      formFour: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        form4ClusterFlag: false,
+        perTickerRows: [],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 0,
+        watchUniverseTickerCount: 60,
+        compositeVersion: 'form_4_insider_v1',
+      },
+    }));
+    assert.match(md, /## 15\. Form 4 insider activity — NORMAL/);
+  });
+
+  // T-OBR-F4-4 — Cold-start fallback (flaggedSectors empty → GICS-deferred footer).
+  it('T-OBR-F4-4 renders the v1 GICS-deferred footer when flaggedSectors is empty', () => {
+    const md = renderBriefMarkdown(brief({
+      formFour: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        form4ClusterFlag: false,
+        perTickerRows: [],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 0,
+        watchUniverseTickerCount: 60,
+        compositeVersion: 'form_4_insider_v1',
+      },
+    }));
+    assert.match(md, /GICS sector mapping deferred to v2/);
+    assert.match(md, /SPEC §11/);
+    // Cold-start path skips the flagged-sectors table.
+    assert.doesNotMatch(md, /\| Sector \| Cluster rate \| z \| Baseline n \| Constituents \|/);
+  });
+
+  // T-OBR-F4-6 — Staleness arrow on `bd_since_last_query >= 4`.
+  it('T-OBR-F4-6 renders staleness warning when bdSinceLastQuery >= 4', () => {
+    const md = renderBriefMarkdown(brief({
+      formFour: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-12T13:25:00Z',
+        bdSinceLastQuery: 5,
+        flaggedSectors: [],
+        form4ClusterFlag: false,
+        perTickerRows: [],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 0,
+        watchUniverseTickerCount: 60,
+        compositeVersion: 'form_4_insider_v1',
+      },
+    }));
+    assert.match(md, /Last EDGAR query:\*\* 2026-05-12T13:25:00Z \(5 business days ago\) ⚠ stale \(≥4bd\)/);
+  });
+
+  it('omits staleness warning when bdSinceLastQuery < 4', () => {
+    const md = renderBriefMarkdown(brief({
+      formFour: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        form4ClusterFlag: false,
+        perTickerRows: [],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 0,
+        watchUniverseTickerCount: 60,
+        compositeVersion: 'form_4_insider_v1',
+      },
+    }));
+    assert.doesNotMatch(md, /⚠ stale/);
+  });
+
+  it('renders no-EDGAR-data fallback when lastEdgarQueryAt is null', () => {
+    const md = renderBriefMarkdown(brief({
+      formFour: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: null,
+        bdSinceLastQuery: null,
+        flaggedSectors: [],
+        form4ClusterFlag: false,
+        perTickerRows: [],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 0,
+        watchUniverseTickerCount: 0,
+        compositeVersion: 'form_4_insider_v1',
+      },
+    }));
+    assert.match(md, /Last EDGAR query:\*\* — \(run `npm run edgar:form4:ingest`/);
+  });
+
+  // T-OBR-F4-5 — "No tickers flagged." fallback when no per-ticker rows fire either cluster flag.
+  it('T-OBR-F4-5 renders "No tickers flagged." when no perTickerRows fire cluster flags', () => {
+    const md = renderBriefMarkdown(brief({
+      formFour: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        form4ClusterFlag: false,
+        perTickerRows: [
+          { ticker: 'AAPL', cik: '0000320193', sector: null,
+            insiderBuyCount90d: 0, insiderSellCount90d: 0,
+            insiderBuyerCount90d: 0, insiderSellerCount90d: 0,
+            insiderNetDollar90d: 0,
+            insiderClusterBuyFlag: false, insiderClusterSellFlag: false },
+        ],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 1,
+        watchUniverseTickerCount: 1,
+        compositeVersion: 'form_4_insider_v1',
+      },
+    }));
+    assert.match(md, /### Flagged tickers \(universe: equity-midcap\)/);
+    assert.match(md, /No tickers flagged\./);
+  });
+
+  // T-OBR-F4-7 — Net dollar amount renders with sign + dollar formatting
+  // ("net +$2.3M" / "net -$11.2M") — load-bearing per SPEC §8.2 mockup.
+  it('T-OBR-F4-7 net-dollar formatting: +$2.3M (buy cluster) and -$11.2M (sell cluster)', () => {
+    const md = renderBriefMarkdown(brief({
+      formFour: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        form4ClusterFlag: false,
+        perTickerRows: [BUY_ROW, SELL_ROW],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 2,
+        watchUniverseTickerCount: 60,
+        compositeVersion: 'form_4_insider_v1',
+      },
+    }));
+    assert.match(md, /cluster_buy \(1\):/);
+    assert.match(md, /- QRST — 4 insiders bought \(net \+\$2\.3M\), code P/);
+    assert.match(md, /cluster_sell \(1\):/);
+    assert.match(md, /- YZAB — 5 insiders sold \(net -\$11\.2M\), code S/);
+  });
+
+  // T-OBR-F4-2 — Top-N truncation per side at N=5 with "X more not shown" notes.
+  it('T-OBR-F4-2 truncates flagged tickers at top N=5 per side and notes the remainder', () => {
+    const buys = Array.from({ length: 7 }, (_, i) => ({
+      ticker: `B${i}`, cik: `00000${i}`, sector: null,
+      insiderBuyCount90d: 5, insiderSellCount90d: 0,
+      insiderBuyerCount90d: 3 + i, insiderSellerCount90d: 0,
+      // Larger i → larger |net dollar| → sorted earlier. So B6 is first.
+      insiderNetDollar90d: (i + 1) * 1_000_000,
+      insiderClusterBuyFlag: true, insiderClusterSellFlag: false,
+    }));
+    const sells = Array.from({ length: 6 }, (_, i) => ({
+      ticker: `S${i}`, cik: `00001${i}`, sector: null,
+      insiderBuyCount90d: 0, insiderSellCount90d: 5,
+      insiderBuyerCount90d: 0, insiderSellerCount90d: 3 + i,
+      insiderNetDollar90d: -((i + 1) * 1_000_000),
+      insiderClusterBuyFlag: false, insiderClusterSellFlag: true,
+    }));
+    const md = renderBriefMarkdown(brief({
+      formFour: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        form4ClusterFlag: false,
+        perTickerRows: [...buys, ...sells],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 13,
+        watchUniverseTickerCount: 60,
+        compositeVersion: 'form_4_insider_v1',
+      },
+    }));
+    // First 5 buy-side rows (B6..B2 — descending by net dollar magnitude) render.
+    assert.match(md, /cluster_buy \(7\):/);
+    assert.match(md, /- B6 —/);
+    assert.match(md, /- B2 —/);
+    assert.doesNotMatch(md, /- B1 —/);
+    assert.doesNotMatch(md, /- B0 —/);
+    assert.match(md, /Truncated at top 5 buy-side/);
+    assert.match(md, /2 more not shown/);
+    // First 5 sell-side rows (S5..S1) render; S0 truncated.
+    assert.match(md, /cluster_sell \(6\):/);
+    assert.match(md, /- S5 —/);
+    assert.match(md, /- S1 —/);
+    assert.doesNotMatch(md, /- S0 —/);
+    assert.match(md, /Truncated at top 5 sell-side/);
+    assert.match(md, /1 more not shown/);
+    assert.match(md, /query `quantlab\.form_4_insider_snapshots`/);
+  });
+
+  it('renders the universe coverage line with composer-stamped CIK-only count', () => {
+    const md = renderBriefMarkdown(brief({
+      formFour: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        form4ClusterFlag: false,
+        perTickerRows: [],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 58,
+        watchUniverseTickerCount: 60,
+        compositeVersion: 'form_4_insider_v1',
+      },
+    }));
+    assert.match(md, /Universe coverage: 58\/60 mid-cap tickers have current CIK mapping/);
+    assert.match(md, /v1: always 0 — GICS deferred/);
+    assert.match(md, /Composite: `form_4_insider_v1`/);
+    assert.match(md, /open-market codes \{P, S\}/);
+    assert.match(md, /≥3 distinct insiders → cluster flag/);
+    assert.match(md, /INFORMATIONAL — does NOT fire a regime category in v1/);
+  });
+
+  it('renders the evaluatedAt + snapshotDate footer', () => {
+    const md = renderBriefMarkdown(brief({
+      formFour: {
+        evaluatedAt: '2026-05-19T13:30:00.123Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        form4ClusterFlag: false,
+        perTickerRows: [],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 0,
+        watchUniverseTickerCount: 0,
+        compositeVersion: 'form_4_insider_v1',
+      },
+    }));
+    assert.match(md, /Last evaluated: `2026-05-19T13:30:00\.123Z` · snapshot date: `2026-05-19`/);
+  });
+
+  it('formats net dollars correctly across all magnitude bands (sub-$1k → $B)', () => {
+    const md = renderBriefMarkdown(brief({
+      formFour: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        form4ClusterFlag: false,
+        perTickerRows: [
+          // Each row sorted by abs(net dollar) descending: BB, AB, AAA, BA, AAB.
+          { ticker: 'AAA', cik: '01', sector: null,
+            insiderBuyCount90d: 1, insiderSellCount90d: 0,
+            insiderBuyerCount90d: 3, insiderSellerCount90d: 0,
+            insiderNetDollar90d: 890_000,
+            insiderClusterBuyFlag: true, insiderClusterSellFlag: false },
+          { ticker: 'AAB', cik: '02', sector: null,
+            insiderBuyCount90d: 1, insiderSellCount90d: 0,
+            insiderBuyerCount90d: 3, insiderSellerCount90d: 0,
+            insiderNetDollar90d: 500,
+            insiderClusterBuyFlag: true, insiderClusterSellFlag: false },
+          { ticker: 'AB', cik: '03', sector: null,
+            insiderBuyCount90d: 5, insiderSellCount90d: 0,
+            insiderBuyerCount90d: 4, insiderSellerCount90d: 0,
+            insiderNetDollar90d: 2_300_000_000,
+            insiderClusterBuyFlag: true, insiderClusterSellFlag: false },
+          { ticker: 'BA', cik: '04', sector: null,
+            insiderBuyCount90d: 0, insiderSellCount90d: 1,
+            insiderBuyerCount90d: 0, insiderSellerCount90d: 3,
+            insiderNetDollar90d: 0,
+            insiderClusterBuyFlag: false, insiderClusterSellFlag: true },
+          { ticker: 'BB', cik: '05', sector: null,
+            insiderBuyCount90d: 0, insiderSellCount90d: 4,
+            insiderBuyerCount90d: 0, insiderSellerCount90d: 5,
+            insiderNetDollar90d: -11_200_000_000,
+            insiderClusterBuyFlag: false, insiderClusterSellFlag: true },
+        ],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 5,
+        watchUniverseTickerCount: 5,
+        compositeVersion: 'form_4_insider_v1',
+      },
+    }));
+    // Billions: +$2.3B / -$11.2B
+    assert.match(md, /- AB — 4 insiders bought \(net \+\$2\.3B\), code P/);
+    assert.match(md, /- BB — 5 insiders sold \(net -\$11\.2B\), code S/);
+    // Thousands: +$890K (no decimal at K band)
+    assert.match(md, /- AAA — 3 insiders bought \(net \+\$890K\), code P/);
+    // Sub-$1k: +$500 (no unit suffix)
+    assert.match(md, /- AAB — 3 insiders bought \(net \+\$500\), code P/);
+    // Zero: $0 (no sign)
+    assert.match(md, /- BA — 3 insiders sold \(net \$0\), code S/);
   });
 });
