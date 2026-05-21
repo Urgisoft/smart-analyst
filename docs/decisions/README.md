@@ -4499,11 +4499,133 @@ Score: **B > A > C.**
 
 ---
 
+## ADR-042 · Per-sector daily rate baseline computation — recompute on-the-fly per daemon cycle (Option a); unblocks G2 aggregate-panel activation across F4 / EK / XD composites
+
+**Status:** Accepted · **Proposed:** 2026-05-20 (session 94 #5 RESEARCH note at [`docs/specs/adr-042-gics-sector-baseline-computation-research.md`](../specs/adr-042-gics-sector-baseline-computation-research.md)) · **Accepted:** 2026-05-21 (session 94 #6, operator pick) · **Author:** Claude (Vector Core principal engineer) — RESEARCH note + three-option enumeration; **Operator decision:** Pejman selected Option (a) re-compute-on-the-fly · **Resolves:** HANDOFF OQ-G2-1 (per-sector daily cluster-rate / event-rate / departure-rate baseline-computation strategy for aggregate-panel activation across the three Layer-0 composites blocked on this decision).
+
+**Context:**
+
+Sessions 93 #2-#11 shipped the v1 Layer-0 composites for executive-departure (XD), 8-K-classifier (EK), and Form 4 insider-trade (F4). All three composite contracts include both a per-ticker layer AND an aggregate-sector layer; the aggregate layer was implemented in pure-function form but left DORMANT (`inputs.sectors = []`) pending a baseline-computation strategy decision.
+
+Sessions 94 #1-#4 shipped the gap-#7+#8 v2 GICS-activation G1 arc: the shared `quantlab.gics_sector_map` table + ingest from Wikipedia (~503 rows), the per-ticker sector annotation across all three composite repositories (G1-A2/A3/A4), and the shared `readGicsSectorByTicker` helper extraction (S94-10 rule-of-three at G1-A4). Per-ticker sector annotation is live across brief sections #12 (XD), #14 (EK), and #15 (F4). The G1 → G2 transition unblocks once the per-sector baseline-computation strategy is picked.
+
+Session 94 #5 (commit `9ceb1cd`) shipped the ADR-042 RESEARCH note enumerating three options:
+
+- **Option (a) — Recompute on-the-fly** per daemon cycle from raw events + PIT constituents + GICS map. Zero new schema; ~150 LOC + ~12 tests.
+- **Option (b) — Persist sibling table + one-time backfill.** Unified table with `composite` discriminator (per S94-16); ~450 LOC + ~85 tests.
+- **Option (c) — Persist sibling table, no backfill.** Same schema as (b), accepts ~30 trading days cold-start; ~300 LOC + ~70 tests.
+
+Per S94-15, ADR-042 is a **systems-engineering fork** (not a canon-thin methodology fork) — the autonomous canon-thin three-criterion test is inapplicable because (i) Tier-1 canon (AFML §11, Pardo §6) is silent on the storage layer; (ii) all three options compute identical z-scores given identical input data; (iii) all three options have zero free statistical parameters. The choice is operator-decided; the operator picked Option (a).
+
+**Decision:**
+
+1. **Per-sector daily rate baselines are re-computed on-the-fly per daemon cycle from raw events + PIT constituents + GICS map.** No persisted baseline table. The trailing-2y daily rate series exists only as a derived intermediate inside the daemon's evaluation transaction. Applies byte-equally to all three composites (XD departure-rate / EK event-rate / F4 cluster-buy-rate).
+
+2. **A new helper function `readSectorMembershipPanel` lands in [`src/server/gics_sector_repository_helper.ts`](../../src/server/gics_sector_repository_helper.ts)** alongside the existing `readGicsSectorByTicker`. It returns the (sector, day, member_count) panel used for the rate denominator over a `[asOfStart, asOfEnd]` window. Composite-agnostic; one helper serves all three repositories' aggregate-panel-population paths.
+
+3. **Sample stddev (`stddevSamp`), not population stddev (`stddevPop`).** The trailing-2y series is a sample, not the population; Bessel correction matters. The composite layer's `computeZ` already uses sample stddev (`/(n-1)`) per AFML §1.3 — the daemon orchestrator passes the raw `baseline2y: number[]` to `computeZ`, which applies the sample correction. No CH-side stddev computation under Option (a); aggregation happens in the composite layer.
+
+4. **Today's rate is EXCLUDED from the baseline window** to avoid trivial self-reference. The orchestrator's window is `[asOf - 730 days, asOf - 1 day]` (exclusive of `asOf`); today's rate is computed separately + passed to `computeZ` as the `value` argument.
+
+5. **EDGAR-amendment behavior is silent re-write of the baseline on next cycle.** This is the mechanical consequence of Option (a): if an amendment changes a past day's event count, the baseline mean/std on the next daemon cycle reflects the latest-known truth. Today's z-score uses that updated baseline + today's latest-known rate. Forward-bias-clean by construction (no use of future-of-today data), but historically inconsistent — a past daemon cycle's z-score is NOT replayable from a future cycle if EDGAR amended in the interim. This is an accepted wart for Layer-0 informational use; OQ-G2-2 stays open for if/when F4 or EK becomes a Phase B Layer-1 input where replayability becomes load-bearing.
+
+6. **`MIN_Z_BASELINE = 30` floor remains the per-composite gate, enforced at z-computation time in the composite layer** (`src/server/executive_departure.ts:computeZ`, `src/server/eight_k_classifier.ts:computeZ`, `src/server/form_4_insider.ts:computeZ`). All three already implement this; ADR-042 does NOT touch the floor.
+
+7. **PIT-correctness of the constituents JOIN is the daemon orchestrator's responsibility**, NOT the helper's. The helper returns the sector-membership panel; the orchestrator joins it to the events table via the existing PIT ASOF JOIN pattern from short-interest A4. Strict PIT applies: ticker X contributes to sector S's daily rate on day t iff X is in sector S **as of day t** (sector swaps within the window count correctly per S, not retroactively).
+
+8. **Empty-sector days yield `rate = 0`, NOT null.** A sector with zero events on day t but a non-zero `sectorSize` has a well-defined daily rate of 0. Only days where `sectorSize = 0` (no SP500 constituents in that sector — degenerate, not expected) drop out of the baseline.
+
+9. **Daemon-cycle log line shape** (one per composite per cycle):
+
+   `[<composite>-aggregate] sectors_with_z=<k>/<11> floor_cleared=<m>/<11> max_z=<sector>:<value> cluster_flag=<true|false>`
+
+   Where `<composite>` ∈ {`xd`, `ek`, `f4`}, `<k>` is sectors that received a numeric z (could include null when MIN_Z_BASELINE not cleared or stddev degenerate), `<m>` is sectors that cleared the floor + got a non-null z, `<sector>:<value>` is the max-|z| sector + signed z (or `n/a` when all null).
+
+10. **Brief panel surface (sections #12 + #14 + #15) replaces the OQ-G2-1-awaiting footer with the active flagged-sectors table** when any sector has `|z| > EXEC_CLUSTER_Z_THRESHOLD` (= 2.0); emits a "No sectors flagged (k of 11 cleared MIN_Z_BASELINE; max-|z| = X.YZ at <Sector>)" line otherwise. Composite-tagline footer at the bottom drops the "aggregate-sector layer dormant pending OQ-G2-1 ADR" phrase and replaces with "aggregate-sector layer LIVE under ADR-042 Option (a) — re-computed per daemon cycle from raw events + PIT constituents + GICS map." All three composite sections land coordinated atomic per S94-14.
+
+**Methodology defense (Option a — selected by operator, NOT auto-resolved):**
+
+Per S94-15 + CLAUDE.md autonomous-execution canon-thin rule, ADR-042 is a **systems-engineering** fork where the autonomous three-criterion test is INAPPLICABLE:
+
+1. **Canon foundations** — Tier-1 canon (AFML §11 backtest validation, Pardo §6 walk-forward) is silent on the storage layer. AFML §11 frames the methodology (compute z-score with sample stddev, enforce a small-sample floor) but does not specify how to materialize the rate series. All three options are equally well-grounded — i.e., not grounded at all — in canon. Bailey-LdP 2014 motivates `MIN_Z_BASELINE = 30` (already locked) but does not constrain the recompute-vs-persist choice.
+
+2. **Methodology rigor** — all three options compute identical z-scores given identical input data. The differences are operational (read amplification, cold-start window, schema cost, replayability, EDGAR-amendment behavior), not methodological.
+
+3. **Minimum free parameters** — all three options have zero free statistical parameters; the "parameters" being tuned are engineering preferences (storage strategy, backfill scope, cold-start tolerance).
+
+Operator preference between schema-cost / read-amplification / cold-start-acceptance lands the pick. Operator selected Option (a) on 2026-05-21 per the §5 "what each option optimizes for" framing in the RESEARCH note — **smallest deployment surface + schemaless flexibility for the next ~6 months** of rate-formula evolution (Phase B cadence promotion per E-9-DEPLOY, F4 v2 CMP classifier layering, etc.).
+
+**Why this path over Option (b) or Option (c):**
+
+- **vs Option (b):** ~3x slice size (~450 vs ~150 LOC) for operational replayability + frozen-rate guarantees that are not currently load-bearing — Phase B independence tests for the three Layer-0 composites are NOT yet scheduled (calendar-gated, ~6-8 weeks of EDGAR ingest history first). Premature optimization under YAGNI.
+- **vs Option (c):** ~30 trading days cold-start across all three composites with no operational benefit Option (a) doesn't already deliver. The clean-room property ("daemon never infers history it didn't see") is philosophically clean but doesn't matter for Layer-0 informational composites not yet wired into any tradable rule.
+- **vs Option (a) (this ADR):** Zero new schema. Zero new migrations. Zero new ingest scripts. Smallest slice. Schemaless flexibility for the next ~6 months. The EDGAR-amendment wart is acceptable for Layer-0 informational use; would be re-examined if F4/EK promotes to Phase B Layer-1 input to `phase1_v3`.
+
+**Alternatives considered:**
+
+- **(a) Recompute on-the-fly** — selected.
+- **(b) Persist sibling table + backfill.** Rejected for v1: smallest deployment surface wins under YAGNI; replayability is not currently load-bearing. Could be revisited if EDGAR-amendment frequency or Phase B replayability requirements change.
+- **(c) Persist sibling table, no backfill.** Rejected for v1: no operational benefit over (a) given the cold-start cost. Could be revisited if operator philosophical preference shifts.
+- **(d) Mixed picks across composites** (e.g., Option (a) for F4, Option (b) for XD + EK). Available per RESEARCH §5 but rejected to minimize implementation + maintenance complexity. All three composites share a unified posture.
+
+**Resolved at Accept (six SPEC-stage open questions from RESEARCH §6):**
+
+1. **PIT-correctness of the constituents JOIN — RESOLVED: strict PIT via ASOF JOIN.** Ticker X contributes to sector S's rate on day t iff X is in sector S as-of day t (existing `quantlab.sp500_constituents` PIT panel infrastructure from s73). Test pins.
+2. **Sector-membership treatment of mid-window swaps — RESOLVED: strict PIT per Decision §7.** X contributes to Energy's rate on days it was Energy and Materials's rate on days it was Materials. Test pins.
+3. **Empty-sector days — RESOLVED: rate = 0 per Decision §8.** Sparse sectors (e.g., Utilities in F4 insider buys) have well-defined daily rate = 0 on days with zero events but non-zero sectorSize. The `stddevSamp` over 503 days of mostly-zeros yields a small denominator → today's first nonzero rate may produce a large z. **Mitigation:** keep `MIN_Z_BASELINE = 30` floor as the gate; do NOT add a separate min-nonzero-count requirement (would be in-sample tuning against the failed-gate pattern; selection-bias canon per AFML §11). Test pins the rate-0 boundary case.
+4. **Daemon-cycle log line shape — RESOLVED per Decision §9.**
+5. **Brief panel surface for the active baseline-window state — RESOLVED per Decision §10.** Coordinated atomic triple-edit per S94-14.
+6. **OQ-G2-2 (EDGAR-amendment behavior) — RESOLVED per Decision §5.** Default is silent re-write on next cycle. ADR-043 (amendment-detection tooling) only opens if Phase B testing reveals operational impact.
+
+**Dependencies (state of):**
+
+- ✓ `quantlab.gics_sector_map` table + ingest (s94 #1 G1-A1).
+- ✓ Per-ticker sector annotation across F4 / EK / XD repositories (s94 #2/#3/#4 G1-A2/A3/A4).
+- ✓ Shared `readGicsSectorByTicker` helper (s94 #4 G1-A4 extraction per S94-10).
+- ✓ `quantlab.sp500_constituents` PIT panel (s73 infrastructure).
+- ✓ `MIN_Z_BASELINE = 30` floor in all three composites (EK-7 / E-14 / EDF-7).
+- ✓ Composite-layer `computeZ` with sample stddev (Bessel correction) in all three composites.
+- ☐ Implementation: new `readSectorMembershipPanel` helper in `gics_sector_repository_helper.ts`; orchestrator `populateSectorsForCycle` (or equivalent) in each composite repository that returns `inputs.sectors` populated for `evaluateXxxComposite`; daemon orchestrator wiring; brief renderer §12/#14/#15 footer rewrites; composite-tagline rewrites; tests across all four layers.
+- ☐ Test additions: new helper test (~6 tests); per-composite repository tests for the orchestrator (~12 tests across three composites); brief renderer tests for the LIVE-state branch (~6 tests across three sections); daemon-orchestrator integration tests (smoke + cold-start + cluster-flag-fires + cluster-flag-does-not-fire).
+
+**Consequences:**
+
+- **G2 aggregate-panel activation lands as a coordinated atomic slice across all three composites** (S94-14). Section #12 + #14 + #15 footers + composite-taglines + repository orchestrator wiring + helper extension all land in one tight commit sequence so the operator never sees the brief drift between composites.
+- **No new CH schema.** Zero migrations. The `quantlab.<composite>_sector_rate_baseline` table family is NOT created.
+- **Daemon-cycle latency budget rises by ~0.3-1.5 s** across the three composites (per RESEARCH §3 estimate, ~100-500 ms per composite under the on-the-fly GROUP BY + ASOF JOIN). Not a bottleneck at daily cadence; would be re-examined if Phase B promotes the daemon to event-driven cadence per E-9-DEPLOY.
+- **EDGAR-amendment wart is permanently in scope.** Forensic replay of a past daemon cycle's z-score may produce a different number if EDGAR amended in the interim. Acceptable for current Layer-0 informational use.
+- **`inputsAvailableAggregate` becomes meaningfully non-zero** in all three composite snapshots — counts SP500 constituents with a resolved GICS sector. Per-ticker `inputsAvailablePerTicker` semantic from G1-A4 is unchanged.
+- **The `<composite>_cluster_<departure|event|buy>_flag` fires non-trivially** in all three composites once aggregate panel populates. Per gap-inventory README principle #5 (log first, gate after 50+ trades validate predictive contribution), no consumer is permitted to use these flags as hard filters until empirical validation accumulates.
+
+**Out of scope (separately tracked):**
+
+- ADR-043 (EDGAR-amendment-detection forensic tooling). Opens only if Phase B testing reveals operational impact.
+- F4 v2 CMP opportunistic-vs-routine classifier (calendar-gated ≥6mo from F4-A1 first apply-run).
+- Gap #7 v2 per-row recency (S93-32 + S93-52 co-bootstrap of EK + F4 snapshot DDLs).
+- Gap #7 v2 13D/13G arc.
+- Gap #7 v2 sell-cluster sector aggregation (S93-44).
+- Gap #7 v2 event-driven cadence promotion (Phase B-gated).
+- Gap #9 v2 ETF.com/issuer-CSV cross-validation.
+
+**Watch-outs:**
+
+- **EDGAR-amendment historical inconsistency is permanent under Option (a).** A past daemon cycle's z-score is NOT replayable if EDGAR amended in the interim. If F4 or EK becomes a Phase B Layer-1 input to `phase1_v3`, this wart becomes load-bearing and Option (b)/(c) returns to candidacy under a future superseding ADR.
+- **Daemon-cycle latency budget tightening.** ~0.3-1.5 s/cycle is fine at daily cadence (today's daemon-cycle SLA is well under its budget). If Phase B promotes the daemon to event-driven cadence per E-9-DEPLOY, the on-the-fly GROUP BY may become a hot path — consider migrating to Option (b) under a superseding ADR.
+- **`stddevSamp` not `stddevPop` — Bessel correction matters.** The composite-layer `computeZ` already uses `/(n-1)`; the new helper does NOT compute stddev (defers to composite). Regression here would be a silent z-score scale drift.
+- **Today's rate MUST be excluded from baseline (Decision §4).** Self-reference deflates z-magnitude trivially. The orchestrator's window is `[asOf - 730 days, asOf - 1 day]`; today's rate is computed separately.
+- **PIT constituents-panel coverage prerequisite.** `quantlab.sp500_constituents` needs trailing-2y coverage before G2 deployment; otherwise the rate denominator is 0 for those days → division by 0 → null rate → baseline-count drops below `MIN_Z_BASELINE` → z = null across the cold-start. Verify constituents-table coverage before activating in production.
+- **The S94-14 coordinated triple-edit is non-negotiable.** Section #12 + #14 + #15 footer wording + composite-taglines + repository annotations MUST land as one atomic commit (or one tight commit sequence). Single-composite incremental rollout would visibly drift the operator-facing wording.
+- **`MIN_Z_BASELINE = 30` floor stays at 30 across all three composites.** Do NOT add a separate min-nonzero-count requirement at SPEC-stage OQ #3 mitigation — that would be in-sample tuning against the empty-sector-day failure mode (selection-bias canon per AFML §11).
+
+**Source:** RESEARCH note [`docs/specs/adr-042-gics-sector-baseline-computation-research.md`](../specs/adr-042-gics-sector-baseline-computation-research.md) (session 94 #5, commit `9ceb1cd`); operator decision (this message, session 94 #6) selecting Option (a); HANDOFF S94-15 (autonomous-resolution-rule inapplicability to systems-engineering forks); HANDOFF S94-7 (operator-pick framing for ADR-042); CLAUDE.md autonomous-execution canon-thin protocol (locked 2026-05-19).
+
+---
+
 ## Index of ADRs by topic
 
 - **Methodology / canon:** ADR-001, ADR-004, ADR-015, ADR-016, ADR-017, ADR-018, ADR-019, ADR-020, ADR-021, ADR-022, ADR-023, ADR-024, ADR-025, ADR-026, ADR-027, ADR-028, ADR-029, ADR-030, ADR-031, ADR-032, ADR-033, ADR-041 (Accepted)
-- **Architecture / language:** ADR-002, ADR-003
+- **Architecture / language:** ADR-002, ADR-003, ADR-042 (Accepted — per-sector baseline recomputed on-the-fly per daemon cycle; no new CH schema)
 - **Data integrity:** ADR-005, ADR-006, ADR-013, ADR-015, ADR-035, ADR-037, ADR-038
 - **Process / discipline:** ADR-007, ADR-009, ADR-011, ADR-019, ADR-034, ADR-036
-- **Roadmap-shaping:** ADR-008, ADR-010, ADR-012, ADR-014, ADR-016, ADR-017, ADR-018, ADR-020, ADR-021, ADR-022, ADR-023, ADR-024, ADR-025, ADR-026, ADR-027, ADR-028, ADR-029, ADR-030, ADR-031, ADR-032, ADR-033, ADR-034, ADR-036, ADR-037, ADR-041 (Accepted — retires cycle-position composite Phase C path)
+- **Roadmap-shaping:** ADR-008, ADR-010, ADR-012, ADR-014, ADR-016, ADR-017, ADR-018, ADR-020, ADR-021, ADR-022, ADR-023, ADR-024, ADR-025, ADR-026, ADR-027, ADR-028, ADR-029, ADR-030, ADR-031, ADR-032, ADR-033, ADR-034, ADR-036, ADR-037, ADR-041 (Accepted — retires cycle-position composite Phase C path), ADR-042 (Accepted — unblocks G2 aggregate-panel activation across F4/EK/XD)
 - **Operations / capital deployment:** ADR-039 (Proposed), ADR-040 (Proposed)
