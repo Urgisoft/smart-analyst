@@ -670,6 +670,88 @@ describe('loadLatestSnapshot', () => {
   });
 });
 
+// ───── G3R-XD-* — max_aggregate_z persistence round-trip (OQ-G3-1) ─────
+//
+// SPEC docs/specs/gics-sector-baseline-computation.md §2 + HANDOFF S94-22.
+// Strategy (β) — two new structured columns added by
+// migrate_add_max_aggregate_z_to_executive_departure_snapshots.ts. The
+// writeSnapshot side stamps both columns from snapshot.maxAggregateZ /
+// snapshot.maxAggregateZSector; the loadLatestSnapshot side reads them back
+// as `number | null` / `string | null`. These tests pin both halves.
+
+describe('G3R-XD — max_aggregate_z persistence (OQ-G3-1)', () => {
+  it('G3R-XD-1: writeSnapshot stamps max_aggregate_z + max_aggregate_z_sector columns from the snapshot', async () => {
+    const { repo, fake } = makeRepo();
+    const snapshot: ExecutiveDepartureSnapshot = {
+      snapshotDate: DATE,
+      lastEdgarQueryAt: null,
+      bdSinceLastQuery: null,
+      flaggedSectors: [],
+      executiveClusterDeparture: false,
+      maxAggregateZ: -2.34,
+      maxAggregateZSector: 'Energy',
+      perTickerRows: [],
+      inputsAvailableAggregate: 11,
+      inputsAvailablePerTicker: 0,
+      version: EXECUTIVE_DEPARTURE_COMPOSITE_VERSION,
+    };
+    await repo.writeSnapshot(snapshot);
+    const row = fake.inserts[0].values[0];
+    assert.equal(row.max_aggregate_z, -2.34);
+    assert.equal(row.max_aggregate_z_sector, 'Energy');
+    // Null pass-through — composite emits null when all sector z's are null.
+    await repo.writeSnapshot({ ...snapshot, maxAggregateZ: null, maxAggregateZSector: null });
+    const row2 = fake.inserts[1].values[0];
+    assert.equal(row2.max_aggregate_z, null);
+    assert.equal(row2.max_aggregate_z_sector, null);
+  });
+
+  it('G3R-XD-2: loadLatestSnapshot recovers max_aggregate_z + max_aggregate_z_sector from the CH row', async () => {
+    const populated = makeRepo();
+    populated.fake.route(_ => true, [{
+      snapshot_date: '2026-05-19',
+      computed_at_ms: String(DATE.getTime()),
+      last_edgar_query_at: null,
+      bd_since_last_query: null,
+      executive_cluster_departure: 0,
+      flagged_sectors_json: '[]',
+      per_ticker_json: '[]',
+      inputs_available_aggregate: '11',
+      inputs_available_per_ticker: '0',
+      composite_version: 'exec_departure_v1',
+      max_aggregate_z: -2.34,
+      max_aggregate_z_sector: 'Energy',
+    }]);
+    const snap = await populated.repo.loadLatestSnapshot();
+    assert.ok(snap);
+    const s = snap as ExecutiveDepartureSnapshot;
+    assert.equal(s.maxAggregateZ, -2.34);
+    assert.equal(s.maxAggregateZSector, 'Energy');
+    // Pre-migration rows (or rows under cold-start with all-null z's) decode
+    // as null on both fields — Step 4 renderer treats null as cold-start.
+    // Asserts the SELECT pulls the new columns by name, so a CH row with NULL
+    // in both flows back through `r.max_aggregate_z != null ?` to null.
+    const coldStart = makeRepo();
+    coldStart.fake.route(_ => true, [{
+      snapshot_date: '2026-05-19',
+      computed_at_ms: String(DATE.getTime()),
+      last_edgar_query_at: null,
+      bd_since_last_query: null,
+      executive_cluster_departure: 0,
+      flagged_sectors_json: '[]',
+      per_ticker_json: '[]',
+      inputs_available_aggregate: '0',
+      inputs_available_per_ticker: '0',
+      composite_version: 'exec_departure_v1',
+      max_aggregate_z: null,
+      max_aggregate_z_sector: null,
+    }]);
+    const snap2 = await coldStart.repo.loadLatestSnapshot();
+    assert.equal((snap2 as ExecutiveDepartureSnapshot).maxAggregateZ, null);
+    assert.equal((snap2 as ExecutiveDepartureSnapshot).maxAggregateZSector, null);
+  });
+});
+
 // ───── executiveDepartureSnapshotsTableExists ───────────────────────
 
 describe('executiveDepartureSnapshotsTableExists', () => {

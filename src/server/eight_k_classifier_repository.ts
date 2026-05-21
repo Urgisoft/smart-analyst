@@ -153,6 +153,11 @@ interface RawSnapshotRow {
   inputs_available_aggregate: number | string;
   inputs_available_per_ticker: number | string;
   composite_version: string;
+  // OQ-G3-1 / s94 #8 strategy (β) persistence wiring — see G2 SPEC §2 + HANDOFF
+  // S94-22. Both columns are Nullable; CH renders as `number | null` /
+  // `string | null` under JSONEachRow.
+  max_aggregate_z: number | string | null;
+  max_aggregate_z_sector: string | null;
 }
 
 export class EightKClassifierRepository {
@@ -445,6 +450,11 @@ export class EightKClassifierRepository {
         inputs_available_aggregate: snapshot.inputsAvailableAggregate,
         inputs_available_per_ticker: snapshot.inputsAvailablePerTicker,
         composite_version: snapshot.version,
+        // OQ-G3-1 / s94 #8 strategy (β) persistence wiring. Columns added by
+        // migrate_add_max_aggregate_z_to_eight_k_classifier_snapshots.ts;
+        // SPEC docs/specs/gics-sector-baseline-computation.md §2.
+        max_aggregate_z: snapshot.maxAggregateZ,
+        max_aggregate_z_sector: snapshot.maxAggregateZSector,
       }],
       format: 'JSONEachRow',
     });
@@ -465,7 +475,9 @@ export class EightKClassifierRepository {
           per_ticker_json,
           inputs_available_aggregate,
           inputs_available_per_ticker,
-          composite_version
+          composite_version,
+          max_aggregate_z,
+          max_aggregate_z_sector
         FROM ${this.snapshotsTable} FINAL
         ORDER BY snapshot_date DESC
         LIMIT 1
@@ -504,13 +516,13 @@ export class EightKClassifierRepository {
       bdSinceLastQuery: r.bd_since_last_query != null ? Number(r.bd_since_last_query) : null,
       flaggedSectors,
       eightKClusterFlag: Number(r.eight_k_cluster_flag) === 1,
-      // G2 Step 2 added these to the snapshot interface but did NOT wire write/read
-      // persistence (SPEC docs/specs/gics-sector-baseline-computation.md §3 point 3
-      // declares no snapshot-write-path changes for Step 2). Persistence wiring is
-      // a Step 3-or-pre-Step-4 sub-slice; until then, loaded snapshots null these
-      // out + Step 4 renderer must handle the null branch.
-      maxAggregateZ: null,
-      maxAggregateZSector: null,
+      // OQ-G3-1 / s94 #8 strategy (β): max-z observability now persisted via
+      // the structured columns added by
+      // migrate_add_max_aggregate_z_to_eight_k_classifier_snapshots.ts.
+      // Pre-migration rows resolve as NULL on read (cold-start semantic);
+      // Step 4 renderer treats null as the SPEC §1.4 cold-start branch.
+      maxAggregateZ: r.max_aggregate_z != null ? Number(r.max_aggregate_z) : null,
+      maxAggregateZSector: r.max_aggregate_z_sector ?? null,
       perTickerRows,
       inputsAvailableAggregate: Number(r.inputs_available_aggregate),
       inputsAvailablePerTicker: Number(r.inputs_available_per_ticker),

@@ -694,6 +694,75 @@ describe('loadLatestSnapshot', () => {
   });
 });
 
+// ───── G3R-EK-* — max_aggregate_z persistence round-trip (OQ-G3-1) ─────
+//
+// SPEC docs/specs/gics-sector-baseline-computation.md §2 + HANDOFF S94-22.
+// Mirror of executiveDepartureRepository.test.ts G3R-XD-* (byte-equal except
+// for snapshot type + version constant). See that file for the rationale.
+
+describe('G3R-EK — max_aggregate_z persistence (OQ-G3-1)', () => {
+  it('G3R-EK-1: writeSnapshot stamps max_aggregate_z + max_aggregate_z_sector columns from the snapshot', async () => {
+    const { repo, fake } = makeRepo();
+    await repo.writeSnapshot(fixtureSnapshot({
+      maxAggregateZ: 3.17,
+      maxAggregateZSector: 'Healthcare',
+    }));
+    const row = fake.inserts[0].values[0];
+    assert.equal(row.max_aggregate_z, 3.17);
+    assert.equal(row.max_aggregate_z_sector, 'Healthcare');
+    // Null pass-through.
+    await repo.writeSnapshot(fixtureSnapshot({
+      maxAggregateZ: null,
+      maxAggregateZSector: null,
+    }));
+    const row2 = fake.inserts[1].values[0];
+    assert.equal(row2.max_aggregate_z, null);
+    assert.equal(row2.max_aggregate_z_sector, null);
+  });
+
+  it('G3R-EK-2: loadLatestSnapshot recovers max_aggregate_z + max_aggregate_z_sector from the CH row', async () => {
+    const populated = makeRepo();
+    populated.fake.route(_ => true, [{
+      snapshot_date: '2026-05-19',
+      computed_at_ms: String(DATE.getTime()),
+      last_edgar_query_at: null,
+      bd_since_last_query: null,
+      eight_k_cluster_flag: 0,
+      flagged_sectors_json: '[]',
+      per_ticker_json: '[]',
+      inputs_available_aggregate: '11',
+      inputs_available_per_ticker: '0',
+      composite_version: 'eight_k_classifier_v1',
+      max_aggregate_z: 3.17,
+      max_aggregate_z_sector: 'Healthcare',
+    }]);
+    const snap = await populated.repo.loadLatestSnapshot();
+    assert.ok(snap);
+    const s = snap as EightKClassifierSnapshot;
+    assert.equal(s.maxAggregateZ, 3.17);
+    assert.equal(s.maxAggregateZSector, 'Healthcare');
+    // Cold-start / pre-migration NULL → null.
+    const coldStart = makeRepo();
+    coldStart.fake.route(_ => true, [{
+      snapshot_date: '2026-05-19',
+      computed_at_ms: String(DATE.getTime()),
+      last_edgar_query_at: null,
+      bd_since_last_query: null,
+      eight_k_cluster_flag: 0,
+      flagged_sectors_json: '[]',
+      per_ticker_json: '[]',
+      inputs_available_aggregate: '0',
+      inputs_available_per_ticker: '0',
+      composite_version: 'eight_k_classifier_v1',
+      max_aggregate_z: null,
+      max_aggregate_z_sector: null,
+    }]);
+    const snap2 = await coldStart.repo.loadLatestSnapshot();
+    assert.equal((snap2 as EightKClassifierSnapshot).maxAggregateZ, null);
+    assert.equal((snap2 as EightKClassifierSnapshot).maxAggregateZSector, null);
+  });
+});
+
 // ───── table-existence probes ──────────────────────────────────────
 
 describe('eightKClassifierSnapshotsTableExists', () => {
