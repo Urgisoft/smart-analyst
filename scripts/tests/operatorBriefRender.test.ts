@@ -1637,6 +1637,8 @@ describe('renderBriefMarkdown — executive-departure panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 58,
         watchUniverseTickerCount: 60,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         compositeVersion: 'exec_departure_v1',
       },
     }));
@@ -1657,6 +1659,8 @@ describe('renderBriefMarkdown — executive-departure panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 58,
         watchUniverseTickerCount: 60,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         compositeVersion: 'exec_departure_v1',
       },
     }));
@@ -1680,12 +1684,105 @@ describe('renderBriefMarkdown — executive-departure panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 58,
         watchUniverseTickerCount: 60,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         compositeVersion: 'exec_departure_v1',
       },
     }));
-    assert.match(md, /Aggregate-cluster panel awaits OQ-G2-1 ADR/);
-    assert.match(md, /per-sector daily departure-rate baseline-computation strategy/);
+    // T-OBR-XD-4 (rewritten s94 #10): cold-start branch under §1.4 (ADR-042
+    // Option a). flaggedSectors=[] AND inputsAvailableAggregate=0 → constituents-
+    // table cold-start wording. Replaces the prior OQ-G2-1-awaiting wording.
+    assert.match(md, /Aggregate-cluster panel awaits SP500 constituents-table trailing-2y coverage/);
+    assert.match(md, /ADR-042 §"Watch-outs"/);
+    assert.match(md, /rate denominator is 0 across the cold-start window/);
     assert.match(md, /Per-ticker sector annotations are active from `quantlab\.gics_sector_map`/);
+  });
+
+  // G2-RENDER-XD-{1..3} — SPEC §5.4 three-branch §1.4 coverage for section #12
+  // under ADR-042 Option (a). One test per branch.
+  // (a) flaggedSectors.length > 0 → existing flagged-sectors table renders
+  //     unchanged (LIVE regression catch); "No sectors flagged today" line is NOT emitted.
+  // (b) flaggedSectors=[] AND inputsAvailableAggregate>0 → "No sectors flagged
+  //     today" line with k/11 cleared + max-|z|=VAL at SECTOR.
+  // (c) flaggedSectors=[] AND inputsAvailableAggregate=0 → cold-start branch
+  //     citing ADR-042 §"Watch-outs". Parallel coverage with T-OBR-XD-4 above.
+  it('G2-RENDER-XD-1 LIVE branch — flaggedSectors > 0 renders the table; no "No sectors flagged" line', () => {
+    const md = renderBriefMarkdown(brief({
+      executiveDeparture: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [{
+          sector: 'Energy', sectorSize: 23,
+          departureRateT: 0.087, z: -2.34, baselineSize: 503,
+        }],
+        executiveClusterDeparture: true,
+        maxAggregateZ: -2.34,
+        maxAggregateZSector: 'Energy',
+        perTickerRows: [],
+        inputsAvailableAggregate: 11,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 58,
+        watchUniverseTickerCount: 60,
+        compositeVersion: 'exec_departure_v1',
+      },
+    }));
+    assert.match(md, /\| Sector \| Rate \| z \| Baseline n \| Constituents \|/);
+    assert.match(md, /\| Energy \| 8\.7% \| -2\.34σ \| 503 \| 23 \|/);
+    assert.doesNotMatch(md, /No sectors flagged today/);
+    assert.doesNotMatch(md, /awaits SP500 constituents-table trailing-2y coverage/);
+  });
+
+  it('G2-RENDER-XD-2 NO-FLAG-BUT-CLEARED — flaggedSectors=[] + aggregate>0 renders the "No sectors flagged today" line with k/11 + max-|z|', () => {
+    const md = renderBriefMarkdown(brief({
+      executiveDeparture: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        executiveClusterDeparture: false,
+        maxAggregateZ: 1.27,
+        maxAggregateZSector: 'Health Care',
+        perTickerRows: [],
+        inputsAvailableAggregate: 9,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 58,
+        watchUniverseTickerCount: 60,
+        compositeVersion: 'exec_departure_v1',
+      },
+    }));
+    assert.match(md, /\*\*Aggregate \(SPY 500 by GICS sector\):\*\* No sectors flagged today/);
+    assert.match(md, /\(9\/11 cleared MIN_Z_BASELINE; max-\|z\|=\+1\.27 at Health Care\)/);
+    assert.match(md, /Per-sector baseline re-computed per daemon cycle from raw events \+ PIT constituents \+ GICS map \(ADR-042 Option a\)/);
+    assert.doesNotMatch(md, /\| Sector \| Rate \| z \| Baseline n \| Constituents \|/);
+    assert.doesNotMatch(md, /awaits SP500 constituents-table trailing-2y coverage/);
+  });
+
+  it('G2-RENDER-XD-3 COLD-START — flaggedSectors=[] + aggregate=0 renders the ADR-042 §"Watch-outs" cold-start branch', () => {
+    const md = renderBriefMarkdown(brief({
+      executiveDeparture: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        executiveClusterDeparture: false,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
+        perTickerRows: [],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 58,
+        watchUniverseTickerCount: 60,
+        compositeVersion: 'exec_departure_v1',
+      },
+    }));
+    assert.match(md, /Aggregate-cluster panel awaits SP500 constituents-table trailing-2y coverage/);
+    assert.match(md, /ADR-042 §"Watch-outs"/);
+    assert.doesNotMatch(md, /No sectors flagged today/);
+    assert.doesNotMatch(md, /\| Sector \| Rate \| z \| Baseline n \| Constituents \|/);
   });
 
   it('renders the flagged-sectors table when sectors are flagged', () => {
@@ -1708,6 +1805,8 @@ describe('renderBriefMarkdown — executive-departure panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 58,
         watchUniverseTickerCount: 60,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         compositeVersion: 'exec_departure_v1',
       },
     }));
@@ -1729,6 +1828,8 @@ describe('renderBriefMarkdown — executive-departure panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 58,
         watchUniverseTickerCount: 60,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         compositeVersion: 'exec_departure_v1',
       },
     }));
@@ -1749,6 +1850,8 @@ describe('renderBriefMarkdown — executive-departure panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 58,
         watchUniverseTickerCount: 60,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         compositeVersion: 'exec_departure_v1',
       },
     }));
@@ -1769,6 +1872,8 @@ describe('renderBriefMarkdown — executive-departure panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 0,
         watchUniverseTickerCount: 0,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         compositeVersion: 'exec_departure_v1',
       },
     }));
@@ -1794,6 +1899,8 @@ describe('renderBriefMarkdown — executive-departure panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 58,
         watchUniverseTickerCount: 60,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         compositeVersion: 'exec_departure_v1',
       },
     }));
@@ -1823,6 +1930,8 @@ describe('renderBriefMarkdown — executive-departure panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 58,
         watchUniverseTickerCount: 60,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         compositeVersion: 'exec_departure_v1',
       },
     }));
@@ -1850,6 +1959,8 @@ describe('renderBriefMarkdown — executive-departure panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 58,
         watchUniverseTickerCount: 60,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         compositeVersion: 'exec_departure_v1',
       },
     }));
@@ -1873,13 +1984,16 @@ describe('renderBriefMarkdown — executive-departure panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 58,
         watchUniverseTickerCount: 60,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         compositeVersion: 'exec_departure_v1',
       },
     }));
     assert.match(md, /Universe coverage: 58\/60 watch-universe tickers have current CIK mapping/);
-    assert.match(md, /G1-A4: per-ticker sector active; aggregate-layer 0 pending OQ-G2-1 baseline ADR/);
+    // s94 #10: universe-coverage qualifier + composite tagline post-ADR-042.
+    assert.match(md, /per-ticker \+ aggregate-sector layers active under G1-A2\/A3\/A4 \+ G2-A1\/A2\/A3/);
     assert.match(md, /Composite: `exec_departure_v1`/);
-    assert.match(md, /aggregate-sector layer dormant pending OQ-G2-1 ADR/);
+    assert.match(md, /aggregate-sector layer LIVE under ADR-042 Option \(a\)/);
     assert.match(md, /INFORMATIONAL — does NOT fire a regime category in v1/);
   });
 
@@ -1897,6 +2011,8 @@ describe('renderBriefMarkdown — executive-departure panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 0,
         watchUniverseTickerCount: 0,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         compositeVersion: 'exec_departure_v1',
       },
     }));
@@ -1939,6 +2055,8 @@ describe('renderBriefMarkdown — executive-departure panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 1,
         watchUniverseTickerCount: 1,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         compositeVersion: 'exec_departure_v1',
       },
     }));
@@ -1976,6 +2094,8 @@ describe('renderBriefMarkdown — executive-departure panel', () => {
         inputsAvailablePerTicker: 2,
         tickersWithCikCount: 2,
         watchUniverseTickerCount: 60,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         compositeVersion: 'exec_departure_v1',
       },
     }));
@@ -2345,6 +2465,8 @@ describe('renderBriefMarkdown — 8-K classifier panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 0,
         watchUniverseTickerCount: 60,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         compositeVersion: 'eight_k_classifier_v1',
       },
     }));
@@ -2367,6 +2489,8 @@ describe('renderBriefMarkdown — 8-K classifier panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 0,
         watchUniverseTickerCount: 60,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         compositeVersion: 'eight_k_classifier_v1',
       },
     }));
@@ -2389,13 +2513,100 @@ describe('renderBriefMarkdown — 8-K classifier panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 0,
         watchUniverseTickerCount: 60,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         compositeVersion: 'eight_k_classifier_v1',
       },
     }));
-    assert.match(md, /Aggregate-cluster panel awaits OQ-G2-1 ADR/);
-    assert.match(md, /SPEC §11/);
+    // T-OBR-EK-4 (rewritten s94 #10): cold-start branch under §1.4 (ADR-042
+    // Option a). flaggedSectors=[] AND inputsAvailableAggregate=0 → constituents-
+    // table cold-start wording. Replaces the prior OQ-G2-1-awaiting wording.
+    assert.match(md, /Aggregate-cluster panel awaits SP500 constituents-table trailing-2y coverage/);
+    assert.match(md, /ADR-042 §"Watch-outs"/);
     assert.match(md, /Per-ticker sector annotations are active from `quantlab\.gics_sector_map`/);
     // Cold-start path skips the flagged-sectors table.
+    assert.doesNotMatch(md, /\| Sector \| Rate \| z \| Baseline n \| Constituents \|/);
+  });
+
+  // G2-RENDER-EK-{1..3} — SPEC §5.4 three-branch §1.4 coverage for section #14
+  // under ADR-042 Option (a). Mirrors G2-RENDER-XD-{1..3} byte-for-byte except
+  // for the snapshot interface (eight_k_classifier_v1, eightKClusterFlag, eventRateT).
+  it('G2-RENDER-EK-1 LIVE branch — flaggedSectors > 0 renders the table; no "No sectors flagged" line', () => {
+    const md = renderBriefMarkdown(brief({
+      eightK: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [{
+          sector: 'Information Technology', sectorSize: 70,
+          eventRateT: 0.042, z: 2.15, baselineSize: 503,
+        }],
+        eightKClusterFlag: true,
+        maxAggregateZ: 2.15,
+        maxAggregateZSector: 'Information Technology',
+        perTickerRows: [],
+        inputsAvailableAggregate: 11,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 58,
+        watchUniverseTickerCount: 60,
+        compositeVersion: 'eight_k_classifier_v1',
+      },
+    }));
+    assert.match(md, /\| Sector \| Rate \| z \| Baseline n \| Constituents \|/);
+    assert.match(md, /\| Information Technology \| 4\.2% \| \+2\.15σ \| 503 \| 70 \|/);
+    assert.doesNotMatch(md, /No sectors flagged today/);
+    assert.doesNotMatch(md, /awaits SP500 constituents-table trailing-2y coverage/);
+  });
+
+  it('G2-RENDER-EK-2 NO-FLAG-BUT-CLEARED — flaggedSectors=[] + aggregate>0 renders the "No sectors flagged today" line with k/11 + max-|z|', () => {
+    const md = renderBriefMarkdown(brief({
+      eightK: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        eightKClusterFlag: false,
+        maxAggregateZ: -1.83,
+        maxAggregateZSector: 'Utilities',
+        perTickerRows: [],
+        inputsAvailableAggregate: 10,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 58,
+        watchUniverseTickerCount: 60,
+        compositeVersion: 'eight_k_classifier_v1',
+      },
+    }));
+    assert.match(md, /\*\*Aggregate \(SPY 500 by GICS sector\):\*\* No sectors flagged today/);
+    assert.match(md, /\(10\/11 cleared MIN_Z_BASELINE; max-\|z\|=-1\.83 at Utilities\)/);
+    assert.match(md, /Per-sector baseline re-computed per daemon cycle from raw events \+ PIT constituents \+ GICS map \(ADR-042 Option a\)/);
+    assert.doesNotMatch(md, /\| Sector \| Rate \| z \| Baseline n \| Constituents \|/);
+    assert.doesNotMatch(md, /awaits SP500 constituents-table trailing-2y coverage/);
+  });
+
+  it('G2-RENDER-EK-3 COLD-START — flaggedSectors=[] + aggregate=0 renders the ADR-042 §"Watch-outs" cold-start branch', () => {
+    const md = renderBriefMarkdown(brief({
+      eightK: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        eightKClusterFlag: false,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
+        perTickerRows: [],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 58,
+        watchUniverseTickerCount: 60,
+        compositeVersion: 'eight_k_classifier_v1',
+      },
+    }));
+    assert.match(md, /Aggregate-cluster panel awaits SP500 constituents-table trailing-2y coverage/);
+    assert.match(md, /ADR-042 §"Watch-outs"/);
+    assert.doesNotMatch(md, /No sectors flagged today/);
     assert.doesNotMatch(md, /\| Sector \| Rate \| z \| Baseline n \| Constituents \|/);
   });
 
@@ -2414,6 +2625,8 @@ describe('renderBriefMarkdown — 8-K classifier panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 0,
         watchUniverseTickerCount: 60,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         compositeVersion: 'eight_k_classifier_v1',
       },
     }));
@@ -2434,6 +2647,8 @@ describe('renderBriefMarkdown — 8-K classifier panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 0,
         watchUniverseTickerCount: 60,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         compositeVersion: 'eight_k_classifier_v1',
       },
     }));
@@ -2454,6 +2669,8 @@ describe('renderBriefMarkdown — 8-K classifier panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 0,
         watchUniverseTickerCount: 0,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         compositeVersion: 'eight_k_classifier_v1',
       },
     }));
@@ -2483,6 +2700,8 @@ describe('renderBriefMarkdown — 8-K classifier panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 1,
         watchUniverseTickerCount: 1,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         compositeVersion: 'eight_k_classifier_v1',
       },
     }));
@@ -2508,6 +2727,8 @@ describe('renderBriefMarkdown — 8-K classifier panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 1,
         watchUniverseTickerCount: 60,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         compositeVersion: 'eight_k_classifier_v1',
       },
     }));
@@ -2539,6 +2760,8 @@ describe('renderBriefMarkdown — 8-K classifier panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 7,
         watchUniverseTickerCount: 60,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         compositeVersion: 'eight_k_classifier_v1',
       },
     }));
@@ -2569,14 +2792,16 @@ describe('renderBriefMarkdown — 8-K classifier panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 58,
         watchUniverseTickerCount: 60,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         compositeVersion: 'eight_k_classifier_v1',
       },
     }));
     assert.match(md, /Universe coverage: 58\/60 mid-cap tickers have current CIK mapping/);
-    // G1-A3 (s94 #3): per-ticker sector wired; aggregate still pending baseline ADR.
-    assert.match(md, /G1-A3: per-ticker sector active; aggregate-layer 0 pending OQ-G2-1 baseline ADR/);
+    // s94 #10: universe-coverage qualifier + composite tagline post-ADR-042.
+    assert.match(md, /per-ticker \+ aggregate-sector layers active under G1-A2\/A3\/A4 \+ G2-A1\/A2\/A3/);
     assert.match(md, /Composite: `eight_k_classifier_v1`/);
-    assert.match(md, /aggregate-sector layer dormant pending OQ-G2-1 ADR/);
+    assert.match(md, /aggregate-sector layer LIVE under ADR-042 Option \(a\)/);
     assert.match(md, /INFORMATIONAL — does NOT fire a regime category in v1/);
   });
 
@@ -2594,6 +2819,8 @@ describe('renderBriefMarkdown — 8-K classifier panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 0,
         watchUniverseTickerCount: 0,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         compositeVersion: 'eight_k_classifier_v1',
       },
     }));
@@ -2626,6 +2853,8 @@ describe('renderBriefMarkdown — 8-K classifier panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 1,
         watchUniverseTickerCount: 1,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         compositeVersion: 'eight_k_classifier_v1',
       },
     }));
@@ -2669,6 +2898,8 @@ describe('renderBriefMarkdown — 8-K classifier panel', () => {
         inputsAvailablePerTicker: 2,
         tickersWithCikCount: 2,
         watchUniverseTickerCount: 60,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         compositeVersion: 'eight_k_classifier_v1',
       },
     }));
@@ -2738,6 +2969,8 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 0,
         watchUniverseTickerCount: 60,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         compositeVersion: 'form_4_insider_v1',
       },
     }));
@@ -2760,6 +2993,8 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 0,
         watchUniverseTickerCount: 60,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         compositeVersion: 'form_4_insider_v1',
       },
     }));
@@ -2782,13 +3017,101 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 0,
         watchUniverseTickerCount: 60,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         compositeVersion: 'form_4_insider_v1',
       },
     }));
-    assert.match(md, /Aggregate-cluster panel awaits OQ-G2-1 ADR/);
-    assert.match(md, /SPEC §11/);
+    // T-OBR-F4-4 (rewritten s94 #10): cold-start branch under §1.4 (ADR-042
+    // Option a). flaggedSectors=[] AND inputsAvailableAggregate=0 → constituents-
+    // table cold-start wording. Replaces the prior OQ-G2-1-awaiting wording.
+    assert.match(md, /Aggregate-cluster panel awaits SP500 constituents-table trailing-2y coverage/);
+    assert.match(md, /ADR-042 §"Watch-outs"/);
     assert.match(md, /Per-ticker sector annotations are active from `quantlab\.gics_sector_map`/);
     // Cold-start path skips the flagged-sectors table.
+    assert.doesNotMatch(md, /\| Sector \| Cluster rate \| z \| Baseline n \| Constituents \|/);
+  });
+
+  // G2-RENDER-F4-{1..3} — SPEC §5.4 three-branch §1.4 coverage for section #15
+  // under ADR-042 Option (a). Mirrors G2-RENDER-XD-{1..3} byte-for-byte except
+  // for the snapshot interface (form_4_insider_v1, form4ClusterFlag,
+  // clusterRateT) AND the panel header ("cluster-buy rate by GICS sector").
+  it('G2-RENDER-F4-1 LIVE branch — flaggedSectors > 0 renders the table; no "No sectors flagged" line', () => {
+    const md = renderBriefMarkdown(brief({
+      formFour: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [{
+          sector: 'Financials', sectorSize: 65,
+          clusterRateT: 0.031, z: 2.62, baselineSize: 503,
+        }],
+        form4ClusterFlag: true,
+        maxAggregateZ: 2.62,
+        maxAggregateZSector: 'Financials',
+        perTickerRows: [],
+        inputsAvailableAggregate: 11,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 58,
+        watchUniverseTickerCount: 60,
+        compositeVersion: 'form_4_insider_v1',
+      },
+    }));
+    assert.match(md, /\| Sector \| Cluster rate \| z \| Baseline n \| Constituents \|/);
+    assert.match(md, /\| Financials \| 3\.1% \| \+2\.62σ \| 503 \| 65 \|/);
+    assert.doesNotMatch(md, /No sectors flagged today/);
+    assert.doesNotMatch(md, /awaits SP500 constituents-table trailing-2y coverage/);
+  });
+
+  it('G2-RENDER-F4-2 NO-FLAG-BUT-CLEARED — flaggedSectors=[] + aggregate>0 renders the "No sectors flagged today" line with k/11 + max-|z|', () => {
+    const md = renderBriefMarkdown(brief({
+      formFour: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        form4ClusterFlag: false,
+        maxAggregateZ: 0.91,
+        maxAggregateZSector: 'Consumer Staples',
+        perTickerRows: [],
+        inputsAvailableAggregate: 8,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 58,
+        watchUniverseTickerCount: 60,
+        compositeVersion: 'form_4_insider_v1',
+      },
+    }));
+    assert.match(md, /\*\*Aggregate \(SPY 500 cluster-buy rate by GICS sector\):\*\* No sectors flagged today/);
+    assert.match(md, /\(8\/11 cleared MIN_Z_BASELINE; max-\|z\|=\+0\.91 at Consumer Staples\)/);
+    assert.match(md, /Per-sector baseline re-computed per daemon cycle from raw events \+ PIT constituents \+ GICS map \(ADR-042 Option a\)/);
+    assert.doesNotMatch(md, /\| Sector \| Cluster rate \| z \| Baseline n \| Constituents \|/);
+    assert.doesNotMatch(md, /awaits SP500 constituents-table trailing-2y coverage/);
+  });
+
+  it('G2-RENDER-F4-3 COLD-START — flaggedSectors=[] + aggregate=0 renders the ADR-042 §"Watch-outs" cold-start branch', () => {
+    const md = renderBriefMarkdown(brief({
+      formFour: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        form4ClusterFlag: false,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
+        perTickerRows: [],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 58,
+        watchUniverseTickerCount: 60,
+        compositeVersion: 'form_4_insider_v1',
+      },
+    }));
+    assert.match(md, /Aggregate-cluster panel awaits SP500 constituents-table trailing-2y coverage/);
+    assert.match(md, /ADR-042 §"Watch-outs"/);
+    assert.doesNotMatch(md, /No sectors flagged today/);
     assert.doesNotMatch(md, /\| Sector \| Cluster rate \| z \| Baseline n \| Constituents \|/);
   });
 
@@ -2807,6 +3130,8 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 0,
         watchUniverseTickerCount: 60,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         compositeVersion: 'form_4_insider_v1',
       },
     }));
@@ -2827,6 +3152,8 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 0,
         watchUniverseTickerCount: 60,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         compositeVersion: 'form_4_insider_v1',
       },
     }));
@@ -2847,6 +3174,8 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 0,
         watchUniverseTickerCount: 0,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         compositeVersion: 'form_4_insider_v1',
       },
     }));
@@ -2874,6 +3203,8 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 1,
         watchUniverseTickerCount: 1,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         compositeVersion: 'form_4_insider_v1',
       },
     }));
@@ -2897,6 +3228,8 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 2,
         watchUniverseTickerCount: 60,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         compositeVersion: 'form_4_insider_v1',
       },
     }));
@@ -2936,6 +3269,8 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 13,
         watchUniverseTickerCount: 60,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         compositeVersion: 'form_4_insider_v1',
       },
     }));
@@ -2971,16 +3306,18 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 58,
         watchUniverseTickerCount: 60,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         compositeVersion: 'form_4_insider_v1',
       },
     }));
     assert.match(md, /Universe coverage: 58\/60 mid-cap tickers have current CIK mapping/);
-    // G1-A2 (s94 #2): per-ticker sector wired; aggregate still pending baseline ADR.
-    assert.match(md, /G1-A2: per-ticker sector active; aggregate-layer 0 pending OQ-G2-1 baseline ADR/);
+    // s94 #10: universe-coverage qualifier + composite tagline post-ADR-042.
+    assert.match(md, /per-ticker \+ aggregate-sector layers active under G1-A2\/A3\/A4 \+ G2-A1\/A2\/A3/);
     assert.match(md, /Composite: `form_4_insider_v1`/);
     assert.match(md, /open-market codes \{P, S\}/);
     assert.match(md, /≥3 distinct insiders → cluster flag/);
-    assert.match(md, /aggregate-sector layer dormant pending OQ-G2-1 ADR/);
+    assert.match(md, /aggregate-sector layer LIVE under ADR-042 Option \(a\)/);
     assert.match(md, /INFORMATIONAL — does NOT fire a regime category in v1/);
   });
 
@@ -2998,6 +3335,8 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 0,
         watchUniverseTickerCount: 0,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         compositeVersion: 'form_4_insider_v1',
       },
     }));
@@ -3045,6 +3384,8 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 5,
         watchUniverseTickerCount: 5,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         compositeVersion: 'form_4_insider_v1',
       },
     }));
@@ -3082,6 +3423,8 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 1,
         watchUniverseTickerCount: 1,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         compositeVersion: 'form_4_insider_v1',
       },
     }));
@@ -3121,6 +3464,8 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         inputsAvailablePerTicker: 2,
         tickersWithCikCount: 2,
         watchUniverseTickerCount: 60,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         compositeVersion: 'form_4_insider_v1',
       },
     }));

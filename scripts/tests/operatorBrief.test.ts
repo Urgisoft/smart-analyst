@@ -924,6 +924,31 @@ describe('buildExecutiveDepartureSection', () => {
     assert.equal(section!.watchUniverseTickerCount, 3);
     assert.equal(section!.inputsAvailablePerTicker, 0);
   });
+
+  // G2-COMPOSER-XD-1 — SPEC §5.6 pass-through assertion. Composer threads
+  // snapshot.maxAggregateZ + maxAggregateZSector unchanged into the brief
+  // section so the renderer's §1.4 "No sectors flagged today" branch can
+  // surface them without recomputation. Regression catch for the wiring at
+  // operator_brief.ts buildExecutiveDepartureSection (s94 #10).
+  it('G2-COMPOSER-XD-1 threads maxAggregateZ + maxAggregateZSector through to the brief section', async () => {
+    const { buildExecutiveDepartureSection } = await import('../../src/server/operator_brief.js');
+    const section = buildExecutiveDepartureSection({
+      snapshotDate: new Date('2026-05-19T13:30:00Z'),
+      lastEdgarQueryAt: new Date('2026-05-19T13:25:00Z'),
+      bdSinceLastQuery: 0,
+      flaggedSectors: [],
+      executiveClusterDeparture: false,
+      maxAggregateZ: -1.83,
+      maxAggregateZSector: 'Utilities',
+      perTickerRows: [],
+      inputsAvailableAggregate: 10,
+      inputsAvailablePerTicker: 0,
+      version: 'exec_departure_v1',
+    });
+    assert.ok(section !== null);
+    assert.equal(section!.maxAggregateZ, -1.83);
+    assert.equal(section!.maxAggregateZSector, 'Utilities');
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -1256,6 +1281,28 @@ describe('buildEightKClassifierSection', () => {
     assert.equal(section!.watchUniverseTickerCount, 3);
     assert.equal(section!.inputsAvailablePerTicker, 0);
   });
+
+  // G2-COMPOSER-EK-1 — SPEC §5.6 pass-through assertion. Mirrors
+  // G2-COMPOSER-XD-1 for the buildEightKClassifierSection composer.
+  it('G2-COMPOSER-EK-1 threads maxAggregateZ + maxAggregateZSector through to the brief section', async () => {
+    const { buildEightKClassifierSection } = await import('../../src/server/operator_brief.js');
+    const section = buildEightKClassifierSection({
+      snapshotDate: new Date('2026-05-19T13:30:00Z'),
+      lastEdgarQueryAt: new Date('2026-05-19T13:25:00Z'),
+      bdSinceLastQuery: 0,
+      flaggedSectors: [],
+      eightKClusterFlag: false,
+      maxAggregateZ: 2.15,
+      maxAggregateZSector: 'Information Technology',
+      perTickerRows: [],
+      inputsAvailableAggregate: 11,
+      inputsAvailablePerTicker: 0,
+      version: 'eight_k_classifier_v1',
+    });
+    assert.ok(section !== null);
+    assert.equal(section!.maxAggregateZ, 2.15);
+    assert.equal(section!.maxAggregateZSector, 'Information Technology');
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -1436,5 +1483,27 @@ describe('buildForm4InsiderSection', () => {
     assert.equal(section!.tickersWithCikCount, 2);
     assert.equal(section!.watchUniverseTickerCount, 3);
     assert.equal(section!.inputsAvailablePerTicker, 0);
+  });
+
+  // G2-COMPOSER-F4-1 — SPEC §5.6 pass-through assertion. Mirrors
+  // G2-COMPOSER-XD-1 for the buildForm4InsiderSection composer.
+  it('G2-COMPOSER-F4-1 threads maxAggregateZ + maxAggregateZSector through to the brief section', async () => {
+    const { buildForm4InsiderSection } = await import('../../src/server/operator_brief.js');
+    const section = buildForm4InsiderSection({
+      snapshotDate: new Date('2026-05-19T13:30:00Z'),
+      lastEdgarQueryAt: new Date('2026-05-19T13:25:00Z'),
+      bdSinceLastQuery: 0,
+      flaggedSectors: [],
+      form4ClusterFlag: false,
+      maxAggregateZ: 0.91,
+      maxAggregateZSector: 'Consumer Staples',
+      perTickerRows: [],
+      inputsAvailableAggregate: 8,
+      inputsAvailablePerTicker: 0,
+      version: 'form_4_insider_v1',
+    });
+    assert.ok(section !== null);
+    assert.equal(section!.maxAggregateZ, 0.91);
+    assert.equal(section!.maxAggregateZSector, 'Consumer Staples');
   });
 });

@@ -715,6 +715,8 @@ export function buildExecutiveDepartureSection(
     bdSinceLastQuery: snapshot.bdSinceLastQuery,
     flaggedSectors: snapshot.flaggedSectors,
     executiveClusterDeparture: snapshot.executiveClusterDeparture,
+    maxAggregateZ: snapshot.maxAggregateZ,
+    maxAggregateZSector: snapshot.maxAggregateZSector,
     perTickerRows: snapshot.perTickerRows,
     inputsAvailableAggregate: snapshot.inputsAvailableAggregate,
     inputsAvailablePerTicker: snapshot.inputsAvailablePerTicker,
@@ -832,6 +834,8 @@ export function buildEightKClassifierSection(
       baselineSize: f.baselineSize,
     })),
     eightKClusterFlag: snapshot.eightKClusterFlag,
+    maxAggregateZ: snapshot.maxAggregateZ,
+    maxAggregateZSector: snapshot.maxAggregateZSector,
     perTickerRows: snapshot.perTickerRows.map(r => ({
       ticker: r.ticker,
       cik: r.cik,
@@ -907,6 +911,8 @@ export function buildForm4InsiderSection(
       baselineSize: f.baselineSize,
     })),
     form4ClusterFlag: snapshot.form4ClusterFlag,
+    maxAggregateZ: snapshot.maxAggregateZ,
+    maxAggregateZSector: snapshot.maxAggregateZSector,
     perTickerRows: snapshot.perTickerRows.map(r => ({
       ticker: r.ticker,
       cik: r.cik,

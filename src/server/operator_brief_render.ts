@@ -534,8 +534,16 @@ export interface BriefExecutiveDepartureSection {
     z: number;
     baselineSize: number;
   }>;
-  /** Flag: ANY sector has |z| > 2.0 (G1-A4: always false pending OQ-G2-1 ADR). */
+  /** Flag: ANY sector has |z| > 2.0. */
   executiveClusterDeparture: boolean;
+  /** Signed z of the sector with max |z| across all sectors with non-null z;
+   *  null when all sector z's are null (cold-start). Threaded from the composite
+   *  snapshot per ADR-042 §1 / SPEC docs/specs/gics-sector-baseline-computation.md
+   *  §2 — consumed by the §1.4 "No sectors flagged today" branch in the renderer. */
+  maxAggregateZ: number | null;
+  /** Sector name with max |z|; null when all z's null. Ties broken
+   *  lexicographically (earlier sector name wins; deterministic across runs). */
+  maxAggregateZSector: string | null;
   /** Per-ticker rows for the watch universe. */
   perTickerRows: ReadonlyArray<{
     ticker: string;
@@ -547,8 +555,7 @@ export interface BriefExecutiveDepartureSection {
     executiveDepartureFlag: boolean;
     executiveAppointmentFlag: boolean;
   }>;
-  /** Count of SPY-500 constituents with usable sector mapping
-   *  (G1-A4: always 0 pending OQ-G2-1 baseline ADR). */
+  /** Count of SPY-500 constituents with usable sector mapping. */
   inputsAvailableAggregate: number;
   /** Count of watch-universe tickers with BOTH CIK + sector mapping
    *  (composite-side gate; can be 0 on cold-start). */
@@ -669,8 +676,16 @@ export interface BriefEightKClassifierSection {
     z: number;
     baselineSize: number;
   }>;
-  /** Flag: ANY sector has |z| > 2.0 (v1: always false — see module note). */
+  /** Flag: ANY sector has |z| > 2.0. */
   eightKClusterFlag: boolean;
+  /** Signed z of the sector with max |z| across all sectors with non-null z;
+   *  null when all sector z's are null (cold-start). Threaded from the composite
+   *  snapshot per ADR-042 §1 / SPEC §2 — consumed by the §1.4 "No sectors
+   *  flagged today" branch in the renderer. */
+  maxAggregateZ: number | null;
+  /** Sector name with max |z|; null when all z's null. Ties broken
+   *  lexicographically (earlier sector name wins; deterministic across runs). */
+  maxAggregateZSector: string | null;
   /** Per-ticker rows for the watch universe. */
   perTickerRows: ReadonlyArray<{
     ticker: string;
@@ -687,7 +702,7 @@ export interface BriefEightKClassifierSection {
     materialAgreementFlag: boolean;
     acquisitionFlag: boolean;
   }>;
-  /** Count of SPY-500 constituents with usable sector mapping (v1: always 0). */
+  /** Count of SPY-500 constituents with usable sector mapping. */
   inputsAvailableAggregate: number;
   /** Count of watch-universe tickers with CIK + sector mapping (v1: always 0
    *  because composite gates on both per S93-28; the universe-coverage line
@@ -762,8 +777,16 @@ export interface BriefForm4InsiderSection {
     z: number;
     baselineSize: number;
   }>;
-  /** Flag: ANY sector has |z| > 2.0 (v1: always false — see module note). */
+  /** Flag: ANY sector has |z| > 2.0. */
   form4ClusterFlag: boolean;
+  /** Signed z of the sector with max |z| across all sectors with non-null z;
+   *  null when all sector z's are null (cold-start). Threaded from the composite
+   *  snapshot per ADR-042 §1 / SPEC §2 — consumed by the §1.4 "No sectors
+   *  flagged today" branch in the renderer. */
+  maxAggregateZ: number | null;
+  /** Sector name with max |z|; null when all z's null. Ties broken
+   *  lexicographically (earlier sector name wins; deterministic across runs). */
+  maxAggregateZSector: string | null;
   /** Per-ticker rows for the watch universe. */
   perTickerRows: ReadonlyArray<{
     ticker: string;
@@ -777,7 +800,7 @@ export interface BriefForm4InsiderSection {
     insiderClusterBuyFlag: boolean;
     insiderClusterSellFlag: boolean;
   }>;
-  /** Count of SPY-500 constituents with usable sector mapping (v1: always 0). */
+  /** Count of SPY-500 constituents with usable sector mapping. */
   inputsAvailableAggregate: number;
   /** Count of watch-universe tickers with CIK + sector mapping (v1: always 0
    *  because composite gates on both; the universe-coverage line uses
@@ -1751,17 +1774,8 @@ function renderExecutiveDepartureSection(b: MorningBrief): string {
   lines.push(`## 12. Executive departures — ${clusterLabel}`);
   lines.push(``);
 
-  // Aggregate sector panel (G1-A4: per-ticker active; aggregate pending OQ-G2-1).
-  if (s.flaggedSectors.length === 0) {
-    lines.push(
-      `**Aggregate (SPY 500 by GICS sector):** ` +
-      `Aggregate-cluster panel awaits OQ-G2-1 ADR (per-sector daily ` +
-      `departure-rate baseline-computation strategy; SPEC §11). Per-ticker ` +
-      `sector annotations are active from \`quantlab.gics_sector_map\` ` +
-      `(s94 #1 G1-A1); aggregate-layer composite math is implemented + ` +
-      `tested but the trailing-2y baseline series requires the operator ADR.`,
-    );
-  } else {
+  // Aggregate sector panel — §1.4 three-branch under ADR-042 Option (a).
+  if (s.flaggedSectors.length > 0) {
     lines.push(`**Aggregate (SPY 500 by GICS sector):** ` +
       `${s.flaggedSectors.length} sector(s) with |z| > 2.0`);
     lines.push(``);
@@ -1772,6 +1786,25 @@ function renderExecutiveDepartureSection(b: MorningBrief): string {
       const zStr = `${f.z >= 0 ? '+' : ''}${f.z.toFixed(2)}σ`;
       lines.push(`| ${f.sector} | ${ratePct}% | ${zStr} | ${f.baselineSize} | ${f.sectorSize} |`);
     }
+  } else if (s.inputsAvailableAggregate > 0) {
+    const k = s.inputsAvailableAggregate;
+    const maxZStr = s.maxAggregateZ != null
+      ? `${s.maxAggregateZ >= 0 ? '+' : ''}${s.maxAggregateZ.toFixed(2)}`
+      : 'n/a';
+    const maxZSectorStr = s.maxAggregateZSector ?? 'n/a';
+    lines.push(
+      `**Aggregate (SPY 500 by GICS sector):** No sectors flagged today ` +
+      `(${k}/11 cleared MIN_Z_BASELINE; max-|z|=${maxZStr} at ${maxZSectorStr}). ` +
+      `Per-sector baseline re-computed per daemon cycle from raw events + PIT ` +
+      `constituents + GICS map (ADR-042 Option a).`,
+    );
+  } else {
+    lines.push(
+      `**Aggregate (SPY 500 by GICS sector):** Aggregate-cluster panel awaits ` +
+      `SP500 constituents-table trailing-2y coverage (ADR-042 §"Watch-outs"; ` +
+      `rate denominator is 0 across the cold-start window). Per-ticker sector ` +
+      `annotations are active from \`quantlab.gics_sector_map\` (s94 #1 G1-A1).`,
+    );
   }
   // Staleness indicator.
   if (s.lastEdgarQueryAt != null) {
@@ -1842,13 +1875,14 @@ function renderExecutiveDepartureSection(b: MorningBrief): string {
   lines.push(
     `_Universe coverage: ${s.tickersWithCikCount}/${s.watchUniverseTickerCount} ` +
     `watch-universe tickers have current CIK mapping · ${s.inputsAvailableAggregate} ` +
-    `aggregate constituents have usable sector mapping (G1-A4: per-ticker ` +
-    `sector active; aggregate-layer 0 pending OQ-G2-1 baseline ADR)._`,
+    `aggregate constituents have usable sector mapping ` +
+    `(per-ticker + aggregate-sector layers active under G1-A2/A3/A4 + G2-A1/A2/A3)._`,
   );
   lines.push(
     `_Composite: \`${s.compositeVersion}\` ` +
     `(v1 reads SEC EDGAR 8-K Item 5.02(b)/(c) only per SPEC E-2; ` +
-    `aggregate-sector layer dormant pending OQ-G2-1 ADR). ` +
+    `aggregate-sector layer LIVE under ADR-042 Option (a) — re-computed per ` +
+    `daemon cycle from raw events + PIT constituents + GICS map). ` +
     `INFORMATIONAL — does NOT fire a regime category in v1 (SPEC §1 non-goal #1)._`,
   );
   lines.push(``);
@@ -2053,17 +2087,8 @@ function renderEightKClassifierSection(b: MorningBrief): string {
   lines.push(`## 14. 8-K material events — ${clusterLabel}`);
   lines.push(``);
 
-  // Aggregate sector panel (G1-A3: per-ticker active; aggregate pending OQ-G2-1).
-  if (s.flaggedSectors.length === 0) {
-    lines.push(
-      `**Aggregate (SPY 500 by GICS sector):** ` +
-      `Aggregate-cluster panel awaits OQ-G2-1 ADR (per-sector daily ` +
-      `event-rate baseline-computation strategy; SPEC §11). Per-ticker ` +
-      `sector annotations are active from \`quantlab.gics_sector_map\` ` +
-      `(s94 #1 G1-A1); aggregate-layer composite math is implemented + ` +
-      `tested but the trailing-2y baseline series requires the operator ADR.`,
-    );
-  } else {
+  // Aggregate sector panel — §1.4 three-branch under ADR-042 Option (a).
+  if (s.flaggedSectors.length > 0) {
     lines.push(`**Aggregate (SPY 500 by GICS sector):** ` +
       `${s.flaggedSectors.length} sector(s) with |z| > 2.0`);
     lines.push(``);
@@ -2074,6 +2099,25 @@ function renderEightKClassifierSection(b: MorningBrief): string {
       const zStr = `${f.z >= 0 ? '+' : ''}${f.z.toFixed(2)}σ`;
       lines.push(`| ${f.sector} | ${ratePct}% | ${zStr} | ${f.baselineSize} | ${f.sectorSize} |`);
     }
+  } else if (s.inputsAvailableAggregate > 0) {
+    const k = s.inputsAvailableAggregate;
+    const maxZStr = s.maxAggregateZ != null
+      ? `${s.maxAggregateZ >= 0 ? '+' : ''}${s.maxAggregateZ.toFixed(2)}`
+      : 'n/a';
+    const maxZSectorStr = s.maxAggregateZSector ?? 'n/a';
+    lines.push(
+      `**Aggregate (SPY 500 by GICS sector):** No sectors flagged today ` +
+      `(${k}/11 cleared MIN_Z_BASELINE; max-|z|=${maxZStr} at ${maxZSectorStr}). ` +
+      `Per-sector baseline re-computed per daemon cycle from raw events + PIT ` +
+      `constituents + GICS map (ADR-042 Option a).`,
+    );
+  } else {
+    lines.push(
+      `**Aggregate (SPY 500 by GICS sector):** Aggregate-cluster panel awaits ` +
+      `SP500 constituents-table trailing-2y coverage (ADR-042 §"Watch-outs"; ` +
+      `rate denominator is 0 across the cold-start window). Per-ticker sector ` +
+      `annotations are active from \`quantlab.gics_sector_map\` (s94 #1 G1-A1).`,
+    );
   }
 
   // Staleness indicator.
@@ -2127,13 +2171,13 @@ function renderEightKClassifierSection(b: MorningBrief): string {
   lines.push(
     `_Universe coverage: ${s.tickersWithCikCount}/${s.watchUniverseTickerCount} ` +
     `mid-cap tickers have current CIK mapping · ${s.inputsAvailableAggregate} ` +
-    `aggregate constituents have usable sector mapping (G1-A3: per-ticker ` +
-    `sector active; aggregate-layer 0 pending OQ-G2-1 baseline ADR)._`,
+    `aggregate constituents have usable sector mapping ` +
+    `(per-ticker + aggregate-sector layers active under G1-A2/A3/A4 + G2-A1/A2/A3)._`,
   );
   lines.push(
     `_Composite: \`${s.compositeVersion}\` ` +
     `(high-signal items {1.01, 2.01, 2.06, 3.01, 4.01, 4.02, 5.01}; ` +
-    `90d rolling window; aggregate-sector layer dormant pending OQ-G2-1 ADR). ` +
+    `90d rolling window; aggregate-sector layer LIVE under ADR-042 Option (a)). ` +
     `INFORMATIONAL — does NOT fire a regime category in v1 (SPEC §1 non-goal #1)._`,
   );
   lines.push(``);
@@ -2208,17 +2252,8 @@ function renderForm4InsiderSection(b: MorningBrief): string {
   lines.push(`## 15. Form 4 insider activity — ${clusterLabel}`);
   lines.push(``);
 
-  // Aggregate sector panel (G1-A2: per-ticker active; aggregate pending OQ-G2-1).
-  if (s.flaggedSectors.length === 0) {
-    lines.push(
-      `**Aggregate (SPY 500 cluster-buy rate by GICS sector):** ` +
-      `Aggregate-cluster panel awaits OQ-G2-1 ADR (per-sector daily ` +
-      `cluster-rate baseline-computation strategy; SPEC §11). Per-ticker ` +
-      `sector annotations are active from \`quantlab.gics_sector_map\` ` +
-      `(s94 #1 G1-A1); aggregate-layer composite math is implemented + ` +
-      `tested but the trailing-2y baseline series requires the operator ADR.`,
-    );
-  } else {
+  // Aggregate sector panel — §1.4 three-branch under ADR-042 Option (a).
+  if (s.flaggedSectors.length > 0) {
     lines.push(`**Aggregate (SPY 500 cluster-buy rate by GICS sector):** ` +
       `${s.flaggedSectors.length} sector(s) with |z| > 2.0`);
     lines.push(``);
@@ -2229,6 +2264,26 @@ function renderForm4InsiderSection(b: MorningBrief): string {
       const zStr = `${f.z >= 0 ? '+' : ''}${f.z.toFixed(2)}σ`;
       lines.push(`| ${f.sector} | ${ratePct}% | ${zStr} | ${f.baselineSize} | ${f.sectorSize} |`);
     }
+  } else if (s.inputsAvailableAggregate > 0) {
+    const k = s.inputsAvailableAggregate;
+    const maxZStr = s.maxAggregateZ != null
+      ? `${s.maxAggregateZ >= 0 ? '+' : ''}${s.maxAggregateZ.toFixed(2)}`
+      : 'n/a';
+    const maxZSectorStr = s.maxAggregateZSector ?? 'n/a';
+    lines.push(
+      `**Aggregate (SPY 500 cluster-buy rate by GICS sector):** No sectors flagged today ` +
+      `(${k}/11 cleared MIN_Z_BASELINE; max-|z|=${maxZStr} at ${maxZSectorStr}). ` +
+      `Per-sector baseline re-computed per daemon cycle from raw events + PIT ` +
+      `constituents + GICS map (ADR-042 Option a).`,
+    );
+  } else {
+    lines.push(
+      `**Aggregate (SPY 500 cluster-buy rate by GICS sector):** Aggregate-cluster ` +
+      `panel awaits SP500 constituents-table trailing-2y coverage ` +
+      `(ADR-042 §"Watch-outs"; rate denominator is 0 across the cold-start window). ` +
+      `Per-ticker sector annotations are active from \`quantlab.gics_sector_map\` ` +
+      `(s94 #1 G1-A1).`,
+    );
   }
 
   // Staleness indicator.
@@ -2311,14 +2366,14 @@ function renderForm4InsiderSection(b: MorningBrief): string {
   lines.push(
     `_Universe coverage: ${s.tickersWithCikCount}/${s.watchUniverseTickerCount} ` +
     `mid-cap tickers have current CIK mapping · ${s.inputsAvailableAggregate} ` +
-    `aggregate constituents have usable sector mapping (G1-A2: per-ticker ` +
-    `sector active; aggregate-layer 0 pending OQ-G2-1 baseline ADR)._`,
+    `aggregate constituents have usable sector mapping ` +
+    `(per-ticker + aggregate-sector layers active under G1-A2/A3/A4 + G2-A1/A2/A3)._`,
   );
   lines.push(
     `_Composite: \`${s.compositeVersion}\` ` +
     `(open-market codes {P, S}; 90d rolling window; 30d cluster window; ` +
-    `≥3 distinct insiders → cluster flag; aggregate-sector layer dormant ` +
-    `pending OQ-G2-1 ADR). INFORMATIONAL — does NOT fire a regime category ` +
+    `≥3 distinct insiders → cluster flag; aggregate-sector layer LIVE under ` +
+    `ADR-042 Option (a)). INFORMATIONAL — does NOT fire a regime category ` +
     `in v1 (SPEC §1 non-goal #1)._`,
   );
   lines.push(``);
