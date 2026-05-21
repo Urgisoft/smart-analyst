@@ -52,6 +52,8 @@
     "edgar:exec-departure:ingest:dry": ".venv\\Scripts\\python.exe scripts/sec_edgar_8k_item_5_02_ingest.py --dry-run",
     "edgar:8k-event:ingest": ".venv\\Scripts\\python.exe scripts/sec_edgar_8k_event_ingest.py --apply",
     "edgar:8k-event:ingest:dry": ".venv\\Scripts\\python.exe scripts/sec_edgar_8k_event_ingest.py --dry-run",
+    "edgar:form4:ingest": ".venv\\Scripts\\python.exe scripts/sec_edgar_form4_ingest.py --apply",
+    "edgar:form4:ingest:dry": ".venv\\Scripts\\python.exe scripts/sec_edgar_form4_ingest.py --dry-run",
     "etf:flow:ingest": ".venv\\Scripts\\python.exe scripts/etf_flow_ingest.py --apply",
     "etf:flow:ingest:dry": ".venv\\Scripts\\python.exe scripts/etf_flow_ingest.py --dry-run",
     "macro:emit-fixtures": "tsx scripts/_emit_macro_regime_fixtures.ts",
