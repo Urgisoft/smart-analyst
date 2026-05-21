@@ -147,6 +147,12 @@ import {
   eightKEventsTableExists,
   runDaemonEightKClassifierEvaluation,
 } from '../src/server/eight_k_classifier_repository.js';
+import {
+  Form4InsiderRepository,
+  form4InsiderSnapshotsTableExists,
+  insiderTradesTableExists,
+  runDaemonForm4InsiderEvaluation,
+} from '../src/server/form_4_insider_repository.js';
 import { runFredFetch } from '../src/server/daemon_fred_fetch.js';
 import { CLASSIFIER_VERSION_V3 } from '../src/server/macro_regime_v3.js';
 import {
@@ -1377,6 +1383,61 @@ async function main() {
       anomalies.push({
         severity: 'info',
         message: `eight-k evaluation failed: ${(e as Error).message}`,
+      });
+    }
+  }
+
+  // 1l. Form 4 insider evaluation (informational Layer-0 input).
+  //     SPEC: docs/specs/event-driven-filings-processor.md §3 component
+  //     diagram + §7 daemon hook position — runs AFTER 8-K classifier
+  //     (step 1k); consumes the SEC EDGAR Form 4 insider-transaction rows
+  //     (from `scripts/sec_edgar_form4_ingest.py`) + the SPY-500 PIT
+  //     constituent panel + the equity-midcap watch universe. Output is
+  //     informational only in v1; does NOT fire a regime category. Same
+  //     non-fatal posture as all prior Layer-0 composites.
+  //
+  //     Two table gates (mirrors etf-flow step 1j + eight-k step 1k): both
+  //     the source table `insider_trades` and the snapshot table
+  //     `form_4_insider_snapshots` must exist. The source gate handles
+  //     "F4-A3 migration applied but F4-A1 ingest never run" (composite
+  //     would emit all-empty rows; skip the daemon call entirely instead
+  //     of writing a noise snapshot). The snapshot gate handles "F4-A3
+  //     migration not yet applied" (skip with operator nudge).
+  //
+  //     v1 GICS-sector resolution (SPEC §11 canon-thin fork; identical
+  //     posture to gap #7 EK-A4 + gap #8 exec-departure): the aggregate-
+  //     sector layer is structurally inactive — `inputs.sectors` is empty
+  //     in v1 and `form_4_cluster_flag` never fires. Per-ticker layer
+  //     (90d insider buy/sell counts + net dollar + 30d cluster flags per
+  //     direction) is fully active. See src/server/form_4_insider_repository.ts
+  //     module header for the three-criterion analysis + v2 deliverable
+  //     definition (a single GICS-sector slice activates BOTH EK + F4 + gap
+  //     #8 aggregate panels).
+  if (NO_MACRO || DRY_RUN) {
+    console.log(`[form-4] skipped (${NO_MACRO ? '--no-macro' : '--dry-run'})`);
+  } else if (!(await insiderTradesTableExists(ch))) {
+    console.log(
+      '[form-4] source table absent (`quantlab.insider_trades`) — ' +
+      'skipped. Run `npm run edgar:form4:ingest` to populate.',
+    );
+  } else if (!(await form4InsiderSnapshotsTableExists(ch))) {
+    console.log(
+      '[form-4] snapshots table absent (`quantlab.form_4_insider_snapshots`) — ' +
+      'skipped. Run `npm run migrate:create-form-4-insider-snapshots:apply` to enable.',
+    );
+  } else {
+    try {
+      const form4Repo = new Form4InsiderRepository({ ch });
+      const form4Result = await runDaemonForm4InsiderEvaluation({
+        repo: form4Repo,
+        asOf: new Date(t0),
+      });
+      console.log(form4Result.summaryLine);
+    } catch (e) {
+      console.warn(`[form-4] evaluation failed (non-fatal): ${(e as Error).message}`);
+      anomalies.push({
+        severity: 'info',
+        message: `form-4 evaluation failed: ${(e as Error).message}`,
       });
     }
   }
