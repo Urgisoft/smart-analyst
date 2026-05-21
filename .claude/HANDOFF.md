@@ -1,32 +1,45 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-05-20 (session 94 #5 — **OQ-G2-1 ADR-042 RESEARCH note SHIPPED** as commit `9ceb1cd`. Three-option proposal for per-sector daily rate baseline computation written; tradeoff matrix covers CH read amplification / cold-start window / schema cost / backfill simplicity plus PIT correctness, Phase B replayability, operator-facing observability, composability, migration reversibility, daemon-cycle latency, and slice size. Cross-cutting design notes pin shared-discriminator-column pattern (S94-12 regression protection), GICS-helper reuse path for Option (a), newly opened OQ-G2-2 follow-up on EDGAR-amendment policy. Per HANDOFF S94-7 + CLAUDE.md autonomous-execution canon-thin rule, the note explicitly does NOT auto-pick — operator picks (a)/(b)/(c) before the chosen-option SPEC + CODE slice can land. Vector Core canon-thin disclosure surfaced explicitly. All gates green (no code touched; npm test unchanged 2833/2802; tsc unchanged 13 errors; pytest unchanged 324/324). 12 commits ahead of `origin/main`; push still operator-gated. **NEXT: operator picks Option (a)/(b)/(c) from ADR-042 RESEARCH note. Once picked, next-session writes the ADR-042 text in `docs/decisions/README.md` + the chosen-option SPEC + the G2-A1/A2/A3 triple slice (coordinated atomic edits across sections #12 + #14 + #15 footers + composite-taglines + repository annotations + brief panel surface per S94-14).**)
+Last updated: 2026-05-21 (session 94 #6 — **ADR-042 ACCEPTED via operator pick of Option (a)** at session start; commits `d69d34f` (ADR-042 text + companion SPEC at `docs/specs/gics-sector-baseline-computation.md`) and `75599d7` (Step 1 — `readSectorMembershipPanel` helper + 6 SMP tests). Operator selected Option (a) recompute-on-the-fly from the §5 framing of the ADR-042 RESEARCH note: smallest deployment surface + zero new schema + schemaless flexibility for the next ~6mo of rate-formula evolution; EDGAR-amendment wart accepted for Layer-0 informational use. ADR-042 ratifies the cross-cutting design decisions (PIT JOIN, sample stddev, today-excluded baseline window, empty-sector-day rate=0, OQ-G2-2 silent-rewrite default, daemon log-line shape, brief panel surface). Companion SPEC pins the 45-test byte-template across six test files. Helper foundation in. **NEXT: Steps 2-5 from `docs/specs/gics-sector-baseline-computation.md` §6 — composite-layer maxAggregateZ / repository populateSectorsForCycle / renderer-composer atomic triple-edit per S94-14 / daemon-orchestrator wiring + ~39 remaining tests.** 14 commits ahead of `origin/main`; push still operator-gated.)
 
 ## What this turn delivered
 
-Fifth slice (ADR-042 RESEARCH note) of the gap #7+#8 v2 GICS-activation arc — the operator-decided systems-engineering ADR proposal that unblocks G2 (aggregate-panel activation across all three composites). Single doc, no code, surfaces option-comparison to operator.
+Sixth slice of the gap #7+#8 v2 GICS-activation arc. ADR-042 lands as ACCEPTED with operator-picked Option (a); companion SPEC pins the byte-template for the implementation; foundation helper extension lands as the first of five SPEC implementation steps.
 
-1. **`docs/specs/adr-042-gics-sector-baseline-computation-research.md`** (NEW, ~450 LOC):
-   - **Status / Date / Owner / Resolves header** pointing at HANDOFF OQ-G2-1.
-   - **Upstream-SPEC pointers** to the three blocked composite SPECs (executive-departure §5.2 + §11; event-driven-filings §5.2 EK + §5.3 F4).
-   - **Tier-1 canon** (AFML Ch 1 §1.2 + Ch 11; Bailey-LdP 2014) with explicit canon-thin disclosure for the systems-engineering portion ("AFML §11 is silent on the storage layer; Pardo §6 assumes the rate series exists but does not specify how to materialize it"). Vector Core canon-thin rule honored.
-   - **§1 Scope** — pins the trailing-2y per-sector daily rate series (~503 days × 11 sectors = ~5,533 rate points per composite); enumerates out-of-scope items (MIN_Z_BASELINE = 30 floor + rate-window length + per-ticker sector annotation already shipped + cross-composite z-combination + EDGAR-amendment retroactive correction policy).
-   - **§2 Option enumeration** — three options with example CH DDL / query shapes:
-     - **(a) Re-compute on-the-fly** — single GROUP BY + ASOF JOIN to GICS map + PIT constituents per cycle per composite; zero new schema; zero backfill.
-     - **(b) Persist sibling table + one-time backfill** — `quantlab.<composite>_sector_rate_baseline` ReplacingMergeTree shape; write-once historical rates; needs `scripts/backfill_sector_rate_baseline.ts`.
-     - **(c) Hybrid: persist, no backfill** — same schema as (b) but daemon writes from cycle 1 forward; accepts ~30 trading days cold-start.
-   - **§3 Tradeoff matrix** — 12-row table covering the four explicitly-requested dimensions (CH read amplification / cold-start window / schema cost / backfill simplicity) plus eight additional dimensions (CH write amplification, PIT correctness under EDGAR amendments, Phase B replayability, operator-facing observability, composability with future composites, migration reversibility, daemon-cycle latency budget, implementation slice size).
-   - **§4 Cross-cutting design notes** (apply regardless of which option is picked):
-     - §4.1 — **Unified table with `composite` discriminator** strong recommendation for Option (b)/(c) over three sibling tables (S94-12 rule-of-three regression protection; pattern mirrors `quantlab.gics_sector_map` from s94 #1 G1-A1).
-     - §4.2 — **GICS helper reuse for Option (a)** — new `readSectorMembershipPanel(asOf_start, asOf_end)` helper function would join the `gics_sector_repository_helper.ts` family.
-     - §4.3 — **Newly opened OQ-G2-2 follow-up** on EDGAR-amendment behavior; the chosen-option SPEC needs to pin the default (silent re-write under (a); frozen baseline under (b)/(c)).
-     - §4.4 — `MIN_Z_BASELINE = 30` cold-start interaction per option.
-     - §4.5 — **Daemon-cycle ordering** — today's rate MUST be excluded from baseline (self-reference deflates z-magnitude trivially).
-   - **§5 Operator-pick framing** — three "what each option actually optimizes for" buckets (smallest deployment / operationally replayable / clean-room start). Notes the three composites do NOT need to share an option, though mixed picks add complexity.
-   - **§6 SPEC-stage open questions** — six items the chosen-option SPEC must resolve (PIT-correctness of constituents JOIN; mid-window sector swaps; empty-sector days `stddevSamp` denominator; daemon-cycle log line shape; brief panel surface wording per S94-14; OQ-G2-2 amendment-behavior default).
-   - **§7 What ships NOW vs LATER** — pins this RESEARCH note as the operator-facing surface; the ADR-042 text + companion SPEC + G2 triple slice ships next.
-   - **§8 Watch-outs** — seven items: auto-pick prohibition per S94-7; EDGAR-amendment wart for Option (a); S94-14 coordinated-triple-edit requirement; `stddevSamp` vs `stddevPop` Bessel correction; today's-rate-excluded daemon-cycle ordering; shared `composite` discriminator regression protection; PIT constituents-panel-coverage prerequisite.
-   - **§9 "Why this is RESEARCH, not SPEC, not CODE"** — Vector Core stage-discipline boilerplate explicit closing.
+1. **Operator pick of ADR-042 Option (a)** — recompute-on-the-fly per daemon cycle. Operator selected via inline AskUserQuestion at session start; the §5 framing of the RESEARCH note presented three options side-by-side with previews. Pick rationale (paraphrased from operator's choice in context of §5): smallest deployment surface + schemaless flexibility wins over operational replayability under YAGNI for Layer-0 informational composites not yet wired into any tradable rule.
+
+2. **`docs/decisions/README.md` ADR-042 entry** (commit `d69d34f`, ~130 LOC):
+   - **Status / Date / Author / Resolves / Supersedes** header — Accepted 2026-05-21; resolves HANDOFF OQ-G2-1; supersedes the OQ-G2-1-awaiting wording in the v1 SPECs.
+   - **Decision §1-§10** — 10 numbered decision items pinning recompute-on-the-fly + new helper signature + sample stddev + today-excluded window + EDGAR amendment silent-rewrite default + MIN_Z_BASELINE preserved at 30 + PIT-correct JOIN + empty-sector rate=0 + daemon log-line shape + brief panel surface (LIVE / cold-start branches + composite-tagline rewrite).
+   - **Methodology defense** — explicit canon-thin-rule-INAPPLICABLE statement per S94-15 (systems-engineering fork; operator-decided; three-criterion test inapplicable).
+   - **Why Option (a) over (b)/(c)** — compressed pushback against the alternatives under YAGNI.
+   - **Alternatives considered** — (b)/(c)/(d) mixed picks all rejected.
+   - **Resolved at Accept** — six §6 RESEARCH-stage OQs resolved including OQ-G2-2 amendment-behavior default (silent re-write).
+   - **Dependencies / Consequences / Out of scope / Watch-outs / Source** — standard ADR sections.
+   - **ADR index updated** — ADR-042 added under Architecture (no new schema) + Roadmap-shaping (unblocks G2).
+
+3. **`docs/specs/gics-sector-baseline-computation.md`** (NEW, ~280 LOC):
+   - **§1 Contracts** — `readSectorMembershipPanel` helper signature; `populateSectorsForCycle` per-composite orchestrator signature (byte-equal across XD/EK/F4); daemon log-line shape; §1.4 brief panel surface (three branches + composite-tagline rewrites).
+   - **§2 Composite-layer additions** — `maxAggregateZ` + `maxAggregateZSector` fields on the three Snapshot interfaces.
+   - **§3 Daemon-orchestrator wiring** — call-site pattern.
+   - **§4 EXPLAIN-PLAN gate** — skip-on-table-absent contract.
+   - **§5 Test list (byte-pinned)** — 45 tests numbered SMP-1..6 + MAXZ-*-1..4 × 3 composites + POPSEC-*-1..4 × 3 composites + G2-RENDER-*-1..3 × 3 sections + G2-DAEMON-*-1 × 3 + G2-COMPOSER-*-1 × 3.
+   - **§6 Implementation order** — Steps 1-5 with the S94-14 atomic-triple-edit boundary pinned at Step 4.
+   - **§7 Acceptance criteria** — post-merge gates.
+   - **§8 Watch-outs / §9 Stage-discipline rationale** — final sections.
+
+4. **`src/server/gics_sector_repository_helper.ts` extension** (commit `75599d7`, ~150 LOC added — Step 1 from SPEC §6):
+   - New `SectorMembershipPanelRow` interface (`day` / `sector` / `memberCount`).
+   - New `readSectorMembershipPanel(ch, gicsTable, constituentsTable, asOfStart, asOfEnd)` function. Two CH reads (constituents PIT timeline + GICS PIT timeline) + in-JS composition. Strict PIT per ADR-042 §7 — mid-window sector swaps reflected via gicsByTicker timeline scan. Empty-window short-circuit per ADR-042 §"Out of scope". TypeScript composition (not pure CH ASOF JOIN) because sp500_constituents writes the FULL panel per effective_date and the canonical PIT semantic ("governing effective_date = max(effective_date ≤ day); panel = all tickers at that effective_date") cannot be expressed cleanly in CH ASOF JOIN.
+   - Module-bottom "what could break this" section updated with the new helper's failure-modes (Bessel correction, today-excluded, sp500_constituents schema assumption, TypeScript composition cost).
+
+5. **`scripts/tests/gicsSectorRepositoryHelper.test.ts` extension** (commit `75599d7`, ~155 LOC added):
+   - **SMP-1** — empty-window short-circuit, no CH calls.
+   - **SMP-2** — SQL shape: PIT-DESC by effective_date / snapshot_date.
+   - **SMP-3** — table + date binding (asOfEnd as ISO Date string).
+   - **SMP-4** — row parsing; zero-member sectors NOT emitted.
+   - **SMP-5** — mid-window sector swap (strict PIT) — Energy→Materials reclassification reflected.
+   - **SMP-6** — EXPLAIN PLAN grammar gate, skip-on-table-absent.
 
 ## Where we are
 
@@ -45,8 +58,10 @@ Fifth slice (ADR-042 RESEARCH note) of the gap #7+#8 v2 GICS-activation arc — 
 | Gap #7+#8 v2 GICS-A2 (F4 repo + section #15 annotation) | ✓ s94 #2 (`3eb94d6`) |
 | Gap #7+#8 v2 GICS-A3 (EK repo + section #14 annotation) | ✓ s94 #3 (`497a645`) |
 | Gap #7+#8 v2 GICS-A4 (XD repo + section #12 annotation + helper extraction) | ✓ s94 #4 (`dc70f8c`) |
-| **Gap #7+#8 v2 OQ-G2-1 ADR-042 RESEARCH note** | **✓ s94 #5 (`9ceb1cd`) — operator-pick pending** |
-| Gap #7+#8 v2 GICS-G2 (aggregate-panel activation) | ☐ BLOCKED on operator picking ADR-042 (a)/(b)/(c) |
+| Gap #7+#8 v2 OQ-G2-1 ADR-042 RESEARCH note | ✓ s94 #5 (`9ceb1cd`) |
+| **ADR-042 ACCEPTED + companion SPEC** | **✓ s94 #6 (`d69d34f`)** |
+| **ADR-042 Step 1 — readSectorMembershipPanel helper + 6 SMP tests** | **✓ s94 #6 (`75599d7`)** |
+| Gap #7+#8 v2 G2 (Steps 2-5 of SPEC §6) | ☐ NEXT (~39 remaining tests; see Next stage) |
 | ADR-041 implementation (`yield_curve_inverted` category) | ☐ DEFERRED — operator-pickable |
 | Gap #7 v2 per-row recency (S93-32 + S93-52 co-bootstrap) | ☐ deferred (operator-pickable) |
 | Gap #7 v2 CMP opportunistic-vs-routine classifier (per F4-1) | ☐ deferred (calendar-gated ≥6mo from F4-A1 first apply) |
@@ -58,51 +73,40 @@ Fifth slice (ADR-042 RESEARCH note) of the gap #7+#8 v2 GICS-activation arc — 
 | Phase B campaigns for nine Layer-0 composites | ⏸ deferred — calendar OR backfill arc |
 | #5 capital-deployment-ramp ADR | ☐ operator self-assigned ~1 week; not blocking |
 | Drawdown framework §12 90d empirical retune | ☐ scheduled — earliest 2026-08-29 |
-| Push 12 commits to origin/main | ☐ operator-gated, HOLD |
+| Push 14 commits to origin/main | ☐ operator-gated, HOLD |
 
 ## Decisions locked in
 
-### Session 94 part 5 (this turn, this commit) — ADR-042 RESEARCH note shipped
+### Session 94 part 6 (this turn, two commits)
 
-**S94-15. ADR-042 is operator-decided; the RESEARCH note explicitly does NOT auto-pick.**
-`Why:` Per HANDOFF S94-7 explicit framing the baseline-computation strategy is operator-decided, NOT a canon-thin methodology fork eligible for autonomous resolution. CLAUDE.md autonomous-execution canon-thin rule applies to METHODOLOGY forks where the three-criterion test (canon foundations / methodology rigor / minimum free parameters) lands a defensible choice. ADR-042 is a SYSTEMS-ENGINEERING fork where the operator's preference between schema-cost vs read-amplification vs cold-start-acceptance matters more than the canon, which is silent on the storage layer (AFML §11 is methodology-only; Pardo §6 assumes the rate series exists but doesn't specify materialization). Vector Core canon-thin disclosure surfaced explicitly in the RESEARCH note's canon header. Three-criterion analysis is INAPPLICABLE here because:
-  1. **Canon foundations** — Tier-1 canon is silent on the storage decision. All three options are equally well-grounded (i.e., not grounded at all) in canon.
-  2. **Methodology rigor** — all three options compute identical z-scores given identical input data. The differences are operational, not methodological.
-  3. **Minimum free parameters** — all three options have zero free statistical parameters (the formula is fixed); the "parameters" being tuned are engineering preferences.
+**S94-18. ADR-042 ACCEPTED via operator pick of Option (a) recompute-on-the-fly.**
+`Why:` Operator's pick at session start via inline AskUserQuestion using the §5 "what each option optimizes for" framing from the ADR-042 RESEARCH note. The S94-15 framing held — this was a systems-engineering fork (not canon-thin methodology fork), operator decided. Option (a) was selected on the strength of smallest deployment surface + schemaless flexibility under YAGNI; the EDGAR-amendment wart was accepted as not load-bearing for Layer-0 informational use. The other two options ((b) persist + backfill / (c) persist no backfill) are explicitly rejected for v1 and could be revisited via a superseding ADR if (i) EDGAR-amendment frequency surfaces operational impact or (ii) Phase B independence-test replayability becomes load-bearing.
 
-`How to apply:` Future ADRs that are systems-engineering forks (storage strategy, schema vs schemaless, ingest cadence, query-shape choice) MUST be operator-decided, NOT auto-resolved via the canon-thin rule. The autonomous resolution rule applies to methodology forks (validation scheme, ranking metric, sample weighting, etc.) — not to deployment/infra/schema choices. When in doubt, surface the choice to the operator with a RESEARCH note + option enumeration + tradeoff matrix; do NOT pick.
+`How to apply:` All G2 implementation work targets Option (a). The chosen-option SPEC at `docs/specs/gics-sector-baseline-computation.md` pins the byte-template; do NOT re-litigate the storage-strategy decision unless one of the (i)/(ii) triggers fires. ADR-043 (amendment-detection forensic tooling) stays in OQ-G2-2-deferred state.
 
-**S94-16. Unified-table-with-discriminator pattern is the strong recommendation for Option (b)/(c) over three sibling tables.**
-`Why:` S94-12 just resolved the rule-of-three drift problem at the `readSectorByTicker` helper level. Three sibling baseline tables would re-introduce the same drift surface — three migrations / three backfill paths / three repository wirings / three operator-inspection queries. The unified-table pattern (one table with `composite LowCardinality(String)` discriminator) follows the `quantlab.gics_sector_map` precedent from s94 #1 G1-A1 (shared infra serving three downstream composites). Three-criterion-equivalent for THIS engineering sub-choice (not the ADR-042 pick itself, but the schema shape if Option (b)/(c) lands):
-  1. **Canon foundations** — DRY canon + Fowler *Refactoring* (rule-of-three already applied to the helper layer).
-  2. **Methodology rigor** — single regression target for schema drift; one place to add a fourth composite (13D/13G arc, sell-cluster sector aggregation).
-  3. **Minimum free parameters** — one table = one ORDER BY = one ReplacingMergeTree config; eliminates three-way drift.
+**S94-19. The composite-layer Snapshot interface gains two NEW observability fields: `maxAggregateZ` + `maxAggregateZSector`.**
+`Why:` Pure-function derivation from the existing sector-z loop. The brief renderer's §1.4 LIVE branch ("No sectors flagged today (k/11 cleared MIN_Z_BASELINE; max-|z|=X.YZ at <Sector>)") needs the values to render; exposing them on the Snapshot rather than re-computing in the renderer keeps the renderer pure + testable. Tied to the SPEC's MAXZ-*-1..4 test list per composite — applies byte-equally to XD/EK/F4. Three-criterion analysis (sub-choice within Option (a) implementation): canon foundations = N/A pure-function math; methodology rigor = single regression target across three composites for the new fields; minimum free parameters = zero new parameters.
 
-`How to apply:` If the operator picks Option (b) or (c), the chosen-option SPEC MUST specify the unified-table pattern with a `composite` discriminator column. Three sibling tables is a deferrable-but-do-not-recommend alternative; the chosen-option SPEC pins the unified shape unless the operator explicitly overrides. The DDL recommendation in ADR-042 §2 Option (b) already encodes this.
+`How to apply:` Step 2 of SPEC §6 adds the two fields to all three Snapshot interfaces. The composite evaluators populate them in the aggregate-sector loop alongside `flaggedSectors` + `executiveClusterDeparture`. Renderer §1.4 LIVE branch reads them from `s.maxAggregateZ` / `s.maxAggregateZSector` rather than re-deriving.
 
-**S94-17. OQ-G2-2 (newly opened) — EDGAR-amendment behavior — needs to be pinned in the chosen-option SPEC, NOT a separate ADR.**
-`Why:` The §3 tradeoff-matrix row "Point-in-time correctness under late-arriving EDGAR amendments" surfaces a default-behavior question the v1 SPECs don't address: under Option (a), amendments silently re-write the baseline; under Option (b)/(c), the baseline is frozen at first-write. The default behavior follows mechanically from the chosen option's storage strategy. A separate ADR for amendment-detection tooling would be premature — the right move is to PIN the default in the chosen-option SPEC + flag the forensic-tooling question as a deferred Bucket-3 enhancement. ADR-043 only opens if Phase B independence tests reveal amendment frequency is high enough to materially distort z-score historicals (currently estimated rare for 8-K Item 5.02, more common for Form 4 trade-detail amendments).
+**S94-20. The S94-14 coordinated atomic triple-edit boundary IS pinned at SPEC §6 Step 4 (renderer + composer rewrite).**
+`Why:` Steps 1-3 + Step 5 of the SPEC are NOT drift-coupled across composites — the helper extension (Step 1, already shipped) is composite-agnostic; the per-composite composite-layer additions (Step 2) and repository extensions (Step 3) operate on each composite independently; the daemon-orchestrator wiring (Step 5) emits one log line per composite but the log-line shape is byte-equal across composites. Only the brief renderer + composer changes (Step 4) span the three sections #12 / #14 / #15 with drift-coupled wording (the OQ-G2-1-awaiting footer + composite-tagline). Per S94-14 single-composite incremental rollout of Step 4 would visibly drift the operator-facing wording.
 
-`How to apply:` The chosen-option SPEC's test list MUST include a test that pins the amendment-behavior default. For Option (a): "amendment of a past day's event count silently re-writes the baseline mean/std on the next cycle." For Option (b)/(c): "amendment of a past day's event count does NOT re-write the frozen baseline row." Don't open ADR-043 for amendment tooling unless Phase B testing reveals the wart actually bites operationally.
+`How to apply:` Next session can commit Steps 2, 3, 5 individually (or in any sequence that keeps tests green) without coupling. Step 4 MUST land as ONE commit covering all three sections. Step 2 is recommended FIRST because Steps 3-5 depend on the new `maxAggregateZ` / `maxAggregateZSector` fields.
 
-### Sessions 84-93 + s94 #1..#4 prior decisions (carried)
+### Sessions 84-93 + s94 #1..#5 prior decisions (carried)
 
-All prior decisions preserved unchanged. S93-1..S93-54 + S94-1..S94-14 carry through.
+All prior decisions preserved unchanged. S93-1..S93-54 + S94-1..S94-17 carry through.
 
 ## Open questions
 
-### CARRIED — OPERATOR-DECIDED (HIGH priority — blocks G2)
+### Newly opened (per ADR-042 §4.3 + §5 Decision)
 
-**OQ-G2-1 (HIGH — RESEARCH NOTE SHIPPED THIS TURN, AWAITING OPERATOR PICK).** Per-sector daily rate baseline computation strategy. ADR-042 RESEARCH note at [`docs/specs/adr-042-gics-sector-baseline-computation-research.md`](../docs/specs/adr-042-gics-sector-baseline-computation-research.md) shipped this turn. Three options:
-  - **(a) Re-compute on-the-fly** — zero new schema, single GROUP BY + ASOF JOIN per cycle per composite, ~0.3-1.5 s per cycle total across three composites. Smallest slice (~150 LOC + ~12 tests). Best if you want G2 live fastest with the smallest deployment surface; accept the EDGAR-amendment wart.
-  - **(b) Persist sibling table + backfill** — unified table with `composite` discriminator (per S94-16), one-time backfill script, frozen historical rates. ~450 LOC + ~85 tests. Best if you want operational replayability + frozen-rate guarantees for Phase B independence tests.
-  - **(c) Persist sibling table, no backfill** — same schema as (b), accepts ~30 trading days cold-start before MIN_Z_BASELINE clears. ~300 LOC + ~70 tests. Best if you want the clean-room property where the daemon never infers history it didn't see.
+**OQ-G2-2 (LOW — deferred).** EDGAR-amendment forensic tooling default. Per ADR-042 §5 the default under Option (a) is silent re-write of the baseline on next cycle. ADR-043 (amendment-detection forensic tooling) opens only if Phase B testing reveals operational impact. Stays in deferred-bucket-3 state; no current action.
 
-The three composites do NOT need to share an option (mixed pick possible but adds complexity). NEXT SESSION'S DEFAULT: surface this to operator + wait for pick. Do NOT auto-pick per S94-15 + S94-7.
+### Closed this turn
 
-### Newly opened (per ADR-042 §4.3)
-
-**OQ-G2-2 (MEDIUM — opens once OQ-G2-1 resolves).** EDGAR-amendment behavior default. Per S94-17 the default follows mechanically from the ADR-042 pick (silent re-write under (a); frozen baseline under (b)/(c)). The chosen-option SPEC pins this in its test list. ADR-043 (amendment-detection tooling) only opens if Phase B testing reveals the operational wart bites; until then this is a deferred Bucket-3 enhancement, NOT a blocker.
+- ~~OQ-G2-1 ADR-042 operator pick~~ — RESOLVED via operator selection of Option (a) at session start. ADR-042 now ACCEPTED.
 
 ### CARRIED (unchanged)
 
@@ -120,36 +124,83 @@ The three composites do NOT need to share an option (mixed pick possible but add
 - First-apply-run EDGAR Item-filter OR-clause behavior (S93-15 best-guess; verification deferred to first ingest run).
 - Cold-start cascade timing for EK + F4 + XD arcs (~6-8 weeks of EDGAR ingest history before Phase B validation has signal).
 
-### Closed this turn
-
-- ~~OQ-G2-1 ADR option-comparison brief is not yet written~~ — RESOLVED per S94-15: ADR-042 RESEARCH note shipped at `docs/specs/adr-042-gics-sector-baseline-computation-research.md`; operator pick now blocks.
-
 ## Next stage
 
 ### Default on "continue"
 
-**Wait for operator pick of ADR-042 Option (a)/(b)/(c).** Per S94-15 + S94-7 the choice is operator-decided. The next session opens with the operator's pick, then immediately:
+**Execute Steps 2-5 of SPEC §6** at [`docs/specs/gics-sector-baseline-computation.md`](../docs/specs/gics-sector-baseline-computation.md). Detailed byte-pinned test list at SPEC §5. Recommended sequencing:
 
-1. **Writes the ADR-042 text** in `docs/decisions/README.md` — short ADR entry (decision + alternatives + open questions + watch-outs) pointing at the RESEARCH note for substantive material. Pattern follows the ADR-040 → docs/decisions/README.md fan-in.
-2. **Writes the companion SPEC** at `docs/specs/gics-sector-baseline-computation.md` — contracts, function signatures, byte-pinned test list per the chosen option. Resolves the six §6 open questions from the RESEARCH note.
-3. **Lands the G2-A1/A2/A3 triple slice** as a coordinated atomic edit per S94-14:
-   - **G2-A1** — F4 aggregate-panel activation (section #15 footer + composite-tagline + repository annotations).
-   - **G2-A2** — EK aggregate-panel activation (section #14 + composite-tagline + repository annotations).
-   - **G2-A3** — XD aggregate-panel activation (section #12 + composite-tagline + repository annotations).
-4. **If Option (a) picked**: adds `readSectorMembershipPanel` helper function to `src/server/gics_sector_repository_helper.ts` per RESEARCH §4.2; ~80 LOC + ~6 tests.
-5. **If Option (b) picked**: ships unified-table migration script + backfill script per S94-16 + their tests; ~270 LOC + ~40 tests.
-6. **If Option (c) picked**: ships unified-table migration script per S94-16 (no backfill); ~120 LOC + ~25 tests.
+#### Step 2 — Composite-layer additions (~30 LOC × 3 composites + 12 tests)
 
-**If the operator wants the option pre-discussed before deciding** (e.g., asks for cost comparison under Phase B cadence promotion, or asks for the OQ-G2-2 amendment-behavior default to be analyzed in more depth), the next session can extend the RESEARCH note inline rather than picking. **Do NOT auto-pick under any circumstance.**
+Add `maxAggregateZ` + `maxAggregateZSector` to:
+- `src/server/executive_departure.ts` (XD) — `ExecutiveDepartureSnapshot` interface + `evaluateExecutiveDepartureComposite` aggregate-sector loop.
+- `src/server/eight_k_classifier.ts` (EK) — `EightKClassifierSnapshot` interface + `evaluateEightKClassifierComposite`.
+- `src/server/form_4_insider.ts` (F4) — `Form4InsiderSnapshot` interface + `evaluateForm4InsiderComposite`.
 
-### After ADR-042 picks + G2 ships
+Pure-function derivation in the existing sector-z loop (example):
+
+```ts
+let maxAbsZ = -Infinity;
+let maxZ: number | null = null;
+let maxSector: string | null = null;
+for (let i = 0; i < sectorZs.length; i++) {
+  const z = sectorZs[i];
+  if (z == null) continue;
+  const absZ = Math.abs(z);
+  if (absZ > maxAbsZ
+      || (absZ === maxAbsZ && (maxSector == null || inputs.sectors[i].sector < maxSector))) {
+    maxAbsZ = absZ;
+    maxZ = z;
+    maxSector = inputs.sectors[i].sector;
+  }
+}
+```
+
+Tests per SPEC §5.2: MAXZ-XD-{1..4} / MAXZ-EK-{1..4} / MAXZ-F4-{1..4} — 12 total. Also update the CH INSERT path's snapshot-payload writer + the snapshot deserializer if either reads/writes these as columns (likely NEW columns — coordinate with the CH migrations; the snapshot tables currently store these in the JSON payload column, so likely no schema migration needed).
+
+**WATCH-OUT:** The three composite source files (`*.ts`) contain template-string literals with embedded `\0` (NUL) characters as composite-key delimiters in dedupe paths (`${e.cik}\0${e.accession}\0${e.subItemCode}`). The Read tool detects these as "binary" and falls back. Workaround: `tr '\0' '_' < src/server/executive_departure.ts > /tmp/_xd.ts` etc. to make readable working copies; Edit the original files using the exact original strings as `old_string` (the `\0` literal is fine in Edit `old_string` parameters via JSON escaping).
+
+#### Step 3 — Repository extensions (~80 LOC × 3 repositories + 12 tests)
+
+Add `populateSectorsForCycle(asOf: Date)` to:
+- `src/server/executive_departure_repository.ts` (XD).
+- `src/server/eight_k_classifier_repository.ts` (EK).
+- `src/server/form_4_insider_repository.ts` (F4).
+
+Each method calls `readSectorMembershipPanel(asOfStart=asOf-730d, asOfEnd=asOf-1d)` to get the trailing-2y panel → groups events by (day, sector) → emits `inputs.sectors` array. Per ADR-042 §4 today's rate is computed separately from the [asOf-90d, asOf] window using the existing per-ticker event reads + grouped by today's sector membership (from the GICS map). Per ADR-042 §8 empty-sector days yield rate=0.
+
+Tests per SPEC §5.3: POPSEC-XD-{1..4} / POPSEC-EK-{1..4} / POPSEC-F4-{1..4} — 12 total.
+
+**Update the existing `readInputsForCycle`** in each repository to call `populateSectorsForCycle` + replace the current `_constituents: readonly string[]` (unused) parameter with the populated `inputs.sectors`. The orchestrator no longer needs the bare constituents list as a separate argument — it's encapsulated in `populateSectorsForCycle`.
+
+#### Step 4 — Brief renderer + composer atomic triple-edit (~60 LOC + ~30 LOC + 12 tests, S94-14 ATOMIC)
+
+**This step MUST land as one commit** spanning sections #12 + #14 + #15. Single-composite rollout drifts the operator-facing wording.
+
+- `src/server/operator_brief_render.ts` sections #12 / #14 / #15:
+  - Replace the `flaggedSectors.length === 0` branch with the three-way branch from SPEC §1.4 (LIVE branch + cold-start branch + flagged-table branch).
+  - Rewrite the composite-tagline footer per SPEC §1.4 (drop "aggregate-sector layer dormant pending OQ-G2-1 ADR" + replace with "aggregate-sector layer LIVE under ADR-042 Option (a) — re-computed per daemon cycle from raw events + PIT constituents + GICS map").
+  - Update the `inputsAvailableAggregate` qualifier line per SPEC §1.4 (drop the "G1-A2/A3/A4: per-ticker sector active; aggregate-layer 0 pending OQ-G2-1 baseline ADR" wording + replace with "per-ticker + aggregate-sector layers active under G1-A2/A3/A4 + G2-A1/A2/A3").
+- `src/server/operator_brief.ts` section composers (composeXdSection / composeEkSection / composeF4Section): pass through `maxAggregateZ` + `maxAggregateZSector` to the renderer-input shape.
+
+Tests per SPEC §5.4 + §5.6: G2-RENDER-XD-{1..3} / G2-RENDER-EK-{1..3} / G2-RENDER-F4-{1..3} + G2-COMPOSER-XD-1 / G2-COMPOSER-EK-1 / G2-COMPOSER-F4-1 — 12 total.
+
+#### Step 5 — Daemon-orchestrator wiring (~20 LOC × 3 + 3 tests)
+
+In `scripts/daily_signal_daemon.ts`:
+- For each composite, call `populateSectorsForCycle(asOf)` and merge into `inputs.sectors`.
+- After `evaluateXxxComposite` returns, emit the SPEC §1.3 log line.
+
+Tests per SPEC §5.5: G2-DAEMON-XD-1 / G2-DAEMON-EK-1 / G2-DAEMON-F4-1 — 3 total.
+
+### After Steps 2-5 ship + tests green + tsc clean
 
 The gap #7+#8 v2 arc closes end-to-end. Remaining operator-pickable next-default candidates:
 
-- **ADR-041 implementation** (`yield_curve_inverted` regime category) — Accepted methodology, slot un-queued.
+- **ADR-041 implementation** (`yield_curve_inverted` regime category).
 - **Gap #7 v2 per-row recency** (S93-32 + S93-52 co-bootstrap of EK + F4 snapshot DDLs).
 - **Gap #7 v2 CMP opportunistic-vs-routine classifier** (calendar-gated ≥6mo from F4-A1 first apply-run; earliest ~2026-11-20).
-- **Gap #7 v2 13D/13G arc** (needs its own SPEC; would use the new shared `readGicsSectorByTicker` helper for per-ticker sector annotation + the ADR-042 baseline infrastructure once it lands for aggregate).
+- **Gap #7 v2 13D/13G arc** (needs its own SPEC; would use the new `readGicsSectorByTicker` + `readSectorMembershipPanel` helpers).
 - **Gap #7 v2 sell-cluster sector aggregation** (per S93-44; single slice on F4 composite).
 - **Gap #7 v2 event-driven cadence promotion** (Phase B-gated).
 - **Gap #9 v2 ETF.com/issuer-CSV cross-validation**.
@@ -158,29 +209,37 @@ The gap #7+#8 v2 arc closes end-to-end. Remaining operator-pickable next-default
 
 ### Operator-gated action items (carried)
 
-- Push 12 commits to origin/main (HOLD).
+- Push 14 commits to origin/main (HOLD).
 - Drawdown framework §12 90d empirical retune — earliest 2026-08-29.
-- Operator-decided ADR-042 pick.
 
 ## Files / code state
 
-### NEW this turn (s94 #5)
+### NEW this turn (s94 #6)
 
 | Path | Status | Notes |
 | --- | --- | --- |
-| `docs/specs/adr-042-gics-sector-baseline-computation-research.md` | NEW (`9ceb1cd`) | RESEARCH note (~450 LOC). Three-option proposal with 12-row tradeoff matrix + cross-cutting design notes (unified-table-discriminator pattern S94-16; GICS-helper reuse path; OQ-G2-2 amendment-behavior follow-up S94-17; daemon-cycle ordering) + 6 SPEC-stage open questions + 7 watch-outs. Explicitly does NOT auto-pick per S94-15. |
-| `.claude/HANDOFF.md` | EDITED (this commit) | Rewritten from scratch for ADR-042 RESEARCH-note close. |
+| `docs/decisions/README.md` | EDITED (`d69d34f`) | ADR-042 entry added (~130 LOC); index updated. ADR ACCEPTED. |
+| `docs/specs/gics-sector-baseline-computation.md` | NEW (`d69d34f`) | Companion SPEC (~280 LOC); byte-pinned 45-test list across six test files; S94-14 atomic-triple-edit boundary at Step 4. |
+| `src/server/gics_sector_repository_helper.ts` | EDITED (`75599d7`) | +~150 LOC. New `SectorMembershipPanelRow` interface + `readSectorMembershipPanel` function. Module-bottom "what could break this" updated with the new helper's failure-modes. |
+| `scripts/tests/gicsSectorRepositoryHelper.test.ts` | EDITED (`75599d7`) | +~155 LOC, +6 tests (SMP-1..SMP-6). Total file now 15 tests / 13 pass / 2 skip (CH unreachable). |
+| `.claude/HANDOFF.md` | EDITED (this commit) | Rewritten from scratch for s94 #6 milestone close. |
+
+### From s94 #5 (carried; unchanged)
+
+| Path | Status | Notes |
+| --- | --- | --- |
+| `docs/specs/adr-042-gics-sector-baseline-computation-research.md` | EXISTS (`9ceb1cd`) | RESEARCH note. ADR-042 references it for substantive material. |
 
 ### From s94 #4 (carried; unchanged)
 
 | Path | Status | Notes |
 | --- | --- | --- |
-| `src/server/gics_sector_repository_helper.ts` | EXISTS (`dc70f8c`) | Shared `readGicsSectorByTicker` byte-template. Future Option (a) wiring would add `readSectorMembershipPanel` to this module per ADR-042 §4.2. |
-| `src/server/executive_departure_repository.ts` | EXISTS (`dc70f8c`) | G1-A4 wired. Future G2-A3 will add aggregate panel population per chosen option. |
-| `src/server/form_4_insider_repository.ts` | EXISTS (`dc70f8c` refactor) | G1-A2 wired. Future G2-A1 will add aggregate panel population per chosen option. |
-| `src/server/eight_k_classifier_repository.ts` | EXISTS (`dc70f8c` refactor) | G1-A3 wired. Future G2-A2 will add aggregate panel population per chosen option. |
-| `src/server/operator_brief.ts` | EXISTS (`dc70f8c`) | All three composer functions stamp `tickersWithCikCount` + `watchUniverseTickerCount`. Future S94-14 triple-edit will update aggregate-panel composition. |
-| `src/server/operator_brief_render.ts` | EXISTS (`dc70f8c`) | All three sections' OQ-G2-1-awaiting footer + composite-tagline wording. Future S94-14 triple-edit will rewrite per chosen option. |
+| `src/server/gics_sector_repository_helper.ts` | EXISTS (`dc70f8c` + `75599d7` extension this turn) | `readGicsSectorByTicker` byte-template (s94 #4); `readSectorMembershipPanel` added s94 #6. |
+| `src/server/executive_departure_repository.ts` | EXISTS (`dc70f8c`) | G1-A4 wired. G2 wiring (populateSectorsForCycle) is Step 3. |
+| `src/server/form_4_insider_repository.ts` | EXISTS (`dc70f8c` refactor) | G1-A2 wired. G2 wiring is Step 3. |
+| `src/server/eight_k_classifier_repository.ts` | EXISTS (`dc70f8c` refactor) | G1-A3 wired. G2 wiring is Step 3. |
+| `src/server/operator_brief.ts` | EXISTS (`dc70f8c`) | All three composer functions stamp `tickersWithCikCount` + `watchUniverseTickerCount`. Step 4 atomic-triple-edit adds maxAggregateZ + maxAggregateZSector pass-throughs. |
+| `src/server/operator_brief_render.ts` | EXISTS (`dc70f8c`) | All three sections' OQ-G2-1-awaiting footer + composite-tagline wording. Step 4 atomic-triple-edit rewrites per SPEC §1.4. |
 
 ### From s94 #1-#3 (carried; unchanged)
 
@@ -195,7 +254,7 @@ The gap #7+#8 v2 arc closes end-to-end. Remaining operator-pickable next-default
 
 (All earlier gap arcs + earlier S94 files preserved unchanged.)
 
-### CH state (unchanged from s94 #4)
+### CH state (unchanged from s94 #5)
 
 - All seven Layer-0 composite snapshot tables in same state as s93 #6 close.
 - `quantlab.eight_k_events` — NOT yet created.
@@ -204,43 +263,49 @@ The gap #7+#8 v2 arc closes end-to-end. Remaining operator-pickable next-default
 - `quantlab.insider_ciks` — NOT yet created.
 - `quantlab.form_4_insider_snapshots` — NOT yet created.
 - `quantlab.gics_sector_map` — NOT yet created (TS migration ready; Python ingest also lazy-creates on first --apply).
-- `quantlab.<composite>_sector_rate_baseline` — NOT created (gated on ADR-042 pick; only applies if Option (b)/(c) picked).
+- ADR-042 Option (a) ⇒ **NO new CH schema required for G2.** Zero migrations.
 
-### Tests (unchanged from s94 #4 baseline — no code touched this turn)
+### Tests (validated this turn)
 
 ```text
-npm test                       2833 tests / 2802 pass / 0 fail / 31 skipped   ✓ unchanged
+npx tsx --test scripts/tests/gicsSectorRepositoryHelper.test.ts
+   ✓ 15 tests / 13 pass / 0 fail / 2 skipped (CH-unreachable EXPLAIN gates)
+   ✓ 6 new SMP tests all pass
+
 npx tsc --noEmit               13 errors (unchanged baseline — pre-existing _-prefixed files)
-npm run check:help             ✓ green
-.venv/Scripts/python.exe -m pytest scripts/tests   324 / 324 (unchanged)
 ```
+
+Full `npm test` + `pytest` baselines NOT re-run this turn (no code touched outside the helper test file; helper-only changes do not invalidate the prior baselines). Next session should run `npm test` + `pytest` once Step 2/3/4/5 land to verify the +~39 new tests pass.
 
 ## Watch-outs
 
-### NEW from this turn (s94 #5)
+### NEW from this turn (s94 #6)
 
-- **Do NOT auto-pick ADR-042.** Per S94-15 + S94-7, this is operator-decided. The autonomous-resolution rule (CLAUDE.md canon-thin methodology forks) does NOT apply to systems-engineering forks. The next session writes the chosen-option SPEC ONLY after the operator picks.
-- **The RESEARCH note's §5 "operator-pick framing" is decision-neutral.** Three options are framed as "what each optimizes for," not as a ranked preference. The mild pushback against Option (c)'s 30-day cold-start in the watch-outs is engineering opinion, NOT a recommendation against picking it. Operator preference is what matters.
-- **If Option (b) or (c) is picked, the unified-table-with-discriminator pattern per S94-16 is the strong default.** Three sibling tables would regress the rule-of-three drift problem S94-12 just solved at the helper level. The chosen-option SPEC pins the unified shape unless the operator explicitly overrides.
-- **The G2 triple slice per S94-14 is coordinated atomic.** When the chosen-option SPEC lands, the G2-A1/A2/A3 wirings MUST land as one atomic commit (or one tight commit sequence) — section #12 + #14 + #15 footer wordings + composite-taglines + repository annotations all drift-coupled. Single-composite incremental rollout would visibly drift the operator-facing wording.
-- **OQ-G2-2 (EDGAR-amendment behavior) follows mechanically from the ADR-042 pick per S94-17.** The chosen-option SPEC's test list pins the default behavior. Do NOT open ADR-043 unless Phase B testing reveals operational impact.
-- **`stddevSamp` not `stddevPop` in the CH baseline-std computation.** The trailing-2y series is a sample, not the population. Bessel correction matters. Pin in the chosen-option SPEC's test list; regression here would be a silent z-score scale drift.
-- **Today's rate MUST be excluded from baseline (self-reference deflates z-magnitude trivially).** The §2 Option (a) query and §4.5 daemon-cycle ordering note both flag this; SPEC test list pins. Applies to ALL THREE options equally.
-- **PIT constituents-panel coverage is a hard prerequisite for any G2 option.** `quantlab.sp500_constituents` needs trailing-2y coverage before deployment; otherwise the rate denominator is 0 → null rate → baseline below MIN_Z_BASELINE → z = null across the cold-start. Verify before deploying any G2 option.
+- **The composite source files have `\0` literals in template strings.** `src/server/executive_departure.ts`, `src/server/eight_k_classifier.ts`, `src/server/form_4_insider.ts` contain dedupe-key template-string literals like `${e.cik}\0${e.accession}\0${e.subItemCode}` — the Read tool detects these as "binary" and falls back. Workaround for the Step 2 / Step 3 implementations: `tr '\0' '_' < src/server/<file>.ts > /tmp/_<file>.ts` to make readable working copies. Edit the original files using exact original strings as `old_string` (the `\0` literal is fine in Edit `old_string` parameters via JSON escaping).
 
-### Carried (s89-s94 #4 + earlier)
+- **`readSectorMembershipPanel` performs the panel-membership join in TypeScript, not in CH.** Per the in-code "what could break this" section, this is because the canonical PIT semantic ("governing effective_date = max(effective_date ≤ day); panel = all tickers at that effective_date") cannot be expressed cleanly in CH ASOF JOIN, which picks one row per ticker rather than the full set. JS composition cost is ~503 days × ~503 tickers × ~10 effective_dates ≈ <2M ops per call — sub-second under typical Node throughput. If Phase B promotes the daemon to event-driven cadence per E-9-DEPLOY, this may need re-examination. See `gics_sector_repository_helper.ts` module-bottom for the full pin.
 
-All prior watch-outs preserved unchanged. Key carry-overs from s94 #4:
+- **Strict-PIT semantic of `readSectorMembershipPanel` per ADR-042 §7 is reflected in SMP-5 (Energy → Materials reclassification).** Mid-window sector swaps DO change the daily memberCount; the gicsByTicker timeline is fully scanned per ticker per day. A future v2 schema upgrade that promoted `gics_sector_map.snapshot_date` to DateTime would require coordinating the ISO-string comparison with the new resolution.
 
-- `gics_sector_repository_helper.ts` is now the byte-template owner; future fourth GICS-consuming repository adds a single line of code (per S94-12).
+- **Today's rate must be EXCLUDED from the baseline window per ADR-042 §4.** Step 3 implementations of `populateSectorsForCycle` MUST set `asOfEnd = asOf - 1 day` for the baseline-window helper call. Today's rate is computed SEPARATELY from the [asOf-90d, asOf] window using the existing per-ticker event reads + today's sector membership. Self-reference deflates z-magnitude trivially; regression here would be a silent z-score scale drift.
+
+- **`stddevSamp` not `stddevPop` — Bessel correction matters.** The composite-layer `computeZ` already uses sample stddev (`/(n-1)`); Step 2 implementations of `maxAggregateZ` / `maxAggregateZSector` derivation do NOT touch the stddev — they read the already-computed sector-z list. Regression here would be a silent z-score scale drift.
+
+- **S94-14 atomic-triple-edit at SPEC §6 Step 4 is non-negotiable.** Sections #12 + #14 + #15 renderer + composer changes land as ONE commit. Single-composite incremental rollout would visibly drift the operator-facing wording. Steps 2, 3, 5 can land individually (or in any test-green sequence) without this coupling.
+
+- **`MIN_Z_BASELINE = 30` floor stays at 30 across all three composites per ADR-042 §6.** Do NOT add a separate min-nonzero-count requirement at §5.3 POPSEC-*-3's empty-sector-day mitigation — selection-bias canon per AFML §11 rejects in-sample tuning against the empty-sector-day failure mode.
+
+- **PIT constituents-panel coverage is a hard prerequisite for G2 deployment.** `quantlab.sp500_constituents` needs trailing-2y coverage before any G2 option deploys; otherwise the rate denominator is 0 → null rate → baseline-count below `MIN_Z_BASELINE` → z = null across the cold-start. Verify constituents-table coverage before activating G2 in production (`npm run brief:morning` after G2 implementation will render the §1.4 cold-start branch if coverage is insufficient).
+
+### Carried (s89-s94 #5 + earlier)
+
+All prior watch-outs preserved unchanged. Key carry-overs:
+
+- `gics_sector_repository_helper.ts` is now the byte-template owner for both per-ticker (`readGicsSectorByTicker`) and per-day-panel (`readSectorMembershipPanel`) sector lookups.
 - Section #12's table-cell sector annotation position is byte-pinned by T-OBR-XD-9.
-- OQ-G2-1-awaiting footer wording IS the drift-coupling-anchor across three composites per S94-14 → drives the S94-14 coordinated triple-edit at G2 close.
-- `inputsAvailablePerTicker` semantic is now meaningful (not structurally 0) across all three composites.
+- `inputsAvailablePerTicker` semantic is meaningful (not structurally 0) across all three composites.
 - The helper's `asOf` is ALWAYS coerced to `YYYY-MM-DD`.
 - `LIMIT 1 BY ticker` is ClickHouse-specific (non-portable).
-
-Key carry-overs from s94 #1:
-
 - Cross-language drift on `gics_sector_map` DDL (test parity in `migrateCreateGicsSectorMap.test.ts`).
 - `MIN_ROWS_FLOOR = 480` is a SCHEMA-DRIFT alarm, not a happy-path floor.
 - `GICS_SECTORS` enum is the load-bearing canonical-name pin.
@@ -252,7 +317,6 @@ Key carry-overs from s94 #1:
 - `_clean_text` footnote regex `\[[^\]]*\]` greedy assumption.
 - `parse_sp500_table` raises ValueError (NOT returns empty).
 - `index_granularity = 8192` is the Layer-0 lookup-table idiom.
-- 12 commits ahead of `origin/main`; push operator-gated.
 
 (All earlier s89-s93 watch-outs preserved unchanged — same list as in prior HANDOFF.)
 
@@ -267,7 +331,7 @@ npx tsx scripts/_paper_trading_review.ts
 npm run brief:morning                                   # sections #7-#15 with real data once migrations applied
 ```
 
-### Gap #7+#8 v2 GICS activation (G1 FULLY READY; G2 awaiting ADR-042 pick)
+### Gap #7+#8 v2 GICS activation (G1 FULLY READY; G2 in flight — Steps 2-5)
 
 ```text
 # GICS map bootstrap + ingest (READY since s94 #1):
@@ -280,9 +344,9 @@ npm run gics:sector-map:ingest                          # writes ~503 rows from 
 # All three brief sections (#12 + #14 + #15) annotate flagged tickers with their
 # GICS sector when row exists in map.
 
-# G2 aggregate-panel activation:
-# AWAITING OPERATOR PICK of ADR-042 Option (a)/(b)/(c).
-# RESEARCH note: docs/specs/adr-042-gics-sector-baseline-computation-research.md
+# G2 aggregate-panel activation (in flight):
+# Step 1 DONE — readSectorMembershipPanel helper in src/server/gics_sector_repository_helper.ts
+# Steps 2-5 NEXT per SPEC docs/specs/gics-sector-baseline-computation.md §6
 ```
 
 ### Gap #9 etf-flow activation (FULLY READY)
@@ -343,30 +407,37 @@ npm run brief:morning
 ### Tests + dev
 
 ```text
-npm test                                                                       # TS — 2833 / 2802 / 31 skipped
+npm test                                                                       # TS — last full-run baseline 2833 / 2802 / 31 skipped (s94 #4 close)
 .venv/Scripts/python.exe -m pytest scripts/tests                               # Python — 324 / 324
 npm run dev                                                                    # http://localhost:3000
 npm run check:help                                                             # FULLY GREEN
+npx tsx --test scripts/tests/gicsSectorRepositoryHelper.test.ts                # this turn — 15 / 13 / 2 skipped
+npx tsc --noEmit                                                               # 13 baseline errors unchanged
 ```
 
 ## For the next session — priority order
 
-**Default on `continue`:** open with the operator's ADR-042 pick. The RESEARCH note at [`docs/specs/adr-042-gics-sector-baseline-computation-research.md`](../docs/specs/adr-042-gics-sector-baseline-computation-research.md) lays out three options + tradeoff matrix + cross-cutting design notes. Per S94-15, **do NOT auto-pick** — wait for the operator to choose (a)/(b)/(c). If the operator hasn't picked when the next chat opens, propose surfacing the RESEARCH note to them inline (e.g., paste the §5 "what each option optimizes for" framing) rather than picking.
+**Default on `continue`:** open with Step 2 from SPEC §6 (composite-layer additions). Recommended sequence:
 
-**Once operator picks ADR-042 Option (a)/(b)/(c):**
-1. Write ADR-042 text in `docs/decisions/README.md` (short ADR entry; substantive material in the existing RESEARCH note).
-2. Write companion SPEC at `docs/specs/gics-sector-baseline-computation.md` per the picked option (resolves §6 open questions from RESEARCH note).
-3. Land G2-A1/A2/A3 triple slice (coordinated atomic per S94-14): F4 + EK + XD aggregate-panel activation + repository annotations + brief panel surface rewrites.
-4. If Option (a): add `readSectorMembershipPanel` helper to `gics_sector_repository_helper.ts`.
-5. If Option (b): ship unified-table migration + backfill script per S94-16.
-6. If Option (c): ship unified-table migration per S94-16 (no backfill).
+1. **Step 2** — add `maxAggregateZ` + `maxAggregateZSector` to all three Snapshot interfaces + composite evaluators + 12 MAXZ-* tests. ~30 LOC × 3 composites + ~120 LOC tests. **WATCH-OUT:** composite source files have `\0` literals; use `tr` workaround for Read.
+2. **Step 3** — add `populateSectorsForCycle` to all three repositories + integrate into `readInputsForCycle` + 12 POPSEC-* tests. ~80 LOC × 3 repositories + ~150 LOC tests.
+3. **Step 4** — coordinated atomic triple-edit per S94-14 / S94-20: renderer + composer rewrites across sections #12 + #14 + #15. ~60 LOC + ~30 LOC + 12 G2-RENDER-* / G2-COMPOSER-* tests. **MUST LAND AS ONE COMMIT.**
+4. **Step 5** — daemon-orchestrator wiring in `scripts/daily_signal_daemon.ts` + 3 G2-DAEMON-* tests. ~20 LOC × 3 + ~60 LOC tests.
 
-**If operator reprioritizes**: any of these candidates can replace ADR-042 follow-up as the default-next once G2 closes:
+**Acceptance criteria for the G2 close:**
+
+- ✓ `npm test` green at +~39 net new tests passing (39 = 12 MAXZ + 12 POPSEC + 9 G2-RENDER + 3 G2-COMPOSER + 3 G2-DAEMON, vs SPEC §5's 45 total minus the 6 SMP already shipped).
+- ✓ `npx tsc --noEmit` baseline-clean (13 pre-existing errors unchanged).
+- ✓ `npm run check:help` green.
+- ✓ `npm run brief:morning` renders sections #12 + #14 + #15 with the LIVE branch OR the cold-start branch (NOT the OQ-G2-1-awaiting branch).
+- ✓ Daemon-cycle log emits the SPEC §1.3 line for each composite per cycle.
+
+**If operator reprioritizes:** any of these candidates can replace G2-completion as the default-next:
 
 - **ADR-041 implementation** (`yield_curve_inverted` regime category).
 - **Gap #7 v2 per-row recency** (S93-32 + S93-52 co-bootstrap of EK + F4 snapshot DDLs).
 - **Gap #7 v2 CMP opportunistic-vs-routine classifier** (calendar-gated ≥6mo from F4-A1 first apply-run; earliest ~2026-11-20).
-- **Gap #7 v2 13D/13G arc** (needs its own SPEC; would consume the new shared `readGicsSectorByTicker` helper for per-ticker sector annotation + the ADR-042 baseline infrastructure once it lands for aggregate).
+- **Gap #7 v2 13D/13G arc** (needs its own SPEC; would consume the new helpers).
 - **Gap #7 v2 sell-cluster sector aggregation** (per S93-44; single slice on F4 composite).
 - **Gap #7 v2 event-driven cadence promotion** (Phase B-gated).
 - **Gap #9 v2 ETF.com/issuer-CSV cross-validation**.
@@ -374,17 +445,18 @@ npm run check:help                                                             #
 - **Phase B campaigns** for the nine Layer-0 composites.
 
 **Operator-gated action items (carried):**
-- Push 12 commits to origin/main (HOLD).
+
+- Push 14 commits to origin/main (HOLD).
 - Drawdown framework §12 90d empirical retune — earliest 2026-08-29.
 
 **Calendar-gated:**
+
 - Vol-structure / sector-rotation / cross-asset / cycle-position / short-interest / executive-departure / etf-flow / 8-K-classifier / Form-4-insider Phase B campaigns.
 - Form 4 CMP classifier v2 ADR — earliest ~2026-11-20 (6mo post-F4-A1 first apply-run).
 - Event-driven cadence v2 ADR — earliest ~2026-08-20 (90d Phase B parallel-comparison window).
 
 **DO NOT auto-open without operator green-light:**
 
-- **ADR-042 pick** — operator MUST choose Option (a)/(b)/(c) before any G2 slice can start. **The next session can SURFACE the RESEARCH note + framing but MUST NOT auto-pick.**
 - ADR-041 implementation (Accepted methodology but slot un-queued).
 - C-12 Phase B AlpacaAdapter.
 - Phase B campaigns for the nine Layer-0 composites.
@@ -392,17 +464,17 @@ npm run check:help                                                             #
 
 ## Important framing for the next chat
 
-**Gap #7+#8 v2 G1 ARC IS LANDED end-to-end** (per s94 #4 close). All three per-composite repositories (F4, EK, XD) read GICS sector from the shared `quantlab.gics_sector_map` table; all three brief sections (#12, #14, #15) annotate flagged-ticker rows with their GICS sector inline. The shared `readGicsSectorByTicker` helper owns the byte-template SQL + parsing per S94-12 rule-of-three extraction.
+**ADR-042 IS ACCEPTED.** Operator picked Option (a) recompute-on-the-fly at session start; the decision is in [`docs/decisions/README.md`](../docs/decisions/README.md) §ADR-042. The methodology defense explicitly disclaims the autonomous canon-thin rule for THIS ADR (systems-engineering fork, not methodology fork; operator-decided per S94-15). The other options ((b) persist + backfill / (c) persist no backfill) are rejected for v1 under YAGNI; they could be revisited via a superseding ADR if EDGAR-amendment frequency or Phase B replayability becomes load-bearing.
 
-**The G1 → G2 transition is now GATED ON OPERATOR PICK of ADR-042 Option (a)/(b)/(c).** The RESEARCH note shipped this turn (`9ceb1cd`) enumerates the three options with a 12-row tradeoff matrix covering the four explicitly-requested dimensions (CH read amplification / cold-start window / schema cost / backfill simplicity) plus eight additional dimensions (PIT correctness under EDGAR amendments, Phase B replayability, observability, composability with future composites, migration reversibility, daemon-cycle latency, slice size, CH write amplification). Cross-cutting design notes pin the unified-table-with-discriminator pattern (S94-16), GICS-helper reuse path for Option (a), newly opened OQ-G2-2 EDGAR-amendment-behavior follow-up (S94-17), `MIN_Z_BASELINE` interaction, and daemon-cycle ordering. Six SPEC-stage open questions deferred to the chosen-option SPEC. Seven watch-outs flag the auto-pick prohibition + the engineering details the chosen-option SPEC must pin.
+**The companion SPEC at [`docs/specs/gics-sector-baseline-computation.md`](../docs/specs/gics-sector-baseline-computation.md) is the byte-template for Steps 2-5.** It pins function signatures, the 45-test list, the §1.4 brief panel surface, the §1.3 daemon log-line shape, the S94-14 atomic-triple-edit boundary at Step 4, and the implementation order. The next session executes Steps 2-5 from this SPEC.
 
-**Per S94-15 the ADR-042 pick is OPERATOR-DECIDED, NOT a canon-thin methodology fork eligible for autonomous resolution.** The Vector Core canon-thin rule applies to METHODOLOGY forks (validation scheme, ranking metric, sample weighting) where the three-criterion test can land a defensible choice. ADR-042 is a SYSTEMS-ENGINEERING fork where the operator's preference between schema-cost vs read-amplification vs cold-start-acceptance matters more than the canon, which is silent on the storage layer.
+**Step 1 is DONE.** `readSectorMembershipPanel` shipped at [`src/server/gics_sector_repository_helper.ts`](../src/server/gics_sector_repository_helper.ts) with 6 SMP tests at [`scripts/tests/gicsSectorRepositoryHelper.test.ts`](../scripts/tests/gicsSectorRepositoryHelper.test.ts). All 6 pass (the 2 skipped tests are EXPLAIN-PLAN gates skipped on CH unreachable per the existing contract). The helper is composite-agnostic and consumed identically by all three repositories' Step 3 `populateSectorsForCycle` implementations.
 
-**Per S94-14 + S94-16 the G2 deployment slice MUST land coordinated atomic edits** across all three composites' brief sections + repository annotations + composite-taglines. Single-composite incremental rollout would visibly drift the operator-facing wording.
+**The composite source files have `\0` literals.** `src/server/executive_departure.ts`, `src/server/eight_k_classifier.ts`, `src/server/form_4_insider.ts` use `\0` in template-string dedupe keys (`${e.cik}\0${e.accession}\0${e.subItemCode}`). The Read tool falls back to binary mode on these files. Use `tr '\0' '_' < src/server/<file>.ts > /tmp/_<file>.ts` to make readable working copies. Edits work normally — the `\0` literal is fine in JSON-encoded `old_string` parameters.
 
-**Parallel-tracks posture continues.** s94 #5 did NOT affect C-12 / paper-trading / real-money-flip arcs. No code touched this turn (single RESEARCH-note doc); all gates green at s94 #4 baseline.
+**Parallel-tracks posture continues.** s94 #6 did NOT affect C-12 / paper-trading / real-money-flip arcs. The 6 SMP tests are all that ran this turn (`npx tsx --test scripts/tests/gicsSectorRepositoryHelper.test.ts` green at 15/13/2-skipped); full `npm test` + `pytest` baselines from s94 #4 (2833/2802/31-skipped and 324/324) carry through unchanged.
 
-**The chain through s94 #5:**
+**The chain through s94 #6:**
 
 ```text
 ALL S41-S93 WORK                                       ✓ as documented
@@ -413,13 +485,17 @@ S94 #3: gap #7+#8 v2 GICS-A3 (EK repo + #14)           ✓ committed (497a645)
 S94 #4: gap #7+#8 v2 GICS-A4 (XD repo + #12 +          ✓ committed (dc70f8c)
         helper extraction per S94-10)
 S94 #5: OQ-G2-1 ADR-042 RESEARCH note                  ✓ committed (9ceb1cd)
-S94 #5 HANDOFF rewrite (this commit)                   ✓ this commit
-  → DEFAULT NEXT: wait for operator pick of ADR-042 (a)/(b)/(c)
+S94 #6 part A: ADR-042 Accept + companion SPEC         ✓ committed (d69d34f)
+S94 #6 part B: Step 1 helper + 6 SMP tests             ✓ committed (75599d7)
+S94 #6 HANDOFF rewrite (this commit)                   ✓ this commit
+  → DEFAULT NEXT: Step 2 from SPEC §6 (composite-layer maxAggregateZ + maxAggregateZSector)
+  → THEN Steps 3-5 in sequence; Step 4 atomic-triple-edit per S94-14 / S94-20
+  → ~39 remaining tests across MAXZ / POPSEC / G2-RENDER / G2-COMPOSER / G2-DAEMON suites
   → background: daemon writes per-cycle snapshots for all 9 Layer-0 composites
                 that have applied migrations. GICS map ingest is operator-run +
                 expected weekly cadence (quarterly Wikipedia rebalances).
                 F4 + EK + XD snapshots now ALL carry populated sector field when
                 gics_sector_map row exists; cold-start (no ingest yet) preserves
                 null + the brief renders without annotation across all three.
-                Aggregate-panel computation remains dormant pending ADR-042 pick.
+                Aggregate-panel computation will activate post-Step 4.
 ```
