@@ -977,6 +977,136 @@ describe('S93-37 load-bearing: composite filters off-set codes (cross-cutting)',
   });
 });
 
+// ── MAXZ-F4-{1..4} aggregate-layer max-|z| observability ────────────────────
+// SPEC docs/specs/gics-sector-baseline-computation.md §5.2 + §2.
+// ADR-042 §1 Decision §1 — maxAggregateZ / maxAggregateZSector exposed at the
+// composite-evaluator boundary for the brief renderer's §1.4 LIVE branch.
+
+describe('aggregate-layer maxAggregateZ + maxAggregateZSector (MAXZ-F4-1..4)', () => {
+  function makeBaseline(): number[] {
+    const b: number[] = [];
+    for (let i = 0; i < 60; i++) b.push(0.02 + ((i % 4) - 1.5) * 0.005);
+    return b;
+  }
+
+  // Build trades that produce a buy-cluster fire on `tickerCount` distinct
+  // tickers in a sector (≥ 3 distinct personCiks per ticker within 30d).
+  // Mirrors the existing T-F4 "via composite" test pattern.
+  function makeSectorClusterTrades(tickerCount: number): InsiderTrade[] {
+    const trades: InsiderTrade[] = [];
+    for (let ti = 0; ti < tickerCount; ti++) {
+      const ticker = `T${ti}`;
+      for (let pi = 0; pi < 3; pi++) {
+        trades.push(makeTrade({
+          issuerTicker: ticker, accession: `${ticker}-${pi}`,
+          transactionCode: 'P',
+          personCik: `0001${ti}${pi}00001`,
+          acceptedAt: new Date(ASOF.getTime() - (5 + pi * 2) * DAY_MS),
+        }));
+      }
+    }
+    return trades;
+  }
+
+  // Replicate the evaluator's per-sector cluster-rate derivation so the
+  // expected-z computation is byte-identical to the evaluator's path.
+  function expectedRate(
+    trades: ReadonlyArray<InsiderTrade>,
+    sectorSize: number,
+  ): number | null {
+    const deduped = dedupeTrades(trades);
+    const psFiltered = filterTradesToHighSignalCodes(deduped);
+    const inWindow = filterTradesInWindow(psFiltered, ASOF, ROLLING_WINDOW_DAYS);
+    return computeSectorClusterRate(inWindow, sectorSize, ASOF);
+  }
+
+  it('MAXZ-F4-1: maxAggregateZ is the signed z of the max-|z| sector', () => {
+    const baseline = makeBaseline();
+    const inputs = makeInputs({
+      sectors: [
+        { sector: 'Energy', sectorSize: 30, trades: makeSectorClusterTrades(8), baseline2y: baseline },
+        { sector: 'Health Care', sectorSize: 30, trades: makeSectorClusterTrades(2), baseline2y: baseline },
+        { sector: 'Materials', sectorSize: 30, trades: makeSectorClusterTrades(4), baseline2y: baseline },
+      ],
+    });
+    const snap = evaluateForm4InsiderComposite(inputs);
+    const expectedZs = inputs.sectors.map((s) => ({
+      sector: s.sector,
+      z: computeZ(expectedRate(s.trades, s.sectorSize), s.baseline2y).z,
+    }));
+    let bestZ: number | null = null;
+    let bestAbs = -Infinity;
+    for (const r of expectedZs) {
+      if (r.z != null && Math.abs(r.z) > bestAbs) {
+        bestAbs = Math.abs(r.z);
+        bestZ = r.z;
+      }
+    }
+    assert.ok(bestZ != null, 'expected at least one non-null z in test setup');
+    assert.equal(snap.maxAggregateZ, bestZ);
+  });
+
+  it('MAXZ-F4-2: maxAggregateZSector names the sector with max |z|', () => {
+    const baseline = makeBaseline();
+    const inputs = makeInputs({
+      sectors: [
+        { sector: 'Energy', sectorSize: 30, trades: makeSectorClusterTrades(8), baseline2y: baseline },
+        { sector: 'Health Care', sectorSize: 30, trades: makeSectorClusterTrades(2), baseline2y: baseline },
+        { sector: 'Materials', sectorSize: 30, trades: makeSectorClusterTrades(4), baseline2y: baseline },
+      ],
+    });
+    const snap = evaluateForm4InsiderComposite(inputs);
+    const expectedZs = inputs.sectors.map((s) => ({
+      sector: s.sector,
+      z: computeZ(expectedRate(s.trades, s.sectorSize), s.baseline2y).z,
+    }));
+    let bestAbs = -Infinity;
+    let expectedSector: string | null = null;
+    for (const r of expectedZs) {
+      if (r.z != null && Math.abs(r.z) > bestAbs) {
+        bestAbs = Math.abs(r.z);
+        expectedSector = r.sector;
+      }
+    }
+    assert.equal(snap.maxAggregateZSector, expectedSector);
+    assert.equal(snap.maxAggregateZSector, 'Energy');
+  });
+
+  it('MAXZ-F4-3: both fields null when all sector z\'s are null (cold-start)', () => {
+    const inputs = makeInputs({
+      sectors: [
+        { sector: 'Energy', sectorSize: 30, trades: makeSectorClusterTrades(8), baseline2y: [] },
+        { sector: 'Materials', sectorSize: 30, trades: makeSectorClusterTrades(4), baseline2y: [] },
+      ],
+    });
+    const snap = evaluateForm4InsiderComposite(inputs);
+    assert.equal(snap.maxAggregateZ, null);
+    assert.equal(snap.maxAggregateZSector, null);
+  });
+
+  it('MAXZ-F4-4: ties broken lexicographically (earlier sector name wins; input order-independent)', () => {
+    const baseline = makeBaseline();
+    const trades = makeSectorClusterTrades(5);
+    const inputsA = makeInputs({
+      sectors: [
+        { sector: 'Materials', sectorSize: 40, trades, baseline2y: baseline },
+        { sector: 'Energy', sectorSize: 40, trades, baseline2y: baseline },
+      ],
+    });
+    const inputsB = makeInputs({
+      sectors: [
+        { sector: 'Energy', sectorSize: 40, trades, baseline2y: baseline },
+        { sector: 'Materials', sectorSize: 40, trades, baseline2y: baseline },
+      ],
+    });
+    const snapA = evaluateForm4InsiderComposite(inputsA);
+    const snapB = evaluateForm4InsiderComposite(inputsB);
+    assert.equal(snapA.maxAggregateZSector, 'Energy');
+    assert.equal(snapB.maxAggregateZSector, 'Energy');
+    assert.equal(snapA.maxAggregateZ, snapB.maxAggregateZ);
+  });
+});
+
 // ── Constants sanity ────────────────────────────────────────────────────────
 
 describe('constants (sanity)', () => {

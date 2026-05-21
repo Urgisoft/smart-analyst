@@ -444,6 +444,124 @@ describe('evaluateExecutiveDepartureComposite (orchestrator)', () => {
   });
 });
 
+// ── MAXZ-XD-{1..4} aggregate-layer max-|z| observability ────────────────────
+// SPEC docs/specs/gics-sector-baseline-computation.md §5.2 + §2.
+// ADR-042 §1 Decision §1 — maxAggregateZ / maxAggregateZSector exposed at the
+// composite-evaluator boundary for the brief renderer's §1.4 LIVE branch.
+
+describe('aggregate-layer maxAggregateZ + maxAggregateZSector (MAXZ-XD-1..4)', () => {
+  // A 60-print baseline with deterministic mean + non-zero stddev so computeZ
+  // returns finite z's. Pattern matches the existing T-ED-7 baseline shape.
+  function makeBaseline(): number[] {
+    const b: number[] = [];
+    for (let i = 0; i < 60; i++) b.push(0.02 + ((i % 4) - 1.5) * 0.005);
+    return b;
+  }
+
+  function makeSectorEvents(count: number): ExecutiveDepartureEvent[] {
+    const events: ExecutiveDepartureEvent[] = [];
+    for (let i = 0; i < count; i++) {
+      events.push(makeEvent({
+        cik: `c${i.toString().padStart(3, '0')}`,
+        accession: `acc-${i}`,
+        acceptedAt: new Date(ASOF.getTime() - (5 + i) * 24 * 60 * 60 * 1000),
+      }));
+    }
+    return events;
+  }
+
+  it('MAXZ-XD-1: maxAggregateZ is the signed z of the max-|z| sector', () => {
+    const baseline = makeBaseline();
+    // Three sectors with distinct event counts → distinct rates → distinct z's.
+    // Energy has the largest event count → largest positive z.
+    const inputs = makeInputs({
+      sectors: [
+        { sector: 'Energy', sectorSize: 30, events: makeSectorEvents(8), baseline2y: baseline },
+        { sector: 'Health Care', sectorSize: 30, events: makeSectorEvents(2), baseline2y: baseline },
+        { sector: 'Materials', sectorSize: 30, events: makeSectorEvents(4), baseline2y: baseline },
+      ],
+    });
+    const snap = evaluateExecutiveDepartureComposite(inputs);
+    // Compute expected externally with same arithmetic — byte-identical to evaluator.
+    const expectedZs = inputs.sectors.map((s) => ({
+      sector: s.sector,
+      z: computeZ(computeSectorDepartureRate(s.events, s.sectorSize, inputs.asOf), s.baseline2y).z,
+    }));
+    let bestZ: number | null = null;
+    let bestAbs = -Infinity;
+    for (const r of expectedZs) {
+      if (r.z != null && Math.abs(r.z) > bestAbs) {
+        bestAbs = Math.abs(r.z);
+        bestZ = r.z;
+      }
+    }
+    assert.ok(bestZ != null, 'expected at least one non-null z in test setup');
+    assert.equal(snap.maxAggregateZ, bestZ);
+  });
+
+  it('MAXZ-XD-2: maxAggregateZSector names the sector with max |z|', () => {
+    const baseline = makeBaseline();
+    const inputs = makeInputs({
+      sectors: [
+        { sector: 'Energy', sectorSize: 30, events: makeSectorEvents(8), baseline2y: baseline },
+        { sector: 'Health Care', sectorSize: 30, events: makeSectorEvents(2), baseline2y: baseline },
+        { sector: 'Materials', sectorSize: 30, events: makeSectorEvents(4), baseline2y: baseline },
+      ],
+    });
+    const snap = evaluateExecutiveDepartureComposite(inputs);
+    const expectedZs = inputs.sectors.map((s) => ({
+      sector: s.sector,
+      z: computeZ(computeSectorDepartureRate(s.events, s.sectorSize, inputs.asOf), s.baseline2y).z,
+    }));
+    let bestAbs = -Infinity;
+    let expectedSector: string | null = null;
+    for (const r of expectedZs) {
+      if (r.z != null && Math.abs(r.z) > bestAbs) {
+        bestAbs = Math.abs(r.z);
+        expectedSector = r.sector;
+      }
+    }
+    assert.equal(snap.maxAggregateZSector, expectedSector);
+    assert.equal(snap.maxAggregateZSector, 'Energy'); // sanity: highest event count
+  });
+
+  it('MAXZ-XD-3: both fields null when all sector z\'s are null (cold-start)', () => {
+    const inputs = makeInputs({
+      sectors: [
+        { sector: 'Energy', sectorSize: 30, events: makeSectorEvents(8), baseline2y: [] },
+        { sector: 'Materials', sectorSize: 30, events: makeSectorEvents(4), baseline2y: [] },
+      ],
+    });
+    const snap = evaluateExecutiveDepartureComposite(inputs);
+    assert.equal(snap.maxAggregateZ, null);
+    assert.equal(snap.maxAggregateZSector, null);
+  });
+
+  it('MAXZ-XD-4: ties broken lexicographically (earlier sector name wins; input order-independent)', () => {
+    const baseline = makeBaseline();
+    const events = makeSectorEvents(5);
+    // Two sectors with IDENTICAL inputs → identical rate → identical z.
+    // 'Energy' < 'Materials' lexicographically → Energy wins regardless of input order.
+    const inputsA = makeInputs({
+      sectors: [
+        { sector: 'Materials', sectorSize: 40, events, baseline2y: baseline },
+        { sector: 'Energy', sectorSize: 40, events, baseline2y: baseline },
+      ],
+    });
+    const inputsB = makeInputs({
+      sectors: [
+        { sector: 'Energy', sectorSize: 40, events, baseline2y: baseline },
+        { sector: 'Materials', sectorSize: 40, events, baseline2y: baseline },
+      ],
+    });
+    const snapA = evaluateExecutiveDepartureComposite(inputsA);
+    const snapB = evaluateExecutiveDepartureComposite(inputsB);
+    assert.equal(snapA.maxAggregateZSector, 'Energy');
+    assert.equal(snapB.maxAggregateZSector, 'Energy');
+    assert.equal(snapA.maxAggregateZ, snapB.maxAggregateZ);
+  });
+});
+
 // ── Constants sanity ────────────────────────────────────────────────────────
 
 describe('constants (sanity)', () => {

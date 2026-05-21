@@ -420,6 +420,15 @@ export interface Form4InsiderSnapshot {
   flaggedSectors: ReadonlyArray<Form4InsiderFlaggedSector>;
   form4ClusterFlag: boolean;
 
+  /** Signed z of the sector with max |z| across all sectors with non-null z.
+   *  Null when all sector z's are null (cold-start). Per ADR-042 §1 Decision §1
+   *  + SPEC docs/specs/gics-sector-baseline-computation.md §2; consumed by the
+   *  brief renderer's §1.4 "No sectors flagged today" branch. */
+  maxAggregateZ: number | null;
+  /** Sector name with max |z|. Null when all z's are null. Ties broken
+   *  lexicographically (earlier sector name wins; deterministic across runs). */
+  maxAggregateZSector: string | null;
+
   perTickerRows: ReadonlyArray<Form4InsiderPerTickerRow>;
 
   inputsAvailableAggregate: number;
@@ -492,6 +501,9 @@ export function evaluateForm4InsiderComposite(
   const flaggedSectors: Form4InsiderFlaggedSector[] = [];
   const sectorZs: (number | null)[] = [];
   let inputsAvailableAggregate = 0;
+  let maxAbsZ = -Infinity;
+  let maxAggregateZ: number | null = null;
+  let maxAggregateZSector: string | null = null;
   for (const s of inputs.sectors) {
     const dedupedSectorTrades = dedupeTrades(s.trades);
     const psFilteredSectorTrades = filterTradesToHighSignalCodes(dedupedSectorTrades);
@@ -503,6 +515,19 @@ export function evaluateForm4InsiderComposite(
     const { z, baselineSize } = computeZ(rate, s.baseline2y);
     sectorZs.push(z);
     if (s.sectorSize > 0) inputsAvailableAggregate++;
+    if (z != null) {
+      const absZ = Math.abs(z);
+      // Tie-break: lexicographically earlier sector name wins. Order-independent
+      // across permutations of inputs.sectors per SPEC §5.2 MAXZ-*-4.
+      if (
+        absZ > maxAbsZ ||
+        (absZ === maxAbsZ && (maxAggregateZSector == null || s.sector < maxAggregateZSector))
+      ) {
+        maxAbsZ = absZ;
+        maxAggregateZ = z;
+        maxAggregateZSector = s.sector;
+      }
+    }
     if (z != null && Math.abs(z) > FORM_4_CLUSTER_Z_THRESHOLD && rate != null) {
       flaggedSectors.push({
         sector: s.sector,
@@ -522,6 +547,8 @@ export function evaluateForm4InsiderComposite(
 
     flaggedSectors,
     form4ClusterFlag,
+    maxAggregateZ,
+    maxAggregateZSector,
 
     perTickerRows,
 

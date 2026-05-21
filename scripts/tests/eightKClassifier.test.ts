@@ -705,6 +705,122 @@ describe('evaluateEightKClassifierComposite (orchestrator)', () => {
   });
 });
 
+// ── MAXZ-EK-{1..4} aggregate-layer max-|z| observability ────────────────────
+// SPEC docs/specs/gics-sector-baseline-computation.md §5.2 + §2.
+// ADR-042 §1 Decision §1 — maxAggregateZ / maxAggregateZSector exposed at the
+// composite-evaluator boundary for the brief renderer's §1.4 LIVE branch.
+
+describe('aggregate-layer maxAggregateZ + maxAggregateZSector (MAXZ-EK-1..4)', () => {
+  function makeBaseline(): number[] {
+    const b: number[] = [];
+    for (let i = 0; i < 60; i++) b.push(0.02 + ((i % 4) - 1.5) * 0.005);
+    return b;
+  }
+
+  // Build N distinct in-window 2.06 events with unique tickers + accessions.
+  // computeSectorEventRate counts distinct (ticker, accession) pairs over the
+  // high-signal set, so each event contributes 1 to the numerator.
+  function makeSectorEvents(count: number): EightKEvent[] {
+    const events: EightKEvent[] = [];
+    for (let i = 0; i < count; i++) {
+      events.push(makeEvent({
+        cik: `c${i.toString().padStart(3, '0')}`,
+        ticker: `T${i.toString().padStart(3, '0')}`,
+        accession: `acc-${i}`,
+        itemCode: '2.06',
+        acceptedAt: new Date(ASOF.getTime() - (5 + i) * DAY_MS),
+      }));
+    }
+    return events;
+  }
+
+  it('MAXZ-EK-1: maxAggregateZ is the signed z of the max-|z| sector', () => {
+    const baseline = makeBaseline();
+    const inputs = makeInputs({
+      sectors: [
+        { sector: 'Energy', sectorSize: 30, events: makeSectorEvents(8), baseline2y: baseline },
+        { sector: 'Health Care', sectorSize: 30, events: makeSectorEvents(2), baseline2y: baseline },
+        { sector: 'Materials', sectorSize: 30, events: makeSectorEvents(4), baseline2y: baseline },
+      ],
+    });
+    const snap = evaluateEightKClassifierComposite(inputs);
+    const expectedZs = inputs.sectors.map((s) => ({
+      sector: s.sector,
+      z: computeZ(computeSectorEventRate(s.events, s.sectorSize, inputs.asOf), s.baseline2y).z,
+    }));
+    let bestZ: number | null = null;
+    let bestAbs = -Infinity;
+    for (const r of expectedZs) {
+      if (r.z != null && Math.abs(r.z) > bestAbs) {
+        bestAbs = Math.abs(r.z);
+        bestZ = r.z;
+      }
+    }
+    assert.ok(bestZ != null, 'expected at least one non-null z in test setup');
+    assert.equal(snap.maxAggregateZ, bestZ);
+  });
+
+  it('MAXZ-EK-2: maxAggregateZSector names the sector with max |z|', () => {
+    const baseline = makeBaseline();
+    const inputs = makeInputs({
+      sectors: [
+        { sector: 'Energy', sectorSize: 30, events: makeSectorEvents(8), baseline2y: baseline },
+        { sector: 'Health Care', sectorSize: 30, events: makeSectorEvents(2), baseline2y: baseline },
+        { sector: 'Materials', sectorSize: 30, events: makeSectorEvents(4), baseline2y: baseline },
+      ],
+    });
+    const snap = evaluateEightKClassifierComposite(inputs);
+    const expectedZs = inputs.sectors.map((s) => ({
+      sector: s.sector,
+      z: computeZ(computeSectorEventRate(s.events, s.sectorSize, inputs.asOf), s.baseline2y).z,
+    }));
+    let bestAbs = -Infinity;
+    let expectedSector: string | null = null;
+    for (const r of expectedZs) {
+      if (r.z != null && Math.abs(r.z) > bestAbs) {
+        bestAbs = Math.abs(r.z);
+        expectedSector = r.sector;
+      }
+    }
+    assert.equal(snap.maxAggregateZSector, expectedSector);
+    assert.equal(snap.maxAggregateZSector, 'Energy');
+  });
+
+  it('MAXZ-EK-3: both fields null when all sector z\'s are null (cold-start)', () => {
+    const inputs = makeInputs({
+      sectors: [
+        { sector: 'Energy', sectorSize: 30, events: makeSectorEvents(8), baseline2y: [] },
+        { sector: 'Materials', sectorSize: 30, events: makeSectorEvents(4), baseline2y: [] },
+      ],
+    });
+    const snap = evaluateEightKClassifierComposite(inputs);
+    assert.equal(snap.maxAggregateZ, null);
+    assert.equal(snap.maxAggregateZSector, null);
+  });
+
+  it('MAXZ-EK-4: ties broken lexicographically (earlier sector name wins; input order-independent)', () => {
+    const baseline = makeBaseline();
+    const events = makeSectorEvents(5);
+    const inputsA = makeInputs({
+      sectors: [
+        { sector: 'Materials', sectorSize: 40, events, baseline2y: baseline },
+        { sector: 'Energy', sectorSize: 40, events, baseline2y: baseline },
+      ],
+    });
+    const inputsB = makeInputs({
+      sectors: [
+        { sector: 'Energy', sectorSize: 40, events, baseline2y: baseline },
+        { sector: 'Materials', sectorSize: 40, events, baseline2y: baseline },
+      ],
+    });
+    const snapA = evaluateEightKClassifierComposite(inputsA);
+    const snapB = evaluateEightKClassifierComposite(inputsB);
+    assert.equal(snapA.maxAggregateZSector, 'Energy');
+    assert.equal(snapB.maxAggregateZSector, 'Energy');
+    assert.equal(snapA.maxAggregateZ, snapB.maxAggregateZ);
+  });
+});
+
 // ── Constants sanity ────────────────────────────────────────────────────────
 
 describe('constants (sanity)', () => {

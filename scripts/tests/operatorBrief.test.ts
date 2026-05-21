@@ -793,6 +793,8 @@ describe('composeMorningBrief — executive-departure section wiring', () => {
         bdSinceLastQuery: 0,
         flaggedSectors: [],
         executiveClusterDeparture: false,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         perTickerRows: [
           {
             ticker: 'AAPL', cik: '0000320193', sector: null,
@@ -862,6 +864,8 @@ describe('buildExecutiveDepartureSection', () => {
       bdSinceLastQuery: 2,
       flaggedSectors: [],
       executiveClusterDeparture: false,
+      maxAggregateZ: null,
+      maxAggregateZSector: null,
       perTickerRows: [
         { ticker: 'ABCD', cik: '0000111111', sector: null,
           recentDepartureCount90d: 1, recentAppointmentCount90d: 0,
@@ -893,6 +897,8 @@ describe('buildExecutiveDepartureSection', () => {
       bdSinceLastQuery: null,
       flaggedSectors: [],
       executiveClusterDeparture: false,
+      maxAggregateZ: null,
+      maxAggregateZSector: null,
       perTickerRows: [
         { ticker: 'A', cik: '0000000001', sector: null,
           recentDepartureCount90d: 0, recentAppointmentCount90d: 0,
@@ -1098,6 +1104,8 @@ describe('composeMorningBrief — 8-K classifier section wiring', () => {
         bdSinceLastQuery: 0,
         flaggedSectors: [],
         eightKClusterFlag: false,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         perTickerRows: [
           {
             ticker: 'ABCD', cik: '0000111111', sector: null,
@@ -1176,6 +1184,8 @@ describe('buildEightKClassifierSection', () => {
       bdSinceLastQuery: 2,
       flaggedSectors: [],
       eightKClusterFlag: false,
+      maxAggregateZ: null,
+      maxAggregateZSector: null,
       perTickerRows: [
         { ticker: 'ABCD', cik: '0000111111', sector: null,
           recentEventCount90d: 1, daysSinceLatestEvent: 5,
@@ -1210,6 +1220,8 @@ describe('buildEightKClassifierSection', () => {
       bdSinceLastQuery: null,
       flaggedSectors: [],
       eightKClusterFlag: false,
+      maxAggregateZ: null,
+      maxAggregateZSector: null,
       perTickerRows: [
         { ticker: 'A', cik: '0000000001', sector: null,
           recentEventCount90d: 0, daysSinceLatestEvent: null,
@@ -1279,6 +1291,8 @@ describe('composeMorningBrief — Form 4 insider section wiring', () => {
         bdSinceLastQuery: 0,
         flaggedSectors: [],
         form4ClusterFlag: false,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
         perTickerRows: [
           {
             ticker: 'QRST', cik: '0000222222', sector: null,
@@ -1357,6 +1371,8 @@ describe('buildForm4InsiderSection', () => {
         z: 2.4, baselineSize: 503,
       }],
       form4ClusterFlag: true,
+      maxAggregateZ: null,
+      maxAggregateZSector: null,
       perTickerRows: [
         { ticker: 'QRST', cik: '0000222222', sector: null,
           insiderBuyCount90d: 5, insiderSellCount90d: 0,
@@ -1393,6 +1409,8 @@ describe('buildForm4InsiderSection', () => {
       bdSinceLastQuery: null,
       flaggedSectors: [],
       form4ClusterFlag: false,
+      maxAggregateZ: null,
+      maxAggregateZSector: null,
       perTickerRows: [
         { ticker: 'A', cik: '0000000001', sector: null,
           insiderBuyCount90d: 0, insiderSellCount90d: 0,

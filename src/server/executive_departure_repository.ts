@@ -538,6 +538,13 @@ export class ExecutiveDepartureRepository {
       bdSinceLastQuery: r.bd_since_last_query != null ? Number(r.bd_since_last_query) : null,
       flaggedSectors,
       executiveClusterDeparture: Number(r.executive_cluster_departure) === 1,
+      // G2 Step 2 added these to the snapshot interface but did NOT wire write/read
+      // persistence (SPEC docs/specs/gics-sector-baseline-computation.md §3 point 3
+      // declares no snapshot-write-path changes for Step 2). Persistence wiring is
+      // a Step 3-or-pre-Step-4 sub-slice; until then, loaded snapshots null these
+      // out + Step 4 renderer must handle the null branch.
+      maxAggregateZ: null,
+      maxAggregateZSector: null,
       perTickerRows,
       inputsAvailableAggregate: Number(r.inputs_available_aggregate),
       inputsAvailablePerTicker: Number(r.inputs_available_per_ticker),

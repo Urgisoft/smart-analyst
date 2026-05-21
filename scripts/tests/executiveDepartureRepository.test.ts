@@ -509,6 +509,8 @@ describe('writeSnapshot', () => {
         baselineSize: 503,
       }],
       executiveClusterDeparture: true,
+      maxAggregateZ: null,
+      maxAggregateZSector: null,
       perTickerRows: [{
         ticker: 'AAPL', cik: '0000320193', sector: null,
         recentDepartureCount90d: 1,
@@ -547,6 +549,8 @@ describe('writeSnapshot', () => {
       bdSinceLastQuery: null,
       flaggedSectors: [],
       executiveClusterDeparture: false,
+      maxAggregateZ: null,
+      maxAggregateZSector: null,
       perTickerRows: [],
       inputsAvailableAggregate: 0,
       inputsAvailablePerTicker: 0,

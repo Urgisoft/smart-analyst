@@ -538,6 +538,8 @@ function fixtureSnapshot(overrides: Partial<Form4InsiderSnapshot> = {}): Form4In
       baselineSize: 503,
     }],
     form4ClusterFlag: true,
+    maxAggregateZ: null,
+    maxAggregateZSector: null,
     perTickerRows: [{
       ticker: 'AAPL', cik: '0000320193', sector: null,
       insiderBuyCount90d: 2,

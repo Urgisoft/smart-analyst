@@ -486,6 +486,8 @@ function fixtureSnapshot(overrides: Partial<EightKClassifierSnapshot> = {}): Eig
       baselineSize: 503,
     }],
     eightKClusterFlag: true,
+    maxAggregateZ: null,
+    maxAggregateZSector: null,
     perTickerRows: [{
       ticker: 'AAPL', cik: '0000320193', sector: null,
       recentEventCount90d: 2,
