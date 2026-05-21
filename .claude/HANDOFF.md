@@ -1,31 +1,30 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-05-20 (session 93 #6 — **gap #7 EK-A5 DONE** as commit `7ee5852`. Closes the 8-K classifier arc end-to-end: section #14 render + composer wiring (+19 tests: 13 render + 3 composer + 3 build helper). v1 GICS-deferred footer + multi-item per-ticker rendering (auditor change (4.01) + restatement (4.02)) + CIK-only universe-coverage count per S93-28. All gates green (TS 2562/2539 pass +19 vs s93 #5 baseline of 2543, Python 259/259 unchanged, tsc 13 errors unchanged baseline, check:help ✓). 2 commits ahead of `origin/main` (origin synced through s93 #5 HANDOFF `1390fd9`); push still held — prior HANDOFFs' "69/70 commits ahead" carry-forward was stale, corrected here. **F4-A1 NEXT (Form 4 ingest)**.)
+Last updated: 2026-05-20 (session 93 #7 — **gap #7 F4-A1 DONE** as commit `d368012`. Opens the Form 4 insider-trade arc: `scripts/sec_edgar_form4_ingest.py` (~530 LOC) + 39 Python tests covering SPEC §9.10 T-F4I-1..T-F4I-8 + supplementals. New XML parser for the Form 4 `<ownershipDocument>` schema (namespaced + non-namespaced); writes to `quantlab.insider_trades` (per-transaction) + `quantlab.insider_ciks` (NEW insider person-CIK name cache) + reused `quantlab.cik_ticker_map` (issuer-side). Per F4-4 ALL transaction codes stored at ingest; v1 composite (F4-A2) filters to {P, S}. All gates green (pytest 298/298 +39 vs s93 #5 baseline 259, TS 2562/2539 unchanged baseline — Python-only slice, tsc 13 errors unchanged baseline, check:help ✓). 3 commits ahead of `origin/main`; push still operator-gated. **F4-A2 NEXT (pure composite `form_4_insider_v1`)**.)
 
 ## What this turn delivered
 
-Sixth slice of the gap #7 event-driven-filings-processor arc (s93 #6 — Phase EK-A5), closing the 8-K classifier arc:
+Seventh slice of the gap #7 event-driven-filings-processor arc (s93 #7 — Phase F4-A1), opening the Form 4 insider-trade arc:
 
-1. **Section #14 render** — `src/server/operator_brief_render.ts` (~245 LOC delta). Per SPEC §8.1 + §9.5 T-OBR-EK-1..T-OBR-EK-7. Structure:
-   - Header `## 14. 8-K material events — <CLUSTER|NORMAL>` (cluster label from `eightKClusterFlag`).
-   - Aggregate sector panel: v1 cold-start renders GICS-deferred footer (sectors empty → no table); when v2 GICS ships, flaggedSectors populates and the renderer switches to `| Sector | Rate | z | Baseline n | Constituents |` table without code change.
-   - Staleness line: `**Last EDGAR query:** <ISO> (N business days ago) [⚠ stale (≥4bd)]` — threshold `EIGHT_K_CLASSIFIER_STALENESS_BD_THRESHOLD = 4` matches gap #8 exec-departure (both source EDGAR).
-   - Per-ticker flagged section: `### Flagged tickers (universe: equity-midcap)` + `material_event (N):` + list. Sort by `daysSinceLatestEvent` ascending (recency first; nulls last); truncate at `EIGHT_K_CLASSIFIER_FLAGGED_TOP_N = 5`. Multi-item join via `formatEightKItemList` in fixed item-code order (1.01 → 5.01): `- ABCD — auditor change (4.01) + restatement (4.02) (12d ago)`.
-   - Universe coverage: `Universe coverage: 58/60 mid-cap tickers have current CIK mapping · 0 aggregate constituents have usable sector mapping (v1: always 0 — GICS deferred).` Uses composer-stamped `tickersWithCikCount`/`watchUniverseTickerCount` per S93-28.
-   - Composite caveat + evaluatedAt/snapshotDate footer.
+1. **`scripts/sec_edgar_form4_ingest.py`** (~530 LOC). Per SPEC §2.3 (F4-1..F4-12) + §4.2 + §6.2 + §9.10 + §10 Phase F4-A1. Architecture:
+   - EDGAR full-text search for `forms=4` (no item-code filter; Form 4 has none) via the shared `_sec_edgar_helpers` module.
+   - NEW XML parser `parse_form4_xml` for the Form 4 `<ownershipDocument>` schema. Namespace-insensitive (handles both `xmlns="http://www.sec.gov/edgar/ownershipDocument"` namespaced filings per the XSD AND the non-namespaced shape that most EDGAR-archived filings actually use). Strips namespace prefix via `_strip_ns` helper.
+   - Per F4-4 + T-F4I-3: ALL transaction codes (P, S, A, M, F, G, etc.) are STORED at ingest. The v1 composite (F4-A2) filters to {P, S} downstream. Forensic access to grants / option exercises / gifts preserved at the raw `insider_trades` table.
+   - Per F4-5: `dollar_amount = shares × price_per_share` computed at the ingest layer (not deferred to a CH DEFAULT) so downstream consumers don't need to recompute.
+   - Per F4-7: ReplacingMergeTree on `(issuer_cik, accession, transaction_id)`. `transaction_id` is 0-based WITHIN the parent filing (a single Form 4 can carry multiple `<nonDerivativeTransaction>` elements; each → one row).
+   - Per F4-8: Derivative-table transactions (options) are NEVER returned by `parse_form4_xml`. Out-of-scope for the v1 `insider_trades` table.
+   - Per F4-9: NEW `resolve_person_cik_to_name` insider-side resolver. Uses the SAME submissions-API endpoint as the issuer-side resolver — natural-person CIKs return their full name in the `name` field. Writes to NEW `quantlab.insider_ciks` table.
+   - Per F4-10: Acceptance-date anti-leak filter applies via the shared `filter_by_acceptance_date` helper. NEVER uses `transactionDate` for window membership (that field can be retroactively reported up to 2bd before `accepted_at`).
+   - Per OQ-3: Multi-issuer Form 4 emits one row per (issuer, transaction) pair. Iterates all `<issuer>` blocks. Rare in SP500 mid-cap universe; best-effort handling.
+   - Role-flag bitmask (UInt8): `bit0=director` (1), `bit1=officer` (2), `bit2=10pct_owner` (4), `bit3=other` (8). v1 composite weights each at 1.0 per F4-3; bitmask logged for v2 ADR future use.
+   - Both `ensure_insider_trades_table` + `ensure_insider_ciks_table` lazy-create — F4-A3 will co-bootstrap these + the snapshot table per SPEC §6.2.
+   - Row builder `build_insider_trade_rows` accepts an `xml_resolver(filing) → list[dict]` callable (production: body-fetch + parse; tests: fixed-list); a `ticker_resolver(issuer_cik) → dict` callable (XML-supplied issuer ticker takes priority over API fallback); a `name_resolver(person_cik) → dict` callable (insider-side cache).
 
-2. **Composer wiring** — `src/server/operator_brief.ts` (~95 LOC delta):
-   - Imports `EightKClassifierSnapshot`, `EightKClassifierRepository`, `eightKClassifierSnapshotsTableExists`, `BriefEightKClassifierSection`.
-   - Adds `fetchLatestEightKClassifier?` dep on `BriefDeps`; threaded through `Promise.all` (now 17-way).
-   - `buildEightKClassifierSection` helper: maps `EightKClassifierSnapshot` → `BriefEightKClassifierSection`; computes `tickersWithCikCount = perTickerRows.filter(r => r.cik !== '').length` and `watchUniverseTickerCount = perTickerRows.length` at this boundary so the renderer stays pure. Date fields converted to ISO at the section boundary.
-   - `fetchLatestEightKClassifierFromCH` default: two-gate absent-table-safe (probe `eightKClassifierSnapshotsTableExists` → load via `repo.loadLatestSnapshot()` → null on any throw). Matches gap #9 etf-flow + gap #8 exec-departure + prior five Layer-0 composites exactly.
+2. **`scripts/tests/test_sec_edgar_form4_ingest.py`** (~470 LOC, 39 tests, all pass):
+   - SPEC §9.10 T-F4I-1..T-F4I-8 (all 8 mandated IDs covered, 16 sub-tests).
+   - Supplementals: empty/invalid XML graceful-degrade; namespaced XML compat; zero-shares zero-price graceful-degrade; role-flag combinations (director-only, officer-only, 10pct-only, all-four, none); `_parse_bool_xml` truthy/falsy variants ("1"/"true"/"T"/"Y"/"yes"/etc.); person-CIK cache hit + blank-name handling; XML-ticker vs API-fallback priority + call-count verification; URL builder + amendments-flag; 429 retry; ensure_*_table DDL markers; writer column lists + empty-input no-op; search response form-type filter (4 vs 4/A).
 
-3. **Tests** — `scripts/tests/operatorBriefRender.test.ts` (+13 tests, ~306 LOC delta) + `scripts/tests/operatorBrief.test.ts` (+6 tests, ~181 LOC delta):
-   - Render: not-yet-evaluated panel + T-OBR-EK-1 section ordering after #13 + T-OBR-EK-3 CLUSTER + flagged-sector table + NORMAL header + T-OBR-EK-4 cold-start v1 GICS-deferred footer + T-OBR-EK-6 staleness ≥4bd + omit-stale <4 + no-EDGAR-data fallback + T-OBR-EK-5 "No tickers flagged" + T-OBR-EK-7 multi-item join + T-OBR-EK-2 top-N=5 truncation + composer-stamped CIK-only count + evaluatedAt footer.
-   - Composer: T-OB-EK-3 null pass-through + T-OB-EK-1 Promise.all threading + T-OB-EK-2 graceful-degrade.
-   - buildEightKClassifierSection unit: null pass-through + Date→ISO mapping + S93-28 CIK-only count separation (3-row fixture: 2 with CIK, 1 with empty → tickersWithCikCount=2, inputsAvailablePerTicker=0).
-
-4. **Test fixture updated** — `brief()` helper in `operatorBriefRender.test.ts` gained `eightK: null` default. No other MorningBrief construction sites required changes (composer always returns full shape; CLI wrappers go through composer).
+3. **Wiring**: `edgar:form4:ingest` + `edgar:form4:ingest:dry` npm scripts in `package.json` + `scripts/help.ts` EXTRA_HELP entries (2 new). Mirrors the `edgar:8k-event:ingest{,:dry}` pattern exactly.
 
 ## Where we are
 
@@ -39,56 +38,69 @@ Sixth slice of the gap #7 event-driven-filings-processor arc (s93 #6 — Phase E
 | Gap #8 executive-departure-signal arc | ✓ DONE end-to-end (s91) |
 | Gap #9 etf-flow-monitoring arc | ✓ DONE end-to-end (s92, 6 commits) |
 | Gap #7 event-driven-filings-processor SPEC + teach-doc | ✓ s93 #1 (`48e0da1`) |
-| Gap #7 EK-A1 (8-K event ingest + helper extraction + migration) | ✓ s93 #2 (`79b3ffa`) |
-| Gap #7 EK-A2 (pure composite `eight_k_classifier_v1`) | ✓ s93 #3 (`1879b32`) |
-| Gap #7 EK-A3 (snapshot-table migration co-bootstrap) | ✓ s93 #4 (`58cc98f`) |
-| Gap #7 EK-A4 (repository + daemon step 1k hook) | ✓ s93 #5 (`39b6024`) |
-| **Gap #7 EK-A5 (brief section #14 + composer wiring)** | **✓ s93 #6 (`7ee5852`) — closes EK arc end-to-end** |
-| **Gap #7 F4-A1 (Form 4 EDGAR ingest)** | **☐ NEXT** |
-| Gap #7 F4-A2..A5 (composite → migration → repository+daemon → brief #15) | ☐ queued after F4-A1 |
+| Gap #7 EK arc (A1..A5) | ✓ DONE end-to-end (s93 #2-#6) |
+| **Gap #7 F4-A1 (Form 4 EDGAR ingest CLI)** | **✓ s93 #7 (`d368012`)** |
+| **Gap #7 F4-A2 (pure composite `form_4_insider_v1`)** | **☐ NEXT** |
+| Gap #7 F4-A3..A5 (migration → repository+daemon → brief #15) | ☐ queued after F4-A2 |
 | Gap #8 v2 enhancement — GICS sector mapping activation | ☐ deferred (operator-pickable insertion) |
 | Gap #9 v2 enhancement — ETF.com/issuer-CSV cross-validation | ☐ deferred (operator-pickable insertion) |
-| Gap #7 v2 — GICS sector mapping activation (8-K aggregate panel) | ☐ deferred (operator-pickable; mirrors gap #8 v2) |
+| Gap #7 v2 — GICS sector mapping activation (8-K + F4 aggregate panels) | ☐ deferred (operator-pickable) |
 | Gap #7 v2 — per-item recency for 8-K brief section #14 (S93-32) | ☐ deferred (operator-pickable) |
+| Gap #7 v2 — CMP opportunistic-vs-routine classifier (per F4-1) | ☐ deferred (calendar-gated ≥6mo) |
 | C-12 Phase B (AlpacaAdapter) | ⏸ INDEFINITELY PAUSED |
 | ADR-041 implementation (`yield_curve_inverted` category) | ☐ DEFERRED — operator-pickable insertion |
-| Phase B for cycle/vol/sector/cross-asset/short-interest/exec-departure/etf-flow/8-K | ⏸ deferred — calendar OR backfill arc |
+| Phase B for cycle/vol/sector/cross-asset/short-interest/exec-departure/etf-flow/8-K/F4 | ⏸ deferred — calendar OR backfill arc |
 | #5 capital-deployment-ramp ADR | ☐ operator self-assigned ~1 week; not blocking |
 | Drawdown framework §12 90d empirical retune | ☐ scheduled — earliest 2026-08-29 |
-| Push 2 commits to origin/main | ☐ operator-gated, HOLD |
+| Push 3 commits to origin/main | ☐ operator-gated, HOLD |
 
 ## Decisions locked in
 
-### Session 93 part 6 (this turn, this commit) — EK-A5 implementation forks
+### Session 93 part 7 (this turn, this commit) — F4-A1 implementation forks
 
-**S93-32. Multi-item per-ticker rendering uses single `daysSinceLatestEvent` for the line; per-item recency deferred to v2.**
-`Why:` SPEC §8.1 shows the aspirational format `ABCD — restatement (4.02) 12d ago + auditor change (4.01) 18d ago` with per-item recency. The EK-A2/EK-A3/EK-A4 snapshot payload carries ONE `daysSinceLatestEvent` per ticker (the most recent high-signal event across ALL items), not per-item recency. Rendering per-item recency would require either an A4 schema extension (carry per-item daysSince in the snapshot row) OR a fresh per-cycle CH read at brief-render time. Neither is a v1 deliverable. Three-criterion analysis:
-  1. Canon — equal across alternatives. SPEC was aspirational; the test plan (§9.5 T-OBR-EK-7) only mandates multi-item join, not per-item recency.
-  2. Methodology rigor — v1 path matches the payload exactly (no inference); per-item path requires schema bump or extra I/O.
-  3. Minimum free parameters — v1 = 0. Per-item path adds N×7 cells to the snapshot row.
+**S93-37. Ingest stores ALL transaction codes (not just {P, S}); composite filters downstream.**
+`Why:` SPEC F4-4 explicit: "All other transaction codes (A grants, M exercises, F payments, G gifts, etc.) are stored at ingest but excluded from the composite." T-F4I-3 names this directly. Three-criterion analysis:
+  1. Canon foundations — F4-4 is the source-of-truth lock; reading-comprehension call.
+  2. Methodology rigor — store-everything preserves forensic access for v2 ADR (e.g., CMP classifier needs grants for routine-vs-opportunistic classification). Filter-at-ingest would force a re-backfill if v2 needs the dropped codes.
+  3. Minimum free parameters — store-everything has ZERO ingest-side filter parameters; composite owns the filter list at the F4-A2 boundary.
 
-Result: `- ABCD — auditor change (4.01) + restatement (4.02) (12d ago)` — items joined with ` + `, single `(Nd ago)` suffix derived from `daysSinceLatestEvent`. Test T-OBR-EK-7 asserts the join; the single recency suffix is faithful to v1 payload.
-`How to apply:` v2 enhancement (deferred operator-pickable insertion) extends EK-A2 + EK-A4 to thread per-item recency. Render switches to `restatement (4.02) Nd ago + auditor change (4.01) Md ago`. Composite version bumps to `eight_k_classifier_v2`.
+Result: `parse_form4_xml` returns ALL `<nonDerivativeTransaction>` rows regardless of code. The `DEFAULT_HIGH_SIGNAL_CODES = ("P", "S")` constant is documentation-only at the ingest layer (used in tests + brief consumer assertions); the composite imports + applies the filter.
+`How to apply:` Future ingest-time changes that add filtering would break the v2 CMP classifier; reject any PR that does so. Storage cost: ~10× volume vs filter-at-ingest, but Form 4 row volume is small (~100-300/day across SP500 + universe — cheap at CH scale).
 
-**S93-33. Section #14 renders ALWAYS (even when cold-start) — null brief.eightK gets the "not yet evaluated" panel.**
-`Why:` Matches every other Layer-0 panel (sections #7-#13). Operator scanning the brief should ALWAYS see section #14 — the absence-vs-present check tells them whether the daemon has run. Test "renders the 'not yet evaluated' panel when eightK is null" pins this; section ordering test T-OBR-EK-1 also depends on it (sections #1-#13 byte-equal + #14 always-present).
-`How to apply:` Never conditionally skip `renderEightKClassifierSection` in `renderBriefMarkdown`. The renderer handles null internally. Same posture as `renderEtfFlowSection`, `renderExecutiveDepartureSection`, etc.
+**S93-38. `parse_form4_xml` is namespace-insensitive via `_strip_ns` + local-name child lookup.**
+`Why:` Real EDGAR-archived Form 4 XML is INCONSISTENT about namespace declaration. The XSD declares `http://www.sec.gov/edgar/ownershipDocument`, but most filings ship without it. Per SPEC OQ-2: "the wrapping `<edgarSubmissions>` envelope formats vary slightly (compressed vs uncompressed). F4-A1 should handle both and log clear errors on schema drift." Three-criterion analysis:
+  1. Canon foundations — OQ-2 lock; SPEC explicit about handling both.
+  2. Methodology rigor — namespace-strict parsing would fail on the majority of EDGAR-archived filings; namespace-insensitive matches reality.
+  3. Minimum free parameters — `_strip_ns` is 3 lines; alternative (registering namespace map + ET.findall queries with `{ns}` prefix) is ~30 lines for the same outcome.
 
-**S93-34. Sort flagged tickers by `daysSinceLatestEvent` ascending (recency first; nulls last) via `sortByRecency` helper.**
-`Why:` Operator-facing brief should surface the most recent material events first. The existing `sortByRecency` helper from `renderExecutiveDepartureSection` (line 1640) handles null-trailing semantics. Reused as-is.
-`How to apply:` `.slice().sort(...)` to avoid mutating the readonly snapshot payload. Test T-OBR-EK-2 uses `daysSinceLatestEvent: i+1` for fixtures (T0 = 1d, T1 = 2d, ...) so the truncation to top-5 deterministically keeps T0..T4 and drops T5..T6.
+Result: `_find_child(elem, name)` iterates children and matches on `_strip_ns(child.tag) == name`. Same pattern for `_find_children`. Both namespaced + non-namespaced XML parse to identical row shapes (T-F4I-1 test "parses_handles_namespaced_xml" pins this).
+`How to apply:` Any future Form 4 XML changes (Form 5, 3/A amendments) that introduce ELEMENT names should follow the same pattern. If SEC ever bumps the namespace URI, this parser keeps working without change.
 
-**S93-35. `formatEightKItemList` lives in the renderer module (presentation concern), NOT the composite.**
-`Why:` The human-readable labels (`material agreement`, `acquisition`, `impairment`, `delisting`, `auditor change`, `restatement`, `change in control`) are presentation — they belong with the brief. The composite layer's `ITEM_CODE_FLAG_NAMES` constant maps codes to camelCase flag field names (`materialAgreementFlag`, etc.), which is a different concern (snapshot schema). Keeping the two separate prevents a render-layer change from triggering a composite version bump.
-`How to apply:` Any change to the human-readable labels stays in `operator_brief_render.ts:formatEightKItemList`. Fixed item-code order (1.01 → 5.01) gives byte-stable output for byte-equal tests.
+**S93-39. `resolve_person_cik_to_name` reuses the same submissions API as issuer-side resolver.**
+`Why:` SEC's submissions API at `data.sec.gov/submissions/CIK{cik10}.json` returns identical-shape JSON for natural-person CIKs (insider) AND legal-entity CIKs (issuer) — the `name` field carries the entity name in both cases; for natural persons, `tickers` is empty. Three-criterion analysis:
+  1. Canon foundations — SPEC §4.2 names "SEC EDGAR submissions API (insider) | `person_cik → name` | `insider_ciks.name`" — same endpoint as issuer side.
+  2. Methodology rigor — reusing the parser means consistent error-handling + cache semantics across issuer + insider sides.
+  3. Minimum free parameters — zero new HTTP infrastructure.
 
-**S93-36. `tickersWithCikCount` + `watchUniverseTickerCount` stamped by composer (`buildEightKClassifierSection`), NOT by composite.**
-`Why:` Per S93-28 (carried), the composite's `inputsAvailablePerTicker` is gated on sector presence (always 0 in v1). The brief needs a CIK-only count for the universe-coverage line. Computing it at the composer boundary keeps the renderer pure (no `.filter(...)` calls in the render path) AND keeps the composite version stable (no new field on the snapshot schema). Same architectural separation as `etf-flow`'s `flaggedEtfs.map(...)` shape transform at the composer boundary.
-`How to apply:` v2 EK-A2 enhancement (if added) MAY add `inputsAvailablePerTickerCikOnly` to the composite snapshot if other consumers need it; the brief stays composer-stamped. Test "S93-28 — stamps CIK-only count separately from sector-gated inputsAvailablePerTicker" pins this contract.
+Result: `resolve_person_cik_to_name` is a thin wrapper around the shared `parse_submissions_response` helper. Returns `{person_cik, name}` shape. Cached in a separate `insider_cache` dict (issuer + insider caches don't share namespace because the same CIK can theoretically belong to either — though in practice they don't overlap).
+`How to apply:` v2 brief enhancements that want CEO name rendering (e.g., "Tim Cook bought 1,000 AAPL @ $175.50") can read `quantlab.insider_ciks` directly. Person-CIK ≠ Issuer-CIK is enforced by separate tables.
 
-### Sessions 84-93 #1-#5 prior decisions (carried)
+**S93-40. ReplacingMergeTree ORDER BY `(issuer_cik, accession, transaction_id)`; transaction_id 0-based within filing.**
+`Why:` SPEC §6.2 explicit. Multi-transaction Form 4s (HANDOFF watch-out: "one Form 4 filing can carry multiple transaction lines — e.g., 3 buys + 1 sell per accession") need a per-row key that doesn't collapse them silently. SEC does NOT assign a global transaction key; transaction_id is therefore the 0-based index within the `<nonDerivativeTable>/<nonDerivativeTransaction>` ordering. T-F4I-6 pins the uniqueness invariant; T-F4I-8 pins the 3-row expansion semantics.
+`How to apply:` Any code that re-orders the XML transactions BEFORE assignment of `transaction_id` would silently break idempotent re-ingest. The parser must NOT sort or filter `nonDerivativeTransaction` elements before assigning the index.
 
-All prior decisions preserved unchanged. S93-1..S93-31 + S92-1..S92-18 + S91-7..S91-10 + S89/S90 + earlier carry through.
+**S93-41. XML-supplied `issuerTradingSymbol` takes priority over submissions-API fallback at the row-builder boundary.**
+`Why:` The Form 4 XML carries the ticker reliably for current filings; falling back to the submissions API every time would waste rate-limit budget (Form 4 volume is ~10× Item 5.02 per HANDOFF watch-out). Three-criterion analysis:
+  1. Canon foundations — F4-9 names person CIK identity; ticker source is implementation choice.
+  2. Methodology rigor — XML-first matches what EDGAR provides authoritatively; API-fallback handles aging tickers (mergers, ticker swaps).
+  3. Minimum free parameters — zero new flags; the fallback is automatic when `issuer_ticker` is blank.
+
+Result: `build_insider_trade_rows` checks `txn["issuer_ticker"]` first; only calls `ticker_resolver` when blank. Test `test_row_builder_uses_xml_ticker_when_present` asserts the resolver is NOT called when XML provides the ticker; `test_row_builder_falls_back_to_api_when_xml_lacks_ticker` asserts it IS called when blank.
+`How to apply:` Operators concerned about stale XML tickers (e.g., post-merger filings still using old ticker) can purge `quantlab.cik_ticker_map` to force re-resolution; the XML's `issuerTradingSymbol` would still take priority though. For now, XML-first is the right default.
+
+### Sessions 84-93 #1-#6 prior decisions (carried)
+
+All prior decisions preserved unchanged. S93-1..S93-36 + S92-1..S92-18 + S91-7..S91-10 + S89/S90 + earlier carry through.
 
 ## Open questions
 
@@ -109,115 +121,128 @@ All prior decisions preserved unchanged. S93-1..S93-31 + S92-1..S92-18 + S91-7..
 - Push commits to origin/main — operator-gated.
 - Gap #8 v2 enhancement — GICS sector activation (operator-pickable).
 - Gap #9 v2 cross-validation enhancement — operator-pickable.
-- First-apply-run EDGAR Item-filter OR-clause behavior (S93-15 best-guess for the 8-K ingest; operator-action verification deferred to first ingest run).
+- First-apply-run EDGAR Item-filter OR-clause behavior (S93-15 best-guess for 8-K ingest; operator-action verification deferred to first ingest run).
 - Cold-start cascade timing for EK arc end-to-end (~6-8 weeks of EDGAR ingest history before Phase B validation has signal).
+- Cold-start cascade timing for F4 arc end-to-end (~6-8 weeks of EDGAR ingest history; cluster threshold of 3-in-30 may need calibration adjustment if SP500 universe rarely hits it in real data).
 
 ### Closed this turn
 
-- ~~EK-A5 multi-item per-ticker rendering: per-item vs single recency~~ — RESOLVED per S93-32: items joined with ` + ` in code order; single `(Nd ago)` from `daysSinceLatestEvent`. v2 path documented.
-- ~~EK-A5 section always-render vs conditional~~ — RESOLVED per S93-33: always render (null → "not yet evaluated" panel).
-- ~~EK-A5 flagged-tickers sort order~~ — RESOLVED per S93-34: `sortByRecency` ascending; reused from gap #8.
-- ~~EK-A5 item-label home (renderer vs composite)~~ — RESOLVED per S93-35: renderer owns presentation labels; composite owns schema field names.
-- ~~EK-A5 CIK-only count source (composite vs composer)~~ — RESOLVED per S93-36: composer-stamped via `buildEightKClassifierSection`; renderer stays pure; matches S93-28 lock.
+- ~~F4-A1 ingest-time transaction-code filter decision~~ — RESOLVED per S93-37: store ALL codes; composite filters.
+- ~~F4-A1 XML namespace handling~~ — RESOLVED per S93-38: namespace-insensitive via `_strip_ns`.
+- ~~F4-A1 insider-name resolution endpoint choice~~ — RESOLVED per S93-39: same submissions API as issuer side.
+- ~~F4-A1 ReplacingMergeTree key + transaction_id assignment~~ — RESOLVED per S93-40: ORDER BY (issuer_cik, accession, transaction_id), 0-based within filing.
+- ~~F4-A1 issuer-ticker source priority (XML vs API)~~ — RESOLVED per S93-41: XML first, API fallback when XML blank.
 
 ### Newly opened
 
-- **F4-A1 Form 4 EDGAR ingest CLI** — first slice of the Form 4 arc. Per SPEC §2.3 + §9.10. Mirrors EK-A1 / gap #8 5.02 ingest architecturally: `scripts/sec_edgar_form4_ingest.py` + `scripts/_sec_edgar_helpers.py` (shared) → `quantlab.insider_trades` + `quantlab.insider_ciks`. Two-table write because person CIK ≠ issuer CIK per gap #7 EDF-class lock. Defaults: high-signal transaction codes = {P (open-market buy), S (open-market sale)} per F4-4.
-- **F4-A1 ticker resolution: issuer CIK only, person CIK identity-only.** Per gap #7 SPEC: person CIK lookups are for cluster-detection identity (distinct insiders), NOT for ticker reverse-mapping. The composite operates on issuer-CIK tuples.
-- **F4-A1 ReplacingMergeTree key** — `ORDER BY (issuer_cik, accession, transaction_code, line_no)` because one Form 4 filing can carry multiple transaction lines (e.g., 3 buys + 1 sell per accession). Schema spec at SPEC §6.2 (not yet read; defer until A1 read pass).
-- **F4-A1 first-apply-run cold-start timing.** EDGAR full-text search for "owner-only" Form 4 filings has a higher volume than 5.02 (≈10× per day historical). First `--apply` run should default `--lookback-days 3` (not 30 like EK-A1) to avoid rate-limit churn; operator can run wider on demand.
+- **F4-A2 pure composite `form_4_insider_v1`** — second slice of the F4 arc. Per SPEC §5.3 (per-stock) + §5.4 (aggregate) + §9.7 (T-F4-1..T-F4-N). Mirrors EK-A2 architecturally:
+  - `src/server/form_4_insider.ts` (~400-500 LOC est.). Pure functions; no I/O. Importable from F4-A4 daemon hook.
+  - Per F4-2 cluster flag: ≥3 distinct insiders within 30 calendar days, same direction. Distinct on `person_cik` (NOT name string). Triggers `insider_cluster_buy_flag` (code P) or `insider_cluster_sell_flag` (code S).
+  - Per F4-5: `insider_net_dollar_90d = Σ(buy_$ for P) − Σ(sell_$ for S)` over 90d window.
+  - Per F4-6: Aggregate per-sector count of `insider_cluster_buy_flag` events; z-scored against trailing 2y baseline; flag fires on |z_s| > 2.0. v1 GICS-deferred (mirrors EK-A2 + gap #8 A2).
+  - Per F4-4: filters to {P, S} only at composite read time; ingest stores all codes.
+  - Composite version stamp: `form_4_insider_v1`.
+- **F4-A2 transaction filter at composite layer — load-bearing.** The ingest layer per S93-37 stores ALL codes; the composite MUST filter to {P, S}. A regression that read all codes at composite layer would dilute the cluster-buy / cluster-sell signal with grants + option exercises.
+- **F4-A2 cluster-direction semantic.** Per F4-2: "Cluster-buy / cluster-sell flags: ≥3 distinct insiders within 30 calendar days, same direction." Same direction = same transaction_code. A mixed 2-buy-1-sell cluster does NOT fire either flag. Per-direction count: bk(T,D) = distinct insiders with code P in last 30d for ticker T; sk(T,D) = same with code S.
+- **F4-A2 insider role weighting** — per F4-3 v1 weights each role at 1.0. v2 ADR can sensitivity-test if Phase B reveals miscalibration. Composite consumes `role_flags` as a per-row passthrough (for forensic queries); doesn't weight.
 
 ## Next stage
 
 ### Default on "continue"
 
-**Gap #7 F4-A1 — Form 4 EDGAR ingest CLI.** Concrete first move:
+**Gap #7 F4-A2 — pure composite `form_4_insider_v1`.** Concrete first move:
 
-1. Read `docs/specs/event-driven-filings-processor.md` §2.3 + §6.2 + §9.10 — anchor SPEC for Form 4 ingest schema + tests. Also re-read §2.2 EK-A1 byte-for-byte so the new ingest stays architecturally aligned.
-2. Read `scripts/sec_edgar_8k_event_ingest.py` end-to-end (s93 #2, EK-A1 precedent) + `scripts/sec_edgar_8k_item_5_02_ingest.py` (gap #8 precedent) + `scripts/_sec_edgar_helpers.py` (shared module). F4-A1 follows this pattern.
-3. Read `scripts/tests/test_sec_edgar_8k_event_ingest.py` (EK-A1 tests, 25 tests) as the test template.
-4. Write `scripts/sec_edgar_form4_ingest.py` (~350-400 LOC est.) + `scripts/migrate_create_insider_trades.ts` (optional standalone migration; F4-A3 also co-bootstraps).
-5. Write `scripts/tests/test_sec_edgar_form4_ingest.py` (~25-30 tests est.) per SPEC §9.10 T-F4I-1..T-F4I-N.
-6. Add npm scripts `edgar:form4:ingest{:apply}` to `package.json` + `scripts/help.ts` EXTRA_HELP entries.
-7. `npm test` + `pytest` green; commit as F4-A1 slice.
+1. Read `docs/specs/event-driven-filings-processor.md` §5.3 + §5.4 + §9.7 — anchor SPEC for Form 4 composite math + tests.
+2. Read `src/server/eight_k_classifier.ts` (s93 #3 EK-A2 precedent, ~500 LOC) end-to-end as the architectural template. Form 4 composite mirrors this pattern.
+3. Read `scripts/tests/eightKClassifier.test.ts` (s93 #3 EK-A2 tests) as the test template.
+4. Re-read `scripts/sec_edgar_form4_ingest.py` to refresh the row-shape contract that the composite reads.
+5. Write `src/server/form_4_insider.ts` (~400-500 LOC est.) per SPEC §5.3 + §5.4. Per-stock layer: cluster-buy / cluster-sell flags + `insider_net_dollar_90d`. Aggregate layer: per-sector z-scored cluster-event rate (v1 GICS-deferred mirrors EK-A2).
+6. Write `scripts/tests/form4Insider.test.ts` (~30-50 tests est.) per SPEC §9.7 T-F4-1..T-F4-N.
+7. `npm test` green; commit as F4-A2 slice.
 
-### After F4-A1 lands
+### After F4-A2 lands
 
-Standard arc continues: F4-A2 (pure composite) → F4-A3 (snapshot-table migration co-bootstrap) → F4-A4 (repository + daemon step 1l) → F4-A5 (brief section #15). Each commits as its own slice.
+Standard arc continues: F4-A3 (snapshot-table migration co-bootstrap) → F4-A4 (repository + daemon step 1l) → F4-A5 (brief section #15). Each commits as its own slice.
 
 ### After F4 arc ships
 
 Operator-pickable deferred insertions:
 
 - ADR-041 implementation slot (`yield_curve_inverted` category).
-- Gap #7 v2 — GICS sector mapping activation (8-K aggregate panel).
+- Gap #7 v2 — GICS sector mapping activation (8-K + Form 4 aggregate panels).
 - Gap #7 v2 — per-item recency for 8-K brief section #14 (S93-32 v2 deliverable).
-- Gap #7 v2 — CMP opportunistic-vs-routine classifier (≥6mo warm-up gated).
+- Gap #7 v2 — CMP opportunistic-vs-routine classifier (per F4-1; ≥6mo warm-up gated).
 - Gap #7 v2 — 13D/13G arc (separate SPEC).
 - Gap #7 v2 — event-driven cadence promotion (Phase B-gated).
 - Gap #8 v2 — GICS sector activation.
 - Gap #9 v2 — ETF.com / issuer-CSV cross-validation + per-ETF brief panel threading.
 - C-12 Phase B AlpacaAdapter (paused).
-- Phase B campaigns for the seven (eight after F4 ships) Layer-0 composites.
+- Phase B campaigns for the eight (nine after F4) Layer-0 composites.
 
 ## Files / code state
 
-### NEW this turn (s93 part 6)
+### NEW this turn (s93 part 7)
 
 | Path | Status | Notes |
 | --- | --- | --- |
-| `src/server/operator_brief_render.ts` | EDITED (`7ee5852`) | +~245 LOC. `BriefEightKClassifierSection` interface + `EIGHT_K_CLASSIFIER_FLAGGED_TOP_N=5` + `EIGHT_K_CLASSIFIER_STALENESS_BD_THRESHOLD=4` constants + `eightK: BriefEightKClassifierSection \| null` field on `MorningBrief` + `renderEightKClassifierSection` + `formatEightKItemList` helper. Section #14 always rendered. |
-| `src/server/operator_brief.ts` | EDITED (`7ee5852`) | +~95 LOC. Imports `EightKClassifierSnapshot`/`EightKClassifierRepository`/`eightKClassifierSnapshotsTableExists`/`BriefEightKClassifierSection`. Adds `fetchLatestEightKClassifier?` dep + default `fetchLatestEightKClassifierFromCH` graceful-degrade fetcher. Adds `buildEightKClassifierSection` helper (Date→ISO + computes `tickersWithCikCount`/`watchUniverseTickerCount` per S93-28/S93-36). Threads through 17-way `Promise.all` + brief return shape. |
-| `scripts/tests/operatorBriefRender.test.ts` | EDITED (`7ee5852`) | +~306 LOC. `brief()` fixture gained `eightK: null` default. +13 tests for section #14 (T-OBR-EK-1..T-OBR-EK-7 + 6 supplemental: not-yet-eval, NORMAL header, omit-stale-<4, no-EDGAR-fallback, universe-coverage CIK-count, evaluatedAt footer). |
-| `scripts/tests/operatorBrief.test.ts` | EDITED (`7ee5852`) | +~181 LOC. +3 composer-wiring tests (T-OB-EK-1..T-OB-EK-3) + 3 buildEightKClassifierSection unit tests (null pass-through, Date→ISO mapping, S93-28 CIK-only-count separation). |
-| `.claude/HANDOFF.md` | EDITED (this commit) | Rewritten from scratch for end-of-EK-arc state. |
+| `scripts/sec_edgar_form4_ingest.py` | CREATED (`d368012`) | ~530 LOC. EDGAR full-text search → Form 4 XML parser → `quantlab.insider_trades` + `quantlab.insider_ciks` + reused `quantlab.cik_ticker_map`. Per F4-4 stores ALL transaction codes; composite filters {P,S} downstream. Namespace-insensitive XML parser per OQ-2. Issuer + insider CIK caches separate per S93-39 + F4-9. |
+| `scripts/tests/test_sec_edgar_form4_ingest.py` | CREATED (`d368012`) | ~470 LOC, 39 tests. SPEC §9.10 T-F4I-1..T-F4I-8 all covered + supplementals. All pass. |
+| `package.json` | EDITED (`d368012`) | +2 lines. `edgar:form4:ingest` + `edgar:form4:ingest:dry` npm scripts. |
+| `scripts/help.ts` | EDITED (`d368012`) | +2 EXTRA_HELP entries. |
+| `.claude/HANDOFF.md` | EDITED (this commit) | Rewritten from scratch for F4-A1 close + F4-A2 next. |
 
-### From s93 #5 (carried; unchanged)
+### From s93 #6 (carried; unchanged)
 
 | Path | Status | Notes |
 | --- | --- | --- |
-| `src/server/eight_k_classifier_repository.ts` | EXISTS (`39b6024`) | ~480 LOC. EK-A4 repository. Now imported by `operator_brief.ts`. |
-| `scripts/tests/eightKClassifierRepository.test.ts` | EXISTS (`39b6024`) | ~640 LOC, 53 tests. |
-| `scripts/daily_signal_daemon.ts` | EXISTS (`39b6024`) | Step 1k hook between step 1j etf-flow and §2 cells/bundles. |
+| `src/server/operator_brief_render.ts` | EXISTS (`7ee5852`) | EK-A5: section #14 + `renderEightKClassifierSection` + `formatEightKItemList` + `BriefEightKClassifierSection`. |
+| `src/server/operator_brief.ts` | EXISTS (`7ee5852`) | EK-A5: `fetchLatestEightKClassifier` dep + `buildEightKClassifierSection` helper + 17-way Promise.all. |
+| `scripts/tests/operatorBriefRender.test.ts` | EXISTS (`7ee5852`) | +13 EK-A5 tests. |
+| `scripts/tests/operatorBrief.test.ts` | EXISTS (`7ee5852`) | +6 EK-A5 tests (3 composer-wiring + 3 build helper). |
 
-### From s93 #4 / #3 / #2 / #1 (carried; unchanged)
+### From s93 #5 / #4 / #3 / #2 / #1 (carried; unchanged)
 
 All prior gap #7 EK arc files preserved unchanged.
 
-### CH state (unchanged from s93 #5)
+### CH state (unchanged from s93 #6)
 
-- All seven Layer-0 composite snapshot tables in same state as s93 #5 close.
+- All seven Layer-0 composite snapshot tables in same state as s93 #6 close.
 - `quantlab.eight_k_events` — NOT yet created (EK-A1 ingest creates lazily; EK-A1 standalone migration also creates; EK-A3 co-bootstrap also creates).
 - `quantlab.eight_k_classifier_snapshots` — NOT yet created (EK-A3 migration script exists; not yet applied).
-- `quantlab.insider_trades` + `quantlab.insider_ciks` — NOT yet created (F4-A1 will create).
+- `quantlab.insider_trades` — NOT yet created (F4-A1 ingest creates lazily; F4-A3 co-bootstrap will also create).
+- `quantlab.insider_ciks` — NOT yet created (F4-A1 ingest creates lazily; F4-A3 co-bootstrap will also create).
 - `quantlab.form_4_insider_snapshots` — NOT yet created (F4-A3 will create).
 
 ### Tests
 
 ```text
-npm test                       2562 / 2539 pass / 0 fail / 23 skipped   ✓ (+19 vs s93 #5 end — 13 render + 3 composer + 3 build helper)
+npm test                       2562 / 2539 pass / 0 fail / 23 skipped   ✓ (unchanged baseline — F4-A1 is Python-only slice)
 npx tsc --noEmit               13 errors (unchanged baseline — pre-existing _-prefixed files)
 npm run check:help             ✓ green
-.venv/Scripts/python.exe -m pytest scripts/tests   259 / 259 (unchanged from s93 #5 end — EK-A5 added 0 Python tests)
+.venv/Scripts/python.exe -m pytest scripts/tests   298 / 298 (+39 vs s93 #6 end of 259)
 ```
 
 ## Watch-outs
 
-### NEW from this turn (s93 #6)
+### NEW from this turn (s93 #7)
 
-- **Single `daysSinceLatestEvent` per ticker in section #14 (S93-32).** The aspirational SPEC §8.1 shows per-item recency (`restatement (4.02) 12d ago + auditor change (4.01) 18d ago`); v1 carries ONE `daysSinceLatestEvent` per ticker. Renderer emits `auditor change (4.01) + restatement (4.02) (12d ago)` — items joined with ` + `, single recency suffix. v2 enhancement: extend EK-A2 to carry per-item recency on the snapshot row.
-- **`formatEightKItemList` order is fixed at code 1.01 → 5.01.** Stable byte-equal output. Reordering would break test T-OBR-EK-7 (`auditor change (4.01) + restatement (4.02)` exact match).
-- **`tickersWithCikCount` + `watchUniverseTickerCount` computed by composer (S93-36).** Renderer is pure (no `.filter` calls). Adding a NEW universe-coverage stat (e.g. "tickers with at least 1 event") would also go in the composer; the composite stays stable.
-- **Section #14 always renders (S93-33).** Skipping it would break section ordering tests (T-OBR-EK-1 + future F4-T-OBR-F4-1). `null → "not yet evaluated"` panel is the canonical pre-data state.
-- **`EIGHT_K_CLASSIFIER_STALENESS_BD_THRESHOLD = 4` matches gap #8 exec-departure (`EXECUTIVE_DEPARTURE_STALENESS_BD_THRESHOLD = 4`).** Both EDGAR-sourced; Sarbanes-Oxley §409 4bd 8-K statutory filing deadline justifies the threshold. NOT etf-flow's `3` (yfinance daily).
-- **`fetchLatestEightKClassifierFromCH` is two-gate absent-table-safe.** Probes table first → loads → returns null on any throw. Matches every prior Layer-0 composite's graceful-degrade posture. A regression that removed the probe would surface a CH error at brief-render time instead of degrading silently.
-- **`brief()` fixture in `operatorBriefRender.test.ts` now requires `eightK: null` default.** Future MorningBrief field additions need similar fixture updates. The composer always returns the full shape (no caller-side breakage from adding optional fields).
+- **`parse_form4_xml` returns ALL transaction codes (S93-37).** The v1 composite at F4-A2 MUST filter to {P, S}; relying on ingest-side filtering would dilute the cluster signal with grants + option exercises. The constant `DEFAULT_HIGH_SIGNAL_CODES = ("P", "S")` lives in the ingest module for documentation-only; the composite at F4-A2 must enforce the filter at read time.
+- **Namespace-insensitive XML parser (S93-38).** `_strip_ns` + `_find_child` work for both namespaced + non-namespaced Form 4 XML. A future SEC schema bump that changes the namespace URI keeps working without code change. NEW Form 4 element names (e.g., a v2 schema extension) would need explicit handling though — the parser only handles the v1 element set.
+- **Insider person-CIK ≠ Issuer CIK (S93-39 reinforces F4-9).** Two separate tables (`insider_ciks` vs `cik_ticker_map`); two separate caches (`insider_cache` vs `issuer_cache`); same submissions-API endpoint. A regression that mixed them would corrupt cluster-buy detection (cluster threshold = 3 distinct PERSONS, not 3 distinct issuers).
+- **`transaction_id` is 0-based within FILING, NOT global (S93-40).** Two different Form 4 filings can both have `transaction_id = 0`. The ReplacingMergeTree key `(issuer_cik, accession, transaction_id)` is unique because `accession` differentiates filings. A regression that re-numbered globally would collapse rows across filings.
+- **Derivative-table transactions silently dropped (F4-8 + S93 preserved).** Options + warrants in `<derivativeTable>` are NEVER stored. A future v2 that wants option-exercise data needs a separate `insider_options` table; piggy-backing on `insider_trades` would break the per-row dollar-amount semantic.
+- **Issuer ticker XML-first, API-fallback (S93-41).** Operators inspecting why a row has unexpected `issuer_ticker` should check the XML first; the cache is the secondary source. For mergers + ticker swaps, the XML's value is what EDGAR considered authoritative AT FILING TIME.
+- **Form 4 ingest volume is ~10× Item 5.02 per HANDOFF F4-A1 watch-out (carried).** First `--apply` run should narrow `--start-date` (e.g. last 3 days) to stay well under the EDGAR 10 req/sec rate limit. CLI default is 90 days; operator override recommended.
+- **`role_flags` UInt8 bitmask is `bit0=director, bit1=officer, bit2=10pct_owner, bit3=other`.** Combined values (e.g., 3 = director+officer) are common (CEOs are typically board members). A future query that filters on "is officer" should use bitwise AND: `role_flags & 2 != 0`, NOT `role_flags = 2` (which would miss CEO+director rows).
+- **`_parse_bool_xml` accepts "1", "true", "T", "Y", "yes" case-insensitively.** Form 4 boolean fields are inconsistent across filers; the helper handles the common variants. A future Form 4 with unanticipated truthy strings would silently parse to False — log + alert at the brief layer if `role_flags = 0` rates spike.
+- **`build_form4_search_url` uses `forms=4` by default.** Amendments (`4/A`) need explicit `forms="4,4/A"` argument. The main() code path filters `f["form_type"] in ("4", "4/A")` post-fetch so the URL-level filter doesn't have to include amendments unless operators want them inline.
+- **`ensure_insider_trades_table` + `ensure_insider_ciks_table` lazy-create.** F4-A3 co-bootstrap migration will add the snapshot table + match this DDL byte-for-byte. Until F4-A3 ships, the DDL parity test (mirroring EK-A1's `test_ingest_lazy_create_ddl_matches_migration_planned_ddl`) is deferred.
 
-### Carried (s89-s93 #1-#5 + earlier)
+### Carried (s89-s93 #1-#6 + earlier)
 
 All prior watch-outs preserved unchanged. Key carry-overs:
 
-- 2 commits ahead of `origin/main` (`origin/main` is at s93 #5 HANDOFF `1390fd9`); push is operator-gated. Prior HANDOFFs' "69/70 commits ahead" carry-forward was stale; corrected at s93 #6.
+- 3 commits ahead of `origin/main` (`origin/main` is at s93 #5 HANDOFF `1390fd9`); push is operator-gated.
 - yfinance `get_shares_full` API surface (caught in `ticker_factory` test seam at A1).
 - yfinance `Ticker.info` rate-limit risk on tight loops (21 calls/day fine).
 - `quantlab.daily_bars` does NOT exist; daily OHLCV is in `quantlab.candles`.
@@ -232,13 +257,13 @@ All prior watch-outs preserved unchanged. Key carry-overs:
 - Item 5.02 sub-item parsing requires per-filing body fetch (gap #8 A1); gap #7 EK-A1 does NOT (item-level only per EK-2; cheaper).
 - 8-K storage duplication of 5.02 events between `executive_departures` (gap #8) + `eight_k_events` (gap #7) is INTENTIONAL per EK-5.
 - CIK ≠ CUSIP (separate tables; both ReplacingMergeTree).
-- Person CIK ≠ Issuer CIK (NEW for gap #7 Form 4; separate `insider_ciks` table).
+- Person CIK ≠ Issuer CIK (separate `insider_ciks` table; F4-A1 reinforces this).
 - Form 4 v1 OMITS Cohen-Malloy-Pomorski opportunistic-vs-routine classifier per F4-1.
 - Form 4 cluster threshold: 3 distinct insiders in 30 calendar days per F4-2.
-- Form 4 transaction-code filter: open-market "P" + "S" only per F4-4.
-- A5 byte-equal protection on sections #1-#13 (PLUS rendered #14 (8-K — NOW IN PLACE) + planned #15 (Form 4) appended at tail).
+- Form 4 transaction-code filter: open-market "P" + "S" only per F4-4 — at COMPOSITE layer (S93-37). Ingest stores all codes.
+- A5 byte-equal protection on sections #1-#13 (PLUS rendered #14 (8-K, s93 #6) + planned #15 (Form 4, F4-A5) appended at tail).
 - `runFredFetch` is NOT unit-tested directly — only `buildFredFetchArgs` is.
-- F-CADENCE staleness flag (`bd_since_last_query > 3` for etf-flow; `>= 4` for EDGAR composites) — render layer (operator_brief_render) owns the threshold constants per-composite.
+- F-CADENCE staleness flag (`bd_since_last_query > 3` for etf-flow; `>= 4` for EDGAR composites) — render layer (operator_brief_render) owns the threshold constants per-composite. F4-A5 will reuse the `EXECUTIVE_DEPARTURE_STALENESS_BD_THRESHOLD = 4` analog.
 - HYG/JNK/TLT/GLD overlap with cross-asset composite — Phase B independence-testing gate (>0.7 correlation = demote).
 - ETF splits (rare; GLD 1:10 in 2008) — `auto_adjust=True` on yfinance history handles close side.
 - 21-element panel-length invariant: `computeFlowDollar20bd` throws on wrong panel length.
@@ -248,18 +273,19 @@ All prior watch-outs preserved unchanged. Key carry-overs:
 - `composite_version` vs `version` mapping at the EK-A4 write boundary (load-bearing translation, tested).
 - CREATE IF NOT EXISTS is idempotent BUT silent on schema drift (type-drift not caught; operator must ALTER manually).
 - bdSinceShareUpdate is ingest-staleness proxy not raw-shares-update tracker.
-- Float32 downcast at writeSnapshot boundary (silent until precision matters) — EK arc has no Float scalars; safe.
+- Float32 downcast at writeSnapshot boundary (silent until precision matters) — EK + F4 arcs have no Float scalars; safe.
 - Defensive carry-forward at repository AND ingest layers must agree on semantic (carry-forward, NOT interpolation, NOT NaN-propagation).
 - BriefEtfFlowSection intentionally omits perEtfRows; v2 enhancement.
 - ETF_FLOW_COLD_START_BD_SENTINEL = 9999 deliberately duplicated at render layer.
-- Refactor pattern: local `resolve_cik_to_ticker` wrapper in EACH ingest module (s93 #2; F4-A1 will follow).
-- Module-top `time` + `urllib.request` re-imports per ingest (test-compat; s93 #2; F4-A1 will follow).
+- Refactor pattern: local `resolve_cik_to_ticker` wrapper in EACH ingest module (s93 #2, #7).
+- Module-top `time` + `urllib.request` re-imports per ingest (test-compat; s93 #2, #7).
 - `build_event_search_url` raises ValueError on empty items (programming error).
 - `filter_filings_by_items` keeps empty-items filings (operator inspection path).
 - `scripts/_sec_edgar_helpers.py` is `_`-prefixed; auto-excluded from help.ts walker; no `help` export needed.
 - Multi-item OR-clause URL is a SPEC §11 OQ-1 best-guess; operator-action verified on first `--apply` run.
 - **EK-A2 (carried):** `materialEventFlag` derives from `recentEventCount90d >= 1` (not OR-of-per-item-flags); per-item flag count uses exact string equality; distinct-(ticker, accession) sector dedup uses `${ticker} ${accession}` string-Set; `ITEM_CODE_FLAG_NAMES ↔ HIGH_SIGNAL_ITEM_CODES` compile-time parity via `satisfies`; `HIGH_SIGNAL_ITEM_CODES` also pinned in Python ingest `DEFAULT_HIGH_SIGNAL_ITEMS` (cross-language drift uncaught).
 - **EK-A4 (carried):** `inputsAvailablePerTicker` from composite is STRUCTURALLY 0 in v1 (sector-gated). Repository reuses ticker stored on `eight_k_events` row at read time (no per-event CIK JOIN). Two-gate daemon posture (source `eight_k_events` + snapshot `eight_k_classifier_snapshots`). EXPLAIN PLAN tests skip cleanly when source tables absent.
+- **EK-A5 (carried):** Single `daysSinceLatestEvent` per ticker (S93-32 v2 path); `formatEightKItemList` order fixed 1.01 → 5.01; `tickersWithCikCount` + `watchUniverseTickerCount` stamped by composer; section #14 always renders; `EIGHT_K_CLASSIFIER_STALENESS_BD_THRESHOLD = 4` matches gap #8.
 
 ## Pre-loaded operational reminders
 
@@ -312,30 +338,30 @@ npm run brief:morning      # section #12 renders
 npm run edgar:8k-event:ingest:dry
 npm run edgar:8k-event:ingest
 
-# EK-A1 source-table standalone migration (READY — idempotent; optional, ingest lazy-creates):
+# EK-A1 source-table standalone migration (READY — optional; ingest lazy-creates):
 npm run migrate:create-eight-k-events
 npm run migrate:create-eight-k-events:apply
 
-# EK-A2 composite (READY — pure-function; called by EK-A4 daemon hook):
-# Importable from src/server/eight_k_classifier.ts; no operator-runnable npm script.
-
-# EK-A3 snapshot-table migration co-bootstrap (READY — idempotent; creates BOTH eight_k_events + eight_k_classifier_snapshots):
+# EK-A3 snapshot-table migration co-bootstrap (READY — creates BOTH eight_k_events + eight_k_classifier_snapshots):
 npm run migrate:create-eight-k-classifier-snapshots
 npm run migrate:create-eight-k-classifier-snapshots:apply
 
 # EK-A4 daemon step 1k (READY — both gates absent-table-safe):
-npm run daemon:daily       # step 1k fires once EK-A1 source + EK-A3 snapshot tables present
+npm run daemon:daily
 
 # EK-A5 brief section #14 (READY — composer threads + renderer renders):
-npm run brief:morning      # section #14 renders end-to-end
+npm run brief:morning
 ```
 
-### Gap #7 Form 4 activation (NOT YET READY — F4-A1..A5 pending; NEXT slice arc)
+### Gap #7 Form 4 activation (F4-A1 SHIPPED — A2..A5 PENDING; NEXT slice arc)
 
 ```text
-# F4-A1 (PENDING):
-.venv/Scripts/python.exe scripts/sec_edgar_form4_ingest.py --dry-run
-.venv/Scripts/python.exe scripts/sec_edgar_form4_ingest.py --apply
+# F4-A1 (READY — Python ingest + insider_trades + insider_ciks lazy-create):
+npm run edgar:form4:ingest:dry
+npm run edgar:form4:ingest
+
+# F4-A2 (PENDING):
+# Pure composite src/server/form_4_insider.ts; no operator-runnable npm script.
 
 # F4-A3 (PENDING):
 npm run migrate:create-form-4-insider-snapshots
@@ -352,23 +378,22 @@ npm run brief:morning      # section #15 will render
 
 ```text
 npm test                                                                       # TS — 2562 / 2539 pass / 0 fail / 23 skipped
-.venv/Scripts/python.exe -m pytest scripts/tests                               # Python — 259 / 259
+.venv/Scripts/python.exe -m pytest scripts/tests                               # Python — 298 / 298
 npm run dev                                                                    # http://localhost:3000
 npm run check:help                                                             # FULLY GREEN
 ```
 
 ## For the next session — priority order
 
-**Recommended immediate continuation:** Gap #7 F4-A1 — Form 4 EDGAR ingest CLI. Single atomic slice:
+**Recommended immediate continuation:** Gap #7 F4-A2 — pure composite `form_4_insider_v1`. Single atomic slice:
 
-1. **(Read)** `docs/specs/event-driven-filings-processor.md` §2.3 + §6.2 + §9.10 (Form 4 SPEC sections).
-2. **(Read)** `scripts/sec_edgar_8k_event_ingest.py` (s93 #2 EK-A1 precedent, ~370 LOC) + `scripts/sec_edgar_8k_item_5_02_ingest.py` (gap #8 precedent) + `scripts/_sec_edgar_helpers.py` (shared module).
-3. **(Read)** `scripts/tests/test_sec_edgar_8k_event_ingest.py` (EK-A1 tests, 25 tests; F4-A1 mirror).
-4. **(Write)** `scripts/sec_edgar_form4_ingest.py` (~350-400 LOC est.). Two-table write to `quantlab.insider_trades` + `quantlab.insider_ciks`. ReplacingMergeTree key `(issuer_cik, accession, transaction_code, line_no)` (multi-row-per-accession). Default high-signal codes = {P, S} per F4-4.
-5. **(Write)** Optional `scripts/migrate_create_insider_trades.ts` standalone migration (F4-A3 also co-bootstraps).
-6. **(Tests)** `scripts/tests/test_sec_edgar_form4_ingest.py` (~25-30 tests est.) per SPEC §9.10.
-7. **(Wire)** npm scripts `edgar:form4:ingest{:apply}` in `package.json` + `scripts/help.ts` EXTRA_HELP entries.
-8. **(Gates)** `npm test` + `pytest` green; commit as F4-A1 slice.
+1. **(Read)** `docs/specs/event-driven-filings-processor.md` §5.3 + §5.4 + §9.7 (Form 4 composite SPEC sections + test plan).
+2. **(Read)** `src/server/eight_k_classifier.ts` (s93 #3 EK-A2 precedent) end-to-end as the architectural template.
+3. **(Read)** `scripts/tests/eightKClassifier.test.ts` (EK-A2 tests) as the test template.
+4. **(Re-read)** `scripts/sec_edgar_form4_ingest.py` for the row-shape contract the composite reads.
+5. **(Write)** `src/server/form_4_insider.ts` (~400-500 LOC est.). Per-stock: cluster-buy / cluster-sell flags + `insider_net_dollar_90d`. Aggregate: per-sector z-scored cluster-event rate (v1 GICS-deferred). Pure functions; no I/O.
+6. **(Write)** `scripts/tests/form4Insider.test.ts` (~30-50 tests est.) per SPEC §9.7 T-F4-1..T-F4-N.
+7. **(Gates)** `npm test` green; commit as F4-A2 slice.
 
 **Pejman decisions carried + queued:**
 
@@ -376,16 +401,19 @@ npm run check:help                                                             #
 - CBOE DataShop subscription (blocked under data-source policy).
 - #5 capital-deployment-ramp ADR (self-assigned, ~1 week, not blocking).
 - ADR-041 implementation slot (operator-pickable insertion).
-- Gap #7 v2 GICS sector activation for 8-K aggregate panel (operator-pickable insertion).
+- Gap #7 v2 GICS sector activation for 8-K + Form 4 aggregate panels (operator-pickable insertion).
 - Gap #7 v2 per-item recency for 8-K brief section #14 (S93-32 v2; operator-pickable insertion).
+- Gap #7 v2 CMP opportunistic-vs-routine classifier (per F4-1; calendar-gated AND operator-pickable).
+- Gap #7 v2 13D/13G arc (operator-pickable; needs its own SPEC).
+- Gap #7 v2 event-driven cadence (Phase B-gated AND operator-pickable).
 - Gap #8 v2 enhancement — GICS sector activation (operator-pickable insertion).
 - Gap #9 v2 enhancement — ETF.com / issuer-CSV cross-validation + per-ETF panel threading (operator-pickable insertion).
-- Push 2 commits to origin/main (operator-gated, HOLD).
+- Push 3 commits to origin/main (operator-gated, HOLD).
 
 **Calendar-gated:**
 
 - Drawdown framework §12 90d empirical retune — earliest 2026-08-29.
-- Vol-structure / sector-rotation / cross-asset / cycle-position / short-interest / executive-departure / etf-flow / 8-K-classifier Phase B campaigns — calendar or backfill arcs.
+- Vol-structure / sector-rotation / cross-asset / cycle-position / short-interest / executive-departure / etf-flow / 8-K-classifier / Form-4-insider Phase B campaigns — calendar or backfill arcs.
 - Form 4 CMP classifier v2 ADR — earliest ~2026-11-20 (6mo post-F4-A1 first apply-run).
 - Event-driven cadence v2 ADR — earliest ~2026-08-20 (90d Phase B parallel-comparison window).
 
@@ -394,28 +422,30 @@ npm run check:help                                                             #
 - ADR-041 implementation (Accepted methodology but slot un-queued).
 - Gap #7 v2 GICS-sector activation (operator-pickable; deferred-but-defined).
 - Gap #7 v2 per-item recency for 8-K brief (operator-pickable; deferred-but-defined per S93-32).
-- Gap #8 v2 GICS-sector activation (operator-pickable; deferred-but-defined).
-- Gap #9 v2 cross-validation / per-ETF panel (operator-pickable; deferred-but-defined).
 - Gap #7 v2 CMP classifier (calendar-gated AND operator-pickable).
 - Gap #7 v2 13D/13G arc (operator-pickable; needs its own SPEC).
 - Gap #7 v2 event-driven cadence (Phase B-gated AND operator-pickable).
+- Gap #8 v2 GICS-sector activation (operator-pickable; deferred-but-defined).
+- Gap #9 v2 cross-validation / per-ETF panel (operator-pickable; deferred-but-defined).
 - C-12 Phase B AlpacaAdapter.
-- Phase B campaigns for the seven (eight after F4) Layer-0 composites.
+- Phase B campaigns for the eight (nine after F4) Layer-0 composites.
 - `git push` to origin/main.
 
 ## Important framing for the next chat
 
-s93 #6 closes the 8-K classifier arc end-to-end. EK-A1 ingest → EK-A2 composite → EK-A3 migration → EK-A4 repository+daemon → EK-A5 brief section #14. The arc shipped in 5 commits over s93 #2..#6 plus the SPEC + teach-doc slice at s93 #1 (`48e0da1`). 8-K material events are now fully observable in `npm run brief:morning` once both EK-A1 source + EK-A3 snapshot tables are applied (operator-gated activation).
+s93 #7 opens the Form 4 insider-trade arc. F4-A1 → F4-A2 → F4-A3 → F4-A4 (daemon step 1l) → F4-A5 (brief section #15). Estimated ~4 more slices to close the F4 arc; each commits as its own slice. Same architectural template as the EK arc (s93 #2-#6) and the prior three Layer-0 composites.
 
-The next slice arc is gap #7 F4 (Form 4 insider activity): F4-A1 → F4-A2 → F4-A3 → F4-A4 (daemon step 1l) → F4-A5 (brief section #15). Same architectural template as the EK arc + the prior three Layer-0 composites (gap #10 short-interest, gap #8 exec-departure, gap #9 etf-flow). Estimated ~5 slices over multiple sessions; each commits as its own slice.
+F4-A1 storage layer is operator-runnable (`npm run edgar:form4:ingest:dry`) and tested (39 Python tests, all pass). The composite layer (F4-A2) is the next deliverable — pure functions that read `insider_trades` rows and compute per-ticker + per-sector aggregates per SPEC §5.3-§5.4.
 
-v1 GICS-sector deferral mirrors gap #8 exec-departure: per-ticker layer fully active, aggregate-sector layer dormant in v1. v2 GICS activation is a separate operator-pickable insertion that ships `quantlab.gics_sector_map` and activates BOTH gap #7 8-K + gap #7 Form 4 + gap #8 exec-departure aggregate panels with one slice.
+**Per S93-37 (carried-forward warning):** F4-A1 stores ALL transaction codes at the raw table; the F4-A2 composite MUST enforce the {P, S} filter at read time. A regression that read all codes at composite layer would dilute the cluster-buy / cluster-sell signal with grants + option exercises.
 
-**The next session's default behavior on "continue":** read this HANDOFF's "Next stage" section, open F4-A1. Build `scripts/sec_edgar_form4_ingest.py` mirroring EK-A1 (s93 #2 `79b3ffa`) closely. ~25-30 new Python tests. Single atomic slice (matches the prior four ingest precedents' atomicity: gap #10 FINRA, gap #8 5.02, EK-A1 8-K-event, hypothetical F4-A1).
+v1 GICS-sector deferral mirrors gap #8 + gap #7 EK: per-ticker layer fully active, aggregate-sector layer dormant in v1. v2 GICS activation is a single operator-pickable insertion that ships `quantlab.gics_sector_map` and activates BOTH gap #7 8-K + gap #7 Form 4 + gap #8 exec-departure aggregate panels with one slice.
+
+**The next session's default behavior on "continue":** read this HANDOFF's "Next stage" section, open F4-A2. Build `src/server/form_4_insider.ts` mirroring EK-A2 (s93 #3 `1879b32`) closely. ~30-50 new TS tests. Single atomic slice.
 
 **Parallel-tracks posture continues.** s93 did NOT affect C-12 / paper-trading / real-money-flip arcs.
 
-**The chain through s93 #6:**
+**The chain through s93 #7:**
 
 ```text
 ALL S41-S91 WORK                                       ✓ as documented
@@ -435,10 +465,12 @@ S93 #4 HANDOFF rewrite                                 ✓ committed (449406a)
 S93 #5: gap #7 EK-A4 — repository + daemon step 1k     ✓ committed (39b6024)
 S93 #5 HANDOFF rewrite                                 ✓ committed (1390fd9)
 S93 #6: gap #7 EK-A5 — brief section #14 (CLOSES EK arc) ✓ committed (7ee5852)
-S93 #6 HANDOFF rewrite (this commit)                   ✓ this commit
-  → next: gap #7 F4-A1 — Form 4 EDGAR ingest CLI
+S93 #6 HANDOFF rewrite                                 ✓ committed (d5068da)
+S93 #7: gap #7 F4-A1 — Form 4 EDGAR ingest CLI (OPENS F4 arc) ✓ committed (d368012)
+S93 #7 HANDOFF rewrite (this commit)                   ✓ this commit
+  → next: gap #7 F4-A2 — pure composite form_4_insider_v1
   → gap #7 EK arc: A1 ✓ → A2 ✓ → A3 ✓ → A4 ✓ → A5 ✓ (COMPLETE)
-  → gap #7 F4 arc: A1 → A2 → A3 → A4 (daemon 1l) → A5 (brief #15)
+  → gap #7 F4 arc: A1 ✓ → A2 → A3 → A4 (daemon 1l) → A5 (brief #15)
   → operator-pickable insertions: ADR-041 impl, gap #7 v2 GICS, gap #7 v2 per-item recency,
                                    gap #8 v2 GICS, gap #9 v2 cross-validation,
                                    gap #7 v2 CMP classifier (calendar-gated),
