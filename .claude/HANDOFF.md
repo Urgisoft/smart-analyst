@@ -1,38 +1,59 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-05-21 (session 94 #7 — **ADR-042 Step 2 DONE**: composite-layer `maxAggregateZ` + `maxAggregateZSector` shipped across XD/EK/F4 + 12 MAXZ-* tests green; commit `1a3fc00`. Step 1 (`readSectorMembershipPanel` helper + 6 SMP tests) shipped s94 #6 `75599d7`. ADR-042 ACCEPTED s94 #6 `d69d34f` (operator-picked Option (a) recompute-on-the-fly); companion SPEC `docs/specs/gics-sector-baseline-computation.md` is the byte-template for Steps 2-5. **NEXT: Step 3 (repository `populateSectorsForCycle`, ~80 LOC × 3 + 12 POPSEC-* tests), THEN Step 4 (renderer + composer atomic triple-edit per S94-14 — MUST land as one commit) + Step 5 (daemon-orchestrator wiring + 3 G2-DAEMON-* tests). 15 commits ahead of `origin/main`; push still operator-gated.)
+Last updated: 2026-05-21 (session 94 #8 — **OQ-G3-1 sub-slice DONE**: strategy (β) persistence wiring shipped across XD/EK/F4 + 6 G3R tests green; commit `dd366b6`. Three ALTER migrations live (each adds `max_aggregate_z Nullable(Float64)` + `max_aggregate_z_sector LowCardinality(Nullable(String))` atomically), `writeSnapshot` stamps the columns, `loadLatestSnapshot` recovers values (pre-migration/cold-start rows still decode as null). 28 commits ahead of `origin/main`; **NEXT: Step 3 (`populateSectorsForCycle` repository orchestrator across all three composites, ~80 LOC × 3 + 12 POPSEC-* tests), THEN Step 4 (renderer + composer atomic triple-edit per S94-14 — MUST land as one commit) + Step 5 (daemon-orchestrator wiring + 3 G2-DAEMON-* tests). Push still operator-gated.)
 
 ## What this turn delivered
 
-Seventh slice of the gap #7+#8 v2 GICS-activation arc. Step 2 of the ADR-042 §6 implementation order ships — pure-function composite observability lands across XD/EK/F4 with byte-equal evaluator logic per SPEC §5.2 + §2; 12 new MAXZ-* tests pass; TS compile holds at the pre-existing 13-error baseline.
+Eighth slice of the gap #7+#8 v2 GICS-activation arc. The OQ-G3-1 persistence sub-slice closes — composite-layer `maxAggregateZ` + `maxAggregateZSector` observability now round-trips through ClickHouse on all three Layer-0 snapshot tables. Step 2's stub-null deferral resolved; Step 4 renderer can now read non-null values from `loadLatestSnapshot` once Step 3 ships the populating orchestrator.
 
-1. **Composite-layer interface extensions (~12 LOC × 3 files):**
-   - `src/server/executive_departure.ts` — adds `maxAggregateZ: number | null` + `maxAggregateZSector: string | null` to `ExecutiveDepartureSnapshot` with doc comment citing ADR-042 §1 Decision §1 + SPEC §2 + brief renderer §1.4 consumption point.
-   - `src/server/eight_k_classifier.ts` — identical addition to `EightKClassifierSnapshot`.
-   - `src/server/form_4_insider.ts` — identical addition to `Form4InsiderSnapshot`.
+1. **Three CH ALTER migration scripts (~280 LOC each):**
+   - `scripts/migrate_add_max_aggregate_z_to_executive_departure_snapshots.ts`
+   - `scripts/migrate_add_max_aggregate_z_to_eight_k_classifier_snapshots.ts`
+   - `scripts/migrate_add_max_aggregate_z_to_form_4_insider_snapshots.ts`
 
-2. **Composite-evaluator additions (~12 LOC × 3 files):**
-   - All three `evaluateXxxComposite` aggregate-sector loops gain a max-|z| tracking block: tracks `maxAbsZ`, `maxAggregateZ`, `maxAggregateZSector` during the existing `for (const s of inputs.sectors)` iteration. Tie-break per SPEC §5.2 MAXZ-*-4: `absZ === maxAbsZ && (maxAggregateZSector == null || s.sector < maxAggregateZSector)` — lexicographically earlier sector name wins. Input-order-independent. All three composites' return objects now stamp the two new fields.
+   Each issues a multi-action atomic ALTER:
+   ```sql
+   ALTER TABLE quantlab.<snapshot_table>
+     ADD COLUMN max_aggregate_z Nullable(Float64),
+     ADD COLUMN max_aggregate_z_sector LowCardinality(Nullable(String))
+   ```
 
-3. **Repository deserializer fix (~7 LOC × 3 files):**
-   - `executive_departure_repository.ts` / `eight_k_classifier_repository.ts` / `form_4_insider_repository.ts` — `loadLatestSnapshot` return objects extended with `maxAggregateZ: null, maxAggregateZSector: null`. WHY: the TS interface now requires both fields, but persistence-write-path is OUT of Step 2 scope per SPEC §3 point 3 ("no snapshot-write-path changes"). Each repository's return statement carries an inline-comment explaining the deferral and pinning the eventual responsibility to a Step-3 sub-slice OR pre-Step-4 retrofit. **Persistence-wiring is now the new OQ-G3-1** (see Open questions below) — Step 4's renderer cannot read the persisted values until this is resolved.
+   Pre/post-check pattern mirrors `migrate_strategies_add_asset_class.ts` byte-for-byte where the mechanics line up: pre-check verifies (table present) AND (both columns absent) AND (no pending mutations); post-check asserts both columns in `system.columns`. Idempotent via the "columns already present" no-op branch.
 
-4. **Test-fixture updates (~24 LOC across 4 test files):**
-   - `executiveDepartureRepository.test.ts` — both inline `ExecutiveDepartureSnapshot` literals get `maxAggregateZ: null, maxAggregateZSector: null`.
-   - `eightKClassifierRepository.test.ts` — `fixtureSnapshot` default object gains the two new fields.
-   - `form4InsiderRepository.test.ts` — same.
-   - `operatorBrief.test.ts` — 6 inline Snapshot literals across XD/EK/F4 `composeMorningBrief` + `buildXxxSection` tests gain the two new fields.
+2. **package.json — six new aliases (3 × {dry, apply}):**
+   - `migrate:add-max-z-executive-departure-snapshots` + `:apply`
+   - `migrate:add-max-z-eight-k-classifier-snapshots` + `:apply`
+   - `migrate:add-max-z-form-4-insider-snapshots` + `:apply`
 
-5. **New MAXZ-* test blocks (~120 LOC × 3 test files):**
-   - `scripts/tests/executiveDeparture.test.ts` — adds `describe('aggregate-layer maxAggregateZ + maxAggregateZSector (MAXZ-XD-1..4)')` block with MAXZ-XD-{1..4}.
-   - `scripts/tests/eightKClassifier.test.ts` — identical block with MAXZ-EK-{1..4}.
-   - `scripts/tests/form4Insider.test.ts` — identical block with MAXZ-F4-{1..4} (uses `makeSectorClusterTrades` helper because F4 sector-rate is cluster-buy-tickers-per-sector, NOT raw-event-count).
+   Help auto-collected via each migration script's `help: HelpEntry[]` export; `npm run check:help` green.
 
-   The four tests per composite:
-   - **MAXZ-*-1**: maxAggregateZ is the signed z of the max-|z| sector. Builds 3 sectors with distinct event/trade counts; computes expected z externally via the same arithmetic (byte-identical); asserts strict equality.
-   - **MAXZ-*-2**: maxAggregateZSector names the sector with max |z|. Asserts both the externally-computed sector AND a sanity-pin (`'Energy'` — the sector with highest event count).
-   - **MAXZ-*-3**: both fields null when all sector z's are null (cold-start, empty baseline). Asserts both fields null.
-   - **MAXZ-*-4**: ties broken lexicographically. Builds identical-input sector pairs `['Materials', 'Energy']` AND `['Energy', 'Materials']`; asserts both produce `maxAggregateZSector === 'Energy'`.
+3. **Repository wiring (~9 LOC × 3 files):**
+   - `src/server/executive_departure_repository.ts`
+   - `src/server/eight_k_classifier_repository.ts`
+   - `src/server/form_4_insider_repository.ts`
+
+   Each repo's `writeSnapshot` INSERT values block now includes:
+   ```ts
+   max_aggregate_z: snapshot.maxAggregateZ,
+   max_aggregate_z_sector: snapshot.maxAggregateZSector,
+   ```
+
+   Each `loadLatestSnapshot` SELECT extends with `max_aggregate_z, max_aggregate_z_sector` (alphabetically last to preserve diff locality); each `RawSnapshotRow` interface gains the two fields; the return object's stub-null assignments replaced with real value recovery:
+   ```ts
+   maxAggregateZ: r.max_aggregate_z != null ? Number(r.max_aggregate_z) : null,
+   maxAggregateZSector: r.max_aggregate_z_sector ?? null,
+   ```
+
+   Pre-migration rows + cold-start (all-z-null) rows still decode as `null` on both fields — Step 4 renderer treats null as the SPEC §1.4 cold-start branch.
+
+4. **Six new G3R-* tests (~70 LOC × 3 test files):**
+   - `scripts/tests/executiveDepartureRepository.test.ts` — G3R-XD-1 / G3R-XD-2 inside new `describe('G3R-XD — max_aggregate_z persistence (OQ-G3-1)', ...)`
+   - `scripts/tests/eightKClassifierRepository.test.ts` — G3R-EK-1 / G3R-EK-2
+   - `scripts/tests/form4InsiderRepository.test.ts` — G3R-F4-1 / G3R-F4-2
+
+   Two tests per composite:
+   - **G3R-*-1** (write): `writeSnapshot` stamps both columns with the snapshot's `maxAggregateZ` / `maxAggregateZSector` values; null pass-through asserts when both fields are null on the snapshot.
+   - **G3R-*-2** (load): `loadLatestSnapshot` recovers populated values from a CH row; a second `makeRepo()` asserts the all-null CH row decodes as both fields null. The two-repo split is required because `FakeClickHouse.route` uses `Array.find` (first-match-wins) on its routes — adding a second route to the same fake never overrides the first.
 
 ## Where we are
 
@@ -46,16 +67,14 @@ Seventh slice of the gap #7+#8 v2 GICS-activation arc. Step 2 of the ADR-042 §6
 | Gap #9 etf-flow-monitoring arc | ✓ DONE end-to-end (s92, 6 commits) |
 | Gap #7 EK arc (A1..A5) | ✓ DONE end-to-end (s93 #2-#6) |
 | Gap #7 F4 arc (A1..A5) | ✓ DONE end-to-end (s93 #7-#11) |
-| Gap #7 ENTIRE ARC (v1) | ✓ DONE end-to-end (s93) |
-| Gap #7+#8 v2 GICS-A1 (shared infra: table + ingest) | ✓ s94 #1 (`8cfdd72`) |
-| Gap #7+#8 v2 GICS-A2 (F4 repo + section #15 annotation) | ✓ s94 #2 (`3eb94d6`) |
-| Gap #7+#8 v2 GICS-A3 (EK repo + section #14 annotation) | ✓ s94 #3 (`497a645`) |
-| Gap #7+#8 v2 GICS-A4 (XD repo + section #12 annotation + helper extraction) | ✓ s94 #4 (`dc70f8c`) |
-| Gap #7+#8 v2 OQ-G2-1 ADR-042 RESEARCH note | ✓ s94 #5 (`9ceb1cd`) |
+| Gap #7+#8 v2 GICS-A1..A4 + ADR-042 RESEARCH | ✓ s94 #1-#5 |
 | ADR-042 ACCEPTED + companion SPEC | ✓ s94 #6 (`d69d34f`) |
-| ADR-042 Step 1 — `readSectorMembershipPanel` helper + 6 SMP tests | ✓ s94 #6 (`75599d7`) |
-| **ADR-042 Step 2 — composite-layer maxAggregateZ + maxAggregateZSector + 12 MAXZ-* tests** | **✓ s94 #7 (`1a3fc00`)** |
-| Gap #7+#8 v2 G2 (Steps 3-5 of SPEC §6 + persistence sub-slice) | ☐ NEXT (~27 remaining tests; see Next stage) |
+| ADR-042 Step 1 — readSectorMembershipPanel + 6 SMP tests | ✓ s94 #6 (`75599d7`) |
+| ADR-042 Step 2 — composite-layer maxAggregateZ + 12 MAXZ tests | ✓ s94 #7 (`1a3fc00`) |
+| **OQ-G3-1 sub-slice — persistence wiring strategy (β) + 6 G3R tests** | **✓ s94 #8 (`dd366b6`)** |
+| Gap #7+#8 v2 G2 Step 3 (`populateSectorsForCycle` + 12 POPSEC tests) | ☐ NEXT |
+| Gap #7+#8 v2 G2 Step 4 (renderer + composer atomic triple-edit + 12 tests) | ☐ after Step 3 |
+| Gap #7+#8 v2 G2 Step 5 (daemon-orchestrator wiring + 3 G2-DAEMON tests) | ☐ after Step 4 |
 | ADR-041 implementation (`yield_curve_inverted` category) | ☐ DEFERRED — operator-pickable |
 | Gap #7 v2 per-row recency (S93-32 + S93-52 co-bootstrap) | ☐ deferred (operator-pickable) |
 | Gap #7 v2 CMP opportunistic-vs-routine classifier (per F4-1) | ☐ deferred (calendar-gated ≥6mo from F4-A1 first apply) |
@@ -67,45 +86,47 @@ Seventh slice of the gap #7+#8 v2 GICS-activation arc. Step 2 of the ADR-042 §6
 | Phase B campaigns for nine Layer-0 composites | ⏸ deferred — calendar OR backfill arc |
 | #5 capital-deployment-ramp ADR | ☐ operator self-assigned ~1 week; not blocking |
 | Drawdown framework §12 90d empirical retune | ☐ scheduled — earliest 2026-08-29 |
-| Push 15 commits to origin/main | ☐ operator-gated, HOLD |
+| Push 28 commits to origin/main | ☐ operator-gated, HOLD |
 
 ## Decisions locked in
 
-### Session 94 part 7 (this turn, one commit)
+### Session 94 part 8 (this turn, one commit)
 
-**S94-21. `maxAggregateZ` / `maxAggregateZSector` derived in the existing aggregate-sector loop; tie-break is lexicographically earlier sector name wins.**
-`Why:` Pure-function additions; no new I/O. Match the existing `for (const s of inputs.sectors)` loop's pass. Tie-break semantic chosen for determinism + input-order-independence per SPEC §5.2 MAXZ-*-4; the rule is `absZ === maxAbsZ && (maxAggregateZSector == null || s.sector < maxAggregateZSector)` (earlier name wins). This matches the S94-19 code-sketch in the prior HANDOFF + the ADR-042 §1 Decision §1 contract.
+**S94-23. OQ-G3-1 resolved with strategy (β) — two new structured columns per snapshot table.**
+`Why:` Per HANDOFF S94-22 the three-criterion test favored (β): (1) canon foundations N/A (systems engineering); (2) methodology rigor — structured columns keep the snapshot a first-class observability surface, queryable from CH without parsing JSON, which matches the "fewer features, robustly" Vector Core rule; (3) min free parameters — additive-only, no JSON-decode back-compat logic. Strategy (α) JSON-wrapper would have required either back-compat decode for old persisted rows OR a one-shot wrap-migration; (β) is purely additive.
 
-`How to apply:` Step 3 + Step 4 + Step 5 implementations can rely on this byte-equal tie-break across XD/EK/F4. Renderer §1.4 LIVE branch reads `s.maxAggregateZ` / `s.maxAggregateZSector` from the snapshot directly — no recompute. Tests pin order-independence with paired `[Materials, Energy]` / `[Energy, Materials]` inputs producing identical `maxAggregateZSector === 'Energy'`.
+`How to apply:` Both columns are `Nullable` so pre-migration rows resolve as NULL on read (matches the cold-start semantic — pre-Step-2 snapshots had no max-z observability). The migration sequence on a fresh CH: `migrate:create-<composite>-snapshots:apply` THEN `migrate:add-max-z-<composite>-snapshots:apply`. The CREATE migration's `EXPECTED_COLUMNS` list is intentionally unchanged at 10 — the new columns are added by the ALTER migration, not by extending the CREATE. This preserves migration audit trail + the existing tests' `EXPECTED_COLUMNS.length === 10` byte-pin.
 
-**S94-22. Step 2 does NOT wire persistence for the new observability fields; deferred to a Step-3 sub-slice OR pre-Step-4 retrofit per S94-22-persistence (new OQ-G3-1).**
-`Why:` SPEC §3 point 3 explicitly disclaims snapshot-write-path changes for Step 2. The SPEC author's framing implied a JSON-payload column where the new fields could ride along; the actual schema uses STRUCTURED columns (`executive_cluster_departure`, `flagged_sectors_json`, `per_ticker_json`, etc.), so the new fields have no current persistence home. Step 4's renderer reads from `loadLatestSnapshot`; until persistence is wired, the renderer will see `maxAggregateZ === null` and MUST fall back to the SPEC §1.4 cold-start branch instead of the LIVE branch — even when the daemon's freshly-computed snapshot DID have non-null values.
+**S94-24. Multi-action ALTER inside a single CH command is the atomic idiom.**
+`Why:` CH executes multi-action `ALTER TABLE x ADD COLUMN a, ADD COLUMN b` as one DDL — partial-write on crash is impossible. Same idiom as multi-column adds elsewhere in the CH ecosystem. The pre-check correctly detects partial-success on a re-run if a future operator restarts CH mid-migration (it shouldn't be possible, but the check is defensive).
 
-`How to apply:` Two viable strategies for the sub-slice resolving OQ-G3-1 (operator-pickable OR autonomous canon-thin pick at next session start):
-- **(α) Embed in `flagged_sectors_json` as wrapper object** — change the column shape from `[{ sector, sectorSize, ... }]` to `{ flaggedSectors: [...], maxAggregateZ, maxAggregateZSector }`. Minimal schema impact (still a `String` JSON column) but BREAKS round-trip for old persisted rows (parsed as array, but expects object). Mitigations: keep array-back-compat in the deserializer, OR add a one-shot migration to wrap existing rows.
-- **(β) Add two new structured columns** — `max_aggregate_z Nullable(Float64)` + `max_aggregate_z_sector LowCardinality(Nullable(String))` to all three snapshot tables. Requires three CH `ALTER TABLE ... ADD COLUMN` migrations + writeSnapshot + loadLatestSnapshot wiring. Cleaner long-term shape; matches the existing structured-column idiom. Compute estimate: ~30 LOC × 3 + 1 migration script × 3 + ~6 round-trip tests.
+`How to apply:` Step 3+ migrations + any future per-composite snapshot column adds follow the same pattern. The pre-check's "columns absent" branch fires `presentColumns.length === 0`; the no-op branch ("safe to skip") fires when either or both columns are already present.
 
-Three-criterion test (per autonomous canon-thin protocol): (1) canon foundations = N/A (systems engineering); (2) methodology rigor = (β) is cleaner observability + queryable in CH; (α) hides metadata in JSON; (3) min free parameters = (α) needs back-compat decode logic, (β) is additive-only. **Recommend (β) — but the choice is operator-pickable**.
+**S94-25. `FakeClickHouse.route` first-match-wins forces split-fake patterns for multi-scenario `loadLatestSnapshot` tests.**
+`Why:` The repository test fakes use `Array.find` on `this.routes` — adding a second `fake.route(_ => true, [...])` does NOT override the first; it's dead code. Encountered while writing G3R-*-2 tests (populated row vs null-row scenarios within one test).
 
-**Carry-over from s94 #6 (still in force):**
+`How to apply:` For any test that needs to exercise multiple distinct CH responses for the SAME query shape (e.g. populated vs cold-start `loadLatestSnapshot`), instantiate one `makeRepo()` per scenario. Future POPSEC-* repository tests will hit the same pattern when asserting the orchestrator's behavior across full-coverage vs empty-coverage panels.
 
-- S94-18 — ADR-042 ACCEPTED via operator pick of Option (a) recompute-on-the-fly.
-- S94-19 — Composite Snapshot interfaces gain `maxAggregateZ` + `maxAggregateZSector` (NOW SHIPPED at Step 2).
-- S94-20 — S94-14 coordinated atomic triple-edit boundary pinned at SPEC §6 Step 4 (renderer + composer rewrite).
+**Carry-over from s94 #7 (still in force):**
 
-### Sessions 84-93 + s94 #1..#5 prior decisions (carried)
+- S94-21 — Tie-break on equal-|z| is lexicographically-earlier sector wins.
+- S94-22 — Persistence-wiring deferred; OQ-G3-1 strategy (β) recommended. **NOW RESOLVED via S94-23.**
 
-All prior decisions preserved unchanged. S93-1..S93-54 + S94-1..S94-20 carry through.
+### Sessions 84-93 + s94 #1..#7 prior decisions (carried)
+
+All prior decisions preserved unchanged. S93-1..S93-54 + S94-1..S94-22 carry through.
 
 ## Open questions
 
-### Newly opened (per S94-22)
+### Newly opened (s94 #8) — none
 
-**OQ-G3-1 (MEDIUM — pickable next session).** Persistence of `maxAggregateZ` + `maxAggregateZSector` across snapshot round-trips. Two strategies per S94-22: (α) embed in `flagged_sectors_json` as wrapper object (minimal schema, BC-decode complexity), (β) add two new structured columns (3 CH ALTERs + writeSnapshot/loadLatestSnapshot wiring + ~6 round-trip tests). **Recommend (β).** Blocks Step 4's renderer LIVE branch from rendering real values until resolved.
-
-### Carried unchanged from s94 #6
+### Carried unchanged from s94 #7
 
 - **OQ-G2-2 (LOW — deferred)** — EDGAR-amendment forensic tooling default. Per ADR-042 §5 silent re-write is the v1 default; ADR-043 opens only if Phase B testing reveals operational impact.
+
+### Resolved this turn
+
+- **OQ-G3-1 (CLOSED)** — strategy (β) shipped (S94-23). Persistence now round-trips on all three Layer-0 snapshot tables; Step 4 renderer's LIVE branch unblocked.
 
 ### CARRIED (unchanged)
 
@@ -127,64 +148,33 @@ All prior decisions preserved unchanged. S93-1..S93-54 + S94-1..S94-20 carry thr
 
 ### Default on "continue"
 
-**Recommended sequencing**: Execute the **OQ-G3-1 persistence sub-slice** FIRST (recommended strategy (β) per S94-22), THEN Step 3 + Step 4 + Step 5 in the original SPEC order.
+**Step 3 — Repository `populateSectorsForCycle` (~80 LOC × 3 + 12 POPSEC-* tests).**
 
-Rationale: if OQ-G3-1 ships first via strategy (β), Steps 3/4/5 inherit a clean persistence path. If we delay OQ-G3-1 to "pre-Step-4," then Step 3 lands a `populateSectorsForCycle` against a snapshot that has `null` metadata downstream — workable but means Step 4 renderer must defensively handle `null` even from a freshly-computed-then-persisted snapshot.
-
-#### OQ-G3-1 sub-slice (RECOMMENDED FIRST) — Strategy (β) persistence wiring
-
-**Estimate:** ~30 LOC × 3 + 3 CH ALTER migrations + ~6 round-trip tests.
-
-1. **Three CH ALTER migrations** — add `max_aggregate_z Nullable(Float64)` + `max_aggregate_z_sector LowCardinality(Nullable(String))` columns to:
-   - `quantlab.executive_departure_snapshots`
-   - `quantlab.eight_k_classifier_snapshots`
-   - `quantlab.form_4_insider_snapshots`
-
-   Pattern: follow the existing migration scripts (`scripts/migrate_create_executive_departure_snapshots.ts` etc.). New scripts:
-   - `scripts/migrate_add_max_aggregate_z_to_executive_departure_snapshots.ts`
-   - `scripts/migrate_add_max_aggregate_z_to_eight_k_classifier_snapshots.ts`
-   - `scripts/migrate_add_max_aggregate_z_to_form_4_insider_snapshots.ts`
-   - Wire `npm run` aliases in `package.json` (`migrate:add-max-z-...:dry` / `:apply`).
-   - Add help entries in `scripts/help.ts`.
-
-2. **`writeSnapshot` updates** in all three repositories — INSERT the new columns:
-   ```ts
-   max_aggregate_z: snapshot.maxAggregateZ,
-   max_aggregate_z_sector: snapshot.maxAggregateZSector,
-   ```
-
-3. **`loadLatestSnapshot` updates** — SELECT the new columns + cast back to `number | null` / `string | null`. Replace the Step-2 stub-null assignments with real values. Remove the placeholder comment.
-
-4. **6 round-trip tests** — one per composite × {writeSnapshot includes columns, loadLatestSnapshot recovers values} = 6 tests. Pattern: extend existing repository test suites.
-
-#### Step 3 — Repository `populateSectorsForCycle` (~80 LOC × 3 + 12 POPSEC-* tests)
-
-Per SPEC §1.2 + §5.3. Each composite repository gains:
+Per SPEC docs/specs/gics-sector-baseline-computation.md §1.2 + §5.3. Each composite repository gains:
 
 ```ts
 async populateSectorsForCycle(asOf: Date): Promise<XxxInputs['sectors']>
 ```
 
-Workflow:
-1. Call the existing `readSectorMembershipPanel(asOf - 730d, asOf - 1d)` for the trailing-2y baseline window (today EXCLUDED per ADR-042 §4).
-2. Read trailing-2y events panel for the (constituents) × (asOf-730d, asOf-1d) window — composite-specific (XD reads `executive_departures` filtered to `5.02(b)`; EK reads `eight_k_events` filtered to `HIGH_SIGNAL_ITEM_CODES`; F4 reads `insider_trades` filtered to `{P, S}` cluster-buy semantic per F4-6).
+Workflow per ADR-042 §4 / §7 / §8:
+1. Call `readSectorMembershipPanel(this.ch, this.gicsSectorMapTable, this.sp500ConstituentsTable, asOf - 730d, asOf - 1d)` for the trailing-2y baseline window (today EXCLUDED — `asOfEnd = asOf - 1 day` is the load-bearing pin).
+2. Read trailing-2y events panel for the (PIT constituents) × (asOf-730d, asOf-1d) window — composite-specific:
+   - **XD:** `executive_departures` filtered to `sub_item_code = '5.02(b)'` (per `readDepartureEventsForBaseline`'s existing 5.02(b)-only filter).
+   - **EK:** `eight_k_events` filtered to `item_code IN HIGH_SIGNAL_ITEM_CODES`.
+   - **F4:** `insider_trades` filtered to `transaction_code IN {'P', 'S'}` cluster-buy semantic per F4-6.
 3. Read today's events for the (constituents) × (asOf-90d, asOf) window.
-4. Group events by (day, sector) using the PIT membership panel; produce per-sector `baseline2y[]` daily-rate panel + today's `events[]` for evaluator.
-5. Per ADR-042 §8 empty-sector days yield rate=0, NOT null.
+4. Group events by (day, sector) using the PIT membership panel from (1); produce per-sector `baseline2y[]` daily-rate panel + today's `events[]` for the evaluator.
+5. Per ADR-042 §8 empty-sector days yield `rate=0`, NOT null. Only sectors with `memberCount=0` across the entire window drop out.
 
-Update `readInputsForCycle` to call `populateSectorsForCycle(asOf)` and merge into `inputs.sectors` (replacing the current empty array).
+Update each repository's `readInputsForCycle` to call `populateSectorsForCycle(asOf)` and merge into `inputs.sectors` (replacing the current empty array).
 
-Tests per SPEC §5.3: POPSEC-XD-{1..4} / POPSEC-EK-{1..4} / POPSEC-F4-{1..4}.
+Tests per SPEC §5.3: POPSEC-XD-{1..4} / POPSEC-EK-{1..4} / POPSEC-F4-{1..4}. Expect to hit S94-25 (split-fake pattern) for the full-coverage vs empty-coverage scenarios.
 
 #### Step 4 — Brief renderer + composer atomic triple-edit (~60 LOC + ~30 LOC + 12 G2-RENDER/COMPOSER tests, **S94-14 ATOMIC**)
 
-**MUST land as one commit** per S94-14 + S94-20. Single-composite incremental rollout drifts the operator-facing wording.
+**MUST land as one commit** per S94-14 + S94-20. Single-composite incremental rollout drifts the operator-facing wording. Defensive fallback in Step 4's renderer is no longer needed since OQ-G3-1 is closed; renderer can read non-null `maxAggregateZ` from `loadLatestSnapshot` on the LIVE branch.
 
-- `src/server/operator_brief_render.ts` sections #12 + #14 + #15 — three-way branch per SPEC §1.4:
-  - `flaggedSectors.length > 0` → existing flagged-sectors table (unchanged).
-  - `flaggedSectors.length === 0 AND inputsAvailableAggregate > 0` → "No sectors flagged today (k/11 cleared MIN_Z_BASELINE; max-|z|=X.YZ at <Sector>)" LIVE branch.
-  - `flaggedSectors.length === 0 AND inputsAvailableAggregate === 0` → cold-start branch.
-  - **NOTE:** if OQ-G3-1 has NOT shipped, the LIVE branch will see `maxAggregateZ === null` even when `inputsAvailableAggregate > 0`. Implement a defensive fallback ("max-|z|=n/a (G2 metadata persistence pending OQ-G3-1)") OR block Step 4 on OQ-G3-1 closure.
+- `src/server/operator_brief_render.ts` sections #12 + #14 + #15 — three-way branch per SPEC §1.4 (flagged-table / "No sectors flagged today" LIVE branch / cold-start branch).
 - Composite-tagline footer rewrites across all three sections per SPEC §1.4.
 - `src/server/operator_brief.ts` `composeXdSection` / `composeEkSection` / `composeF4Section` — pass through `maxAggregateZ` + `maxAggregateZSector` to the renderer-input shape.
 
@@ -193,7 +183,7 @@ Tests per SPEC §5.4 + §5.6: G2-RENDER-XD-{1..3} / G2-RENDER-EK-{1..3} / G2-REN
 #### Step 5 — Daemon-orchestrator wiring (~20 LOC × 3 + 3 G2-DAEMON-* tests)
 
 Per SPEC §1.3 + §5.5. In `scripts/daily_signal_daemon.ts`:
-1. For each composite, call `populateSectorsForCycle(asOf)` and merge into `inputs.sectors` (likely encapsulated inside `readInputsForCycle` after Step 3 — verify call-site shape).
+1. For each composite, ensure `populateSectorsForCycle(asOf)` is called and merged into `inputs.sectors` (likely encapsulated inside `readInputsForCycle` after Step 3 — verify call-site shape).
 2. Emit the SPEC §1.3 daemon-cycle log line:
    ```text
    [<composite>-aggregate] sectors_with_z=<k>/<11> floor_cleared=<m>/<11> max_z=<sector>:<value> cluster_flag=<true|false>
@@ -201,7 +191,7 @@ Per SPEC §1.3 + §5.5. In `scripts/daily_signal_daemon.ts`:
 
 Tests: G2-DAEMON-XD-1 / G2-DAEMON-EK-1 / G2-DAEMON-F4-1.
 
-### After Steps 3-5 + OQ-G3-1 sub-slice ship + tests green + tsc clean
+### After Steps 3-5 ship + tests green + tsc clean
 
 The gap #7+#8 v2 arc closes end-to-end. Remaining operator-pickable next-default candidates:
 
@@ -217,93 +207,88 @@ The gap #7+#8 v2 arc closes end-to-end. Remaining operator-pickable next-default
 
 ### Operator-gated action items (carried)
 
-- Push 15 commits to origin/main (HOLD).
+- Push 28 commits to origin/main (HOLD).
 - Drawdown framework §12 90d empirical retune — earliest 2026-08-29.
 
 ## Files / code state
 
-### EDITED this turn (s94 #7 — commit `1a3fc00`)
+### NEW this turn (s94 #8 — commit `dd366b6`)
+
+| Path | LOC | Notes |
+| --- | --- | --- |
+| `scripts/migrate_add_max_aggregate_z_to_executive_departure_snapshots.ts` | +280 | Multi-action ALTER; pre/post-check pattern from `migrate_strategies_add_asset_class.ts`. |
+| `scripts/migrate_add_max_aggregate_z_to_eight_k_classifier_snapshots.ts` | +234 | Byte-equal mirror; only DATABASE/TABLE differ. |
+| `scripts/migrate_add_max_aggregate_z_to_form_4_insider_snapshots.ts` | +234 | Same. |
+
+### EDITED this turn (s94 #8 — commit `dd366b6`)
 
 | Path | LOC delta | Notes |
 | --- | --- | --- |
-| `src/server/executive_departure.ts` | +24 | Interface fields + evaluator max-z block + return-object stamps. |
-| `src/server/eight_k_classifier.ts` | +24 | Same pattern. |
-| `src/server/form_4_insider.ts` | +24 | Same pattern. |
-| `src/server/executive_departure_repository.ts` | +9 | `loadLatestSnapshot` return stamps both fields as null with deferral-comment. |
-| `src/server/eight_k_classifier_repository.ts` | +9 | Same. |
-| `src/server/form_4_insider_repository.ts` | +9 | Same. |
-| `scripts/tests/executiveDeparture.test.ts` | +118 | New MAXZ-XD-{1..4} describe block. |
-| `scripts/tests/eightKClassifier.test.ts` | +120 | New MAXZ-EK-{1..4} describe block. |
-| `scripts/tests/form4Insider.test.ts` | +128 | New MAXZ-F4-{1..4} describe block (incl. `makeSectorClusterTrades` helper). |
-| `scripts/tests/executiveDepartureRepository.test.ts` | +4 | Two inline Snapshot literals updated. |
-| `scripts/tests/eightKClassifierRepository.test.ts` | +2 | `fixtureSnapshot` updated. |
-| `scripts/tests/form4InsiderRepository.test.ts` | +2 | `fixtureSnapshot` updated. |
-| `scripts/tests/operatorBrief.test.ts` | +12 | 6 inline Snapshot literals updated across XD/EK/F4. |
+| `package.json` | +6 | Six new aliases: `migrate:add-max-z-<composite>-snapshots` + `:apply`. |
+| `src/server/executive_departure_repository.ts` | +9 / -6 | `RawSnapshotRow` + `writeSnapshot` INSERT block + SELECT + return object. |
+| `src/server/eight_k_classifier_repository.ts` | +9 / -6 | Same pattern. |
+| `src/server/form_4_insider_repository.ts` | +9 / -6 | Same. |
+| `scripts/tests/executiveDepartureRepository.test.ts` | +73 | G3R-XD-{1,2} `describe` block inserted before `executiveDepartureSnapshotsTableExists`. |
+| `scripts/tests/eightKClassifierRepository.test.ts` | +72 | G3R-EK-{1,2} block before `eightKClassifierSnapshotsTableExists`. |
+| `scripts/tests/form4InsiderRepository.test.ts` | +75 | G3R-F4-{1,2} block before `form4InsiderSnapshotsTableExists`. |
 
-### Carried from s94 #6 (unchanged)
+### Carried from s94 #6 + #7 (unchanged)
 
 | Path | Status | Notes |
 | --- | --- | --- |
 | `docs/decisions/README.md` | ADR-042 ACCEPTED | Methodology defense + dependency wiring. |
-| `docs/specs/gics-sector-baseline-computation.md` | byte-template SPEC | 45-test list; Steps 3-5 + OQ-G3-1 sub-slice still pending. |
-| `docs/specs/adr-042-gics-sector-baseline-computation-research.md` | RESEARCH note | §5 framing referenced for operator pick. |
+| `docs/specs/gics-sector-baseline-computation.md` | byte-template SPEC | Steps 3-5 next; OQ-G3-1 sub-slice now resolved (out of scope for §6's original 5 steps). |
 | `src/server/gics_sector_repository_helper.ts` | Step 1 SHIPPED | Both `readGicsSectorByTicker` + `readSectorMembershipPanel` live. |
-| `scripts/tests/gicsSectorRepositoryHelper.test.ts` | Step 1 SHIPPED | 6 SMP tests pass (2 EXPLAIN gates skip on CH unreachable). |
+| Three composite `xxx.ts` source files | Step 2 SHIPPED | `maxAggregateZ` + `maxAggregateZSector` evaluator logic live. |
 
-### CH state (unchanged from s94 #6)
+### CH state
 
-- All seven Layer-0 composite snapshot tables in same state as s93 #6 close.
-- `quantlab.eight_k_events` — NOT yet created.
-- `quantlab.eight_k_classifier_snapshots` — NOT yet created.
-- `quantlab.insider_trades` — NOT yet created.
-- `quantlab.insider_ciks` — NOT yet created.
-- `quantlab.form_4_insider_snapshots` — NOT yet created.
-- `quantlab.gics_sector_map` — NOT yet created (TS migration ready; Python ingest also lazy-creates on first --apply).
-- **NEW:** if OQ-G3-1 strategy (β) is selected, three ALTER TABLE migrations will be needed for the snapshot tables once they exist.
+- All seven Layer-0 composite snapshot tables + the three event tables remain in the state from s93 / s94 #6 close.
+- **NEW since this turn:** the three Layer-0 snapshot tables (`executive_departure_snapshots`, `eight_k_classifier_snapshots`, `form_4_insider_snapshots`) each have **a pending ALTER migration** ready to apply (`migrate:add-max-z-<composite>-snapshots:apply`). The migrations are idempotent (pre-check detects existing columns + skips) — operator can run them now or wait for Step 5's first daemon cycle.
+- `quantlab.eight_k_events` / `eight_k_classifier_snapshots` / `insider_trades` / `insider_ciks` / `form_4_insider_snapshots` / `gics_sector_map` — NOT yet created. Lazy-create on first ingest or migration apply.
 
 ### Tests (validated this turn)
 
 ```text
-npx tsx --test scripts/tests/executiveDeparture.test.ts      # 45 / 45 / 0 fail
-npx tsx --test scripts/tests/eightKClassifier.test.ts        # 62 / 62 / 0 fail
-npx tsx --test scripts/tests/form4Insider.test.ts            # 67 / 67 / 0 fail
 npx tsx --test scripts/tests/executiveDepartureRepository.test.ts \
               scripts/tests/eightKClassifierRepository.test.ts \
-              scripts/tests/form4InsiderRepository.test.ts \
-              scripts/tests/operatorBrief.test.ts \
-              scripts/tests/operatorBriefRender.test.ts      # 351 / 2 fail / 18 skipped
-                                                              # (2 failures are pre-existing CH-unreachable;
-                                                              # confirmed via git stash baseline)
+              scripts/tests/form4InsiderRepository.test.ts
+              # 168 / 168 / 0 fail / 18 skipped (skipped are CH-unreachable EXPLAIN gates)
 
-npm test                                                      # 2851 / 2754 pass / 2 fail / 95 skipped
-                                                              # +12 net new tests vs s94 #6 baseline (the 12 MAXZ tests)
+npm test                                                      # 2857 / 2760 pass / 2 fail / 95 skipped
+                                                              # +6 net new tests vs s94 #7 (the G3R-* tests)
                                                               # 2 fails are pre-existing CH-unreachable (operatorBrief.test.ts)
-                                                              # skip-count delta is CH availability variance
 
 npx tsc --noEmit                                              # 13 baseline errors UNCHANGED
+
+npm run check:help                                            # green
 ```
 
 Full `pytest` baseline NOT re-run this turn (no Python touched).
 
 ## Watch-outs
 
-### NEW from this turn (s94 #7)
+### NEW from this turn (s94 #8)
 
-- **Step 4 renderer LIVE branch is BLOCKED by OQ-G3-1 persistence wiring.** The renderer reads `maxAggregateZ` from `loadLatestSnapshot` per S94-22's stub-null defaults; that returns null until OQ-G3-1 ships. If Step 4 lands BEFORE OQ-G3-1, the renderer either: (a) always falls back to cold-start branch (visible operator-facing regression — even fresh data shows "awaiting" wording), or (b) needs defensive "max-|z|=n/a (G2 metadata persistence pending OQ-G3-1)" wording added to the LIVE branch. **Recommend OQ-G3-1 ships BEFORE Step 4.**
+- **`FakeClickHouse.route` is first-match-wins (S94-25).** Any test that needs multiple distinct CH responses for the SAME `loadLatestSnapshot` shape (e.g. populated row vs cold-start) MUST instantiate one `makeRepo()` per scenario. A second `fake.route(_ => true, [...])` call within the same test is dead code — `Array.find` returns the first matching rule. POPSEC-* tests in Step 3 will hit this pattern.
 
-- **Tie-break asymmetry on equal-|z| with opposite signs.** Two sectors with `z = +2.5` and `z = -2.5` have `absZ === 2.5` AND distinct sector names; the lexicographic tie-break picks the lexicographically earlier sector. This is correct + deterministic per SPEC §5.2 MAXZ-*-4, but the `maxAggregateZ` returned is the SIGNED z of whichever sector wins (could be +2.5 OR -2.5). Tests pin order-independence + assert sector identity; they do NOT pin the signed-z direction on opposite-sign ties because the SPEC defines the rule as |z|-max then lexicographic-name-min, not sign-preserving.
+- **The three ALTER migrations are operator-gated on first run.** Each script's `:apply` variant is destructive per the migration's own banner. The operator must run them before Step 4's renderer can render the LIVE branch — but ONLY against tables that already exist (the create-* migrations come first). If a fresh CH is being bootstrapped, the order is: `migrate:create-<composite>-snapshots:apply` THEN `migrate:add-max-z-<composite>-snapshots:apply`.
 
-- **MAXZ test fixtures use synthetic baselines with mean ≈ 0.02 + stddev ≈ 0.0034.** These are NOT meant to produce specific z values — they're calibrated to be finite + non-degenerate so `computeZ` returns non-null z's for non-zero rates. The test assertions compute the EXPECTED z externally via the same `computeZ` call with the same arithmetic, then assert strict equality. Modifying the baseline shape would require updating the expected-z derivation; the strict-equality pattern is robust to floating-point drift only because the evaluator + test use identical math.
+- **The CREATE migration's `EXPECTED_COLUMNS` list is intentionally still at 10 columns** (not 12). Tests like `migrateCreateExecutiveDepartureSnapshots.test.ts` pin `EXPECTED_COLUMNS.length === 10`; adding the new columns to that list would break the byte-pin tests AND would prevent the ALTER migration from being meaningful (the CREATE would already cover them). The audit trail is: CREATE → 10 columns; ALTER → +2 columns; total schema → 12 columns. This is the canonical migration-evolution pattern.
 
-- **F4 MAXZ helper `makeSectorClusterTrades` mirrors the existing T-F4 test pattern.** Each cluster-buy ticker needs ≥3 distinct `personCik` values within the 30d cluster window — the helper produces exactly that. Reusing the same ticker names (`T0`..`T7`) across multiple sectors is safe because each sector's `trades` array is scoped independently.
+- **`max_aggregate_z` is `Nullable(Float64)` not `Float32`.** The existing snapshot tables use `Float32` for the per-sector rate columns inside `flagged_sectors_json` per the s84-s90 migration idiom. The new `max_aggregate_z` column is `Float64` because it's a top-level z-score observability surface (queryable from CH directly), not a JSON-embedded rate. Float64 gives full precision for the audit trail; the per-sector rate columns inside JSON still use Float32. Step 4's renderer rounds `maxAggregateZ` to 2 dp for display per SPEC §1.3.
 
-### Carried (s89-s94 #6 + earlier)
+### Carried (s89-s94 #7 + earlier)
 
 All prior watch-outs preserved unchanged. Key carry-overs:
 
-- **The composite source files have `\0` literals in template strings.** `src/server/executive_departure.ts` (line 105 dedupe key), `eight_k_classifier.ts` (line 133), `form_4_insider.ts` (line 163) — Read tool falls back to binary mode on these files at the early-line offset. **Workaround for future edits**: Read at an offset > the `\0` line OR use `tr '\0' '_' < src/server/<file>.ts > .tmp_read/_<file>.ts` to make readable working copies (remember to `rm -rf .tmp_read` at close-out). Edit the original files using exact original strings as `old_string` (the `\0` literal is fine in JSON-encoded `old_string` parameters).
+- **The composite source files have `\0` literals in template strings.** `src/server/executive_departure.ts` (line 105), `eight_k_classifier.ts` (line 133), `form_4_insider.ts` (line 163) — Read tool falls back to binary at the early-line offset. Use Read with `offset` past the literal OR `tr` workaround to a temp dir. Edits work normally — the `\0` literal is fine in JSON-encoded `old_string` parameters.
 
-- `gics_sector_repository_helper.ts` is now the byte-template owner for both per-ticker (`readGicsSectorByTicker`) and per-day-panel (`readSectorMembershipPanel`) sector lookups.
+- **Step 4 renderer LIVE branch is NOW UNBLOCKED.** With OQ-G3-1 closed, `loadLatestSnapshot` returns non-null `maxAggregateZ` / `maxAggregateZSector` for any snapshot persisted post-migration where the composite evaluator computed a non-null max. The defensive "(G2 metadata persistence pending OQ-G3-1)" fallback from the previous handoff is NO LONGER NEEDED — Step 4 can implement the SPEC §1.4 LIVE branch cleanly.
+
+- **Tie-break asymmetry on equal-|z| with opposite signs (carried).** Sectors with `z = +2.5` and `z = -2.5` have `absZ === 2.5` AND distinct names; the lexicographic tie-break picks the lexicographically earlier sector. Tests pin order-independence + assert sector identity; they do NOT pin the signed-z direction on opposite-sign ties (the SPEC defines the rule as |z|-max then lex-name-min, not sign-preserving).
+
+- `gics_sector_repository_helper.ts` is the byte-template owner for both per-ticker (`readGicsSectorByTicker`) and per-day-panel (`readSectorMembershipPanel`) sector lookups.
 - Section #12's table-cell sector annotation position is byte-pinned by T-OBR-XD-9.
 - `inputsAvailablePerTicker` semantic is meaningful (not structurally 0) across all three composites.
 - The helper's `asOf` is ALWAYS coerced to `YYYY-MM-DD`.
@@ -321,10 +306,10 @@ All prior watch-outs preserved unchanged. Key carry-overs:
 - `index_granularity = 8192` is the Layer-0 lookup-table idiom.
 - **S94-14 atomic-triple-edit at SPEC §6 Step 4 is non-negotiable.** Sections #12 + #14 + #15 renderer + composer changes land as ONE commit.
 - **`MIN_Z_BASELINE = 30` floor stays at 30** across all three composites per ADR-042 §6.
-- **`stddevSamp` not `stddevPop`** — Bessel correction. Step 2 MAXZ derivation reads pre-computed z's; no new stddev arithmetic.
+- **`stddevSamp` not `stddevPop`** — Bessel correction. Step 3 POPSEC orchestrator must produce per-day rates that the composite-layer `computeZ` (sample stddev) can consume directly.
 - **Today's rate must be EXCLUDED from the baseline window** per ADR-042 §4. Step 3's `populateSectorsForCycle` MUST set `asOfEnd = asOf - 1 day` for the baseline-window helper call.
 
-(All earlier s89-s93 watch-outs preserved unchanged.)
+(All earlier s89-s94 #7 watch-outs preserved unchanged.)
 
 ## Pre-loaded operational reminders
 
@@ -337,7 +322,7 @@ npx tsx scripts/_paper_trading_review.ts
 npm run brief:morning                                   # sections #7-#15 with real data once migrations applied
 ```
 
-### Gap #7+#8 v2 GICS activation (G1 FULLY READY; G2 in flight — Steps 3-5 + OQ-G3-1 sub-slice)
+### Gap #7+#8 v2 GICS activation (G1 FULLY READY; G2 in flight — Steps 3-5 NEXT)
 
 ```text
 # GICS map bootstrap + ingest (READY since s94 #1):
@@ -346,14 +331,19 @@ npm run migrate:create-gics-sector-map:apply            # creates quantlab.gics_
 npm run gics:sector-map:ingest:dry                      # fetch + parse + validate without writing
 npm run gics:sector-map:ingest                          # writes ~503 rows from Wikipedia
 
-# F4 / EK / XD per-ticker sector wiring (READY since s94 #2/#3/#4):
-# All three brief sections (#12 + #14 + #15) annotate flagged tickers with their
-# GICS sector when row exists in map.
+# G2 max-aggregate-z persistence wiring (READY since this turn s94 #8):
+npm run migrate:add-max-z-executive-departure-snapshots         # dry-run
+npm run migrate:add-max-z-executive-departure-snapshots:apply   # applies ALTER (+2 columns)
+npm run migrate:add-max-z-eight-k-classifier-snapshots          # dry-run
+npm run migrate:add-max-z-eight-k-classifier-snapshots:apply    # applies ALTER (+2 columns)
+npm run migrate:add-max-z-form-4-insider-snapshots              # dry-run
+npm run migrate:add-max-z-form-4-insider-snapshots:apply        # applies ALTER (+2 columns)
 
 # G2 aggregate-panel activation (in flight):
-# Step 1 DONE — readSectorMembershipPanel helper in src/server/gics_sector_repository_helper.ts
+# Step 1 DONE — readSectorMembershipPanel helper
 # Step 2 DONE — composite-layer maxAggregateZ + maxAggregateZSector
-# Steps 3-5 + OQ-G3-1 sub-slice NEXT per SPEC docs/specs/gics-sector-baseline-computation.md §6
+# OQ-G3-1 sub-slice DONE — persistence wiring strategy (β)
+# Steps 3-5 NEXT per SPEC docs/specs/gics-sector-baseline-computation.md §6
 ```
 
 ### Gap #9 etf-flow activation (FULLY READY)
@@ -385,6 +375,7 @@ npm run brief:morning
 .venv/Scripts/python.exe scripts/sec_edgar_8k_item_5_02_ingest.py --apply
 npm run migrate:create-executive-departure-snapshots
 npm run migrate:create-executive-departure-snapshots:apply
+npm run migrate:add-max-z-executive-departure-snapshots:apply   # NEW (s94 #8) — required before Step 4 renderer LIVE branch
 npm run daemon:daily
 npm run brief:morning                                   # section #12 now sector-annotated
 ```
@@ -396,6 +387,7 @@ npm run edgar:8k-event:ingest:dry
 npm run edgar:8k-event:ingest
 npm run migrate:create-eight-k-classifier-snapshots
 npm run migrate:create-eight-k-classifier-snapshots:apply
+npm run migrate:add-max-z-eight-k-classifier-snapshots:apply    # NEW (s94 #8)
 npm run daemon:daily
 npm run brief:morning
 ```
@@ -407,6 +399,7 @@ npm run edgar:form4:ingest:dry
 npm run edgar:form4:ingest
 npm run migrate:create-form-4-insider-snapshots
 npm run migrate:create-form-4-insider-snapshots:apply
+npm run migrate:add-max-z-form-4-insider-snapshots:apply        # NEW (s94 #8)
 npm run daemon:daily
 npm run brief:morning
 ```
@@ -414,29 +407,26 @@ npm run brief:morning
 ### Tests + dev
 
 ```text
-npm test                                                                       # TS — this turn 2851 / 2754 pass / 2 fail / 95 skipped (2 fails pre-existing CH-unreachable)
+npm test                                                                       # TS — this turn 2857 / 2760 pass / 2 fail / 95 skipped (2 fails pre-existing CH-unreachable)
 .venv/Scripts/python.exe -m pytest scripts/tests                               # Python — last full-run baseline 324 / 324
 npm run dev                                                                    # http://localhost:3000
-npm run check:help                                                             # FULLY GREEN at s94 #4 close
-npx tsx --test scripts/tests/executiveDeparture.test.ts                        # this turn — 45 / 45
-npx tsx --test scripts/tests/eightKClassifier.test.ts                          # this turn — 62 / 62
-npx tsx --test scripts/tests/form4Insider.test.ts                              # this turn — 67 / 67
+npm run check:help                                                             # FULLY GREEN at s94 #8 close
+npx tsx --test scripts/tests/executiveDepartureRepository.test.ts \
+              scripts/tests/eightKClassifierRepository.test.ts \
+              scripts/tests/form4InsiderRepository.test.ts                     # this turn — 168/168 / 18 skipped
 npx tsc --noEmit                                                               # 13 baseline errors unchanged
 ```
 
 ## For the next session — priority order
 
-**Default on `continue`:** open with the **OQ-G3-1 persistence sub-slice** (recommended strategy (β) — two new structured columns per snapshot table + writeSnapshot/loadLatestSnapshot wiring + 3 ALTER migrations + ~6 round-trip tests). THEN Step 3 (POPSEC tests) → Step 4 atomic triple-edit (S94-14) → Step 5 (DAEMON tests).
-
-Alternative ordering if operator picks strategy (α) for OQ-G3-1: persistence sub-slice still ships first, but uses the JSON-wrapper approach instead of new columns (no schema migration; back-compat decode logic instead).
+**Default on `continue`:** open with **Step 3 — Repository `populateSectorsForCycle`** (`~80 LOC × 3 + 12 POPSEC-* tests`). OQ-G3-1 is closed so the previous SPEC §6 implementation order resumes cleanly: Step 3 → Step 4 atomic triple-edit (S94-14) → Step 5 (DAEMON).
 
 **Acceptance criteria for the G2 close:**
 
-- ✓ OQ-G3-1 sub-slice ships (~6 round-trip tests pass + 3 ALTER migrations apply).
-- ✓ `npm test` green at +27 net new tests passing across the remaining slices (12 POPSEC + 9 G2-RENDER + 3 G2-COMPOSER + 3 G2-DAEMON, vs SPEC §5's 45 total minus the 6 SMP + 12 MAXZ already shipped).
+- ✓ `npm test` green at +21 net new tests passing across the remaining slices (12 POPSEC + 9 G2-RENDER + 3 G2-COMPOSER + 3 G2-DAEMON minus the 12 MAXZ + 6 SMP + 6 G3R already shipped against the SPEC §5 total of 45).
 - ✓ `npx tsc --noEmit` baseline-clean (13 pre-existing errors unchanged).
 - ✓ `npm run check:help` green.
-- ✓ `npm run brief:morning` renders sections #12 + #14 + #15 with the LIVE branch OR the cold-start branch (NOT the OQ-G2-1-awaiting branch). Renderer-side cold-start branch fires only when `inputsAvailableAggregate === 0` (e.g., trailing-2y constituents coverage missing) — not when persistence is the bottleneck.
+- ✓ `npm run brief:morning` renders sections #12 + #14 + #15 with the LIVE branch OR the cold-start branch — NOT the OQ-G2-1-awaiting branch.
 - ✓ Daemon-cycle log emits the SPEC §1.3 line for each composite per cycle.
 
 **If operator reprioritizes:** any of these candidates can replace G2-completion as the default-next:
@@ -453,7 +443,7 @@ Alternative ordering if operator picks strategy (α) for OQ-G3-1: persistence su
 
 **Operator-gated action items (carried):**
 
-- Push 15 commits to origin/main (HOLD).
+- Push 28 commits to origin/main (HOLD).
 - Drawdown framework §12 90d empirical retune — earliest 2026-08-29.
 
 **Calendar-gated:**
@@ -471,21 +461,22 @@ Alternative ordering if operator picks strategy (α) for OQ-G3-1: persistence su
 
 ## Important framing for the next chat
 
-**Step 2 IS DONE.** Composite-layer observability `maxAggregateZ` + `maxAggregateZSector` shipped across XD/EK/F4 with byte-equal evaluator logic; 12 MAXZ-* tests pass; TS compile holds; no regressions. Commit `1a3fc00`.
+**OQ-G3-1 IS CLOSED.** Composite-layer `maxAggregateZ` + `maxAggregateZSector` now round-trip through ClickHouse on all three Layer-0 snapshot tables. Three ALTER migrations live + idempotent; `writeSnapshot` stamps the columns; `loadLatestSnapshot` recovers values; pre-migration / cold-start rows decode as null on both fields. Commit `dd366b6`.
 
-**The companion SPEC at [`docs/specs/gics-sector-baseline-computation.md`](../docs/specs/gics-sector-baseline-computation.md) is the byte-template for the remaining Steps 3-5.** It pins function signatures, the test list (45 total; 18 already shipped via SMP + MAXZ), the §1.4 brief panel surface, the §1.3 daemon log-line shape, the S94-14 atomic-triple-edit boundary at Step 4, and the implementation order.
+**The companion SPEC at [`docs/specs/gics-sector-baseline-computation.md`](../docs/specs/gics-sector-baseline-computation.md) is the byte-template for the remaining Steps 3-5.** It pins function signatures, the test list (45 total; 24 already shipped via 6 SMP + 12 MAXZ + 6 G3R), the §1.4 brief panel surface, the §1.3 daemon log-line shape, the S94-14 atomic-triple-edit boundary at Step 4, and the implementation order.
 
-**S94-22 opens OQ-G3-1.** The Step 2 persistence-wiring deferral is acknowledged as a new open question. The next session should resolve OQ-G3-1 FIRST (recommend strategy (β) — two new structured columns per snapshot table) before opening Step 3, because Step 4's renderer cannot read non-null `maxAggregateZ` from `loadLatestSnapshot` until persistence is wired.
+**Step 4 renderer LIVE branch is NOW UNBLOCKED.** The defensive fallback wording from the previous handoff is no longer needed — `loadLatestSnapshot` returns real values once Step 3 ships and the daemon writes its first post-OQ-G3-1 snapshot.
 
-**The composite source files have `\0` literals (carried watch-out from s94 #6).** `src/server/executive_departure.ts` (line 105), `eight_k_classifier.ts` (line 133), `form_4_insider.ts` (line 163) — Read tool falls back to binary at the early-line offset. Use Read with `offset` past the literal OR `tr` workaround to a temp dir. Edits work normally — the `\0` literal is fine in JSON-encoded `old_string` parameters.
+**The composite source files have `\0` literals (carried watch-out).** `src/server/executive_departure.ts` (line 105), `eight_k_classifier.ts` (line 133), `form_4_insider.ts` (line 163) — Read tool falls back to binary at the early-line offset. Use Read with `offset` past the literal OR `tr` workaround to a temp dir. Edits work normally — the `\0` literal is fine in JSON-encoded `old_string` parameters.
 
-**Parallel-tracks posture continues.** s94 #7 did NOT affect C-12 / paper-trading / real-money-flip arcs. Full `npm test` green at 2754 pass (2 pre-existing CH-unreachable fails are NOT regressions from Step 2; confirmed via git stash baseline).
+**`FakeClickHouse.route` first-match-wins (new S94-25).** POPSEC-* tests in Step 3 will exercise full-coverage vs empty-coverage scenarios within single test bodies — split into multiple `makeRepo()` instances or use a single rule that returns different rows based on query content matching.
 
-**The chain through s94 #7:**
+**Parallel-tracks posture continues.** s94 #8 did NOT affect C-12 / paper-trading / real-money-flip arcs. Full `npm test` green at 2760 pass (2 pre-existing CH-unreachable fails are NOT regressions from this turn; confirmed by the +6-tests-vs-s94#7 delta matching exactly the 6 G3R tests added).
+
+**The chain through s94 #8:**
 
 ```text
 ALL S41-S93 WORK                                       ✓ as documented
-S93 #1-#11: gap #7 EK + F4 arcs (CLOSED)               ✓ committed (11 slices)
 S94 #1: gap #7+#8 v2 GICS-A1 (table + ingest)          ✓ committed (8cfdd72)
 S94 #2: gap #7+#8 v2 GICS-A2 (F4 repo + #15)           ✓ committed (3eb94d6)
 S94 #3: gap #7+#8 v2 GICS-A3 (EK repo + #14)           ✓ committed (497a645)
@@ -496,18 +487,22 @@ S94 #6 part A: ADR-042 Accept + companion SPEC         ✓ committed (d69d34f)
 S94 #6 part B: Step 1 helper + 6 SMP tests             ✓ committed (75599d7)
 S94 #7: Step 2 composite-layer maxAggregateZ +         ✓ committed (1a3fc00)
         maxAggregateZSector + 12 MAXZ-* tests
-S94 #7 HANDOFF rewrite (this commit)                   ✓ this commit
-  → DEFAULT NEXT: OQ-G3-1 persistence sub-slice (strategy (β) recommended)
-  → THEN Step 3 (POPSEC) → Step 4 atomic triple-edit (S94-14) → Step 5 (DAEMON)
-  → ~27 remaining tests across POPSEC / G2-RENDER / G2-COMPOSER / G2-DAEMON
-    (+~6 round-trip tests for OQ-G3-1 sub-slice)
+S94 #7 HANDOFF rewrite                                 ✓ committed (175f58b)
+S94 #8: OQ-G3-1 sub-slice — strategy (β) persistence   ✓ committed (dd366b6)
+        wiring across all three composites + 6 G3R tests
+S94 #8 HANDOFF rewrite (this commit)                   ✓ this commit
+  → DEFAULT NEXT: Step 3 (`populateSectorsForCycle` repository orchestrator,
+    ~80 LOC × 3 + 12 POPSEC-* tests).
+  → THEN Step 4 atomic triple-edit (S94-14) → Step 5 (DAEMON).
+  → ~21 remaining tests across POPSEC / G2-RENDER / G2-COMPOSER / G2-DAEMON
+    (24 of SPEC §5's 45 already shipped: 6 SMP + 12 MAXZ + 6 G3R).
   → background: daemon writes per-cycle snapshots for all 9 Layer-0 composites
                 that have applied migrations. GICS map ingest is operator-run +
                 expected weekly cadence (quarterly Wikipedia rebalances).
                 F4 + EK + XD snapshots now ALL carry populated sector field when
                 gics_sector_map row exists; cold-start (no ingest yet) preserves
                 null + the brief renders without annotation across all three.
-                Composite evaluators now expose maxAggregateZ + maxAggregateZSector
-                but persistence wiring + renderer LIVE branch + daemon log line
-                are NOT yet active (await OQ-G3-1 + Steps 3-5).
+                Composite evaluators expose maxAggregateZ + maxAggregateZSector
+                AND persist them via the new ALTER columns. Renderer LIVE branch
+                + daemon log line still pending (Steps 4-5).
 ```
