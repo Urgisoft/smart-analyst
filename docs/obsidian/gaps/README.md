@@ -32,6 +32,40 @@ This folder documents components and refinements identified as future work, NOT 
 | 12 | `expanded-vol-structure.md` | Layer 0 (regime, refines `vix_term_inverted`) | Medium-High — cheapest gap to close; existing CBOE plumbing |
 | 13 | `market-cycle-position.md` | Layer 0 (regime) + sector allocation guidance | High — robust academic foundation (Estrella-Mishkin); free data |
 
+## Status overview
+
+Done = the gap's first composite ships end-to-end (ingest → snapshot → daemon log
+→ brief render) on real data. Active = SPEC drafted, code in-flight or partially
+shipped. Deferred = ADR not yet drafted; lower priority.
+
+```mermaid
+flowchart LR
+    subgraph done["Done — shipped end-to-end (s89–s95)"]
+        g10[#10 short-interest]
+        g8[#8 executive-departure]
+        g9[#9 etf-flow]
+        g7[#7 EK + F4 v1+v2]
+        a41[ADR-041 yield_curve T10Y3M]
+    end
+    subgraph active["Active — code or SPEC in-flight"]
+        g3[#3 drawdown-response]
+        g5[#5 capital-deployment-ramp]
+        g12[#12 expanded-vol-structure]
+        g13[#13 market-cycle-position]
+    end
+    subgraph deferred["Deferred — Phase B-gated or low priority"]
+        g1[#1 strategy-demotion]
+        g2[#2 earnings-calendar]
+        g4[#4 cross-strategy-correlation]
+        g6[#6 cross-asset-signals]
+        g11[#11 sector-rotation]
+    end
+    done -.->|unblocks Phase B independence test| active
+    active -.->|enables broader rollout| deferred
+```
+
+> **See also:** [docs/_templates/mermaid-templates.md](../../_templates/mermaid-templates.md) for the canonical SignalForge Mermaid scaffolds (data flow, daemon stage, state machine, sequence, Gantt).
+
 ## Implementation principles when these eventually get built
 
 1. **Build one at a time.** Validate independently before adding next.
