@@ -1,28 +1,42 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-05-22 (session 95 #3 — **HOTFIX: form 4 ingest XML body URL discovery via EDGAR index.json**. First-apply-run surfaced two stacked bugs in `npm run edgar:form4:ingest --apply` (100% 404 on body fetch): (a) EDGAR Form 4 search hit JSON omits `primary_doc`/`file_name`, so `parse_edgar_search_response` fell through to the non-existent `primary.htm`; (b) `ciks: [insider, issuer]` ordering means a single fallback CIK is risky for agent-filed cases. Fix: `discover_form4_primary_xml_url` fetches `/Archives/.../index.json`, tries each `ciks_all[]` candidate until 200, selects the XML by precedence (form4-named → primary_* → any non-stylesheet .xml). Session-local cache. 3 files touched, +318 / -2 LOC, 8 new tests `T-F4I-DISCOVER-{1..8}`. Python suite 332 pass (324 baseline + 8 new). Live-fire validation against two of the operator's actual 404'd accessions resolves correctly (`primary_01.xml` + `form4-05212026_060556.xml`). Single commit `831b1b0`. **41 commits ahead of `origin/main`.** **NEXT default on `continue`: operator re-runs `npm run edgar:form4:ingest --apply` to actually populate `insider_trades` — then daemon + brief surface the buy/sell panels with real data. After that: operator pick from the candidate list (recommended if just "continue": Gap #7 v2 per-row recency).**)
+Last updated: 2026-05-22 (session 95 #4 — **gap #7 v2 per-row recency — F4 `daysSinceLatest{Buy,Sell}` LIVE end-to-end**: 2 new REQUIRED fields on `Form4InsiderPerTickerRow`; pure helper `daysSinceLatestTradeByCode` with direction isolation + floor semantic; composite populates; composer threads; renderer emits "last Xd" segment inside the net-dollar parens (SPEC §8.2 mockup phrasing). NO DDL change — `per_ticker_json` is free-form JSON. EK was already done in prior work (`daysSinceLatestEvent` + `formatDaysSince`); F4 was v1-deferred per the prior render docstring. 4 files (1 source + 1 composer + 1 render + 4 test files); +298 / -38 LOC; 8 new T-F4-DSLB-{1..5} + T-OBR-F4-DSLB-{1..3} tests; 22 existing F4 row fixture literals updated via `replace_all`; 10 existing F4-row regex assertions widened to tolerate the new segment. Full TS suite 2906 / 2877 pass / 1 fail (pre-existing `gicsSectorRepositoryHelper SMP-6` CH-unreachable — NOT a regression) / 28 skipped. Single commit `b3d63a2`. **42 commits ahead of `origin/main`.** **NEXT default on `continue`: operator pick — recommended slice if operator says only "continue": ADR-041 implementation (`yield_curve_inverted` regime category).**)
 
 ## What this turn delivered
 
-A code hotfix that unblocks the **first-real-apply** of the Form 4 ingest. Earlier sessions (s93 #7-#11) shipped the F4 architecture end-to-end and the operator's `npm test` was green — but the unit tests inject `primary_doc: "wk-form4.xml"` into hit fixtures, masking the real EDGAR behavior where Form 4 hits omit that field entirely. The handoff has long carried a "First-apply-run EDGAR Item-filter OR-clause behavior (S93-15 best-guess; verification deferred to first ingest run)" risk — this turn surfaced + closed exactly that risk for the XML body fetch path.
+Lifts F4 brief from v1 (no per-direction recency) to v2 (SPEC §8.2 compliance). 4 files touched, 8 new tests, zero DDL changes.
 
-1. **`scripts/_sec_edgar_helpers.py`** (+8 LOC):
-   - `parse_edgar_search_response` now emits a new `ciks_all: list[str]` field on each filing dict — the full deduped CIK list, zero-padded to 10 digits, in source order. Existing `cik` field unchanged (still `cik10(ciks[0])`). 8-K consumers are unaffected (the new field is additive, not consumed by them).
+1. **`src/server/form_4_insider.ts`** (+58 LOC):
+   - `daysSinceLatestTradeByCode(trades, code, asOf, windowDays=ROLLING_WINDOW_DAYS) → number | null` — pure helper. Direction-isolated (P-trades don't pollute S-recency, vice versa). Floor semantic: a trade 23h59m ago → 0d; 24h00m+1ms → 1d. Returns null when window contains zero trades of `code`.
+   - `Form4InsiderPerTickerRow` gains 2 REQUIRED fields: `daysSinceLatestBuy: number | null` + `daysSinceLatestSell: number | null` (same REQUIRED posture as s95 #1/#2 sell-side fields).
+   - `evaluateForm4InsiderComposite` populates both per row, from the same `psFiltered` trade panel that backs the existing count/dollar/cluster computations.
 
-2. **`scripts/sec_edgar_form4_ingest.py`** (+134 / -2 LOC):
-   - `_select_form4_xml_from_directory(items)` — pure helper that picks the data XML from an EDGAR index.json `directory.item[]` listing. Precedence: (1) name contains `form4` (case-insensitive); (2) name starts with `primary_`; (3) any `.xml` that isn't a stylesheet (heuristic: name has no `xsl` / `x05` / `x06`). Multiple matches at same tier → first in directory order.
-   - `discover_form4_primary_xml_url(accession_nodash, candidate_ciks, user_agent, cache, fetch=fetch_edgar)` — tries each CIK against `/Archives/edgar/data/{cik}/{accession}/index.json`; first 200 with a selectable XML wins. Returns absolute URL or None. Cached by accession; cache is positive-only (failures retry).
-   - `_xml_for(filing)` in `main()` — detects the parser's `primary.htm` fallback by suffix match. If hit, invokes discovery with `filing["ciks_all"]` as candidates and falls through to the legacy WARN path if discovery exhausts all CIKs. If the parser supplied an explicit `primary_doc` URL (test path), the discovery round-trip is skipped — test fidelity preserved.
+2. **`src/server/operator_brief.ts`** (+2 LOC):
+   - `buildForm4InsiderSection`'s `perTickerRows.map(...)` block threads the 2 new fields verbatim into `BriefForm4InsiderSection`. Same posture as the s95 #2 sell-side pass-through.
 
-3. **`scripts/tests/test_sec_edgar_form4_ingest.py`** (+178 LOC; 8 new tests):
-   - **T-F4I-DISCOVER-1** — directory with only `primary_01.xml` resolves.
-   - **T-F4I-DISCOVER-2** — `wf-form4_*.xml` outranks `primary_*.xml` by precedence.
-   - **T-F4I-DISCOVER-3** — non-conventional `ownership_doc.xml` resolves via fall-through tier.
-   - **T-F4I-DISCOVER-4** — first CIK 404s; second succeeds (models Computershare-style agent case).
-   - **T-F4I-DISCOVER-5** — all candidates 404 → returns None for the WARN path.
-   - **T-F4I-DISCOVER-6** — cache reuse: second call for same accession hits cache, zero extra fetches.
-   - **T-F4I-DISCOVER-7** — stylesheet `xslF345X06.xml` excluded; `primary_01.xml` wins.
-   - **T-F4I-DISCOVER-8** — `parse_edgar_search_response` emits `ciks_all` (10-padded, deduped, source order).
+3. **`src/server/operator_brief_render.ts`** (+29 LOC):
+   - `BriefForm4InsiderSection.perTickerRows[]` row interface adds 2 REQUIRED fields (mirrors composite shape).
+   - `renderForm4InsiderSection`'s cluster_buy + cluster_sell row emit lines now include a "last Xd" segment INSIDE the net-dollar parens, before the `, code P/S` tail:
+
+     ```text
+     - QRST — 4 insiders bought (net +$2.3M, last 23d), code P
+     - YZAB — 5 insiders sold (net -$11.2M, last 11d), code S
+     ```
+
+   - New `formatDaysSinceLast(v: number | null): string` helper — "last Xd" or "last —" for null. Distinct from the existing `formatDaysSince` (which emits "Xd ago" for EK).
+   - Renderer docstring updated: v1-deferred note REMOVED; the new format matches the SPEC §8.2 mockup contract.
+
+4. **Tests (+298 / -38 LOC; +8 net new tests across 4 files)**:
+   - **T-F4-DSLB-1** (`form4Insider.test.ts`) — helper returns days since most-recent trade of given code in window.
+   - **T-F4-DSLB-2** — returns null when window has zero trades of that code OR trades list is empty.
+   - **T-F4-DSLB-3** — direction isolation: P-side recency ignores S-side trades, vice versa.
+   - **T-F4-DSLB-4** — floors partial days (23.5d → "23d").
+   - **T-F4-DSLB-5** — `evaluateForm4InsiderComposite` populates both fields; cold-start zero-trade ticker yields null on both directions. (Bug-caught in first run: my fixture initially shared accessions across trades and `dedupeTrades` collapsed them; fix was to give each trade a unique accession.)
+   - **T-OBR-F4-DSLB-1** (`operatorBriefRender.test.ts`) — cluster_buy emits "last 23d".
+   - **T-OBR-F4-DSLB-2** — cluster_sell emits "last 11d".
+   - **T-OBR-F4-DSLB-3** — defensive null path: cluster_buy with `daysSinceLatestBuy: null` renders "last —". Should not happen in practice (cluster_buy implies count ≥ 3 → daysSinceLatestBuy non-null), but the renderer degrades gracefully.
+   - 22 existing F4 row fixture literals updated via 4 `replace_all` operations per file (inline `},` form + standalone `,\n` form, each with `true`/`false`).
+   - 10 existing T-OBR-F4-{7,8,9} + magnitude-band regex assertions widened from `\(net X\), code P` → `\(net X, last [^)]+\), code P` to tolerate the new segment.
 
 ## Where we are
 
@@ -34,16 +48,17 @@ A code hotfix that unblocks the **first-real-apply** of the Form 4 ingest. Earli
 | Gap #10 short-interest-tracking arc | ✓ DONE end-to-end (s89-s90) |
 | Gap #8 executive-departure-signal arc (v1) | ✓ DONE end-to-end (s91) |
 | Gap #9 etf-flow-monitoring arc | ✓ DONE end-to-end (s92, 6 commits) |
-| Gap #7 EK arc (A1..A5) | ✓ DONE end-to-end (s93 #2-#6) |
+| Gap #7 EK arc (A1..A5) + per-row recency | ✓ DONE end-to-end (s93 #2-#6; `daysSinceLatestEvent` was already on EK row from earlier work) |
 | Gap #7 F4 arc (A1..A5) | ✓ DONE end-to-end (s93 #7-#11) |
 | Gap #7+#8 v2 GICS-A1..A4 + ADR-042 RESEARCH | ✓ s94 #1-#5 |
 | ADR-042 ACCEPTED + companion SPEC | ✓ s94 #6 |
 | ADR-042 Steps 1-5 + OQ-G3-1 sub-slice | ✓ s94 #6-#11 (GAP #7+#8 v2 G2 ARC) |
 | Gap #7 v2 sell-cluster F4 composite contract | ✓ s95 #1 (`b398b4e`) |
 | Gap #7 v2 sell-cluster F4 G3 (DDL + persistence + log + render) | ✓ s95 #2 (`d05eb39`) — F4 ARC FULLY CLOSED |
-| **Form 4 ingest XML body URL discovery (hotfix)** | **✓ s95 #3 (`831b1b0`) — UNBLOCKS first apply** |
-| ADR-041 implementation (`yield_curve_inverted` category) | ☐ DEFERRED — operator-pickable |
-| Gap #7 v2 per-row recency (S93-32 + S93-52 co-bootstrap) | ☐ deferred (operator-pickable; recommended next default) |
+| Form 4 ingest XML body URL discovery (hotfix) | ✓ s95 #3 (`831b1b0`) — UNBLOCKS first-apply |
+| **Gap #7 v2 per-row recency (F4 daysSinceLatestBuy/Sell)** | **✓ s95 #4 (`b3d63a2`) — SPEC §8.2 "last 23d" hint LIVE** |
+| ADR-041 implementation (`yield_curve_inverted` category) | ☐ DEFERRED — operator-pickable (recommended next default) |
+| Gap #7 v2 per-EVENT EK recency (§8.1 "12d ago + 18d ago" per-item format) | ☐ deferred — out of s95 #4 scope; needs new row shape |
 | Gap #7 v2 CMP opportunistic-vs-routine classifier (per F4-1) | ☐ deferred (calendar-gated ≥6mo from F4-A1 first apply) |
 | Gap #7 v2 13D/13G arc (needs its own SPEC) | ☐ deferred (operator-pickable) |
 | Gap #7 v2 event-driven cadence promotion | ☐ deferred (Phase B-gated) |
@@ -52,31 +67,40 @@ A code hotfix that unblocks the **first-real-apply** of the Form 4 ingest. Earli
 | Phase B campaigns for nine Layer-0 composites | ⏸ deferred — calendar OR backfill arc |
 | #5 capital-deployment-ramp ADR | ☐ operator self-assigned ~1 week; not blocking |
 | Drawdown framework §12 90d empirical retune | ☐ scheduled — earliest 2026-08-29 |
-| Push 41 commits to origin/main | ☐ operator-gated, HOLD |
+| Push 42 commits to origin/main | ☐ operator-gated, HOLD |
 
 ## Decisions locked in
 
-### Session 95 part 3 (this turn, one commit `831b1b0`)
+### Session 95 part 4 (this turn, one commit `b3d63a2`)
 
-**S95-11. EDGAR Form 4 body URL is discovered, not constructed.** The full-text-search Form 4 hit JSON omits `primary_doc`/`file_name`; storage paths vary (`primary_01.xml` modern / `wf-form4_<digits>.xml` older / `form4-<timestamp>_<seq>.xml` agent-filed). The robust resolver fetches `/Archives/edgar/data/{cik}/{accession_nodash}/index.json`, picks the data XML by name precedence, and tries each candidate CIK until one returns 200.
-`Why:` The parser was constructing URLs against a missing field, falling through to `primary.htm` which doesn't exist for Form 4 — producing 100% 404 on first-apply. Tests masked this by injecting `primary_doc` into hit fixtures. Discovery via `index.json` is canonical EDGAR practice and adds ~1 round-trip per filing (free at 10 req/sec ceiling) on uncached entries.
+**S95-15. F4 per-direction recency uses `acceptedAt` (EDGAR-stamped), NOT `transactionDate` (insider-declared).**
+`Why:` The `InsiderTrade` row already carries `acceptedAt` (load-bearing for the F4-10 anti-leak filter); `transactionDate` is parsed from the XML but is used only at filing-time and not stored on the F4 row. Using `acceptedAt` minimizes new wiring + parity with the count/dollar computations that all use `acceptedAt`. The trade-off: EDGAR acceptance can lag the transaction by up to 2 business days (Sarbanes-Oxley §403(a) deadline), so recency slightly understates how stale the underlying trade is.
 
-`How to apply:` Discovery is INVOKED only when the parser's `primary.htm` fallback fires (suffix match on filing_url). Test fixtures with explicit `primary_doc` skip the round-trip — backwards-compatible. If a future Form 3/5 ingest emerges, it should use the same discovery shape (same EDGAR storage convention).
+`How to apply:` v1 is acceptable for a brief hint; a v2 ADR could switch to `transactionDate` if precision matters (e.g., for kill-criteria gating where 2bd matters). For now, the F4 row "last 23d" means "the most-recent EDGAR acceptance was 23d ago" — operator reads this as ≈ "the trade happened ~23d ago, possibly 1-2bd earlier."
 
-**S95-12. `parse_edgar_search_response` emits a NEW `ciks_all: list[str]` field.**
-`Why:` Form 4 search hits return `ciks: [insider, issuer]`. The legacy `cik` field is `ciks[0]` (insider), but EDGAR sometimes stores the filing under a different CIK (agent-filed cases where Computershare et al. submit on behalf of an insider). The discovery resolver needs the full list to try each candidate.
+**S95-16. NO DDL migration needed — `per_ticker_json` is a free-form JSON String column.**
+`Why:` The original HANDOFF v0 scoped this slice with "One operator-gated DDL migration (new columns on `eight_k_classifier_snapshots` + `form_4_insider_snapshots`)" — that was incorrect. The per-ticker rows are serialized to JSON via the existing `per_ticker_json` column on both snapshot tables. Adding 2 new keys to each row's JSON requires zero schema change.
 
-`How to apply:` 8-K consumers ignore the new field (additive, non-breaking). Future EDGAR ingest scripts that need multi-CIK fallback use `filing["ciks_all"]` directly; single-CIK consumers continue using `filing["cik"]`.
+`How to apply:` Future per-row v2 additions (e.g., per-item EK recency, gap #7 v2 13D arc per-row payload) should default to JSON-key additions, NOT new columns, unless the field needs CH-side indexing or projection. Save column-add migrations for top-level aggregate-snapshot fields where queryability matters.
 
-**S95-13. XML selection precedence: form4-named → primary_* → any non-stylesheet .xml.**
-`Why:` Modern EDGAR Form 4 filings name the data file `primary_01.xml`; older ones use `wf-form4_<digits>.xml` or `<ticker>-form4.xml`; agent-filed ones use `form4-<timestamp>_<seq>.xml`. The form4-substring tier covers older + agent-filed; the `primary_` tier covers modern; the catch-all handles non-conventional naming. Stylesheet XMLs (`xslF345X06.xml`) are excluded via name heuristics.
+**S95-17. `formatDaysSinceLast` is a separate helper from `formatDaysSince`, not a parameter overload.**
+`Why:` The SPEC §8.1 (EK) mockup phrasing is "Xd ago" while §8.2 (F4) is "last Xd". The two formats render in different positions: EK appends `(Xd ago)` AFTER the item list, F4 embeds `, last Xd` INSIDE the net-dollar parens. Keeping them as separate helpers makes the per-composite formatting intent explicit + avoids a boolean parameter that obscures the call sites.
 
-`How to apply:` If a future Form 4 filing legitimately ships multiple `*form4*.xml` files (multi-part rare case), the FIRST in directory order wins. Document the assumption; revisit only if a real case surfaces. Single XML files always resolve cleanly via the catch-all tier even if naming is unconventional.
+`How to apply:` Future composite recency surfaces should pick whichever helper matches the SPEC's wording at the per-row position. If a new composite emerges with a third phrasing convention, add a third helper rather than parameterizing the existing two.
 
-**S95-14. Discovery cache is positive-only (negative results NOT cached).**
-`Why:` A 404 on first attempt could be transient (EDGAR archive replication lag, transient CDN miss). Caching negative results would lock in transient failures across a multi-day ingest run. Positive results are stable (once an XML is found at a given URL, that URL doesn't move).
+**S95-18. `daysSinceLatestBuy` / `daysSinceLatestSell` are REQUIRED (not optional) on `Form4InsiderPerTickerRow` + `BriefForm4InsiderSection.perTickerRows[]`.**
+`Why:` Parity with the s95 #1/#2 sell-cluster fields (`form4SellClusterFlag`, `maxAggregateZSell`, etc.). Required fields force every fixture / callsite to opt in explicitly — preventing silent under-population. Cold-start ticker yields `null`, NOT undefined / missing — the test surface enforces the null-vs-undefined distinction.
 
-`How to apply:` On all-CIK exhaustion, the resolver returns None and emits the WARN; the next ingest run retries from scratch. Cache lifetime is per-process (no on-disk persistence — the ingest typically completes in one process invocation).
+`How to apply:` Any future test fixture or callsite constructing `Form4InsiderPerTickerRow` or `BriefForm4InsiderSection.perTickerRows[]` MUST include the 2 new fields. Default to `null` on both unless the test specifically exercises a recency branch. The 22 existing fixtures were updated via 4 `replace_all` operations per file (one per `true`/`false` × inline/standalone form).
+
+**S95-19. `daysSinceLatestTradeByCode` floors fractional days (NOT round / NOT ceil).**
+`Why:` Matches the "Xd ago" / "last Xd" SPEC mockup semantic — a trade 23h59m ago is "0d" (today), a trade 24h00m+1ms ago is "1d" (yesterday). Round-half-up would have a trade 11h59m ago be "0d" but a trade 12h00m+1ms be "1d", which is counterintuitive at the integer boundary. Ceil would push a trade 1ms ago to "1d" — overstates staleness.
+
+`How to apply:` Any future recency helpers on similar semantics (days-since-something) follow the floor convention. The constant `MS_PER_DAY = 86_400_000` is inlined in the helper; no global constant pulled.
+
+**Carry-over from s95 #3 (still in force):**
+
+- S95-11..S95-14 — EDGAR Form 4 body URL discovery contract, `ciks_all` parser field, XML selection precedence, positive-only cache.
 
 **Carry-over from s95 #2 (still in force):**
 
@@ -92,15 +116,15 @@ A code hotfix that unblocks the **first-real-apply** of the Form 4 ingest. Earli
 
 ### Sessions 84-94 prior decisions (carried)
 
-All prior decisions preserved unchanged. S93-1..S93-54 + S94-1..S94-33 + S95-1..S95-10 carry through.
+All prior decisions preserved unchanged. S93-1..S93-54 + S94-1..S94-33 + S95-1..S95-14 carry through.
 
 ## Open questions
 
-### Newly opened (s95 #3) — none
+### Newly opened (s95 #4) — none
 
-The discovery fix is self-contained; no canon-thin forks remain within the slice scope.
+The per-row recency slice was canon-thin only at one decision (`acceptedAt` vs `transactionDate` — resolved at S95-15 with v2 ADR escape hatch noted). No remaining forks within scope.
 
-### Carried unchanged from s95 #2
+### Carried unchanged from s95 #3
 
 - **OQ-G2-2 (LOW — deferred)** — EDGAR-amendment forensic tooling default. Per ADR-042 §5 silent re-write is the v1 default.
 
@@ -114,31 +138,23 @@ The discovery fix is self-contained; no canon-thin forks remain within the slice
 - Sharadar SF1 subscription — blocked (paid).
 - Compounding-live-equity backtest semantic (ADR-class).
 - 78,399 zero-trade sentinels in `bt_runs_regime` (deferred).
-- ADR-041 implementation slot in slice queue — operator-pickable.
+- ADR-041 implementation slot in slice queue — operator-pickable (recommended default next).
 - Push commits to origin/main — operator-gated.
 - Gap #9 v2 cross-validation enhancement — operator-pickable.
-- First-apply-run EDGAR Item-filter OR-clause behavior (S93-15 best-guess; verification deferred to first ingest run) — **note: the XML-body half of this risk closed s95 #3; the Item-filter half remains open.**
+- First-apply-run EDGAR Item-filter OR-clause behavior (S93-15 best-guess; verification deferred to first ingest run) — XML-body half closed s95 #3; Item-filter half still open.
 - Cold-start cascade timing for EK + F4 + XD arcs (~6-8 weeks of EDGAR ingest history before Phase B validation has signal).
 
 ## Next stage
 
-### Default on `continue` — operator re-runs the Form 4 ingest
+### Default on `continue` — operator pick (Gap #7 v2 per-row recency closed)
 
-The hotfix unblocks the first real `--apply` run. Recommended sequence the operator picked up mid-runbook last turn:
-
-```text
-npm run edgar:form4:ingest               # NOW WORKS — was 100% 404 before s95 #3
-npm run daemon:daily                     # F4 aggregate panel populates from real data
-npm run brief:morning                    # section #15 surfaces real buy/sell panels (was cold-start)
-```
-
-After that, the operator picks the next code slice. If they just say "continue" with no context, the recommended next is **Gap #7 v2 per-row recency** (S93-32 + S93-52 co-bootstrap of EK + F4 snapshot DDLs) — the next code-only slice that builds incrementally on the v2 arc without opening new methodology questions.
+The v2 per-row recency slice ships F4-side. EK's per-row `daysSinceLatestEvent` was already done in earlier work (no this-slice changes to EK). Operator picks the next slice. If they just say "continue" with no context, the recommended default is **ADR-041 implementation (`yield_curve_inverted` regime category)** — the canon work is done (ADR Accepted s89c#2); the activation slice extends the regime classifier with the new category + adds the dashboard surfacing.
 
 ### Candidate slices (in rough order of "next obvious code-only work")
 
-1. **Gap #7 v2 per-row recency** — S93-32 + S93-52 co-bootstrap of EK + F4 snapshot DDLs. Add `daysSinceLatestEvent` / `daysSinceLatestBuy` / `daysSinceLatestSell` fields to the per-ticker row payload so the SPEC §8.2 mockup's "last 23d" recency hint lands. Single-slice, ~3 files, ~80 LOC, ~6-8 tests. One operator-gated DDL migration (new columns on `eight_k_classifier_snapshots` + `form_4_insider_snapshots`).
+1. **ADR-041 implementation** (`yield_curve_inverted` regime category) — operator-pickable, the canon work is done. Activation slice extends the regime classifier with the new category + adds the dashboard surfacing. ~5-6 files, ~150 LOC, ~10 tests.
 
-2. **ADR-041 implementation** (`yield_curve_inverted` regime category) — operator-pickable, the canon work is done (ADR Accepted s89). Activation slice extends the regime classifier with the new category + adds the dashboard surfacing. ~5-6 files, ~150 LOC, ~10 tests.
+2. **Gap #7 v2 per-EVENT EK recency** (§8.1 "12d ago + 18d ago" per-item format) — separate row shape: `eventsByItemCode: Array<{itemCode: string, daysSinceLatest: number}>` on the EK per-ticker row. Renderer extends `formatEightKItemList` to interleave the per-item recency. ~3 files, ~80 LOC, ~5-6 tests. NOT in s95 #4 scope; needs its own slice.
 
 3. **Gap #9 v2 ETF.com/issuer-CSV cross-validation** — adds a secondary data path that cross-validates the primary etf-flow ingest against an issuer-supplied CSV when available; logs divergences as anomalies. Operator-pickable.
 
@@ -152,22 +168,35 @@ After that, the operator picks the next code slice. If they just say "continue" 
 
 8. **Phase B campaigns for the nine Layer-0 composites** — calendar OR backfill arc.
 
-### Operator-gated action items (carried + new)
+### Operator-gated action items (carried + still pending)
 
-- **NEW:** Re-run `npm run edgar:form4:ingest --apply` (was blocked pre-s95 #3; now works).
-- Apply DDL migration `migrate:add-sell-cluster-form-4-insider-snapshots:apply` to surface s95 #2 persistence end-to-end on the real CH instance (still pending from s95 #2).
-- Push 41 commits to origin/main (HOLD).
+- Re-run `npm run edgar:form4:ingest --apply` (UNBLOCKED s95 #3 — first apply now works; produces real F4 cluster_buy / cluster_sell rows with "last Xd" recency hints visible in the morning brief).
+- Apply `migrate:add-sell-cluster-form-4-insider-snapshots:apply` to surface s95 #2 sell-side persistence end-to-end on the real CH (still pending).
+- Apply the three `migrate:add-max-z-…-snapshots:apply` ALTERs (still pending from s94 #8).
+- Apply `migrate:create-form-4-insider-snapshots:apply` (operator hit this gap mid-runbook in s95 #3 turn — base table doesn't exist on their CH yet).
+- Push 42 commits to origin/main (HOLD).
 - Drawdown framework §12 90d empirical retune — earliest 2026-08-29.
 
 ## Files / code state
 
-### EDITED this turn (s95 #3 — commit `831b1b0`)
+### EDITED this turn (s95 #4 — commit `b3d63a2`)
 
 | Path | LOC delta | Notes |
 | --- | --- | --- |
-| `scripts/_sec_edgar_helpers.py` | +8 | `parse_edgar_search_response` adds `ciks_all: list[str]` (zero-padded, deduped, source order). Existing `cik` unchanged. |
-| `scripts/sec_edgar_form4_ingest.py` | +134 / -2 | `_select_form4_xml_from_directory` + `discover_form4_primary_xml_url` + `_xml_for` rewrite to invoke discovery on parser-fallback path. Session-local `xml_url_cache`. |
-| `scripts/tests/test_sec_edgar_form4_ingest.py` | +178 | 8 new `T-F4I-DISCOVER-{1..8}` tests covering precedence + CIK iteration + cache + stylesheet exclusion + ciks_all parser field. |
+| `src/server/form_4_insider.ts` | +58 | `daysSinceLatestTradeByCode` pure helper; `Form4InsiderPerTickerRow` gains 2 REQUIRED fields; composite populates per row. |
+| `src/server/operator_brief.ts` | +2 | Composer pass-through for the 2 recency fields. |
+| `src/server/operator_brief_render.ts` | +29 / -3 | `BriefForm4InsiderSection.perTickerRows[]` gains 2 fields; row emit adds "last Xd" segment; new `formatDaysSinceLast` helper. |
+| `scripts/tests/form4Insider.test.ts` | +72 | T-F4-DSLB-{1..5}. |
+| `scripts/tests/form4InsiderRepository.test.ts` | +6 / -3 | 3 fixture sites updated. |
+| `scripts/tests/operatorBrief.test.ts` | +12 / -6 | 6 fixture sites updated. |
+| `scripts/tests/operatorBriefRender.test.ts` | +157 / -26 | 13 fixture sites updated; 10 row regex assertions widened; T-OBR-F4-DSLB-{1..3}. |
+
+### Carried unchanged from s95 #3 (per-file)
+
+| Path | Status | Notes |
+| --- | --- | --- |
+| `scripts/_sec_edgar_helpers.py` | s95 #3 LIVE | `parse_edgar_search_response` emits `ciks_all` field. |
+| `scripts/sec_edgar_form4_ingest.py` | s95 #3 LIVE | `discover_form4_primary_xml_url` + `_select_form4_xml_from_directory`; `_xml_for` invokes discovery on parser fallback. |
 
 ### Carried unchanged from s95 #2 (per-file)
 
@@ -175,72 +204,63 @@ After that, the operator picks the next code slice. If they just say "continue" 
 | --- | --- | --- |
 | `scripts/migrate_add_sell_cluster_to_form_4_insider_snapshots.ts` | s95 #2 SHIPPED | Operator-gated ALTER ready to apply (4 sell-side columns). |
 | `src/server/form_4_insider_repository.ts` | s95 #2 LIVE | Persists + decodes sell-side fields; daemon log line carries sell-side tokens. |
-| `src/server/operator_brief.ts` | s95 #2 LIVE | Composer pass-through for buy + sell maxAggregateZ + 4 sell-side fields. |
-| `src/server/operator_brief_render.ts` | s95 #2 LIVE | §1.4 parallel buy/sell three-branch panels on F4. |
-
-### Carried from s94 #6-#11 + s95 #1 (unchanged)
-
-| Path | Status | Notes |
-| --- | --- | --- |
-| `docs/decisions/README.md` | ADR-042 ACCEPTED | Methodology defense + dependency wiring. |
-| `docs/specs/gics-sector-baseline-computation.md` | byte-template SPEC | Steps 1-5 SHIPPED. |
-| Three composite `xxx.ts` source files (XD/EK/F4) | s95 #1 close | maxAggregateZ + sector live; F4 has sell-side composite contract. |
-| Three `xxx_repository.ts` source files | s95 #1+#2 close | populateSectorsForCycle wired across all; F4 computes baseline2ySell + persists + logs sell-side. |
-| Three migrate_add_max_aggregate_z*.ts scripts | s94 #8 SHIPPED | Operator-gated ALTERs ready to apply. |
 
 ### CH state
 
-- Nine Layer-0 composite snapshot tables + three event tables remain in the state from s93 / s94 / s95 #1+#2 close.
-- **Operator-pending ALTERs:**
-  - `migrate:add-max-z-{executive-departure,eight-k-classifier,form-4-insider}-snapshots:apply` (×3, carry from s94 #8) — adds `maxAggregateZ` + `maxAggregateZSector` columns on each Layer-0 snapshot table.
-  - `migrate:add-sell-cluster-form-4-insider-snapshots:apply` (carry from s95 #2) — adds 4 sell-side columns on F4 snapshot table.
-- **No new CH state from s95 #3.** This was a pure Python ingest hotfix.
+- Nine Layer-0 composite snapshot tables + three event tables remain in the state from s93 / s94 / s95 #1+#2+#3 close.
+- **NO new CH state from s95 #4.** Per-row recency persists into the EXISTING `per_ticker_json` free-form String column. After the operator applies the pending DDL migrations (carry from s94 #8 + s95 #2), the new `daysSinceLatestBuy` / `daysSinceLatestSell` keys WILL persist end-to-end alongside everything else.
+- **Operator-pending ALTERs (carried):**
+  - `migrate:create-form-4-insider-snapshots:apply` (operator-gated; base table) — REQUIRED first.
+  - `migrate:add-max-z-{executive-departure,eight-k-classifier,form-4-insider}-snapshots:apply` (×3, carry from s94 #8).
+  - `migrate:add-sell-cluster-form-4-insider-snapshots:apply` (carry from s95 #2).
 
 ### Tests (validated this turn)
 
 ```text
-.venv/Scripts/python.exe -m pytest scripts/tests/test_sec_edgar_form4_ingest.py -q
-                                                              # 47 pass (39 original + 8 new T-F4I-DISCOVER-{1..8})
+npx tsx --test scripts/tests/form4Insider.test.ts \
+              scripts/tests/form4InsiderRepository.test.ts \
+              scripts/tests/operatorBrief.test.ts \
+              scripts/tests/operatorBriefRender.test.ts
+                                                              # 360 pass / 0 fail / 2 skipped (pre-existing CH-unreachable)
+                                                              # +8 net from T-F4-DSLB-* + T-OBR-F4-DSLB-*
 
-.venv/Scripts/python.exe -m pytest scripts/tests/test_sec_edgar_8k_item_5_02_ingest.py \
-                                  scripts/tests/test_sec_edgar_8k_event_ingest.py -q
-                                                              # 53 pass — confirms ciks_all parser field is non-breaking
+npm test                                                       # 2906 / 2877 pass / 1 fail / 28 skipped
+                                                              # 1 fail = pre-existing gicsSectorRepositoryHelper SMP-6 CH-unreachable
+                                                              # +8 net vs s95 #3 = exactly the 8 T-F4-DSLB-* tests
 
-.venv/Scripts/python.exe -m pytest scripts/tests -q           # 332 pass / 24 warnings (sklearn FutureWarning, pre-existing)
-                                                              # +8 net vs baseline 324 = exactly the T-F4I-DISCOVER-{1..8} tests
+npx tsc --noEmit                                              # 13 baseline errors unchanged
+
+npm run check:help                                            # green
 ```
 
-Live-fire smoke against two of the operator's actual 404'd accessions:
-
-```text
-0001324948-26-000015 → https://www.sec.gov/.../1310979/000132494826000015/primary_01.xml
-0001811085-26-000006 → https://www.sec.gov/.../1811085/000181108526000006/form4-05212026_060556.xml
-```
-
-Both resolve successfully. The first illustrates the modern `primary_01.xml` naming; the second illustrates the agent/timestamp-style `form4-<date>_<seq>.xml` naming.
-
-`npm test` NOT re-run this turn (no TS touched). Last full-run baseline at s95 #2 close was 2898 / 2801 pass / 2 fail (pre-existing CH-unreachable) / 95 skipped.
+`pytest` baseline NOT re-run this turn (no Python touched).
 
 ## Watch-outs
 
-### NEW from this turn (s95 #3)
+### NEW from this turn (s95 #4)
 
-- **`discover_form4_primary_xml_url` adds ~1 HTTP round-trip per filing on the first apply run.** At EDGAR's 10 req/sec ceiling, a 100-filing ingest takes ~10 extra seconds on top of the existing 100 body fetches (~20 seconds total). For a 90-day window (~10k-20k Form 4s), that's ~30-60 extra minutes. The cache amortizes within a single process, but each ingest invocation starts cold. If this becomes a perf issue, an on-disk cache keyed by accession would amortize across runs — but it's not needed for daily ingest cadences.
+- **Recency uses `acceptedAt` (EDGAR-stamped), NOT `transactionDate` (S95-15).** Recency slightly understates how stale the underlying trade is (up to 2bd lag). Acceptable for brief hint; v2 ADR can switch if precision matters.
 
-- **The discovery resolver consumes `filing["ciks_all"]`, which only exists after the s95 #3 parser change.** If a future ingest script reads cached JSON from an older session and expects the post-s95-#3 dict shape, it MAY get a KeyError on `ciks_all`. `_xml_for` defends with `.get("ciks_all") or [filing.get("cik", "")]` — single-CIK fallback. If you write a new EDGAR ingest, prefer `filing["ciks_all"]` over `filing["cik"]` when multi-CIK fallback matters.
+- **`Form4InsiderPerTickerRow` + `BriefForm4InsiderSection.perTickerRows[]` row have 2 NEW REQUIRED fields.** Any future test fixture or callsite constructing either type MUST include `daysSinceLatestBuy` + `daysSinceLatestSell`. Default to `null` unless exercising a recency branch. The 22 existing fixtures updated this turn via `replace_all`; future authors should match the precedent.
 
-- **The XML selection heuristics MAY misclassify if EDGAR ever ships a non-stylesheet XML whose name contains `xsl` / `x05` / `x06`.** That's a low-probability case (Form 4 XML data files don't currently carry those substrings) but worth knowing. If a future EDGAR rename triggers misclassification, the test list pin (`T-F4I-DISCOVER-7`) needs an additional case + the heuristics refined.
+- **Brief row regex assertions widened to tolerate `, last Xd`.** The 10 pre-existing T-OBR-F4-{7,8,9} + magnitude-band patterns went from `\(net X\), code P` → `\(net X, last [^)]+\), code P`. Future row-shape changes (e.g., adding a third in-parens segment) need either further regex widening OR a switch to exact-match snapshot tests.
 
-- **Discovery cache is positive-only (S95-14).** Transient 404s on first attempt retry on every re-run of the script. Multi-day persistent failures would surface as repeated WARN lines per accession in the daemon log — operator should watch for this pattern as a sign of EDGAR archive trouble (vs a missing single filing).
+- **Cold-start sells-only ticker (or buys-only) emits "last —" on the absent direction.** A ticker with `insiderClusterBuyFlag: true` + `insiderClusterSellFlag: false` legitimately has `daysSinceLatestSell: null` — but only the buy-side row renders (the sell-side filter strips this ticker before emission). So the operator only sees "last —" when the cluster-flag-true direction genuinely has no signal, which CAN'T happen by definition (cluster_buy ⇒ ≥3 distinct buyers ⇒ daysSinceLatestBuy non-null). The "last —" path exists in code for defensive degrade only (T-OBR-F4-DSLB-3 pins it for backfill / stale-read safety).
 
-- **The legacy `_xml_for` fallback path (filing_url NOT ending in `/primary.htm`) is now reserved for tests + future EDGAR-API-change-recovery.** If EDGAR fixes the search-hit JSON to include `primary_doc` for Form 4, the discovery round-trip disappears automatically (the parser fallback never fires) — no code change needed.
+- **EK per-EVENT recency (§8.1 mockup's "12d ago + 18d ago" per-item format) is STILL deferred.** EK has only a single `daysSinceLatestEvent` (the freshest event across all item codes) — NOT per-item-code recency. The §8.1 mockup shows per-item ages, which would need a new row shape (`eventsByItemCode: Array<{itemCode, daysSinceLatest}>`). This is a separate slice (~80 LOC, ~5-6 tests) — listed in candidate slices #2.
 
-### Carried from s95 #2 + earlier
+- **The pre-existing `gicsSectorRepositoryHelper SMP-6 EXPLAIN PLAN` test failure is NOT a regression.** Verified by isolating to the pre-slice baseline — the test was already failing pre-s95-#4 due to CH-reachability (one of the 2 tables it queries is absent). It's an "skipped-when-unreachable" test that's behaving inconsistently in the current local CH state. NOT in s95 #4 scope.
+
+### Carried from s95 #3 + earlier
 
 All prior watch-outs preserved unchanged. Key carry-overs:
 
+- **`discover_form4_primary_xml_url` adds ~1 HTTP round-trip per filing on first apply.**
+- **`filing["ciks_all"]` is the multi-CIK fallback field; `filing["cik"]` is the single legacy field.**
+- **XML selection precedence: form4-named → primary_* → any non-stylesheet .xml.**
+- **Discovery cache is positive-only.**
 - **`Form4InsiderSnapshot` writeSnapshot drops sell-side columns on PRE-MIGRATION tables** until the operator applies `migrate:add-sell-cluster-form-4-insider-snapshots:apply`.
-- **`BriefForm4InsiderSection` has 4 REQUIRED sell-side fields** — any future fixture must include them.
+- **`BriefForm4InsiderSection` has 4 REQUIRED sell-side fields** (s95 #2) — now ALSO has 2 REQUIRED recency fields on `perTickerRows[]` (s95 #4). 6 REQUIRED v2 additions total.
 - **The daemon `[f4-aggregate]` log line has 2 TAIL TOKENS** (`sell_cluster_flag=…` + `max_z_sell=…:…`).
 - **Buy + sell aggregate panels are INDEPENDENT branches.**
 - **The L&L 2001 §4 dilution footer attaches to the sell-side no-flag-cleared branch ONLY.**
@@ -256,48 +276,42 @@ All prior watch-outs preserved unchanged. Key carry-overs:
 - `stddevSamp` not `stddevPop` — Bessel correction.
 - Today's rate must be EXCLUDED from the baseline window per ADR-042 §4.
 
-(All earlier s89-s95 #2 watch-outs preserved unchanged.)
+(All earlier s89-s95 #3 watch-outs preserved unchanged.)
 
 ## Pre-loaded operational reminders
 
 ### Daily-keep-it-fresh
 
 ```text
-npm run daemon:daily                                    # all 7 Layer-0 + 8-K classifier (1k) + Form 4 (1l); aggregate-sector layer LIVE on XD/EK/F4 (buy-side); F4 sell-side LIVE end-to-end.
+npm run daemon:daily                                    # all 7 Layer-0 + 8-K classifier (1k) + Form 4 (1l); F4 emits both directions + recency on per-row payload.
 npm run audit:positions
 npx tsx scripts/_paper_trading_review.ts
-npm run brief:morning                                   # sections #7-#15 LIVE; F4 §15 emits BOTH buy-side AND sell-side parallel panels.
+npm run brief:morning                                   # F4 §15: cluster_buy/sell rows now show "(net X, last Yd), code Z" inline.
 ```
 
-### Gap #7 Form 4 (G2 buy-side + v2 sell-side both LIVE end-to-end; ingest UNBLOCKED s95 #3)
+### Gap #7 Form 4 (G2 buy + v2 sell BOTH LIVE; v2 per-row recency LIVE)
 
 ```text
 npm run edgar:form4:ingest:dry
-npm run edgar:form4:ingest                              # UNBLOCKED s95 #3 — now resolves real XML URLs via index.json discovery
+npm run edgar:form4:ingest                              # UNBLOCKED s95 #3 — discovery via index.json
 npm run migrate:create-form-4-insider-snapshots
-npm run migrate:create-form-4-insider-snapshots:apply
+npm run migrate:create-form-4-insider-snapshots:apply   # REQUIRED — operator hit this gap in s95 #3 runbook
 npm run migrate:add-max-z-form-4-insider-snapshots:apply
-npm run migrate:add-sell-cluster-form-4-insider-snapshots:apply  # NEW s95 #2 — sell-side persistence
-npm run daemon:daily                                              # emits [f4-aggregate] log line with both buy-side AND sell-side tokens
-npm run brief:morning                                             # section #15 emits BOTH buy-side AND sell-side parallel panels
+npm run migrate:add-sell-cluster-form-4-insider-snapshots:apply
+npm run daemon:daily                                    # writes per_ticker_json with the 2 new recency keys
+npm run brief:morning                                   # F4 §15 cluster_buy/sell rows render the "last Xd" segment
 ```
 
-### Gap #7+#8 v2 GICS activation — buy-side ARC CLOSED; F4 sell-side ARC CLOSED end-to-end
+### Gap #7 8-K classifier (G2 LIVE; per-row daysSinceLatestEvent ALREADY LIVE)
 
 ```text
-# GICS map bootstrap + ingest (READY since s94 #1):
-npm run migrate:create-gics-sector-map                  # dry-run
-npm run migrate:create-gics-sector-map:apply            # creates quantlab.gics_sector_map
-npm run gics:sector-map:ingest:dry                      # fetch + parse + validate without writing
-npm run gics:sector-map:ingest                          # writes ~503 rows from Wikipedia
-
-# G2 max-aggregate-z persistence wiring (READY since s94 #8):
-npm run migrate:add-max-z-executive-departure-snapshots:apply
+npm run edgar:8k-event:ingest:dry
+npm run edgar:8k-event:ingest
+npm run migrate:create-eight-k-classifier-snapshots
+npm run migrate:create-eight-k-classifier-snapshots:apply
 npm run migrate:add-max-z-eight-k-classifier-snapshots:apply
-npm run migrate:add-max-z-form-4-insider-snapshots:apply
-
-# G3 sell-cluster persistence wiring (READY since s95 #2):
-npm run migrate:add-sell-cluster-form-4-insider-snapshots:apply
+npm run daemon:daily
+npm run brief:morning                                   # EK §14 material_event rows show "(Xd ago)" — already wired pre-s95 #4
 ```
 
 ### Gap #9 etf-flow activation (FULLY READY)
@@ -334,53 +348,33 @@ npm run daemon:daily
 npm run brief:morning
 ```
 
-### Gap #7 8-K classifier (G2 LIVE)
-
-```text
-npm run edgar:8k-event:ingest:dry
-npm run edgar:8k-event:ingest
-npm run migrate:create-eight-k-classifier-snapshots
-npm run migrate:create-eight-k-classifier-snapshots:apply
-npm run migrate:add-max-z-eight-k-classifier-snapshots:apply
-npm run daemon:daily
-npm run brief:morning
-```
-
 ### Tests + dev
 
 ```text
-npm test                                                                       # TS — last full-run at s95 #2 was 2898 / 2801 pass / 2 fail / 95 skipped
-.venv/Scripts/python.exe -m pytest scripts/tests                               # Python — 332 pass at s95 #3 (+8 net from T-F4I-DISCOVER-{1..8})
-.venv/Scripts/python.exe -m pytest scripts/tests/test_sec_edgar_form4_ingest.py # 47 pass (this turn baseline)
-.venv/Scripts/python.exe -m pytest scripts/tests/test_sec_edgar_8k_item_5_02_ingest.py scripts/tests/test_sec_edgar_8k_event_ingest.py  # 53 pass — confirms shared parser change is non-breaking
+npm test                                                                       # TS — this turn 2906 / 2877 pass / 1 fail / 28 skipped (1 fail = pre-existing CH-unreachable)
+.venv/Scripts/python.exe -m pytest scripts/tests                               # Python — 332 pass at s95 #3 close (unchanged)
+npx tsx --test scripts/tests/form4Insider.test.ts                              # 50 pass — includes T-F4-DSLB-{1..5}
+npx tsx --test scripts/tests/operatorBriefRender.test.ts                       # all F4 + EK render tests including T-OBR-F4-DSLB-{1..3}
 npm run dev                                                                    # http://localhost:3000
-npm run check:help                                                             # green at s95 #2 close
+npm run check:help                                                             # FULLY GREEN at s95 #4 close
 npx tsc --noEmit                                                               # 13 baseline errors unchanged
 ```
 
 ## For the next session — priority order
 
-**Default on `continue`:** the operator should re-run the runbook that hit the 404 storm last turn:
-
-```text
-npm run edgar:form4:ingest              # NOW WORKS — UNBLOCKED by s95 #3
-npm run daemon:daily
-npm run brief:morning
-```
-
-After validation that the F4 panels surface real data, the operator picks the next code slice from the candidate list. Recommended default if they just say "continue": **Gap #7 v2 per-row recency** (S93-32 + S93-52 co-bootstrap of EK + F4 snapshot DDLs).
+**Default on `continue`:** operator picks the next slice (gap #7 v2 per-row recency arc closed end-to-end on F4 side). If operator just says "continue" with no context, the recommended default is **ADR-041 implementation** (`yield_curve_inverted` regime category) — canon work done at s89c#2 Accept; activation slice extends the regime classifier with the new category + adds dashboard surfacing. ~5-6 files, ~150 LOC, ~10 tests.
 
 **Acceptance criteria** for whichever next slice ships:
 
 - ✓ `npm test` green at +N net new tests (per the slice's SPEC test count).
 - ✓ `npx tsc --noEmit` baseline-clean (13 pre-existing errors unchanged).
 - ✓ `npm run check:help` green.
-- ✓ `.venv/Scripts/python.exe -m pytest scripts/tests` baseline-clean (332 + N).
+- ✓ Pre-existing 1 CH-unreachable `gicsSectorRepositoryHelper SMP-6` failure is NOT a regression — ignore.
 
 **If operator reprioritizes:** any of these candidates can be the default-next:
 
-- **Gap #7 v2 per-row recency** (S93-32 + S93-52 co-bootstrap of EK + F4 snapshot DDLs).
 - **ADR-041 implementation** (`yield_curve_inverted` regime category).
+- **Gap #7 v2 per-EVENT EK recency** (§8.1 "12d ago + 18d ago" per-item format).
 - **Gap #9 v2 ETF.com/issuer-CSV cross-validation**.
 - **Gap #7 v2 13D/13G arc** (needs its own SPEC).
 - **Gap #7 v2 event-driven cadence promotion** (Phase B-gated).
@@ -388,12 +382,13 @@ After validation that the F4 panels surface real data, the operator picks the ne
 - **C-12 Phase B AlpacaAdapter** (operator-decision — paused indefinitely).
 - **Phase B campaigns** for the nine Layer-0 composites.
 
-**Operator-gated action items (carried + new):**
+**Operator-gated action items (carried):**
 
-- **NEW:** Re-run `npm run edgar:form4:ingest --apply` (UNBLOCKED s95 #3).
-- Apply `migrate:add-sell-cluster-form-4-insider-snapshots:apply` to surface s95 #2 sell-side persistence end-to-end on the real CH.
+- Re-run `npm run edgar:form4:ingest --apply` (UNBLOCKED s95 #3; produces real per-row payloads with recency hints once daemon ran).
+- Apply `migrate:create-form-4-insider-snapshots:apply` (REQUIRED — base table absent in operator's local CH).
 - Apply the three `migrate:add-max-z-…-snapshots:apply` ALTERs (carry from s94 #8).
-- Push 41 commits to origin/main (HOLD).
+- Apply `migrate:add-sell-cluster-form-4-insider-snapshots:apply` (carry from s95 #2).
+- Push 42 commits to origin/main (HOLD).
 - Drawdown framework §12 90d empirical retune — earliest 2026-08-29.
 
 **Calendar-gated:**
@@ -411,13 +406,19 @@ After validation that the F4 panels surface real data, the operator picks the ne
 
 ## Important framing for the next chat
 
-**s95 #3 was a HOTFIX, not a feature slice.** The fix is small (3 files, +318 / -2 LOC, 8 new tests) but it closed a real first-apply blocker that would have left every Form 4 ingest 100% empty. Run the ingest now (`npm run edgar:form4:ingest --apply`) before doing anything else with F4 — the brief renderer is already wired to consume populated `insider_trades`, so the moment the ingest succeeds the morning brief will show real buy/sell sector panels (where signal exists).
+**Gap #7 v2 per-row recency F4 side is FULLY CLOSED.** Two new REQUIRED fields on `Form4InsiderPerTickerRow` (`daysSinceLatestBuy` + `daysSinceLatestSell`); composite populates from `psFiltered` trade panel; composer threads; renderer emits "last Xd" inside the net-dollar parens per SPEC §8.2. EK's per-row `daysSinceLatestEvent` was ALREADY done in earlier work (not touched this turn).
 
-**The 8-K ingest was NEVER blocked by this bug.** 8-K hits in the EDGAR search response DO include `file_name`, so the parser's URL construction works for 8-K. Don't reinterpret the s95 #3 fix as touching the 8-K path — it doesn't.
+**EK per-EVENT recency (§8.1 mockup's per-item-code recency) is STILL DEFERRED.** EK currently surfaces only a single `daysSinceLatestEvent` (the freshest event across items); the SPEC §8.1 mockup shows per-item ages ("restatement (4.02) 12d ago + auditor change (4.01) 18d ago"). That's a separate v2 slice with a new row shape (`eventsByItemCode: Array<{itemCode, daysSinceLatest}>`). NOT in s95 #4 scope — operator-pickable if they want it next.
 
-**The discovery cache is positive-only and per-process.** A long-running daemon that re-invokes the ingest won't benefit from cross-run caching, but that's fine — daily ingest cadences are not perf-sensitive at the EDGAR rate ceiling.
+**NO DDL CHANGE this turn.** The original handoff scoped a "co-bootstrap of EK + F4 snapshot DDLs" — that was incorrect because `per_ticker_json` is free-form JSON. Future per-row v2 additions should default to JSON-key additions, NOT ALTERs.
 
-**The chain through s95 #3:**
+**Recency uses `acceptedAt`, NOT `transactionDate` (S95-15).** Trade-off: up to 2bd understatement of staleness vs the underlying market action. Acceptable for brief hint; v2 ADR can switch to `transactionDate` if precision matters.
+
+**The composite source files have `\0` literals (carried watch-out).** `src/server/executive_departure.ts` (line 105), `eight_k_classifier.ts` (line 133), `form_4_insider.ts` (line 163).
+
+**Parallel-tracks posture continues.** s95 #4 did NOT affect C-12 / paper-trading / real-money-flip arcs. Full `npm test` green at 2877 pass (1 pre-existing CH-unreachable fail is NOT a regression; +8 net vs s95 #3 = exactly the 8 T-F4-DSLB-* tests).
+
+**The chain through s95 #4:**
 
 ```text
 ALL S41-S94 WORK                                        ✓ as documented
@@ -425,18 +426,18 @@ S95 #1: gap #7 v2 sell-cluster F4 composite contract    ✓ committed (b398b4e)
 S95 #2: gap #7 v2 sell-cluster F4 G3                    ✓ committed (d05eb39)
         — DDL + persistence + daemon log + brief render
 S95 #3: form 4 ingest XML body URL discovery (HOTFIX)   ✓ committed (831b1b0)
-        — unblocks first-apply; 8 new T-F4I-DISCOVER-* tests
-S95 #3 HANDOFF rewrite (this commit)                    ✓ this commit
-  → DEFAULT NEXT: operator re-runs the runbook from last
-                  turn; F4 ingest is now unblocked.
-                  After F4 surfaces real data, operator
-                  picks the next code slice.
-  → background: F4 emits four signals end-to-end now (buy-side
-                + sell-side per-ticker cluster flags; buy-side +
-                sell-side aggregate cluster flags). Buy-side has
-                been LIVE since s94 #11; sell-side composite landed
-                s95 #1; sell-side persistence + render landed s95 #2.
-                XML body URL discovery (the "first-apply" missing
-                piece) landed s95 #3. XD + EK arcs remain
-                buy-side-only.
+        — unblocks first-apply
+S95 #4: gap #7 v2 per-row recency (F4 side)             ✓ committed (b3d63a2)
+        — daysSinceLatest{Buy,Sell} + "last Xd" render
+S95 #4 HANDOFF rewrite (this commit)                    ✓ this commit
+  → DEFAULT NEXT: operator picks. Recommended default if
+                  operator says "continue" without context:
+                  ADR-041 implementation (yield_curve_inverted
+                  regime category).
+  → background: F4 emits six signals end-to-end now (buy/sell
+                per-ticker cluster flags + aggregate cluster
+                flags + per-direction recency). EK has 5 of the
+                analogous signals plus per-row recency. The XD
+                arc remains buy-side-only (no v2 sell or
+                recency add).
 ```
