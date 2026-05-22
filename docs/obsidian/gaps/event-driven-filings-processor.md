@@ -1,11 +1,19 @@
 ---
 status: partially-superseded
 phase: phase 9+
-last_updated: 2026-05-21
+last_updated: 2026-05-22
 owner: pejman
 type: gap
 slice_id: gap-7-event-driven-filings
 ---
+
+> **Update 2026-05-22 (session 96 #1).** The 13D/13G follow-up SPEC has landed
+> as a SIBLING composite under gap #7. See
+> [`docs/specs/schedule-13d-13g-activist-stake.md`](../../specs/schedule-13d-13g-activist-stake.md)
+> and the supporting [`ADR-043`](../../specs/adr-043-13d-13g-activist-stake-research.md).
+> Phase A1..A5 sub-arcs queued; this gap doc remains the parent gap-#7
+> overview but the EK + F4 + 13D/G implementation contracts now live in their
+> own SPEC files.
 
 # Event-Driven Filings Processor
 

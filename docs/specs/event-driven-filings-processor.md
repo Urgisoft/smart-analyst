@@ -1,11 +1,18 @@
 ---
 status: active
 phase: phase 9+
-last_updated: 2026-05-21
+last_updated: 2026-05-22
 owner: pejman
 type: spec
 slice_id: gap-7-event-driven-filings
 ---
+
+> **Update 2026-05-22 (session 96 #1).** The EDF-3 deferral (13D/13G filings
+> out-of-scope v1) is now resolved via a SIBLING SPEC + ADR:
+> [`docs/specs/schedule-13d-13g-activist-stake.md`](schedule-13d-13g-activist-stake.md)
+> and [`ADR-043`](adr-043-13d-13g-activist-stake-research.md). The decisions in
+> this SPEC (EK + F4 implementations) are unchanged; the v2 13D/G arc ships in
+> its own A1..A5 sub-arcs as a third Layer-0 composite under gap #7.
 
 # SPEC — Event-Driven Filings Processor (eight_k_classifier_v1 + form_4_insider_v1)
 
