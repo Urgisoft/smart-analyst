@@ -1,3 +1,11 @@
+---
+status: active
+phase: phase 9+
+last_updated: 2026-05-21
+owner: pejman
+type: architecture
+---
+
 # 06 — Daemon (daily cadence)
 
 > **What it is.** The scheduled job that runs the full pipeline once per market day: refresh data → classify regime → evaluate allowlisted cells → apply gates → emit positions + Telegram alert → log to `daemon_runs`.

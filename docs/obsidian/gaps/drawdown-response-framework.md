@@ -1,3 +1,11 @@
+---
+status: active
+phase: phase 9+
+last_updated: 2026-05-21
+owner: pejman
+type: gap
+---
+
 # Drawdown Response Framework
 
 **Status:** SUPERSEDED by [docs/specs/drawdown-response-framework.md](../../specs/drawdown-response-framework.md) (session 53, 2026-05-16). Gap promoted to operational SPEC; CODE slice pending.

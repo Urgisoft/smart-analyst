@@ -1,3 +1,11 @@
+---
+status: active
+phase: phase 9+
+last_updated: 2026-05-21
+owner: pejman
+type: architecture
+---
+
 # 05 — Trade Execution Pipeline
 
 > **What it is.** A four-gate veto chain between a strategy's "BUY" signal and a real position open. Each gate is a **hard veto**; failing any gate skips the entry. Gates fire cheapest → most expensive.

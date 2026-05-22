@@ -1,3 +1,11 @@
+---
+status: active
+phase: phase 2
+last_updated: 2026-05-05
+owner: pejman
+type: review
+---
+
 # Review doc — Cluster axis dashboard (`/#/cluster`)
 
 **Component:** Phase 2 §5.5 cluster-axis dashboard

@@ -1,3 +1,12 @@
+---
+status: active
+phase: phase 9+
+last_updated: 2026-05-05
+owner: pejman
+type: review
+slice_id: adr-017
+---
+
 # Review doc — Meta-Labeling Research Log (`/#/meta-labeling`)
 
 **Component:** Meta-labeling research-log dashboard panel

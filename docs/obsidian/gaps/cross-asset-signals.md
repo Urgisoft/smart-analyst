@@ -1,3 +1,12 @@
+---
+status: active
+phase: phase 9+
+last_updated: 2026-05-21
+owner: pejman
+type: gap
+slice_id: gap-cross-asset
+---
+
 # Cross-Asset Signal Integration
 
 **Status:** Phase 9+ candidate

@@ -1,3 +1,11 @@
+---
+status: active
+phase: phase 9+
+last_updated: 2026-05-21
+owner: pejman
+type: index
+---
+
 # Components — index
 
 > **Authority:** [MASTER.html §3](../../MASTER.html#part3) (component catalog) is the architectural reference. The per-component docs in this directory expand each row of §3 into its own file with diagrams, interface, dependencies, and "what could break this" notes.

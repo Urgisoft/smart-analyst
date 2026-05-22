@@ -1,3 +1,11 @@
+---
+status: active
+phase: phase 2
+last_updated: 2026-05-21
+owner: pejman
+type: architecture
+---
+
 # 03 — Backtest Engine
 
 > **What it does.** Sweeps every (strategy × parameter × ticker × interval) cell against historical [[02 - Storage (ClickHouse)|candles]], scores each cell with overfitting-corrected metrics, then promotes the survivors into the [[02 - Storage (ClickHouse)|`cell_allowlist`]] table that powers [[05 - Trade Execution Pipeline|Gate 1]].

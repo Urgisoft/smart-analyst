@@ -1,3 +1,12 @@
+---
+status: done
+phase: phase 9+
+last_updated: 2026-05-21
+owner: pejman
+type: spec
+slice_id: gap-8-executive-departure
+---
+
 # SPEC — Executive Departure Signal (exec_departure_v1)
 
 > **Status:** SPEC (boundaries before bodies) · **Date:** 2026-05-19 · **Author:** Claude (Vector Core principal engineer) · **Phase:** 9-gap unfreeze (gap #8) · **Authority:** [gap doc](../obsidian/gaps/executive-departure-signal.md), Warner-Watts-Wruck 1988 *JFE*, Denis-Denis 1995 *Journal of Finance*, Lerman-Livnat 2010 *Review of Accounting Studies*

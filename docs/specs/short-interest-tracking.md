@@ -1,3 +1,12 @@
+---
+status: done
+phase: phase 9+
+last_updated: 2026-05-21
+owner: pejman
+type: spec
+slice_id: gap-10-short-interest
+---
+
 # SPEC — Short Interest Tracking (short_interest_v1)
 
 > **Status:** SPEC (boundaries before bodies) · **Date:** 2026-05-19 · **Author:** Claude (Vector Core principal engineer) · **Phase:** 9-gap unfreeze (gap #10) · **Authority:** [gap doc](../obsidian/gaps/short-interest-tracking.md), Boehmer-Jones-Zhang 2008 *Journal of Finance*, Diether-Lee-Werner 2009 *Review of Financial Studies*, Asquith-Pathak-Ritter 2005 *JFE*

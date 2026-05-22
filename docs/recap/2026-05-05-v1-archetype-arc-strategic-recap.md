@@ -1,3 +1,11 @@
+---
+status: active
+phase: phase 9+
+last_updated: 2026-05-05
+owner: pejman
+type: recap
+---
+
 # Strategic Recap — v1-Archetype Arc + Where to Go Next
 
 **Date:** 2026-05-05 (end of session 10)

@@ -1,3 +1,12 @@
+---
+status: active
+phase: phase 9+
+last_updated: 2026-05-21
+owner: pejman
+type: analysis
+slice_id: adr-041
+---
+
 # Cycle-position validation — 2026-05-20
 
 SPEC: [docs/specs/market-cycle-position.md](../specs/market-cycle-position.md) §4 Phase B.

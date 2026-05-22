@@ -1,3 +1,11 @@
+---
+status: active
+phase: phase 9+
+last_updated: 2026-05-21
+owner: pejman
+type: spec
+---
+
 # SPEC — `kill_criteria_daily` history table
 
 Status: PROPOSED (session 57 — 2026-05-16)

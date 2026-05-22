@@ -1,3 +1,12 @@
+---
+status: active
+phase: phase 9+
+last_updated: 2026-05-21
+owner: pejman
+type: spec
+slice_id: gap-7-event-driven-filings
+---
+
 # SPEC — Event-Driven Filings Processor (eight_k_classifier_v1 + form_4_insider_v1)
 
 > **Status:** SPEC (boundaries before bodies) · **Date:** 2026-05-20 · **Author:** Claude (Vector Core principal engineer) · **Phase:** 9-gap unfreeze (gap #7) · **Authority:** [gap doc](../obsidian/gaps/event-driven-filings-processor.md), Lerman-Livnat 2010 *Review of Accounting Studies* (8-K information content), Cohen-Malloy-Pomorski 2012 *Journal of Finance* (opportunistic-vs-routine insiders), Lakonishok-Lee 2001 *RFS* (insider-trading return predictability), Seyhun 1986 *JFE* (foundational insider-trading evidence), 17 CFR 240.16a (Form 4 statutory basis), 17 CFR 249.308 (Form 8-K item structure)

@@ -1,3 +1,12 @@
+---
+status: done
+phase: phase 9+
+last_updated: 2026-05-21
+owner: pejman
+type: spec
+slice_id: gap-9-etf-flow
+---
+
 # SPEC — ETF Flow Monitoring (etf_flow_v1)
 
 > **Status:** SPEC (boundaries before bodies) · **Date:** 2026-05-19 · **Author:** Claude (Vector Core principal engineer) · **Phase:** 9-gap unfreeze (gap #9) · **Authority:** [gap doc](../obsidian/gaps/etf-flow-monitoring.md), Ben-David-Franzoni-Moussawi 2018 *Journal of Finance*, Brown-Davies-Ringgenberg 2021 *RFS*

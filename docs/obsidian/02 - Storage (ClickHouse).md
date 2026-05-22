@@ -1,3 +1,11 @@
+---
+status: active
+phase: phase 1
+last_updated: 2026-05-21
+owner: pejman
+type: architecture
+---
+
 # 02 — Storage (ClickHouse)
 
 > **What it is.** Every piece of state SignalForge persists lives in the `quantlab.*` schema on a local ClickHouse instance. Everything else is derived. Schema bootstrap runs at `npm run dev` startup via [src/server/clickhouse.ts](../../src/server/clickhouse.ts) — `bootstrapClickHouseSchema()`.

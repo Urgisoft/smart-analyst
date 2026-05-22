@@ -1,3 +1,12 @@
+---
+status: done
+phase: phase 9+
+last_updated: 2026-05-21
+owner: pejman
+type: gap
+slice_id: gap-9-etf-flow
+---
+
 # ETF Flow Monitoring
 
 **Status:** Phase 9+ candidate

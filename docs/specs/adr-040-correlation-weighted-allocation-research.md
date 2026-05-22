@@ -1,3 +1,12 @@
+---
+status: research
+phase: phase 9+
+last_updated: 2026-05-21
+owner: pejman
+type: adr
+slice_id: adr-040
+---
+
 # ADR-040 — Correlation-weighted per-cell allocation — RESEARCH note
 
 **Status:** RESEARCH (pre-ADR, pre-SPEC) — informs both the ADR-040 text that

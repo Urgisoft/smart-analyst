@@ -1,3 +1,12 @@
+---
+status: done
+phase: phase 9+
+last_updated: 2026-05-21
+owner: pejman
+type: spec
+slice_id: adr-042
+---
+
 # SPEC — Per-sector daily rate baseline computation (Option a, recompute-on-the-fly) — G2 aggregate-panel activation across F4 / EK / XD
 
 **Status:** SPEC (post-ADR-042 Accept) · **Date:** 2026-05-21 (session 94 #6) · **Owner:** Vector Core · **Resolves:** ADR-042 §1 Decision (operator selected Option a); upstream SPEC pointers at [`docs/specs/executive-departure-signal.md`](executive-departure-signal.md) §5.2 + §11 (XD aggregate); [`docs/specs/event-driven-filings-processor.md`](event-driven-filings-processor.md) §5.2 (EK aggregate) + §5.3 (F4 aggregate).

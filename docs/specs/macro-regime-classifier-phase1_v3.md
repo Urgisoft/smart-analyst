@@ -1,3 +1,12 @@
+---
+status: partially-superseded
+phase: phase1_v3
+last_updated: 2026-05-21
+owner: pejman
+type: spec
+slice_id: adr-041
+---
+
 # SPEC — Macro regime classifier phase1_v3
 
 > **Status:** PARTIALLY SUPERSEDED — produced from the 2026-05-11 RESEARCH+PUSHBACK turn (session 38 turn 4); the `yield_curve_inverted` category was redefined under [ADR-041](../decisions/README.md) (Accepted 2026-05-19, session 95 #5 implementation). See §2.3 line 4 + §2.1 footnote on the canon swap.

@@ -1,3 +1,11 @@
+---
+status: deferred
+phase: phase 9+
+last_updated: 2026-05-21
+owner: pejman
+type: gap
+---
+
 # Earnings Calendar Integration
 
 **Status:** Phase 9+ candidate

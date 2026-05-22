@@ -1,3 +1,12 @@
+---
+status: done
+phase: phase 9+
+last_updated: 2026-05-21
+owner: pejman
+type: gap
+slice_id: gap-8-executive-departure
+---
+
 # Executive Departure Signal
 
 **Status:** Phase 9+ candidate

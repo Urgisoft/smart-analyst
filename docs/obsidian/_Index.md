@@ -1,3 +1,11 @@
+---
+status: active
+phase: phase 9+
+last_updated: 2026-05-21
+owner: pejman
+type: index
+---
+
 # SignalForge — Master Index
 
 > **What this is.** A research-grade systematic trading lab. Backtests across thousands of (strategy × parameter × ticker × interval) cells, ranks them with overfitting-corrected metrics (Deflated Sharpe, PBO via CSCV), and routes the survivors through a 4-gate trade-execution pipeline that ends in paper-traded equity positions.

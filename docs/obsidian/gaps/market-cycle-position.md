@@ -1,3 +1,12 @@
+---
+status: active
+phase: phase 9+
+last_updated: 2026-05-21
+owner: pejman
+type: gap
+slice_id: adr-041
+---
+
 # Market Cycle Position
 
 **Status:** Phase 9+ candidate

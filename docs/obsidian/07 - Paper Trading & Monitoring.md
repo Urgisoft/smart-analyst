@@ -1,3 +1,11 @@
+---
+status: active
+phase: Phase B
+last_updated: 2026-05-21
+owner: pejman
+type: architecture
+---
+
 # 07 — Paper Trading & Monitoring
 
 > **What it is.** The human-facing layer wrapped around the [[06 - Daemon (daily cadence)|daemon]]: a morning brief, position audit, per-cell P&L review, and an automated kill-criteria board that decides whether to keep trusting the live strategies.

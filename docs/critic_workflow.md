@@ -1,3 +1,11 @@
+---
+status: active
+phase: phase 9+
+last_updated: 2026-05-21
+owner: pejman
+type: architecture
+---
+
 # Critic-agent workflow — SignalForge
 
 > **Authority:** [MASTER.html §4.2](../MASTER.html#part4) and [§9.5](../MASTER.html#part9). This file is the operational checklist; MASTER is the principle.

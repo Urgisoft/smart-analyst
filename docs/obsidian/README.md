@@ -1,3 +1,11 @@
+---
+status: active
+phase: phase 9+
+last_updated: 2026-05-21
+owner: pejman
+type: index
+---
+
 # SignalForge — Obsidian Vault
 
 A visual + explanatory map of the SignalForge / Vector Core project.

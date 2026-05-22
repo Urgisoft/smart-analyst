@@ -1,3 +1,11 @@
+---
+status: active
+phase: phase 2
+last_updated: 2026-05-21
+owner: pejman
+type: spec
+---
+
 # SPEC — Macro regime classifier, Phase 2 (4th category: `realized_stress`)
 
 > **Status:** PROPOSED · drafted 2026-05-09 · revised post-critic 2026-05-09 (rev 2) · revised post-procedure-run 2026-05-10 (rev 3 — Q1+Q2 corrections; §3.4 H1 reframed two-sided + §3.5/§3.6 ranking metric switched to Welch's |t-stat|; full revision log §11.2). Awaiting user sign-off before CODE re-resumes.

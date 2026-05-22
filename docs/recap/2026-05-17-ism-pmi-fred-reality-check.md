@@ -1,3 +1,11 @@
+---
+status: active
+phase: phase 9+
+last_updated: 2026-05-17
+owner: pejman
+type: recap
+---
+
 # RESEARCH note — ISM PMI free-source reality check
 
 **Date:** 2026-05-17 (session 73)

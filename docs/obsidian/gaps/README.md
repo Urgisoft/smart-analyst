@@ -1,3 +1,11 @@
+---
+status: active
+phase: phase 9+
+last_updated: 2026-05-21
+owner: pejman
+type: index
+---
+
 # Gaps — Phase 9+ Candidate Components
 
 This folder documents components and refinements identified as future work, NOT current implementation targets. Each document captures a real gap in the current architecture along with proposed approach, dependencies, and rationale for deferral.

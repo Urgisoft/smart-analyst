@@ -1,3 +1,12 @@
+---
+status: active
+phase: phase 9+
+last_updated: 2026-05-21
+owner: pejman
+type: spec
+slice_id: gap-cross-asset
+---
+
 # SPEC — Cross-Asset Signal Integration (cross_asset_v1)
 
 > **Status:** SPEC (boundaries before bodies) · **Date:** 2026-05-19 · **Author:** Claude (Vector Core principal engineer) · **Phase:** 9-gap unfreeze (gap #6) · **Authority:** [gap doc](../obsidian/gaps/cross-asset-signals.md), Ilmanen 2011 *Expected Returns*, Asness-Moskowitz-Pedersen 2013 *Value and Momentum Everywhere*

@@ -1,3 +1,12 @@
+---
+status: done
+phase: phase 9+
+last_updated: 2026-05-21
+owner: pejman
+type: gap
+slice_id: gap-10-short-interest
+---
+
 # Short Interest Tracking
 
 **Status:** Phase 9+ candidate

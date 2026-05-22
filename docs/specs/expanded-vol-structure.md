@@ -1,3 +1,12 @@
+---
+status: active
+phase: phase 9+
+last_updated: 2026-05-21
+owner: pejman
+type: spec
+slice_id: gap-expanded-vol-structure
+---
+
 # SPEC — Expanded Volatility Term Structure
 
 > **Status:** SPEC complete; CODE proceeds in this session per autonomous-progression rule. **Author:** Claude (Vector Core). **Authority:** [docs/obsidian/gaps/expanded-vol-structure.md](../obsidian/gaps/expanded-vol-structure.md) gap doc; session 85 end-of-arc operator delegation ("please proceed with phase 9 implementation continuation").

@@ -1,3 +1,12 @@
+---
+status: active
+phase: phase 9+
+last_updated: 2026-05-21
+owner: pejman
+type: gap
+slice_id: gap-5-capital-deployment-ramp
+---
+
 # Capital Deployment Ramp
 
 **Status:** Phase 9+ candidate (but URGENT before June 29, 2026)

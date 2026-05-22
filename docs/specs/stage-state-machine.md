@@ -1,3 +1,11 @@
+---
+status: active
+phase: phase 9+
+last_updated: 2026-05-21
+owner: pejman
+type: spec
+---
+
 # Stage state machine — SPEC
 
 **Status:** Proposed

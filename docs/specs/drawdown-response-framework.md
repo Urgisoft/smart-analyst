@@ -1,3 +1,11 @@
+---
+status: active
+phase: phase 9+
+last_updated: 2026-05-21
+owner: pejman
+type: spec
+---
+
 # SPEC — Drawdown Response Framework
 
 > **Status:** SPEC (boundaries before bodies) · **Date:** 2026-05-16 · **Author:** producer (Claude) · **Authority:** [ADR-039 §1 stage 3](../decisions/README.md), [`src/server/capital_deployment_config.ts`](../../src/server/capital_deployment_config.ts) `assertStageFailGateOperational('stage3')` guard, [drawdown-response-framework gap doc](../obsidian/gaps/drawdown-response-framework.md)

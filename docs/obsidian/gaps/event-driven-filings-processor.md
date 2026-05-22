@@ -1,3 +1,12 @@
+---
+status: partially-superseded
+phase: phase 9+
+last_updated: 2026-05-21
+owner: pejman
+type: gap
+slice_id: gap-7-event-driven-filings
+---
+
 # Event-Driven Filings Processor
 
 **Status:** Phase 9+ candidate

@@ -1,3 +1,11 @@
+---
+status: active
+phase: phase 9+
+last_updated: 2026-05-21
+owner: pejman
+type: architecture
+---
+
 # 08 — Dashboard UI
 
 > **What it is.** A React + Vite single-page app served by [server.ts](../../server.ts) at `http://localhost:3000`. Four hash-routed apps share the shell.

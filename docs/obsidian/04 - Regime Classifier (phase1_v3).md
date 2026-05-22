@@ -1,3 +1,12 @@
+---
+status: active
+phase: phase1_v3
+last_updated: 2026-05-21
+owner: pejman
+type: architecture
+slice_id: adr-041
+---
+
 # 04 — Regime Classifier (phase1_v3)
 
 > **What it does.** Produces one row per trading day in [[02 - Storage (ClickHouse)|`macro_regimes`]] labelling the market as **🔴 red · 🟠 orange · 🟡 yellow · 🟢 green** based on how many of six risk-off categories are firing. This label feeds [[05 - Trade Execution Pipeline|Gate 2]] of the trade-execution pipeline.

@@ -1,3 +1,11 @@
+---
+status: active
+phase: phase 9+
+last_updated: 2026-05-21
+owner: pejman
+type: glossary
+---
+
 # 99 — Glossary
 
 Quick reference for the terms used across SignalForge. For depth, see [docs/teach/](../teach/).

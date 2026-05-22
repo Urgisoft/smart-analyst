@@ -1,3 +1,12 @@
+---
+status: deferred
+phase: phase 9+
+last_updated: 2026-05-21
+owner: pejman
+type: adr
+slice_id: adr-017
+---
+
 # SPEC — ADR-017 meta-labeling pipeline
 
 **Authority:** [ADR-017](../decisions/README.md#adr-017--meta-labeling-ldp-afml-ch-3-as-the-strategy-family-expansion-path-cell-agnostic-pipeline-first-applied-to-trend_v1mcap_nano1dp5)

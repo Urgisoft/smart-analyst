@@ -1,3 +1,11 @@
+---
+status: active
+phase: phase 1
+last_updated: 2026-05-21
+owner: pejman
+type: architecture
+---
+
 # 01 — Data Ingestion
 
 > **What it does.** Pulls raw OHLCV bars + macro indicators + S&P 500 constituent history from external sources into [[02 - Storage (ClickHouse)|ClickHouse]]. Everything downstream — backtests, regime classifier, daemon — reads from CH, not the network.

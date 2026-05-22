@@ -1,3 +1,12 @@
+---
+status: accepted
+phase: phase 9+
+last_updated: 2026-05-21
+owner: pejman
+type: adr
+slice_id: adr-042
+---
+
 # ADR-042 — Per-sector daily rate baseline computation strategy for G2 aggregate-panel activation — RESEARCH note
 
 **Status:** RESEARCH (pre-ADR, pre-SPEC) — informs the ADR-042 text that will land

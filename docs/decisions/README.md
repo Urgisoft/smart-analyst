@@ -1,3 +1,11 @@
+---
+status: active
+phase: phase 9+
+last_updated: 2026-05-21
+owner: pejman
+type: index
+---
+
 # Decisions log — SignalForge ADRs
 
 > **Authority:** [MASTER.html §6](../../MASTER.html#part6) is the in-document index. This file is the working markdown form. Future ADRs are added here first; MASTER §6 is updated to link.

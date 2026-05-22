@@ -1,3 +1,12 @@
+---
+status: active
+phase: phase 9+
+last_updated: 2026-05-21
+owner: pejman
+type: spec
+slice_id: gap-sector-rotation
+---
+
 # SPEC — Sector Rotation Monitoring
 
 > **Status:** SPEC complete; CODE proceeds in this session per autonomous-progression rule. **Author:** Claude (Vector Core). **Authority:** [docs/obsidian/gaps/sector-rotation-monitoring.md](../obsidian/gaps/sector-rotation-monitoring.md) gap doc; session 86 end-of-arc operator delegation ("continue").

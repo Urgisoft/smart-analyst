@@ -1,3 +1,12 @@
+---
+status: active
+phase: phase 9+
+last_updated: 2026-05-21
+owner: pejman
+type: spec
+slice_id: adr-041
+---
+
 # SPEC — Market Cycle Position (Layer 0 informational input)
 
 > **Status:** SPEC complete; pending operator review before CODE start. **Author:** Claude (Vector Core). **Authority:** Session 84 operator pivot — "no live trading hook up yet. please move to gaps integration"; operator selected market-cycle-position as first gap. **Parent gap doc:** [docs/obsidian/gaps/market-cycle-position.md](../obsidian/gaps/market-cycle-position.md).
