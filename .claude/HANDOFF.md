@@ -1,6 +1,6 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-05-22 (session 95 #3 — **HOTFIX: form 4 ingest XML body URL discovery via EDGAR index.json**. First-apply-run surfaced two stacked bugs in `npm run edgar:form4:ingest --apply` (100% 404 on body fetch): (a) EDGAR Form 4 search hit JSON omits `primary_doc`/`file_name`, so `parse_edgar_search_response` fell through to the non-existent `primary.htm`; (b) `ciks: [insider, issuer]` ordering means a single fallback CIK is risky for agent-filed cases. Fix: `discover_form4_primary_xml_url` fetches `/Archives/.../index.json`, tries each `ciks_all[]` candidate until 200, selects the XML by precedence (form4-named → primary_* → any non-stylesheet .xml). Session-local cache. 3 files touched, +318 / -2 LOC, 8 new tests `T-F4I-DISCOVER-{1..8}`. Python suite 332 pass (324 baseline + 8 new). Live-fire validation against two of the operator's actual 404'd accessions resolves correctly (`primary_01.xml` + `form4-05212026_060556.xml`). Single commit `831b1b0`. **38 commits ahead of `origin/main`.** **NEXT default on `continue`: operator re-runs `npm run edgar:form4:ingest --apply` to actually populate `insider_trades` — then daemon + brief surface the buy/sell panels with real data. After that: operator pick from the candidate list (recommended if just "continue": Gap #7 v2 per-row recency).**)
+Last updated: 2026-05-22 (session 95 #3 — **HOTFIX: form 4 ingest XML body URL discovery via EDGAR index.json**. First-apply-run surfaced two stacked bugs in `npm run edgar:form4:ingest --apply` (100% 404 on body fetch): (a) EDGAR Form 4 search hit JSON omits `primary_doc`/`file_name`, so `parse_edgar_search_response` fell through to the non-existent `primary.htm`; (b) `ciks: [insider, issuer]` ordering means a single fallback CIK is risky for agent-filed cases. Fix: `discover_form4_primary_xml_url` fetches `/Archives/.../index.json`, tries each `ciks_all[]` candidate until 200, selects the XML by precedence (form4-named → primary_* → any non-stylesheet .xml). Session-local cache. 3 files touched, +318 / -2 LOC, 8 new tests `T-F4I-DISCOVER-{1..8}`. Python suite 332 pass (324 baseline + 8 new). Live-fire validation against two of the operator's actual 404'd accessions resolves correctly (`primary_01.xml` + `form4-05212026_060556.xml`). Single commit `831b1b0`. **41 commits ahead of `origin/main`.** **NEXT default on `continue`: operator re-runs `npm run edgar:form4:ingest --apply` to actually populate `insider_trades` — then daemon + brief surface the buy/sell panels with real data. After that: operator pick from the candidate list (recommended if just "continue": Gap #7 v2 per-row recency).**)
 
 ## What this turn delivered
 
@@ -52,7 +52,7 @@ A code hotfix that unblocks the **first-real-apply** of the Form 4 ingest. Earli
 | Phase B campaigns for nine Layer-0 composites | ⏸ deferred — calendar OR backfill arc |
 | #5 capital-deployment-ramp ADR | ☐ operator self-assigned ~1 week; not blocking |
 | Drawdown framework §12 90d empirical retune | ☐ scheduled — earliest 2026-08-29 |
-| Push 38 commits to origin/main | ☐ operator-gated, HOLD |
+| Push 41 commits to origin/main | ☐ operator-gated, HOLD |
 
 ## Decisions locked in
 
@@ -156,7 +156,7 @@ After that, the operator picks the next code slice. If they just say "continue" 
 
 - **NEW:** Re-run `npm run edgar:form4:ingest --apply` (was blocked pre-s95 #3; now works).
 - Apply DDL migration `migrate:add-sell-cluster-form-4-insider-snapshots:apply` to surface s95 #2 persistence end-to-end on the real CH instance (still pending from s95 #2).
-- Push 38 commits to origin/main (HOLD).
+- Push 41 commits to origin/main (HOLD).
 - Drawdown framework §12 90d empirical retune — earliest 2026-08-29.
 
 ## Files / code state
@@ -393,7 +393,7 @@ After validation that the F4 panels surface real data, the operator picks the ne
 - **NEW:** Re-run `npm run edgar:form4:ingest --apply` (UNBLOCKED s95 #3).
 - Apply `migrate:add-sell-cluster-form-4-insider-snapshots:apply` to surface s95 #2 sell-side persistence end-to-end on the real CH.
 - Apply the three `migrate:add-max-z-…-snapshots:apply` ALTERs (carry from s94 #8).
-- Push 38 commits to origin/main (HOLD).
+- Push 41 commits to origin/main (HOLD).
 - Drawdown framework §12 90d empirical retune — earliest 2026-08-29.
 
 **Calendar-gated:**
