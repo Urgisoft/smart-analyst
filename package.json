@@ -119,6 +119,8 @@
     "migrate:create-form-4-insider-snapshots:apply": "tsx scripts/migrate_create_form_4_insider_snapshots.ts --apply",
     "migrate:create-schedule-13d-g-filings": "tsx scripts/migrate_create_schedule_13d_g_filings.ts",
     "migrate:create-schedule-13d-g-filings:apply": "tsx scripts/migrate_create_schedule_13d_g_filings.ts --apply",
+    "migrate:create-schedule-13d-g-snapshots": "tsx scripts/migrate_create_schedule_13d_g_snapshots.ts",
+    "migrate:create-schedule-13d-g-snapshots:apply": "tsx scripts/migrate_create_schedule_13d_g_snapshots.ts --apply",
     "migrate:add-max-z-executive-departure-snapshots": "tsx scripts/migrate_add_max_aggregate_z_to_executive_departure_snapshots.ts",
     "migrate:add-max-z-executive-departure-snapshots:apply": "tsx scripts/migrate_add_max_aggregate_z_to_executive_departure_snapshots.ts --apply",
     "migrate:add-max-z-eight-k-classifier-snapshots": "tsx scripts/migrate_add_max_aggregate_z_to_eight_k_classifier_snapshots.ts",
