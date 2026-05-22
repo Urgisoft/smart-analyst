@@ -17,11 +17,21 @@
  *      neither flag (F4-2 lock).
  *
  *   2. **Aggregate** (SPY-500 PIT-as-of-D, sliced by GICS sector): emit
- *      `form4ClusterFlag` when ANY sector's cluster-rate (= tickers with
- *      `insiderClusterBuyFlag` in sector / sector_size) z-score against a
- *      2y daily baseline exceeds |z| > 2 symmetrically. Per F4-6 the
- *      aggregate ONLY counts cluster-buy events (sell-cluster aggregation
- *      deferred to v2).
+ *      `form4ClusterFlag` when ANY sector's cluster-buy-rate (= tickers
+ *      with `insiderClusterBuyFlag` in sector / sector_size) z-score
+ *      against a 2y daily baseline exceeds |z| > 2 symmetrically. Per
+ *      F4-6 (v1) the buy-side aggregate is load-bearing.
+ *
+ *      **F4-12 (v2, this slice — S95-1)**: a symmetric sell-side track
+ *      runs in parallel. `form4SellClusterFlag` fires when any sector's
+ *      cluster-sell-rate (= tickers with `insiderClusterSellFlag` in
+ *      sector / sector_size) z-score against its OWN 2y daily baseline
+ *      (`baseline2ySell`) exceeds |z| > 2 symmetrically. Lakonishok-Lee
+ *      2001 §4 documents that the sell signal is ~30-50% diluted by
+ *      tax/diversification/charity motives — informationally weaker than
+ *      buys but non-zero. Two SEPARATE booleans + max-z sectors are
+ *      emitted so downstream weighting (brief render, position sizing)
+ *      can treat the two signals asymmetrically.
  *
  * Canon:
  *   - Lakonishok & Lee 2001 *Rev. Fin. Studies* §3 — open-market insider P/S
@@ -50,6 +60,13 @@
  *   - F4-6: Aggregate counts tickers with `insiderClusterBuyFlag`, NOT raw
  *     trades. Correctly weights by issuer count not trade volume (avoids one
  *     mega-insider cluster dominating sector signal).
+ *   - F4-12 (v2, S95-1): Sell-side aggregate mirrors F4-6 structurally —
+ *     counts tickers with `insiderClusterSellFlag` per sector against a
+ *     SEPARATE 2y baseline `baseline2ySell`. Same threshold (|z| > 2.0),
+ *     same MIN_Z_BASELINE=30, same cluster window (30d), same distinct-
+ *     insider threshold (3). Zero new tuned parameters per Bailey-LdP
+ *     2014 selection-bias canon — the threshold is inherited unchanged
+ *     from the buy-side, not refit against a validation set.
  *   - F4-7 / F4-8 / F4-9 / F4-10: ingest concerns, encoded at F4-A1.
  *   - F4-10: `acceptedAt` is the load-bearing window-membership anchor.
  *     `transactionDate` is forensic ONLY (can be 1-2bd before acceptance per
@@ -269,19 +286,25 @@ export function flagInsiderCluster(distinctInsiderCount: number): boolean {
 
 // ── Sector-aggregate pure functions ─────────────────────────────────────────
 
-/** Sector cluster rate per F4-6:
- *  `count(tickers in sector with insiderClusterBuyFlag) / sectorSize`.
+/** Sector cluster rate per F4-6 (buy-side) and F4-12 (v2 sell-side):
+ *  `count(tickers in sector with insiderCluster<Direction>Flag) / sectorSize`.
  *
  *  Counts UNIQUE tickers (not raw trades) — a single mega-insider mega-cluster
  *  on one ticker contributes 1 to the numerator regardless of trade volume.
- *  Returns null when `sectorSize <= 0` (degenerate sector). */
+ *  Returns null when `sectorSize <= 0` (degenerate sector).
+ *
+ *  `direction` defaults to `BUY_CODE` ('P') so existing call sites + tests
+ *  retain byte-equal behavior. Pass `SELL_CODE` ('S') for the v2 sell-side
+ *  aggregate (S95-1). Direction is enforced at the type level via the
+ *  `HighSignalTransactionCode` union — A/M/F/G/etc. cannot be passed. */
 export function computeSectorClusterRate(
   sectorTrades: ReadonlyArray<InsiderTrade>,
   sectorSize: number,
   asOf: Date,
+  direction: HighSignalTransactionCode = BUY_CODE,
 ): number | null {
   if (sectorSize <= 0) return null;
-  // Group trades by issuerTicker, then compute per-ticker cluster_buy_flag.
+  // Group trades by issuerTicker, then compute per-ticker cluster flag.
   const byTicker = new Map<string, InsiderTrade[]>();
   for (const t of sectorTrades) {
     const list = byTicker.get(t.issuerTicker);
@@ -290,13 +313,13 @@ export function computeSectorClusterRate(
   }
   let clusterTickerCount = 0;
   for (const [, tickerTrades] of byTicker) {
-    const distinctBuyers = countDistinctInsidersByCode(
+    const distinctInsiders = countDistinctInsidersByCode(
       tickerTrades,
-      BUY_CODE,
+      direction,
       asOf,
       CLUSTER_WINDOW_DAYS,
     );
-    if (flagInsiderCluster(distinctBuyers)) clusterTickerCount++;
+    if (flagInsiderCluster(distinctInsiders)) clusterTickerCount++;
   }
   return clusterTickerCount / sectorSize;
 }
@@ -332,8 +355,10 @@ export function computeZ(
   return { z: (value - mean) / stddev, baselineSize };
 }
 
-/** `form4ClusterFlag`: ANY sector with |z| > 2.0. Returns false when all
- *  sector z-scores are null (cold-start). */
+/** `form4ClusterFlag` (buy-side) / `form4SellClusterFlag` (v2 sell-side):
+ *  ANY sector with |z| > 2.0. Returns false when all sector z-scores are
+ *  null (cold-start). Direction-agnostic — operates on a z array; the
+ *  orchestrator calls this twice, once per direction. */
 export function flagForm4Cluster(
   sectorZs: ReadonlyArray<number | null>,
 ): boolean {
@@ -396,8 +421,7 @@ export interface Form4InsiderInputs {
   }>;
 
   /** Sector-aggregate inputs. One entry per GICS sector represented in the
-   *  SPY-500 constituent panel as-of asOf. v1 GICS-deferred posture: this
-   *  array is empty until the gap #7 v2 GICS activation slice ships. */
+   *  SPY-500 constituent panel as-of asOf. */
   sectors: ReadonlyArray<{
     sector: string;
     /** Number of SPY-500 constituents in this sector at asOf. */
@@ -405,9 +429,19 @@ export interface Form4InsiderInputs {
     /** All trailing-90d trades for tickers in this sector. Any transaction
      *  code admitted; the composite filters to {P, S} internally. */
     trades: ReadonlyArray<InsiderTrade>;
-    /** Trailing 2y daily panel of `cluster_rate_s` (one value per business
-     *  day in the trailing 2y window). Used for z-score baseline. */
+    /** Trailing 2y daily panel of per-day cluster-BUY-rate (one value per
+     *  business day in the trailing 2y window). Used for the buy-side
+     *  z-score baseline per F4-6. */
     baseline2y: ReadonlyArray<number>;
+    /** Trailing 2y daily panel of per-day cluster-SELL-rate (one value
+     *  per business day in the trailing 2y window). Used for the v2
+     *  sell-side z-score baseline per F4-12 (S95-1). Independent of
+     *  `baseline2y` — the two metrics have different historical
+     *  distributions (sell-cluster events are typically more frequent
+     *  than buy-cluster events per Lakonishok-Lee 2001 §4). Pass `[]`
+     *  for cold-start / pre-G2 wiring; the composite handles a
+     *  short/empty baseline via the MIN_Z_BASELINE=30 floor. */
+    baseline2ySell: ReadonlyArray<number>;
   }>;
 }
 
@@ -428,6 +462,22 @@ export interface Form4InsiderSnapshot {
   /** Sector name with max |z|. Null when all z's are null. Ties broken
    *  lexicographically (earlier sector name wins; deterministic across runs). */
   maxAggregateZSector: string | null;
+
+  /** v2 sell-side aggregate, mirror of `flaggedSectors` for the
+   *  cluster-SELL-rate track. F4-12 (S95-1). Empty when no sector's
+   *  sell-side |z| > 2.0. */
+  flaggedSellSectors: ReadonlyArray<Form4InsiderFlaggedSector>;
+  /** v2 sell-side `form4ClusterFlag` mirror — fires when ANY sector's
+   *  sell-side |z| > 2.0. Independent of `form4ClusterFlag`; both can fire
+   *  simultaneously (concurrent buy- + sell-side anomalies) or in
+   *  isolation. */
+  form4SellClusterFlag: boolean;
+  /** v2 sell-side `maxAggregateZ` mirror. Null when all sell-side z's are
+   *  null (cold-start OR pre-G2 wiring where `baseline2ySell` is empty). */
+  maxAggregateZSell: number | null;
+  /** v2 sell-side `maxAggregateZSector` mirror. Same lexicographic
+   *  tie-break as the buy-side counterpart. */
+  maxAggregateZSellSector: string | null;
 
   perTickerRows: ReadonlyArray<Form4InsiderPerTickerRow>;
 
@@ -497,13 +547,19 @@ export function evaluateForm4InsiderComposite(
     });
   }
 
-  // Sector-aggregate layer
+  // Sector-aggregate layer — buy-side (F4-6) and sell-side (F4-12 v2)
+  // run in parallel; each direction has its own baseline + z + flagged-set.
   const flaggedSectors: Form4InsiderFlaggedSector[] = [];
+  const flaggedSellSectors: Form4InsiderFlaggedSector[] = [];
   const sectorZs: (number | null)[] = [];
+  const sectorSellZs: (number | null)[] = [];
   let inputsAvailableAggregate = 0;
   let maxAbsZ = -Infinity;
   let maxAggregateZ: number | null = null;
   let maxAggregateZSector: string | null = null;
+  let maxAbsZSell = -Infinity;
+  let maxAggregateZSell: number | null = null;
+  let maxAggregateZSellSector: string | null = null;
   for (const s of inputs.sectors) {
     const dedupedSectorTrades = dedupeTrades(s.trades);
     const psFilteredSectorTrades = filterTradesToHighSignalCodes(dedupedSectorTrades);
@@ -511,9 +567,18 @@ export function evaluateForm4InsiderComposite(
       psFilteredSectorTrades, inputs.asOf, ROLLING_WINDOW_DAYS,
     );
 
-    const rate = computeSectorClusterRate(inWindowSectorTrades, s.sectorSize, inputs.asOf);
-    const { z, baselineSize } = computeZ(rate, s.baseline2y);
+    const rateBuy = computeSectorClusterRate(
+      inWindowSectorTrades, s.sectorSize, inputs.asOf, BUY_CODE,
+    );
+    const rateSell = computeSectorClusterRate(
+      inWindowSectorTrades, s.sectorSize, inputs.asOf, SELL_CODE,
+    );
+    const { z, baselineSize } = computeZ(rateBuy, s.baseline2y);
+    const { z: zSell, baselineSize: baselineSizeSell } = computeZ(
+      rateSell, s.baseline2ySell,
+    );
     sectorZs.push(z);
+    sectorSellZs.push(zSell);
     if (s.sectorSize > 0) inputsAvailableAggregate++;
     if (z != null) {
       const absZ = Math.abs(z);
@@ -528,17 +593,39 @@ export function evaluateForm4InsiderComposite(
         maxAggregateZSector = s.sector;
       }
     }
-    if (z != null && Math.abs(z) > FORM_4_CLUSTER_Z_THRESHOLD && rate != null) {
+    if (zSell != null) {
+      const absZSell = Math.abs(zSell);
+      if (
+        absZSell > maxAbsZSell ||
+        (absZSell === maxAbsZSell
+          && (maxAggregateZSellSector == null || s.sector < maxAggregateZSellSector))
+      ) {
+        maxAbsZSell = absZSell;
+        maxAggregateZSell = zSell;
+        maxAggregateZSellSector = s.sector;
+      }
+    }
+    if (z != null && Math.abs(z) > FORM_4_CLUSTER_Z_THRESHOLD && rateBuy != null) {
       flaggedSectors.push({
         sector: s.sector,
         sectorSize: s.sectorSize,
-        clusterRateT: rate,
+        clusterRateT: rateBuy,
         z,
         baselineSize,
       });
     }
+    if (zSell != null && Math.abs(zSell) > FORM_4_CLUSTER_Z_THRESHOLD && rateSell != null) {
+      flaggedSellSectors.push({
+        sector: s.sector,
+        sectorSize: s.sectorSize,
+        clusterRateT: rateSell,
+        z: zSell,
+        baselineSize: baselineSizeSell,
+      });
+    }
   }
   const form4ClusterFlag = flagForm4Cluster(sectorZs);
+  const form4SellClusterFlag = flagForm4Cluster(sectorSellZs);
 
   return {
     snapshotDate: inputs.asOf,
@@ -549,6 +636,11 @@ export function evaluateForm4InsiderComposite(
     form4ClusterFlag,
     maxAggregateZ,
     maxAggregateZSector,
+
+    flaggedSellSectors,
+    form4SellClusterFlag,
+    maxAggregateZSell,
+    maxAggregateZSellSector,
 
     perTickerRows,
 
@@ -578,10 +670,23 @@ export function evaluateForm4InsiderComposite(
  *     watch-out).** A single insider filing 3 separate buys counts as 1.
  *     Person CIK ≠ Issuer CIK ≠ filing accession. The natural-person-CIK
  *     resolution at ingest is load-bearing for this semantic.
- *   - **Aggregate counts cluster-buy events ONLY (F4-6).** Sell-cluster
- *     aggregation deferred to v2. The form4ClusterFlag fires on
- *     concentrated insider BUYING activity (bullish surprise), not on
- *     selling.
+ *   - **Two-track aggregate (F4-6 buy + F4-12 v2 sell).** `form4ClusterFlag`
+ *     fires on concentrated insider BUYING activity (bullish surprise);
+ *     `form4SellClusterFlag` (S95-1) fires on concentrated SELLING activity.
+ *     The two flags are INDEPENDENT — both can fire simultaneously, neither
+ *     can fire, or either can fire alone. Downstream consumers (brief
+ *     render, position sizing) should weight the sell signal asymmetrically
+ *     per Lakonishok-Lee 2001 §4 (sell signal is ~30-50% diluted by
+ *     tax/diversification/charity motives — informationally weaker than
+ *     buys but non-zero). The composite intentionally does NOT collapse
+ *     the two tracks into a single "any anomalous activity" flag because
+ *     the information content differs.
+ *   - **Sell-side baseline is INDEPENDENT of buy-side baseline.**
+ *     `baseline2y` and `baseline2ySell` track different historical
+ *     distributions; a sector's typical sell-cluster-rate is typically
+ *     higher than its typical buy-cluster-rate (sells are more frequent
+ *     in steady-state). Mixing the two baselines would distort the z-test
+ *     in either direction.
  *   - **Off-set codes silently filtered at composite layer.** A regression
  *     that read the raw insider_trades stream WITHOUT calling
  *     `filterTradesToHighSignalCodes` first would dilute counts with

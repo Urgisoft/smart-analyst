@@ -601,6 +601,17 @@ describe('populateSectorsForCycle (POPSEC-F4-1..4)', () => {
     for (const r of sectors[0].baseline2y) {
       assert.ok(r === 0 || r === 1, `rate must be 0 or 1 with sectorSize=1, got ${r}`);
     }
+    // F4-12 v2 (S95-1): baseline2ySell parallels baseline2y — same panel-day
+    // cardinality, same {0, 1} bound at sectorSize=1. All three fixture
+    // trades are buys, so every per-day sell-rate is 0.
+    assert.equal(
+      sectors[0].baseline2ySell.length,
+      sectors[0].baseline2y.length,
+      'baseline2ySell and baseline2y share the same panel-day cardinality',
+    );
+    for (const r of sectors[0].baseline2ySell) {
+      assert.equal(r, 0, 'sell-rate must be 0 when fixture has zero S trades');
+    }
   });
 
   it('POPSEC-F4-2: strict-PIT attribution — sector swap mid-window splits trades by trade-day sector', async () => {
@@ -706,6 +717,10 @@ function fixtureSnapshot(overrides: Partial<Form4InsiderSnapshot> = {}): Form4In
     form4ClusterFlag: true,
     maxAggregateZ: null,
     maxAggregateZSector: null,
+    flaggedSellSectors: [],
+    form4SellClusterFlag: false,
+    maxAggregateZSell: null,
+    maxAggregateZSellSector: null,
     perTickerRows: [{
       ticker: 'AAPL', cik: '0000320193', sector: null,
       insiderBuyCount90d: 2,

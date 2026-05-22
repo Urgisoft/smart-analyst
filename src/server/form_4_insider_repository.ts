@@ -65,6 +65,8 @@
 import type { ClickHouseClient } from '@clickhouse/client';
 import { getClickHouse } from './clickhouse.js';
 import {
+  BUY_CODE,
+  SELL_CODE,
   computeSectorClusterRate,
   evaluateForm4InsiderComposite,
   FORM_4_INSIDER_COMPOSITE_VERSION,
@@ -564,6 +566,7 @@ export class Form4InsiderRepository {
       sectorSize: number;
       trades: InsiderTrade[];
       baseline2y: number[];
+      baseline2ySell: number[];
     }> = [];
 
     for (const sector of sortedSectors) {
@@ -571,6 +574,7 @@ export class Form4InsiderRepository {
       const sectorTrades = sectorTradesAll.get(sector) ?? [];
 
       const baseline2y: number[] = [];
+      const baseline2ySell: number[] = [];
       if (panelDays) {
         const sortedDays = [...panelDays.keys()].sort();
         for (const day of sortedDays) {
@@ -580,8 +584,17 @@ export class Form4InsiderRepository {
           // computeSectorClusterRate internally applies CLUSTER_WINDOW_DAYS=30
           // per ticker via countDistinctInsidersByCode; trades outside the
           // 30d cluster window don't affect the distinct-insider count.
-          const rate = computeSectorClusterRate(sectorTrades, memberCount, dayAsOf);
-          if (rate != null) baseline2y.push(rate);
+          // Buy-side (F4-6) and sell-side (F4-12 v2 / S95-1) baselines are
+          // computed from the SAME trade panel — the direction param selects
+          // BUY_CODE vs SELL_CODE at the per-ticker distinct-insider count.
+          const rateBuy = computeSectorClusterRate(
+            sectorTrades, memberCount, dayAsOf, BUY_CODE,
+          );
+          if (rateBuy != null) baseline2y.push(rateBuy);
+          const rateSell = computeSectorClusterRate(
+            sectorTrades, memberCount, dayAsOf, SELL_CODE,
+          );
+          if (rateSell != null) baseline2ySell.push(rateSell);
         }
       }
 
@@ -596,6 +609,7 @@ export class Form4InsiderRepository {
         sectorSize: sectorSizeToday.get(sector) ?? 0,
         trades: todayTrades,
         baseline2y,
+        baseline2ySell,
       });
     }
 
@@ -703,6 +717,18 @@ export class Form4InsiderRepository {
       // Step 4 renderer treats null as the SPEC §1.4 cold-start branch.
       maxAggregateZ: r.max_aggregate_z != null ? Number(r.max_aggregate_z) : null,
       maxAggregateZSector: r.max_aggregate_z_sector ?? null,
+      // F4-12 v2 sell-side (S95-1): the snapshot DDL has NO sell-side
+      // columns in this slice — persistence wiring is the follow-up. The
+      // brief's stale-read path therefore reconstructs the sell-side
+      // fields at cold-start defaults (false / [] / null / null) for ALL
+      // persisted rows. The LIVE daemon-cycle path (runDaemon…Evaluation)
+      // returns the composite's in-memory snapshot directly, so today's
+      // sell-side signal is visible to in-process consumers without the
+      // follow-up DDL migration.
+      flaggedSellSectors: [],
+      form4SellClusterFlag: false,
+      maxAggregateZSell: null,
+      maxAggregateZSellSector: null,
       perTickerRows,
       inputsAvailableAggregate: Number(r.inputs_available_aggregate),
       inputsAvailablePerTicker: Number(r.inputs_available_per_ticker),
@@ -969,4 +995,15 @@ export async function runDaemonForm4InsiderEvaluation(opts: {
  *     composite re-filters) but would inflate read amplification by ~5-10x
  *     for typical insider-filing mix (grants + exercises dominate by raw
  *     row count).
+ *   - F4-12 v2 sell-cluster aggregation (S95-1): the composite contract
+ *     emits `form4SellClusterFlag`, `flaggedSellSectors`,
+ *     `maxAggregateZSell`, `maxAggregateZSellSector` end-to-end from the
+ *     live daemon-cycle path. The snapshot DDL is NOT extended in this
+ *     slice — writeSnapshot persists buy-side only; loadLatestSnapshot
+ *     reconstructs sell-side fields at cold-start defaults. In-process
+ *     consumers (anomaly-push, downstream composer in the same cycle)
+ *     see real sell-side values; cross-cycle stale-read consumers do not
+ *     until the follow-up persistence slice ships. The daemon log line
+ *     also continues to surface only the buy-side `cluster_flag` token;
+ *     the sell-side flag is observable via the in-memory snapshot only.
  */

@@ -725,6 +725,7 @@ describe('flagForm4Cluster (T-F4-14)', () => {
         sectorSize: 30,
         trades: sectorTrades,
         baseline2y: baseline,
+        baseline2ySell: [],
       }],
     });
     const snap = evaluateForm4InsiderComposite(inputs);
@@ -755,6 +756,7 @@ describe('flagForm4Cluster (T-F4-14)', () => {
         sectorSize: 30,
         trades: sectorTrades,
         baseline2y: [],
+        baseline2ySell: [],
       }],
     });
     const snap = evaluateForm4InsiderComposite(inputs);
@@ -843,9 +845,9 @@ describe('evaluateForm4InsiderComposite (orchestrator)', () => {
   it('inputsAvailableAggregate counts sectors with sectorSize > 0', () => {
     const inputs = makeInputs({
       sectors: [
-        { sector: 'A', sectorSize: 30, trades: [], baseline2y: [] },
-        { sector: 'B', sectorSize: 0, trades: [], baseline2y: [] },
-        { sector: 'C', sectorSize: 50, trades: [], baseline2y: [] },
+        { sector: 'A', sectorSize: 30, trades: [], baseline2y: [], baseline2ySell: [] },
+        { sector: 'B', sectorSize: 0, trades: [], baseline2y: [], baseline2ySell: [] },
+        { sector: 'C', sectorSize: 50, trades: [], baseline2y: [], baseline2ySell: [] },
       ],
     });
     const snap = evaluateForm4InsiderComposite(inputs);
@@ -1024,9 +1026,9 @@ describe('aggregate-layer maxAggregateZ + maxAggregateZSector (MAXZ-F4-1..4)', (
     const baseline = makeBaseline();
     const inputs = makeInputs({
       sectors: [
-        { sector: 'Energy', sectorSize: 30, trades: makeSectorClusterTrades(8), baseline2y: baseline },
-        { sector: 'Health Care', sectorSize: 30, trades: makeSectorClusterTrades(2), baseline2y: baseline },
-        { sector: 'Materials', sectorSize: 30, trades: makeSectorClusterTrades(4), baseline2y: baseline },
+        { sector: 'Energy', sectorSize: 30, trades: makeSectorClusterTrades(8), baseline2y: baseline, baseline2ySell: [] },
+        { sector: 'Health Care', sectorSize: 30, trades: makeSectorClusterTrades(2), baseline2y: baseline, baseline2ySell: [] },
+        { sector: 'Materials', sectorSize: 30, trades: makeSectorClusterTrades(4), baseline2y: baseline, baseline2ySell: [] },
       ],
     });
     const snap = evaluateForm4InsiderComposite(inputs);
@@ -1050,9 +1052,9 @@ describe('aggregate-layer maxAggregateZ + maxAggregateZSector (MAXZ-F4-1..4)', (
     const baseline = makeBaseline();
     const inputs = makeInputs({
       sectors: [
-        { sector: 'Energy', sectorSize: 30, trades: makeSectorClusterTrades(8), baseline2y: baseline },
-        { sector: 'Health Care', sectorSize: 30, trades: makeSectorClusterTrades(2), baseline2y: baseline },
-        { sector: 'Materials', sectorSize: 30, trades: makeSectorClusterTrades(4), baseline2y: baseline },
+        { sector: 'Energy', sectorSize: 30, trades: makeSectorClusterTrades(8), baseline2y: baseline, baseline2ySell: [] },
+        { sector: 'Health Care', sectorSize: 30, trades: makeSectorClusterTrades(2), baseline2y: baseline, baseline2ySell: [] },
+        { sector: 'Materials', sectorSize: 30, trades: makeSectorClusterTrades(4), baseline2y: baseline, baseline2ySell: [] },
       ],
     });
     const snap = evaluateForm4InsiderComposite(inputs);
@@ -1075,8 +1077,8 @@ describe('aggregate-layer maxAggregateZ + maxAggregateZSector (MAXZ-F4-1..4)', (
   it('MAXZ-F4-3: both fields null when all sector z\'s are null (cold-start)', () => {
     const inputs = makeInputs({
       sectors: [
-        { sector: 'Energy', sectorSize: 30, trades: makeSectorClusterTrades(8), baseline2y: [] },
-        { sector: 'Materials', sectorSize: 30, trades: makeSectorClusterTrades(4), baseline2y: [] },
+        { sector: 'Energy', sectorSize: 30, trades: makeSectorClusterTrades(8), baseline2y: [], baseline2ySell: [] },
+        { sector: 'Materials', sectorSize: 30, trades: makeSectorClusterTrades(4), baseline2y: [], baseline2ySell: [] },
       ],
     });
     const snap = evaluateForm4InsiderComposite(inputs);
@@ -1089,14 +1091,14 @@ describe('aggregate-layer maxAggregateZ + maxAggregateZSector (MAXZ-F4-1..4)', (
     const trades = makeSectorClusterTrades(5);
     const inputsA = makeInputs({
       sectors: [
-        { sector: 'Materials', sectorSize: 40, trades, baseline2y: baseline },
-        { sector: 'Energy', sectorSize: 40, trades, baseline2y: baseline },
+        { sector: 'Materials', sectorSize: 40, trades, baseline2y: baseline, baseline2ySell: [] },
+        { sector: 'Energy', sectorSize: 40, trades, baseline2y: baseline, baseline2ySell: [] },
       ],
     });
     const inputsB = makeInputs({
       sectors: [
-        { sector: 'Energy', sectorSize: 40, trades, baseline2y: baseline },
-        { sector: 'Materials', sectorSize: 40, trades, baseline2y: baseline },
+        { sector: 'Energy', sectorSize: 40, trades, baseline2y: baseline, baseline2ySell: [] },
+        { sector: 'Materials', sectorSize: 40, trades, baseline2y: baseline, baseline2ySell: [] },
       ],
     });
     const snapA = evaluateForm4InsiderComposite(inputsA);
@@ -1104,6 +1106,194 @@ describe('aggregate-layer maxAggregateZ + maxAggregateZSector (MAXZ-F4-1..4)', (
     assert.equal(snapA.maxAggregateZSector, 'Energy');
     assert.equal(snapB.maxAggregateZSector, 'Energy');
     assert.equal(snapA.maxAggregateZ, snapB.maxAggregateZ);
+  });
+});
+
+// ── F4-12 v2 (S95-1): sell-cluster sector aggregation ───────────────────────
+
+describe('F4-12 v2 sell-cluster sector aggregation (G2-SELL-*)', () => {
+  function makeBaseline(): number[] {
+    const b: number[] = [];
+    for (let i = 0; i < 60; i++) b.push(0.02 + ((i % 4) - 1.5) * 0.005);
+    return b;
+  }
+
+  function makeSectorClusterTrades(
+    nClusterTickers: number,
+    code: 'P' | 'S' = 'P',
+  ): InsiderTrade[] {
+    const trades: InsiderTrade[] = [];
+    for (let ti = 0; ti < nClusterTickers; ti++) {
+      const ticker = `T${ti}`;
+      for (let pi = 0; pi < 3; pi++) {
+        trades.push(makeTrade({
+          issuerTicker: ticker, accession: `${ticker}-${pi}`,
+          transactionCode: code,
+          personCik: `0001${ti}${pi}00001`,
+          acceptedAt: new Date(ASOF.getTime() - (5 + pi * 2) * DAY_MS),
+        }));
+      }
+    }
+    return trades;
+  }
+
+  // G2-SELL-F4-1 — computeSectorClusterRate with direction='S' counts sell-clusters.
+  it('G2-SELL-F4-1: computeSectorClusterRate(direction=S) returns sell-cluster-rate', () => {
+    // 2 tickers in a sector of 20 with ≥ 3 distinct sellers each → sell-rate = 0.1
+    const sectorTrades: InsiderTrade[] = [];
+    for (let ti = 0; ti < 2; ti++) {
+      const ticker = `T${ti}`;
+      for (let pi = 0; pi < 3; pi++) {
+        sectorTrades.push(makeTrade({
+          issuerTicker: ticker, accession: `${ticker}-${pi}`,
+          transactionCode: 'S',
+          personCik: `0002${ti}${pi}00001`,
+        }));
+      }
+    }
+    const rate = computeSectorClusterRate(sectorTrades, 20, ASOF, SELL_CODE);
+    assertClose(rate, 0.1);
+  });
+
+  // G2-SELL-F4-2 — default direction preserves byte-equal buy-side semantics.
+  it('G2-SELL-F4-2: default direction is byte-equal to direction=P (backward-compat)', () => {
+    const sectorTrades: InsiderTrade[] = [];
+    for (let ti = 0; ti < 3; ti++) {
+      const ticker = `T${ti}`;
+      for (let pi = 0; pi < 3; pi++) {
+        sectorTrades.push(makeTrade({
+          issuerTicker: ticker, accession: `${ticker}-${pi}`,
+          transactionCode: 'P',
+          personCik: `0001${ti}${pi}00001`,
+        }));
+      }
+    }
+    const rateDefault = computeSectorClusterRate(sectorTrades, 30, ASOF);
+    const rateExplicit = computeSectorClusterRate(sectorTrades, 30, ASOF, BUY_CODE);
+    assert.equal(rateDefault, rateExplicit);
+    assertClose(rateDefault, 3 / 30);
+    // Direction matters: same panel, direction='S' produces 0 sell-clusters.
+    const rateSell = computeSectorClusterRate(sectorTrades, 30, ASOF, SELL_CODE);
+    assertClose(rateSell, 0);
+  });
+
+  // G2-SELL-F4-3 — orchestrator emits form4SellClusterFlag=true on sell-side anomaly.
+  it('G2-SELL-F4-3: form4SellClusterFlag fires on sell-side |z| > 2.0', () => {
+    const baseline = makeBaseline();
+    // 6 sell-cluster tickers in sector of 30 → sell-rate = 0.20, well above
+    // baseline mean ~0.02; |z| > 2 expected with this baseline shape.
+    const inputs = makeInputs({
+      sectors: [{
+        sector: 'Information Technology',
+        sectorSize: 30,
+        trades: makeSectorClusterTrades(6, 'S'),
+        baseline2y: [],
+        baseline2ySell: baseline,
+      }],
+    });
+    const snap = evaluateForm4InsiderComposite(inputs);
+    assert.equal(snap.form4SellClusterFlag, true);
+    assert.equal(snap.flaggedSellSectors.length, 1);
+    const flagged = snap.flaggedSellSectors[0];
+    assert.equal(flagged.sector, 'Information Technology');
+    assert.equal(flagged.sectorSize, 30);
+    assertClose(flagged.clusterRateT, 6 / 30);
+    assert.ok(Math.abs(flagged.z) > FORM_4_CLUSTER_Z_THRESHOLD);
+    // Buy-side independent: cold-start baseline2y → buy-z null → buy-flag false.
+    assert.equal(snap.form4ClusterFlag, false);
+    assert.equal(snap.flaggedSectors.length, 0);
+  });
+
+  // G2-SELL-F4-4 — buy + sell flags are independent; both can fire concurrently.
+  // The independence invariant is about the FLAGS, not about whether a sector
+  // appears in exactly one direction's flagged set (a zero-rate today against
+  // a non-zero baseline mean produces a negative-z that the symmetric |z| > 2
+  // test legitimately flags — same posture as F4-6 and AFML §1.3).
+  it('G2-SELL-F4-4: buy + sell flags are independent (both can fire concurrently)', () => {
+    const baseline = makeBaseline();
+    const inputs = makeInputs({
+      sectors: [
+        // Sector A: positive buy-side anomaly (6 buy-cluster tickers).
+        {
+          sector: 'Energy',
+          sectorSize: 30,
+          trades: makeSectorClusterTrades(6, 'P'),
+          baseline2y: baseline,
+          baseline2ySell: baseline,
+        },
+        // Sector B: positive sell-side anomaly (6 sell-cluster tickers).
+        {
+          sector: 'Financials',
+          sectorSize: 30,
+          trades: makeSectorClusterTrades(6, 'S'),
+          baseline2y: baseline,
+          baseline2ySell: baseline,
+        },
+      ],
+    });
+    const snap = evaluateForm4InsiderComposite(inputs);
+    assert.equal(snap.form4ClusterFlag, true, 'buy-side flag fires');
+    assert.equal(snap.form4SellClusterFlag, true, 'sell-side flag fires');
+    const flaggedBuyByName = new Set(snap.flaggedSectors.map(f => f.sector));
+    const flaggedSellByName = new Set(snap.flaggedSellSectors.map(f => f.sector));
+    // Each direction's primary-anomaly sector appears in its own bucket.
+    assert.ok(flaggedBuyByName.has('Energy'),
+      'Energy (positive buy-cluster anomaly) flagged on buy-side');
+    assert.ok(flaggedSellByName.has('Financials'),
+      'Financials (positive sell-cluster anomaly) flagged on sell-side');
+    // Look at the max-z sectors: max |z| on each direction must be the sector
+    // whose actual trades match that direction.
+    assert.equal(snap.maxAggregateZSector, 'Energy',
+      'max |z| on buy-side is Energy (positive z dominates)');
+    assert.equal(snap.maxAggregateZSellSector, 'Financials',
+      'max |z| on sell-side is Financials (positive z dominates)');
+  });
+
+  // G2-SELL-F4-5 — maxAggregateZSell + sector are populated symmetrically;
+  // tie-break is the same lexicographic rule as the buy-side counterpart.
+  it('G2-SELL-F4-5: maxAggregateZSell + maxAggregateZSellSector populated symmetrically', () => {
+    const baseline = makeBaseline();
+    // Two sectors with IDENTICAL sell trade panels — z's tie; lexicographic
+    // tie-break picks the earlier name ("Energy" < "Materials").
+    const trades = makeSectorClusterTrades(5, 'S');
+    const inputs = makeInputs({
+      sectors: [
+        { sector: 'Materials', sectorSize: 40, trades, baseline2y: [], baseline2ySell: baseline },
+        { sector: 'Energy', sectorSize: 40, trades, baseline2y: [], baseline2ySell: baseline },
+      ],
+    });
+    const snap = evaluateForm4InsiderComposite(inputs);
+    assert.equal(snap.maxAggregateZSellSector, 'Energy');
+    assert.ok(snap.maxAggregateZSell != null && Math.abs(snap.maxAggregateZSell) > 0);
+    // Buy-side stays null (empty buy baseline).
+    assert.equal(snap.maxAggregateZ, null);
+    assert.equal(snap.maxAggregateZSector, null);
+  });
+
+  // G2-SELL-F4-6 — cold-start (empty sell baseline) → form4SellClusterFlag=false,
+  // flaggedSellSectors=[], maxAggregateZSell=null, maxAggregateZSellSector=null.
+  it('G2-SELL-F4-6: cold-start (empty baseline2ySell) → sell-side fields cold-start', () => {
+    const snapEmpty = evaluateForm4InsiderComposite(makeInputs());
+    assert.equal(snapEmpty.form4SellClusterFlag, false);
+    assert.deepEqual([...snapEmpty.flaggedSellSectors], []);
+    assert.equal(snapEmpty.maxAggregateZSell, null);
+    assert.equal(snapEmpty.maxAggregateZSellSector, null);
+
+    // Even with a sell-cluster fixture, empty baseline2ySell forces cold-start.
+    const inputs = makeInputs({
+      sectors: [{
+        sector: 'Information Technology',
+        sectorSize: 30,
+        trades: makeSectorClusterTrades(6, 'S'),
+        baseline2y: [],
+        baseline2ySell: [],
+      }],
+    });
+    const snap = evaluateForm4InsiderComposite(inputs);
+    assert.equal(snap.form4SellClusterFlag, false);
+    assert.deepEqual([...snap.flaggedSellSectors], []);
+    assert.equal(snap.maxAggregateZSell, null);
+    assert.equal(snap.maxAggregateZSellSector, null);
   });
 });
 

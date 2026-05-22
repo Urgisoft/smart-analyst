@@ -1340,6 +1340,10 @@ describe('composeMorningBrief — Form 4 insider section wiring', () => {
         form4ClusterFlag: false,
         maxAggregateZ: null,
         maxAggregateZSector: null,
+        flaggedSellSectors: [],
+        form4SellClusterFlag: false,
+        maxAggregateZSell: null,
+        maxAggregateZSellSector: null,
         perTickerRows: [
           {
             ticker: 'QRST', cik: '0000222222', sector: null,
@@ -1420,6 +1424,10 @@ describe('buildForm4InsiderSection', () => {
       form4ClusterFlag: true,
       maxAggregateZ: null,
       maxAggregateZSector: null,
+      flaggedSellSectors: [],
+      form4SellClusterFlag: false,
+      maxAggregateZSell: null,
+      maxAggregateZSellSector: null,
       perTickerRows: [
         { ticker: 'QRST', cik: '0000222222', sector: null,
           insiderBuyCount90d: 5, insiderSellCount90d: 0,
@@ -1458,6 +1466,10 @@ describe('buildForm4InsiderSection', () => {
       form4ClusterFlag: false,
       maxAggregateZ: null,
       maxAggregateZSector: null,
+      flaggedSellSectors: [],
+      form4SellClusterFlag: false,
+      maxAggregateZSell: null,
+      maxAggregateZSellSector: null,
       perTickerRows: [
         { ticker: 'A', cik: '0000000001', sector: null,
           insiderBuyCount90d: 0, insiderSellCount90d: 0,
@@ -1497,6 +1509,10 @@ describe('buildForm4InsiderSection', () => {
       form4ClusterFlag: false,
       maxAggregateZ: 0.91,
       maxAggregateZSector: 'Consumer Staples',
+      flaggedSellSectors: [],
+      form4SellClusterFlag: false,
+      maxAggregateZSell: null,
+      maxAggregateZSellSector: null,
       perTickerRows: [],
       inputsAvailableAggregate: 8,
       inputsAvailablePerTicker: 0,
