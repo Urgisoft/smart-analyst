@@ -153,6 +153,11 @@ import {
   insiderTradesTableExists,
   runDaemonForm4InsiderEvaluation,
 } from '../src/server/form_4_insider_repository.js';
+import {
+  Schedule13DGRepository,
+  schedule13dgSnapshotsTableExists,
+  runDaemonSchedule13DGEvaluation,
+} from '../src/server/schedule_13d_g_repository.js';
 import { runFredFetch } from '../src/server/daemon_fred_fetch.js';
 import { CLASSIFIER_VERSION_V3 } from '../src/server/macro_regime_v3.js';
 import {
@@ -1441,6 +1446,47 @@ async function main() {
       anomalies.push({
         severity: 'info',
         message: `form-4 evaluation failed: ${(e as Error).message}`,
+      });
+    }
+  }
+
+  // 1m. Schedule 13D / 13G activist-stake evaluation (informational Layer-0 input).
+  //     SPEC: docs/specs/schedule-13d-13g-activist-stake.md §3 (component
+  //     diagram) + §7 (daemon hook position) — runs AFTER Form 4 (step 1l);
+  //     consumes the SEC EDGAR Schedule 13D/G filing rows (from
+  //     `scripts/sec_edgar_13d_g_ingest.py`) + the SPY-500 PIT constituent
+  //     panel + the equity-midcap watch universe + the GICS sector map.
+  //     Output is informational only in v1 per SPEC §10 (log first, validate
+  //     after Phase B independence test). Same non-fatal posture as all
+  //     prior Layer-0 composites.
+  //
+  //     Cold-start branch (SPEC §7): unlike F4 / EK, the orchestrator handles
+  //     the source-table-absent case internally — it returns a cold-start
+  //     snapshot (empty perTicker, empty sectors, cluster_flag = false)
+  //     rather than the daemon-level skip the F4 / EK paths take. The
+  //     snapshots-table gate remains daemon-side (the orchestrator's
+  //     writeSnapshot needs the table to exist).
+  if (NO_MACRO || DRY_RUN) {
+    console.log(`[schedule-13d-g] skipped (${NO_MACRO ? '--no-macro' : '--dry-run'})`);
+  } else if (!(await schedule13dgSnapshotsTableExists(ch))) {
+    console.log(
+      '[schedule-13d-g] snapshots table absent (`quantlab.schedule_13d_g_snapshots`) — ' +
+      'skipped. Run `npm run migrate:create-schedule-13d-g-snapshots:apply` to enable.',
+    );
+  } else {
+    try {
+      const xd13Repo = new Schedule13DGRepository({ ch });
+      const xd13Result = await runDaemonSchedule13DGEvaluation({
+        repo: xd13Repo,
+        asOf: new Date(t0),
+      });
+      console.log(xd13Result.summaryLine);
+      console.log(xd13Result.aggregateLogLine);
+    } catch (e) {
+      console.warn(`[schedule-13d-g] evaluation failed (non-fatal): ${(e as Error).message}`);
+      anomalies.push({
+        severity: 'info',
+        message: `schedule-13d-g evaluation failed: ${(e as Error).message}`,
       });
     }
   }
