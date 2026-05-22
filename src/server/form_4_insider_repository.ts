@@ -179,6 +179,16 @@ interface RawSnapshotRow {
   // `string | null` under JSONEachRow.
   max_aggregate_z: number | string | null;
   max_aggregate_z_sector: string | null;
+  // Gap #7 v2 sell-cluster F4 G3 persistence wiring (s95 #2). The four columns
+  // are added by `migrate_add_sell_cluster_to_form_4_insider_snapshots.ts`.
+  // Pre-migration rows resolve at cold-start defaults via DDL DEFAULTs +
+  // Nullable semantics: form_4_sell_cluster_flag=0, flagged_sell_sectors_json=''
+  // (parses as malformed → []), max_aggregate_z_sell=NULL,
+  // max_aggregate_z_sell_sector=NULL.
+  form_4_sell_cluster_flag: number | string;
+  flagged_sell_sectors_json: string;
+  max_aggregate_z_sell: number | string | null;
+  max_aggregate_z_sell_sector: string | null;
 }
 
 export class Form4InsiderRepository {
@@ -631,6 +641,7 @@ export class Form4InsiderRepository {
       : null;
     const perTickerJson = JSON.stringify(snapshot.perTickerRows);
     const flaggedSectorsJson = JSON.stringify(snapshot.flaggedSectors);
+    const flaggedSellSectorsJson = JSON.stringify(snapshot.flaggedSellSectors);
     await this.ch.insert({
       table: this.snapshotsTable,
       values: [{
@@ -649,6 +660,15 @@ export class Form4InsiderRepository {
         // SPEC docs/specs/gics-sector-baseline-computation.md §2.
         max_aggregate_z: snapshot.maxAggregateZ,
         max_aggregate_z_sector: snapshot.maxAggregateZSector,
+        // Gap #7 v2 sell-cluster F4 G3 persistence wiring (s95 #2). Columns
+        // added by migrate_add_sell_cluster_to_form_4_insider_snapshots.ts.
+        // Pre-migration tables silently drop these on insert (CH ignores
+        // unknown column names under JSONEachRow); apply the migration to
+        // surface persistence end-to-end across daemon cycles.
+        form_4_sell_cluster_flag: snapshot.form4SellClusterFlag ? 1 : 0,
+        flagged_sell_sectors_json: flaggedSellSectorsJson,
+        max_aggregate_z_sell: snapshot.maxAggregateZSell,
+        max_aggregate_z_sell_sector: snapshot.maxAggregateZSellSector,
       }],
       format: 'JSONEachRow',
     });
@@ -671,7 +691,11 @@ export class Form4InsiderRepository {
           inputs_available_per_ticker,
           composite_version,
           max_aggregate_z,
-          max_aggregate_z_sector
+          max_aggregate_z_sector,
+          form_4_sell_cluster_flag,
+          flagged_sell_sectors_json,
+          max_aggregate_z_sell,
+          max_aggregate_z_sell_sector
         FROM ${this.snapshotsTable} FINAL
         ORDER BY snapshot_date DESC
         LIMIT 1
@@ -704,6 +728,21 @@ export class Form4InsiderRepository {
     } catch {
       flaggedSectors = [];
     }
+    // Gap #7 v2 sell-cluster F4 G3 persistence wiring (s95 #2). Pre-migration
+    // rows surface as either missing keys on the row (then `?? '...'`
+    // defaults below kick in) OR as the DDL DEFAULT values (UInt8=0,
+    // String='', Nullable=NULL). The empty-string DEFAULT for
+    // flagged_sell_sectors_json parses as malformed → []; the same
+    // try/catch posture as the buy-side counterpart handles it.
+    let flaggedSellSectors: ReadonlyArray<Form4InsiderFlaggedSector> = [];
+    try {
+      const parsed = JSON.parse(r.flagged_sell_sectors_json ?? '');
+      if (Array.isArray(parsed)) {
+        flaggedSellSectors = parsed as Form4InsiderFlaggedSector[];
+      }
+    } catch {
+      flaggedSellSectors = [];
+    }
     return {
       snapshotDate: new Date(Number(r.computed_at_ms)),
       lastEdgarQueryAt: lastQueryAt,
@@ -717,18 +756,17 @@ export class Form4InsiderRepository {
       // Step 4 renderer treats null as the SPEC §1.4 cold-start branch.
       maxAggregateZ: r.max_aggregate_z != null ? Number(r.max_aggregate_z) : null,
       maxAggregateZSector: r.max_aggregate_z_sector ?? null,
-      // F4-12 v2 sell-side (S95-1): the snapshot DDL has NO sell-side
-      // columns in this slice — persistence wiring is the follow-up. The
-      // brief's stale-read path therefore reconstructs the sell-side
-      // fields at cold-start defaults (false / [] / null / null) for ALL
-      // persisted rows. The LIVE daemon-cycle path (runDaemon…Evaluation)
-      // returns the composite's in-memory snapshot directly, so today's
-      // sell-side signal is visible to in-process consumers without the
-      // follow-up DDL migration.
-      flaggedSellSectors: [],
-      form4SellClusterFlag: false,
-      maxAggregateZSell: null,
-      maxAggregateZSellSector: null,
+      // Gap #7 v2 sell-cluster F4 G3 persistence wiring (s95 #2). DDL
+      // migration `migrate_add_sell_cluster_to_form_4_insider_snapshots.ts`
+      // adds the four sell-side columns; pre-migration rows resolve at
+      // cold-start defaults via the DDL DEFAULTs + the Nullable semantic
+      // (form_4_sell_cluster_flag=0 → false, flagged_sell_sectors_json=''
+      // → [] via the malformed-JSON degrade above, max_aggregate_z_sell
+      // = NULL, max_aggregate_z_sell_sector = NULL).
+      flaggedSellSectors,
+      form4SellClusterFlag: Number(r.form_4_sell_cluster_flag ?? 0) === 1,
+      maxAggregateZSell: r.max_aggregate_z_sell != null ? Number(r.max_aggregate_z_sell) : null,
+      maxAggregateZSellSector: r.max_aggregate_z_sell_sector ?? null,
       perTickerRows,
       inputsAvailableAggregate: Number(r.inputs_available_aggregate),
       inputsAvailablePerTicker: Number(r.inputs_available_per_ticker),
@@ -906,16 +944,31 @@ export async function runDaemonForm4InsiderEvaluation(opts: {
 
   // gics-sector-baseline-computation.md §1.3 (Step 5) per-cycle aggregate log.
   // See executive_departure_repository.ts for the tokenization rationale.
+  // Gap #7 v2 sell-cluster F4 G3 (s95 #2): the F4 line extends the shared
+  // shape with two extra tokens — `sell_cluster_flag=` + `max_z_sell=` —
+  // mirroring the buy-side `cluster_flag=` + `max_z=` exactly. The prefix
+  // is unchanged so the generic regex pin `(xd|ek|f4)-aggregate\] …
+  // max_z=… cluster_flag=(true|false)` still matches as a prefix; the
+  // F4-specific test G2-SELL-G3-F4-4 anchors the sell-side tokens at the
+  // tail. EK/XD log lines remain buy-side-only (the canon citation for
+  // symmetric sell tracking on EK/XD has NOT been argued in v2 yet).
   const aggMaxSector = snapshot.maxAggregateZSector;
   const aggMaxZ = snapshot.maxAggregateZ;
   const aggMaxToken = aggMaxSector != null && aggMaxZ != null
     ? `${aggMaxSector.replace(/\s+/g, '_')}:${aggMaxZ.toFixed(2)}`
     : 'n/a:n/a';
+  const aggMaxSellSector = snapshot.maxAggregateZSellSector;
+  const aggMaxZSell = snapshot.maxAggregateZSell;
+  const aggMaxSellToken = aggMaxSellSector != null && aggMaxZSell != null
+    ? `${aggMaxSellSector.replace(/\s+/g, '_')}:${aggMaxZSell.toFixed(2)}`
+    : 'n/a:n/a';
   const aggregateLogLine =
     `[f4-aggregate] sectors_with_z=${snapshot.inputsAvailableAggregate}/11 ` +
     `floor_cleared=${snapshot.inputsAvailableAggregate}/11 ` +
     `max_z=${aggMaxToken} ` +
-    `cluster_flag=${snapshot.form4ClusterFlag ? 'true' : 'false'}`;
+    `cluster_flag=${snapshot.form4ClusterFlag ? 'true' : 'false'} ` +
+    `sell_cluster_flag=${snapshot.form4SellClusterFlag ? 'true' : 'false'} ` +
+    `max_z_sell=${aggMaxSellToken}`;
 
   return { snapshot, inputs, summaryLine, aggregateLogLine };
 }
@@ -995,15 +1048,20 @@ export async function runDaemonForm4InsiderEvaluation(opts: {
  *     composite re-filters) but would inflate read amplification by ~5-10x
  *     for typical insider-filing mix (grants + exercises dominate by raw
  *     row count).
- *   - F4-12 v2 sell-cluster aggregation (S95-1): the composite contract
- *     emits `form4SellClusterFlag`, `flaggedSellSectors`,
- *     `maxAggregateZSell`, `maxAggregateZSellSector` end-to-end from the
- *     live daemon-cycle path. The snapshot DDL is NOT extended in this
- *     slice — writeSnapshot persists buy-side only; loadLatestSnapshot
- *     reconstructs sell-side fields at cold-start defaults. In-process
- *     consumers (anomaly-push, downstream composer in the same cycle)
- *     see real sell-side values; cross-cycle stale-read consumers do not
- *     until the follow-up persistence slice ships. The daemon log line
- *     also continues to surface only the buy-side `cluster_flag` token;
- *     the sell-side flag is observable via the in-memory snapshot only.
+ *   - F4-12 v2 sell-cluster aggregation (S95-1 composite + s95 #2 G3
+ *     persistence): the composite contract emits `form4SellClusterFlag`,
+ *     `flaggedSellSectors`, `maxAggregateZSell`, `maxAggregateZSellSector`
+ *     end-to-end from the live daemon-cycle path AND across cycle
+ *     boundaries via the four sell-side columns added by
+ *     `migrate_add_sell_cluster_to_form_4_insider_snapshots.ts`. The
+ *     daemon `aggregateLogLine` now extends with `sell_cluster_flag=` +
+ *     `max_z_sell=` tokens (suffix of the existing shape). Pre-migration
+ *     CH rows (operator has not yet applied the new ALTER) resolve to
+ *     cold-start defaults at read via the DDL DEFAULTs + Nullable
+ *     semantics — no daemon outage required. The brief renderer's
+ *     section #15 §1.4 now emits a parallel "Sell-side cluster" panel.
+ *   - EK/XD aggregate log lines stay buy-side-only. A canon-defensible
+ *     argument for symmetric sell tracking on EK material events or XD
+ *     executive departures has not been made; surfacing the symmetric
+ *     direction on EK/XD would require its own ADR.
  */

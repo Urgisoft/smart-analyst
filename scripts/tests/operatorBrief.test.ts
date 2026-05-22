@@ -1522,4 +1522,46 @@ describe('buildForm4InsiderSection', () => {
     assert.equal(section!.maxAggregateZ, 0.91);
     assert.equal(section!.maxAggregateZSector, 'Consumer Staples');
   });
+
+  // G2-SELL-G3-F4-5 — sell-side pass-through (s95 #2). Mirrors
+  // G2-COMPOSER-F4-1 byte-for-byte except threads the four sell-side fields
+  // (flaggedSellSectors, form4SellClusterFlag, maxAggregateZSell,
+  // maxAggregateZSellSector) from the composite snapshot through to the
+  // brief section. The §1.4 sell-side renderer branch consumes them.
+  it('G2-SELL-G3-F4-5 threads sell-side fields (flaggedSellSectors + form4SellClusterFlag + maxAggregateZSell + maxAggregateZSellSector) through to the brief section', async () => {
+    const { buildForm4InsiderSection } = await import('../../src/server/operator_brief.js');
+    const section = buildForm4InsiderSection({
+      snapshotDate: new Date('2026-05-19T13:30:00Z'),
+      lastEdgarQueryAt: new Date('2026-05-19T13:25:00Z'),
+      bdSinceLastQuery: 0,
+      flaggedSectors: [],
+      form4ClusterFlag: false,
+      maxAggregateZ: null,
+      maxAggregateZSector: null,
+      flaggedSellSectors: [{
+        sector: 'Energy', sectorSize: 22, clusterRateT: 0.182,
+        z: -2.81, baselineSize: 503,
+      }],
+      form4SellClusterFlag: true,
+      maxAggregateZSell: -2.81,
+      maxAggregateZSellSector: 'Energy',
+      perTickerRows: [],
+      inputsAvailableAggregate: 11,
+      inputsAvailablePerTicker: 0,
+      version: 'form_4_insider_v1',
+    });
+    assert.ok(section !== null);
+    assert.equal(section!.form4SellClusterFlag, true);
+    assert.equal(section!.maxAggregateZSell, -2.81);
+    assert.equal(section!.maxAggregateZSellSector, 'Energy');
+    assert.equal(section!.flaggedSellSectors.length, 1);
+    assert.equal(section!.flaggedSellSectors[0].sector, 'Energy');
+    assert.equal(section!.flaggedSellSectors[0].z, -2.81);
+    assert.equal(section!.flaggedSellSectors[0].clusterRateT, 0.182);
+    // Buy-side fields stay independent (cold-start defaults here).
+    assert.equal(section!.form4ClusterFlag, false);
+    assert.equal(section!.maxAggregateZ, null);
+    assert.equal(section!.maxAggregateZSector, null);
+    assert.equal(section!.flaggedSectors.length, 0);
+  });
 });

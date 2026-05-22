@@ -787,6 +787,28 @@ export interface BriefForm4InsiderSection {
   /** Sector name with max |z|; null when all z's null. Ties broken
    *  lexicographically (earlier sector name wins; deterministic across runs). */
   maxAggregateZSector: string | null;
+  /** v2 sell-side mirror of `flaggedSectors`. Gap #7 v2 sell-cluster F4 G3
+   *  (s95 #2). Sectors with sell-side |z| > 2.0. The renderer emits a
+   *  parallel "Sell-side cluster" sub-section under the existing buy-side
+   *  panel using the same three-branch §1.4 structure (LIVE / no-flag-
+   *  cleared / cold-start). Pass-through from
+   *  `Form4InsiderSnapshot.flaggedSellSectors`. */
+  flaggedSellSectors: ReadonlyArray<{
+    sector: string;
+    sectorSize: number;
+    clusterRateT: number;
+    z: number;
+    baselineSize: number;
+  }>;
+  /** v2 sell-side mirror of `form4ClusterFlag`. Independent of the buy-side
+   *  flag; both can fire concurrently or in isolation per F4-12 / S95-1. */
+  form4SellClusterFlag: boolean;
+  /** v2 sell-side mirror of `maxAggregateZ`. Null at cold-start OR when
+   *  `baseline2ySell` is empty across all sectors. */
+  maxAggregateZSell: number | null;
+  /** v2 sell-side mirror of `maxAggregateZSector`. Same lexicographic
+   *  tie-break as the buy-side counterpart. */
+  maxAggregateZSellSector: string | null;
   /** Per-ticker rows for the watch universe. */
   perTickerRows: ReadonlyArray<{
     ticker: string;
@@ -2279,6 +2301,52 @@ function renderForm4InsiderSection(b: MorningBrief): string {
   } else {
     lines.push(
       `**Aggregate (SPY 500 cluster-buy rate by GICS sector):** Aggregate-cluster ` +
+      `panel awaits SP500 constituents-table trailing-2y coverage ` +
+      `(ADR-042 §"Watch-outs"; rate denominator is 0 across the cold-start window). ` +
+      `Per-ticker sector annotations are active from \`quantlab.gics_sector_map\` ` +
+      `(s94 #1 G1-A1).`,
+    );
+  }
+
+  // Gap #7 v2 sell-cluster F4 G3 (s95 #2): parallel sell-side panel mirrors the
+  // buy-side three-branch §1.4 structure under ADR-042 Option (a). Lakonishok-
+  // Lee 2001 *Rev. Fin. Studies* §4 — the sell signal is ~30-50% diluted by
+  // tax / diversification / charity motives (informationally weaker than buys
+  // but non-zero); rendered as a separate panel so the operator can weight the
+  // two signals asymmetrically. `inputsAvailableAggregate` is shared with the
+  // buy-side per S94-32 (Option C overload — sector membership is direction-
+  // agnostic, so the same cleared-floor count applies to both directions). The
+  // separate baseline `baseline2ySell` (S95-3) only affects whether a sector
+  // produces a z; the floor-cleared count derives from sector presence, not
+  // baseline length.
+  lines.push(``);
+  if (s.flaggedSellSectors.length > 0) {
+    lines.push(`**Aggregate (SPY 500 cluster-sell rate by GICS sector):** ` +
+      `${s.flaggedSellSectors.length} sector(s) with |z| > 2.0`);
+    lines.push(``);
+    lines.push(`| Sector | Cluster rate | z | Baseline n | Constituents |`);
+    lines.push(`|---|---|---|---|---|`);
+    for (const f of s.flaggedSellSectors) {
+      const ratePct = (f.clusterRateT * 100).toFixed(1);
+      const zStr = `${f.z >= 0 ? '+' : ''}${f.z.toFixed(2)}σ`;
+      lines.push(`| ${f.sector} | ${ratePct}% | ${zStr} | ${f.baselineSize} | ${f.sectorSize} |`);
+    }
+  } else if (s.inputsAvailableAggregate > 0) {
+    const k = s.inputsAvailableAggregate;
+    const maxZStr = s.maxAggregateZSell != null
+      ? `${s.maxAggregateZSell >= 0 ? '+' : ''}${s.maxAggregateZSell.toFixed(2)}`
+      : 'n/a';
+    const maxZSectorStr = s.maxAggregateZSellSector ?? 'n/a';
+    lines.push(
+      `**Aggregate (SPY 500 cluster-sell rate by GICS sector):** No sectors flagged today ` +
+      `(${k}/11 cleared MIN_Z_BASELINE; max-|z|=${maxZStr} at ${maxZSectorStr}). ` +
+      `Per-sector baseline re-computed per daemon cycle from raw events + PIT ` +
+      `constituents + GICS map (ADR-042 Option a; sell signal interpretation ` +
+      `per Lakonishok-Lee 2001 §4 — ~30-50% diluted vs buys).`,
+    );
+  } else {
+    lines.push(
+      `**Aggregate (SPY 500 cluster-sell rate by GICS sector):** Aggregate-cluster ` +
       `panel awaits SP500 constituents-table trailing-2y coverage ` +
       `(ADR-042 §"Watch-outs"; rate denominator is 0 across the cold-start window). ` +
       `Per-ticker sector annotations are active from \`quantlab.gics_sector_map\` ` +

@@ -913,6 +913,16 @@ export function buildForm4InsiderSection(
     form4ClusterFlag: snapshot.form4ClusterFlag,
     maxAggregateZ: snapshot.maxAggregateZ,
     maxAggregateZSector: snapshot.maxAggregateZSector,
+    flaggedSellSectors: snapshot.flaggedSellSectors.map(f => ({
+      sector: f.sector,
+      sectorSize: f.sectorSize,
+      clusterRateT: f.clusterRateT,
+      z: f.z,
+      baselineSize: f.baselineSize,
+    })),
+    form4SellClusterFlag: snapshot.form4SellClusterFlag,
+    maxAggregateZSell: snapshot.maxAggregateZSell,
+    maxAggregateZSellSector: snapshot.maxAggregateZSellSector,
     perTickerRows: snapshot.perTickerRows.map(r => ({
       ticker: r.ticker,
       cik: r.cik,

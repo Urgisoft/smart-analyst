@@ -952,6 +952,137 @@ describe('loadLatestSnapshot', () => {
 // Repository.test.ts G3R-EK-* (byte-equal except for snapshot type + cluster-
 // flag column name).
 
+// ───── G2-SELL-G3-F4-* — sell-cluster persistence round-trip (s95 #2) ─────
+//
+// SPEC: docs/specs/event-driven-filings-processor.md §3 + §5.5; HANDOFF s95 #1
+// "Next stage / F4 sell-cluster G3" — closes the v2 sell-cluster arc end-to-end
+// across cycle boundaries. Mirrors G3R-F4-{1,2} byte-for-byte except for the
+// four sell-side fields + the malformed-JSON degrade case (which only the
+// sell-side panel exposes via a separate try/catch in loadLatestSnapshot).
+
+describe('G2-SELL-G3-F4 — sell-cluster persistence (s95 #2)', () => {
+  it('G2-SELL-G3-F4-1: writeSnapshot stamps all 4 sell-side columns from the snapshot', async () => {
+    const { repo, fake } = makeRepo();
+    await repo.writeSnapshot(fixtureSnapshot({
+      flaggedSellSectors: [{
+        sector: 'Energy', sectorSize: 22,
+        clusterRateT: 0.182, z: -2.81, baselineSize: 503,
+      }],
+      form4SellClusterFlag: true,
+      maxAggregateZSell: -2.81,
+      maxAggregateZSellSector: 'Energy',
+    }));
+    const row = fake.inserts[0].values[0];
+    assert.equal(row.form_4_sell_cluster_flag, 1);
+    assert.equal(row.max_aggregate_z_sell, -2.81);
+    assert.equal(row.max_aggregate_z_sell_sector, 'Energy');
+    const flaggedSell = JSON.parse(row.flagged_sell_sectors_json as string);
+    assert.equal(flaggedSell.length, 1);
+    assert.equal(flaggedSell[0].sector, 'Energy');
+    assert.equal(flaggedSell[0].z, -2.81);
+    // Cold-start pass-through: all four fields null/false/[]/null.
+    await repo.writeSnapshot(fixtureSnapshot({
+      flaggedSellSectors: [],
+      form4SellClusterFlag: false,
+      maxAggregateZSell: null,
+      maxAggregateZSellSector: null,
+    }));
+    const row2 = fake.inserts[1].values[0];
+    assert.equal(row2.form_4_sell_cluster_flag, 0);
+    assert.equal(row2.max_aggregate_z_sell, null);
+    assert.equal(row2.max_aggregate_z_sell_sector, null);
+    assert.equal(row2.flagged_sell_sectors_json, '[]');
+  });
+
+  it('G2-SELL-G3-F4-2: loadLatestSnapshot recovers all 4 sell-side columns from the CH row', async () => {
+    const populated = makeRepo();
+    populated.fake.route(_ => true, [{
+      snapshot_date: '2026-05-19',
+      computed_at_ms: String(DATE.getTime()),
+      last_edgar_query_at: null,
+      bd_since_last_query: null,
+      form_4_cluster_flag: 0,
+      flagged_sectors_json: '[]',
+      per_ticker_json: '[]',
+      inputs_available_aggregate: '11',
+      inputs_available_per_ticker: '0',
+      composite_version: 'form_4_insider_v1',
+      max_aggregate_z: null,
+      max_aggregate_z_sector: null,
+      form_4_sell_cluster_flag: 1,
+      flagged_sell_sectors_json: JSON.stringify([{
+        sector: 'Energy', sectorSize: 22,
+        clusterRateT: 0.182, z: -2.81, baselineSize: 503,
+      }]),
+      max_aggregate_z_sell: -2.81,
+      max_aggregate_z_sell_sector: 'Energy',
+    }]);
+    const snap = await populated.repo.loadLatestSnapshot();
+    assert.ok(snap);
+    const s = snap as Form4InsiderSnapshot;
+    assert.equal(s.form4SellClusterFlag, true);
+    assert.equal(s.maxAggregateZSell, -2.81);
+    assert.equal(s.maxAggregateZSellSector, 'Energy');
+    assert.equal(s.flaggedSellSectors.length, 1);
+    assert.equal(s.flaggedSellSectors[0].sector, 'Energy');
+    assert.equal(s.flaggedSellSectors[0].z, -2.81);
+    // Pre-migration / cold-start row resolves at sell-side defaults via DDL
+    // DEFAULTs + Nullable semantics. The empty-string DEFAULT on
+    // flagged_sell_sectors_json parses as malformed → []; same posture as
+    // the buy-side column.
+    const coldStart = makeRepo();
+    coldStart.fake.route(_ => true, [{
+      snapshot_date: '2026-05-19',
+      computed_at_ms: String(DATE.getTime()),
+      last_edgar_query_at: null,
+      bd_since_last_query: null,
+      form_4_cluster_flag: 0,
+      flagged_sectors_json: '[]',
+      per_ticker_json: '[]',
+      inputs_available_aggregate: '0',
+      inputs_available_per_ticker: '0',
+      composite_version: 'form_4_insider_v1',
+      max_aggregate_z: null,
+      max_aggregate_z_sector: null,
+      form_4_sell_cluster_flag: 0,
+      flagged_sell_sectors_json: '',
+      max_aggregate_z_sell: null,
+      max_aggregate_z_sell_sector: null,
+    }]);
+    const snap2 = await coldStart.repo.loadLatestSnapshot();
+    const s2 = snap2 as Form4InsiderSnapshot;
+    assert.equal(s2.form4SellClusterFlag, false);
+    assert.equal(s2.maxAggregateZSell, null);
+    assert.equal(s2.maxAggregateZSellSector, null);
+    assert.deepEqual(s2.flaggedSellSectors, []);
+  });
+
+  it('G2-SELL-G3-F4-3: malformed flagged_sell_sectors_json degrades to []', async () => {
+    const { repo, fake } = makeRepo();
+    fake.route(_ => true, [{
+      snapshot_date: '2026-05-19',
+      computed_at_ms: String(DATE.getTime()),
+      last_edgar_query_at: null,
+      bd_since_last_query: null,
+      form_4_cluster_flag: 0,
+      flagged_sectors_json: '[]',
+      per_ticker_json: '[]',
+      inputs_available_aggregate: '0',
+      inputs_available_per_ticker: '0',
+      composite_version: 'form_4_insider_v1',
+      max_aggregate_z: null,
+      max_aggregate_z_sector: null,
+      form_4_sell_cluster_flag: 0,
+      flagged_sell_sectors_json: '{not valid json',
+      max_aggregate_z_sell: null,
+      max_aggregate_z_sell_sector: null,
+    }]);
+    const snap = await repo.loadLatestSnapshot();
+    assert.ok(snap);
+    assert.deepEqual((snap as Form4InsiderSnapshot).flaggedSellSectors, []);
+  });
+});
+
 describe('G3R-F4 — max_aggregate_z persistence (OQ-G3-1)', () => {
   it('G3R-F4-1: writeSnapshot stamps max_aggregate_z + max_aggregate_z_sector columns from the snapshot', async () => {
     const { repo, fake } = makeRepo();
@@ -1167,7 +1298,37 @@ describe('runDaemonForm4InsiderEvaluation', () => {
     assert.match(r.aggregateLogLine, /^\[f4-aggregate\] /, 'F4 composite prefix');
     assert.match(r.aggregateLogLine, /sectors_with_z=0\/11 floor_cleared=0\/11/);
     assert.match(r.aggregateLogLine, /max_z=n\/a:n\/a/);
-    assert.match(r.aggregateLogLine, /cluster_flag=false$/);
+    // Gap #7 v2 sell-cluster F4 G3 (s95 #2): the F4 log line extends the
+    // shared shape with two extra tokens — `sell_cluster_flag=` + `max_z_sell=`.
+    // The buy-side `cluster_flag=` token is no longer end-of-line; the tail
+    // now anchors on `max_z_sell=…`.
+    assert.match(r.aggregateLogLine, / cluster_flag=false sell_cluster_flag=false max_z_sell=n\/a:n\/a$/);
+  });
+
+  // G2-SELL-G3-F4-4 — daemon log-line sell-side tokens (s95 #2).
+  // The buy-side shape is regressed via G2-DAEMON-F4-1 above; this test pins
+  // the new sell-side suffix shape independently. Live sell-side cluster
+  // would emit `sell_cluster_flag=true max_z_sell=<sector>:<z>`; cold-start
+  // emits `sell_cluster_flag=false max_z_sell=n/a:n/a`.
+  it('G2-SELL-G3-F4-4: aggregateLogLine appends sell_cluster_flag + max_z_sell tokens', async () => {
+    const { repo, fake } = makeRepo();
+    fake.route(q => q.includes('max(accepted_at)'), [{ last: null }]);
+    fake.route(_ => true, []);
+    const r = await runDaemonForm4InsiderEvaluation({
+      repo, asOf: DATE,
+      watchUniverse: [],
+      constituents: [],
+    });
+    // Shape pin: `sell_cluster_flag=…` follows `cluster_flag=…`; `max_z_sell=…`
+    // follows `sell_cluster_flag=…`.
+    assert.match(
+      r.aggregateLogLine,
+      / cluster_flag=(true|false) sell_cluster_flag=(true|false) max_z_sell=(\S+):(\S+)$/,
+      'shape pinned by SPEC §5.5 + s95 #2 sell-side extension',
+    );
+    // Cold-start values when inputs empty.
+    assert.match(r.aggregateLogLine, /sell_cluster_flag=false/);
+    assert.match(r.aggregateLogLine, /max_z_sell=n\/a:n\/a$/);
   });
 });
 

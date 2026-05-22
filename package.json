@@ -117,6 +117,8 @@
     "migrate:add-max-z-eight-k-classifier-snapshots:apply": "tsx scripts/migrate_add_max_aggregate_z_to_eight_k_classifier_snapshots.ts --apply",
     "migrate:add-max-z-form-4-insider-snapshots": "tsx scripts/migrate_add_max_aggregate_z_to_form_4_insider_snapshots.ts",
     "migrate:add-max-z-form-4-insider-snapshots:apply": "tsx scripts/migrate_add_max_aggregate_z_to_form_4_insider_snapshots.ts --apply",
+    "migrate:add-sell-cluster-form-4-insider-snapshots": "tsx scripts/migrate_add_sell_cluster_to_form_4_insider_snapshots.ts",
+    "migrate:add-sell-cluster-form-4-insider-snapshots:apply": "tsx scripts/migrate_add_sell_cluster_to_form_4_insider_snapshots.ts --apply",
     "migrate:create-gics-sector-map": "tsx scripts/migrate_create_gics_sector_map.ts",
     "migrate:create-gics-sector-map:apply": "tsx scripts/migrate_create_gics_sector_map.ts --apply",
     "gics:sector-map:ingest": ".venv\\Scripts\\python.exe scripts/sp500_gics_sector_ingest.py --apply",

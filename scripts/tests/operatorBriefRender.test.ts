@@ -2971,6 +2971,10 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         watchUniverseTickerCount: 60,
         maxAggregateZ: null,
         maxAggregateZSector: null,
+        flaggedSellSectors: [],
+        form4SellClusterFlag: false,
+        maxAggregateZSell: null,
+        maxAggregateZSellSector: null,
         compositeVersion: 'form_4_insider_v1',
       },
     }));
@@ -2995,6 +2999,10 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         watchUniverseTickerCount: 60,
         maxAggregateZ: null,
         maxAggregateZSector: null,
+        flaggedSellSectors: [],
+        form4SellClusterFlag: false,
+        maxAggregateZSell: null,
+        maxAggregateZSellSector: null,
         compositeVersion: 'form_4_insider_v1',
       },
     }));
@@ -3019,6 +3027,10 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         watchUniverseTickerCount: 60,
         maxAggregateZ: null,
         maxAggregateZSector: null,
+        flaggedSellSectors: [],
+        form4SellClusterFlag: false,
+        maxAggregateZSell: null,
+        maxAggregateZSellSector: null,
         compositeVersion: 'form_4_insider_v1',
       },
     }));
@@ -3055,12 +3067,20 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 58,
         watchUniverseTickerCount: 60,
+        flaggedSellSectors: [],
+        form4SellClusterFlag: false,
+        maxAggregateZSell: null,
+        maxAggregateZSellSector: null,
         compositeVersion: 'form_4_insider_v1',
       },
     }));
     assert.match(md, /\| Sector \| Cluster rate \| z \| Baseline n \| Constituents \|/);
     assert.match(md, /\| Financials \| 3\.1% \| \+2\.62σ \| 503 \| 65 \|/);
-    assert.doesNotMatch(md, /No sectors flagged today/);
+    // s95 #2: the buy-side LIVE branch must NOT also render its "No sectors
+    // flagged today" line. Narrowed to the buy-side panel header — the parallel
+    // sell-side panel emits its own "No sectors flagged today" line here
+    // (flaggedSellSectors=[] + inputsAvailableAggregate=11 > 0).
+    assert.doesNotMatch(md, /\*\*Aggregate \(SPY 500 cluster-buy rate by GICS sector\):\*\* No sectors flagged today/);
     assert.doesNotMatch(md, /awaits SP500 constituents-table trailing-2y coverage/);
   });
 
@@ -3080,6 +3100,10 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 58,
         watchUniverseTickerCount: 60,
+        flaggedSellSectors: [],
+        form4SellClusterFlag: false,
+        maxAggregateZSell: null,
+        maxAggregateZSellSector: null,
         compositeVersion: 'form_4_insider_v1',
       },
     }));
@@ -3106,11 +3130,119 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 58,
         watchUniverseTickerCount: 60,
+        flaggedSellSectors: [],
+        form4SellClusterFlag: false,
+        maxAggregateZSell: null,
+        maxAggregateZSellSector: null,
         compositeVersion: 'form_4_insider_v1',
       },
     }));
     assert.match(md, /Aggregate-cluster panel awaits SP500 constituents-table trailing-2y coverage/);
     assert.match(md, /ADR-042 §"Watch-outs"/);
+    assert.doesNotMatch(md, /No sectors flagged today/);
+    assert.doesNotMatch(md, /\| Sector \| Cluster rate \| z \| Baseline n \| Constituents \|/);
+  });
+
+  // G2-SELL-G3-F4-{6..8} — sell-side §1.4 three-branch coverage (s95 #2).
+  // Mirrors G2-RENDER-F4-{1..3} byte-for-byte except for the sell-side panel
+  // header ("cluster-sell rate by GICS sector") + the L&L 2001 §4 footer +
+  // the sell-side fields driving the branch selection.
+
+  it('G2-SELL-G3-F4-6 LIVE sell-side branch — flaggedSellSectors > 0 renders the sell-side table; no buy-side flag', () => {
+    const md = renderBriefMarkdown(brief({
+      formFour: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        form4ClusterFlag: false,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
+        flaggedSellSectors: [{
+          sector: 'Energy', sectorSize: 22,
+          clusterRateT: 0.182, z: -2.81, baselineSize: 503,
+        }],
+        form4SellClusterFlag: true,
+        maxAggregateZSell: -2.81,
+        maxAggregateZSellSector: 'Energy',
+        perTickerRows: [],
+        inputsAvailableAggregate: 11,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 58,
+        watchUniverseTickerCount: 60,
+        compositeVersion: 'form_4_insider_v1',
+      },
+    }));
+    // Sell-side LIVE branch: panel header + table.
+    assert.match(md, /\*\*Aggregate \(SPY 500 cluster-sell rate by GICS sector\):\*\* 1 sector\(s\) with \|z\| > 2\.0/);
+    assert.match(md, /\| Energy \| 18\.2% \| -2\.81σ \| 503 \| 22 \|/);
+    // The buy-side panel renders its OWN no-flag-cleared branch (max-|z|=n/a
+    // at n/a since the buy-side fields are cold-start while inputsAvailable
+    // Aggregate=11>0). The two panels coexist independently.
+    assert.match(md, /\*\*Aggregate \(SPY 500 cluster-buy rate by GICS sector\):\*\* No sectors flagged today/);
+  });
+
+  it('G2-SELL-G3-F4-7 NO-FLAG-CLEARED sell-side — flaggedSellSectors=[] + aggregate>0 renders the sell-side "No sectors flagged today" line with k/11 + max-|z|', () => {
+    const md = renderBriefMarkdown(brief({
+      formFour: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        form4ClusterFlag: false,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
+        flaggedSellSectors: [],
+        form4SellClusterFlag: false,
+        maxAggregateZSell: 1.42,
+        maxAggregateZSellSector: 'Health Care',
+        perTickerRows: [],
+        inputsAvailableAggregate: 8,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 58,
+        watchUniverseTickerCount: 60,
+        compositeVersion: 'form_4_insider_v1',
+      },
+    }));
+    assert.match(md, /\*\*Aggregate \(SPY 500 cluster-sell rate by GICS sector\):\*\* No sectors flagged today/);
+    assert.match(md, /\(8\/11 cleared MIN_Z_BASELINE; max-\|z\|=\+1\.42 at Health Care\)/);
+    // L&L 2001 §4 dilution footer is present on the sell-side panel.
+    assert.match(md, /sell signal interpretation per Lakonishok-Lee 2001 §4 — ~30-50% diluted vs buys/);
+    // Sell-side table is not rendered.
+    assert.doesNotMatch(md, /\| Energy \| /);
+  });
+
+  it('G2-SELL-G3-F4-8 COLD-START sell-side — flaggedSellSectors=[] + aggregate=0 renders the ADR-042 §"Watch-outs" cold-start branch on BOTH directions', () => {
+    const md = renderBriefMarkdown(brief({
+      formFour: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        form4ClusterFlag: false,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
+        flaggedSellSectors: [],
+        form4SellClusterFlag: false,
+        maxAggregateZSell: null,
+        maxAggregateZSellSector: null,
+        perTickerRows: [],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 58,
+        watchUniverseTickerCount: 60,
+        compositeVersion: 'form_4_insider_v1',
+      },
+    }));
+    // Both buy + sell panels render the cold-start text. The "awaits SP500
+    // constituents-table" text appears twice; the sell-side cold-start matches
+    // here as well as the buy-side.
+    assert.match(md, /\*\*Aggregate \(SPY 500 cluster-buy rate by GICS sector\):\*\* Aggregate-cluster panel awaits SP500 constituents-table/);
+    assert.match(md, /\*\*Aggregate \(SPY 500 cluster-sell rate by GICS sector\):\*\* Aggregate-cluster panel awaits SP500 constituents-table/);
+    // Neither panel renders the table OR the no-flag-cleared line.
     assert.doesNotMatch(md, /No sectors flagged today/);
     assert.doesNotMatch(md, /\| Sector \| Cluster rate \| z \| Baseline n \| Constituents \|/);
   });
@@ -3132,6 +3264,10 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         watchUniverseTickerCount: 60,
         maxAggregateZ: null,
         maxAggregateZSector: null,
+        flaggedSellSectors: [],
+        form4SellClusterFlag: false,
+        maxAggregateZSell: null,
+        maxAggregateZSellSector: null,
         compositeVersion: 'form_4_insider_v1',
       },
     }));
@@ -3154,6 +3290,10 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         watchUniverseTickerCount: 60,
         maxAggregateZ: null,
         maxAggregateZSector: null,
+        flaggedSellSectors: [],
+        form4SellClusterFlag: false,
+        maxAggregateZSell: null,
+        maxAggregateZSellSector: null,
         compositeVersion: 'form_4_insider_v1',
       },
     }));
@@ -3176,6 +3316,10 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         watchUniverseTickerCount: 0,
         maxAggregateZ: null,
         maxAggregateZSector: null,
+        flaggedSellSectors: [],
+        form4SellClusterFlag: false,
+        maxAggregateZSell: null,
+        maxAggregateZSellSector: null,
         compositeVersion: 'form_4_insider_v1',
       },
     }));
@@ -3205,6 +3349,10 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         watchUniverseTickerCount: 1,
         maxAggregateZ: null,
         maxAggregateZSector: null,
+        flaggedSellSectors: [],
+        form4SellClusterFlag: false,
+        maxAggregateZSell: null,
+        maxAggregateZSellSector: null,
         compositeVersion: 'form_4_insider_v1',
       },
     }));
@@ -3230,6 +3378,10 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         watchUniverseTickerCount: 60,
         maxAggregateZ: null,
         maxAggregateZSector: null,
+        flaggedSellSectors: [],
+        form4SellClusterFlag: false,
+        maxAggregateZSell: null,
+        maxAggregateZSellSector: null,
         compositeVersion: 'form_4_insider_v1',
       },
     }));
@@ -3271,6 +3423,10 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         watchUniverseTickerCount: 60,
         maxAggregateZ: null,
         maxAggregateZSector: null,
+        flaggedSellSectors: [],
+        form4SellClusterFlag: false,
+        maxAggregateZSell: null,
+        maxAggregateZSellSector: null,
         compositeVersion: 'form_4_insider_v1',
       },
     }));
@@ -3308,6 +3464,10 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         watchUniverseTickerCount: 60,
         maxAggregateZ: null,
         maxAggregateZSector: null,
+        flaggedSellSectors: [],
+        form4SellClusterFlag: false,
+        maxAggregateZSell: null,
+        maxAggregateZSellSector: null,
         compositeVersion: 'form_4_insider_v1',
       },
     }));
@@ -3337,6 +3497,10 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         watchUniverseTickerCount: 0,
         maxAggregateZ: null,
         maxAggregateZSector: null,
+        flaggedSellSectors: [],
+        form4SellClusterFlag: false,
+        maxAggregateZSell: null,
+        maxAggregateZSellSector: null,
         compositeVersion: 'form_4_insider_v1',
       },
     }));
@@ -3386,6 +3550,10 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         watchUniverseTickerCount: 5,
         maxAggregateZ: null,
         maxAggregateZSector: null,
+        flaggedSellSectors: [],
+        form4SellClusterFlag: false,
+        maxAggregateZSell: null,
+        maxAggregateZSellSector: null,
         compositeVersion: 'form_4_insider_v1',
       },
     }));
@@ -3425,6 +3593,10 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         watchUniverseTickerCount: 1,
         maxAggregateZ: null,
         maxAggregateZSector: null,
+        flaggedSellSectors: [],
+        form4SellClusterFlag: false,
+        maxAggregateZSell: null,
+        maxAggregateZSellSector: null,
         compositeVersion: 'form_4_insider_v1',
       },
     }));
@@ -3466,6 +3638,10 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         watchUniverseTickerCount: 60,
         maxAggregateZ: null,
         maxAggregateZSector: null,
+        flaggedSellSectors: [],
+        form4SellClusterFlag: false,
+        maxAggregateZSell: null,
+        maxAggregateZSellSector: null,
         compositeVersion: 'form_4_insider_v1',
       },
     }));
