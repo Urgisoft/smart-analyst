@@ -284,6 +284,45 @@ export function flagInsiderCluster(distinctInsiderCount: number): boolean {
   return distinctInsiderCount >= CLUSTER_INSIDER_THRESHOLD;
 }
 
+/** Days since the most-recent trade of `code` within the rolling window.
+ *  Returns null when the window contains zero trades of that code (the
+ *  "no signal" branch — distinct from "0 days since most recent" which
+ *  means a trade happened today).
+ *
+ *  Used by `evaluateForm4InsiderComposite` to populate
+ *  `daysSinceLatestBuy` / `daysSinceLatestSell` for the per-ticker
+ *  row payload. Surfaced by the brief renderer as the SPEC §8.2 "last
+ *  23d" recency hint:
+ *
+ *      QRST — 4 insiders bought (net +$2.3M, last 23d), code P
+ *
+ *  Math: `floor((asOf.getTime() - max(acceptedAt).getTime()) / 86_400_000)`.
+ *  Floor (not round / ceil) so the integer count matches the SPEC's
+ *  "Xd ago" semantic — a trade 23h59m ago is "0d" (today), a trade
+ *  24h00m + 1ms ago is "1d". The F4-10 leak guard upstream prevents
+ *  future-dated trades; a defensive negative result is theoretically
+ *  possible but not observed in practice.
+ *
+ *  Direction isolation: a P-code (buy) trade in window does NOT
+ *  contribute to `daysSinceLatestSell` and vice versa. */
+export function daysSinceLatestTradeByCode(
+  trades: ReadonlyArray<InsiderTrade>,
+  code: string,
+  asOf: Date,
+  windowDays: number = ROLLING_WINDOW_DAYS,
+): number | null {
+  const inWindow = filterTradesInWindow(trades, asOf, windowDays);
+  let latestMs = -Infinity;
+  for (const t of inWindow) {
+    if (t.transactionCode !== code) continue;
+    const ms = t.acceptedAt.getTime();
+    if (ms > latestMs) latestMs = ms;
+  }
+  if (latestMs === -Infinity) return null;
+  const MS_PER_DAY = 86_400_000;
+  return Math.floor((asOf.getTime() - latestMs) / MS_PER_DAY);
+}
+
 // ── Sector-aggregate pure functions ─────────────────────────────────────────
 
 /** Sector cluster rate per F4-6 (buy-side) and F4-12 (v2 sell-side):
@@ -383,6 +422,16 @@ export interface Form4InsiderPerTickerRow {
   insiderNetDollar90d: number;
   insiderClusterBuyFlag: boolean;
   insiderClusterSellFlag: boolean;
+  /** Days since the most-recent P-code (buy) trade for this ticker in the
+   *  90d rolling window. Null when `insiderBuyCount90d === 0` (no signal).
+   *  Surfaced by the brief renderer as the SPEC §8.2 "last 23d" hint on
+   *  cluster_buy per-ticker rows. v2 add per gap #7 v2 per-row recency. */
+  daysSinceLatestBuy: number | null;
+  /** Days since the most-recent S-code (sell) trade for this ticker in the
+   *  90d rolling window. Null when `insiderSellCount90d === 0`. Surfaced on
+   *  cluster_sell per-ticker rows in the brief. v2 add per gap #7 v2
+   *  per-row recency. */
+  daysSinceLatestSell: number | null;
 }
 
 /** A flagged sector row — only emitted for sectors with |z| > 2.0. */
@@ -531,6 +580,13 @@ export function evaluateForm4InsiderComposite(
     const insiderClusterBuyFlag = flagInsiderCluster(distinctBuyers30d);
     const insiderClusterSellFlag = flagInsiderCluster(distinctSellers30d);
 
+    const daysSinceLatestBuy = daysSinceLatestTradeByCode(
+      psFiltered, BUY_CODE, inputs.asOf,
+    );
+    const daysSinceLatestSell = daysSinceLatestTradeByCode(
+      psFiltered, SELL_CODE, inputs.asOf,
+    );
+
     if (row.sector != null && row.cik !== '') inputsAvailablePerTicker++;
 
     perTickerRows.push({
@@ -544,6 +600,8 @@ export function evaluateForm4InsiderComposite(
       insiderNetDollar90d,
       insiderClusterBuyFlag,
       insiderClusterSellFlag,
+      daysSinceLatestBuy,
+      daysSinceLatestSell,
     });
   }
 

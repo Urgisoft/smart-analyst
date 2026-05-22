@@ -2918,14 +2918,14 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
     insiderBuyCount90d: 6, insiderSellCount90d: 0,
     insiderBuyerCount90d: 4, insiderSellerCount90d: 0,
     insiderNetDollar90d: 2_300_000,
-    insiderClusterBuyFlag: true, insiderClusterSellFlag: false,
+    insiderClusterBuyFlag: true, insiderClusterSellFlag: false, daysSinceLatestBuy: null, daysSinceLatestSell: null,
   };
   const SELL_ROW = {
     ticker: 'YZAB', cik: '0000333333', sector: null,
     insiderBuyCount90d: 0, insiderSellCount90d: 8,
     insiderBuyerCount90d: 0, insiderSellerCount90d: 5,
     insiderNetDollar90d: -11_200_000,
-    insiderClusterBuyFlag: false, insiderClusterSellFlag: true,
+    insiderClusterBuyFlag: false, insiderClusterSellFlag: true, daysSinceLatestBuy: null, daysSinceLatestSell: null,
   };
 
   it('renders the "not yet evaluated" panel when formFour is null', () => {
@@ -3341,7 +3341,7 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
             insiderBuyCount90d: 0, insiderSellCount90d: 0,
             insiderBuyerCount90d: 0, insiderSellerCount90d: 0,
             insiderNetDollar90d: 0,
-            insiderClusterBuyFlag: false, insiderClusterSellFlag: false },
+            insiderClusterBuyFlag: false, insiderClusterSellFlag: false, daysSinceLatestBuy: null, daysSinceLatestSell: null },
         ],
         inputsAvailableAggregate: 0,
         inputsAvailablePerTicker: 0,
@@ -3386,9 +3386,9 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
       },
     }));
     assert.match(md, /cluster_buy \(1\):/);
-    assert.match(md, /- QRST — 4 insiders bought \(net \+\$2\.3M\), code P/);
+    assert.match(md, /- QRST — 4 insiders bought \(net \+\$2\.3M, last [^)]+\), code P/);
     assert.match(md, /cluster_sell \(1\):/);
-    assert.match(md, /- YZAB — 5 insiders sold \(net -\$11\.2M\), code S/);
+    assert.match(md, /- YZAB — 5 insiders sold \(net -\$11\.2M, last [^)]+\), code S/);
   });
 
   // T-OBR-F4-2 — Top-N truncation per side at N=5 with "X more not shown" notes.
@@ -3399,14 +3399,14 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
       insiderBuyerCount90d: 3 + i, insiderSellerCount90d: 0,
       // Larger i → larger |net dollar| → sorted earlier. So B6 is first.
       insiderNetDollar90d: (i + 1) * 1_000_000,
-      insiderClusterBuyFlag: true, insiderClusterSellFlag: false,
+      insiderClusterBuyFlag: true, insiderClusterSellFlag: false, daysSinceLatestBuy: null, daysSinceLatestSell: null,
     }));
     const sells = Array.from({ length: 6 }, (_, i) => ({
       ticker: `S${i}`, cik: `00001${i}`, sector: null,
       insiderBuyCount90d: 0, insiderSellCount90d: 5,
       insiderBuyerCount90d: 0, insiderSellerCount90d: 3 + i,
       insiderNetDollar90d: -((i + 1) * 1_000_000),
-      insiderClusterBuyFlag: false, insiderClusterSellFlag: true,
+      insiderClusterBuyFlag: false, insiderClusterSellFlag: true, daysSinceLatestBuy: null, daysSinceLatestSell: null,
     }));
     const md = renderBriefMarkdown(brief({
       formFour: {
@@ -3522,27 +3522,27 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
             insiderBuyCount90d: 1, insiderSellCount90d: 0,
             insiderBuyerCount90d: 3, insiderSellerCount90d: 0,
             insiderNetDollar90d: 890_000,
-            insiderClusterBuyFlag: true, insiderClusterSellFlag: false },
+            insiderClusterBuyFlag: true, insiderClusterSellFlag: false, daysSinceLatestBuy: null, daysSinceLatestSell: null },
           { ticker: 'AAB', cik: '02', sector: null,
             insiderBuyCount90d: 1, insiderSellCount90d: 0,
             insiderBuyerCount90d: 3, insiderSellerCount90d: 0,
             insiderNetDollar90d: 500,
-            insiderClusterBuyFlag: true, insiderClusterSellFlag: false },
+            insiderClusterBuyFlag: true, insiderClusterSellFlag: false, daysSinceLatestBuy: null, daysSinceLatestSell: null },
           { ticker: 'AB', cik: '03', sector: null,
             insiderBuyCount90d: 5, insiderSellCount90d: 0,
             insiderBuyerCount90d: 4, insiderSellerCount90d: 0,
             insiderNetDollar90d: 2_300_000_000,
-            insiderClusterBuyFlag: true, insiderClusterSellFlag: false },
+            insiderClusterBuyFlag: true, insiderClusterSellFlag: false, daysSinceLatestBuy: null, daysSinceLatestSell: null },
           { ticker: 'BA', cik: '04', sector: null,
             insiderBuyCount90d: 0, insiderSellCount90d: 1,
             insiderBuyerCount90d: 0, insiderSellerCount90d: 3,
             insiderNetDollar90d: 0,
-            insiderClusterBuyFlag: false, insiderClusterSellFlag: true },
+            insiderClusterBuyFlag: false, insiderClusterSellFlag: true, daysSinceLatestBuy: null, daysSinceLatestSell: null },
           { ticker: 'BB', cik: '05', sector: null,
             insiderBuyCount90d: 0, insiderSellCount90d: 4,
             insiderBuyerCount90d: 0, insiderSellerCount90d: 5,
             insiderNetDollar90d: -11_200_000_000,
-            insiderClusterBuyFlag: false, insiderClusterSellFlag: true },
+            insiderClusterBuyFlag: false, insiderClusterSellFlag: true, daysSinceLatestBuy: null, daysSinceLatestSell: null },
         ],
         inputsAvailableAggregate: 0,
         inputsAvailablePerTicker: 0,
@@ -3558,14 +3558,14 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
       },
     }));
     // Billions: +$2.3B / -$11.2B
-    assert.match(md, /- AB — 4 insiders bought \(net \+\$2\.3B\), code P/);
-    assert.match(md, /- BB — 5 insiders sold \(net -\$11\.2B\), code S/);
+    assert.match(md, /- AB — 4 insiders bought \(net \+\$2\.3B, last [^)]+\), code P/);
+    assert.match(md, /- BB — 5 insiders sold \(net -\$11\.2B, last [^)]+\), code S/);
     // Thousands: +$890K (no decimal at K band)
-    assert.match(md, /- AAA — 3 insiders bought \(net \+\$890K\), code P/);
+    assert.match(md, /- AAA — 3 insiders bought \(net \+\$890K, last [^)]+\), code P/);
     // Sub-$1k: +$500 (no unit suffix)
-    assert.match(md, /- AAB — 3 insiders bought \(net \+\$500\), code P/);
+    assert.match(md, /- AAB — 3 insiders bought \(net \+\$500, last [^)]+\), code P/);
     // Zero: $0 (no sign)
-    assert.match(md, /- BA — 3 insiders sold \(net \$0\), code S/);
+    assert.match(md, /- BA — 3 insiders sold \(net \$0, last [^)]+\), code S/);
   });
 
   // T-OBR-F4-8 — G1-A2 (s94 #2): null sector renders WITHOUT the bracket
@@ -3585,7 +3585,7 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
             insiderBuyCount90d: 6, insiderSellCount90d: 0,
             insiderBuyerCount90d: 4, insiderSellerCount90d: 0,
             insiderNetDollar90d: 1_500_000,
-            insiderClusterBuyFlag: true, insiderClusterSellFlag: false },
+            insiderClusterBuyFlag: true, insiderClusterSellFlag: false, daysSinceLatestBuy: null, daysSinceLatestSell: null },
         ],
         inputsAvailableAggregate: 0,
         inputsAvailablePerTicker: 0,
@@ -3601,7 +3601,7 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
       },
     }));
     // Per-row format: NO bracket annotation between ticker + " —".
-    assert.match(md, /- NOMAP — 4 insiders bought \(net \+\$1\.5M\), code P/);
+    assert.match(md, /- NOMAP — 4 insiders bought \(net \+\$1\.5M, last [^)]+\), code P/);
     // Negative guard: no double space, no empty bracket.
     assert.doesNotMatch(md, /- NOMAP  —/);
     assert.doesNotMatch(md, /- NOMAP \[\]/);
@@ -3625,12 +3625,12 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
             insiderBuyCount90d: 6, insiderSellCount90d: 0,
             insiderBuyerCount90d: 4, insiderSellerCount90d: 0,
             insiderNetDollar90d: 2_300_000,
-            insiderClusterBuyFlag: true, insiderClusterSellFlag: false },
+            insiderClusterBuyFlag: true, insiderClusterSellFlag: false, daysSinceLatestBuy: null, daysSinceLatestSell: null },
           { ticker: 'XOM', cik: '0000034088', sector: 'Energy',
             insiderBuyCount90d: 0, insiderSellCount90d: 8,
             insiderBuyerCount90d: 0, insiderSellerCount90d: 5,
             insiderNetDollar90d: -11_200_000,
-            insiderClusterBuyFlag: false, insiderClusterSellFlag: true },
+            insiderClusterBuyFlag: false, insiderClusterSellFlag: true, daysSinceLatestBuy: null, daysSinceLatestSell: null },
         ],
         inputsAvailableAggregate: 0,
         inputsAvailablePerTicker: 2,
@@ -3646,8 +3646,119 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
       },
     }));
     // Buy-side: sector annotation between ticker + " —".
-    assert.match(md, /- AAPL \[Information Technology\] — 4 insiders bought \(net \+\$2\.3M\), code P/);
+    assert.match(md, /- AAPL \[Information Technology\] — 4 insiders bought \(net \+\$2\.3M, last [^)]+\), code P/);
     // Sell-side: same pattern mirrored.
-    assert.match(md, /- XOM \[Energy\] — 5 insiders sold \(net -\$11\.2M\), code S/);
+    assert.match(md, /- XOM \[Energy\] — 5 insiders sold \(net -\$11\.2M, last [^)]+\), code S/);
+  });
+
+  // ── T-OBR-F4-DSLB-{1..3} — gap #7 v2 per-row recency (s95 #4) ──────────────
+  //
+  // Per-direction recency surfaces on cluster_buy / cluster_sell rows as a
+  // "last Xd" segment INSIDE the net-dollar parens, before the ", code P/S"
+  // tail. Matches the SPEC §8.2 mockup ("4 insiders bought (net +$2.3M, last
+  // 23d), code P"). Null degrades to "last —".
+
+  it('T-OBR-F4-DSLB-1 cluster_buy per-ticker row includes "last Xd" segment when recency present', () => {
+    const md = renderBriefMarkdown(brief({
+      formFour: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        form4ClusterFlag: false,
+        perTickerRows: [
+          { ticker: 'QRST', cik: '0000222222', sector: null,
+            insiderBuyCount90d: 6, insiderSellCount90d: 0,
+            insiderBuyerCount90d: 4, insiderSellerCount90d: 0,
+            insiderNetDollar90d: 2_300_000,
+            insiderClusterBuyFlag: true, insiderClusterSellFlag: false,
+            daysSinceLatestBuy: 23, daysSinceLatestSell: null },
+        ],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 1,
+        tickersWithCikCount: 1,
+        watchUniverseTickerCount: 1,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
+        flaggedSellSectors: [],
+        form4SellClusterFlag: false,
+        maxAggregateZSell: null,
+        maxAggregateZSellSector: null,
+        compositeVersion: 'form_4_insider_v1',
+      },
+    }));
+    assert.match(md, /- QRST — 4 insiders bought \(net \+\$2\.3M, last 23d\), code P/);
+  });
+
+  it('T-OBR-F4-DSLB-2 cluster_sell per-ticker row includes "last Xd" segment when recency present', () => {
+    const md = renderBriefMarkdown(brief({
+      formFour: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        form4ClusterFlag: false,
+        perTickerRows: [
+          { ticker: 'YZAB', cik: '0000444444', sector: null,
+            insiderBuyCount90d: 0, insiderSellCount90d: 8,
+            insiderBuyerCount90d: 0, insiderSellerCount90d: 5,
+            insiderNetDollar90d: -11_200_000,
+            insiderClusterBuyFlag: false, insiderClusterSellFlag: true,
+            daysSinceLatestBuy: null, daysSinceLatestSell: 11 },
+        ],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 1,
+        tickersWithCikCount: 1,
+        watchUniverseTickerCount: 1,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
+        flaggedSellSectors: [],
+        form4SellClusterFlag: false,
+        maxAggregateZSell: null,
+        maxAggregateZSellSector: null,
+        compositeVersion: 'form_4_insider_v1',
+      },
+    }));
+    assert.match(md, /- YZAB — 5 insiders sold \(net -\$11\.2M, last 11d\), code S/);
+  });
+
+  it('T-OBR-F4-DSLB-3 null recency degrades to "last —" (defensive — should not happen on cluster rows by definition)', () => {
+    // Defensive: cluster_buy means insiderClusterBuyFlag=true means ≥3 distinct
+    // buyers in window means insiderBuyCount90d≥3 means daysSinceLatestBuy
+    // CANNOT be null in practice. But the renderer must degrade gracefully if
+    // upstream ever emits an inconsistent payload (e.g., backfill from a
+    // pre-recency snapshot via stale read).
+    const md = renderBriefMarkdown(brief({
+      formFour: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        form4ClusterFlag: false,
+        perTickerRows: [
+          { ticker: 'DEFENSE', cik: '0000555555', sector: null,
+            insiderBuyCount90d: 6, insiderSellCount90d: 0,
+            insiderBuyerCount90d: 4, insiderSellerCount90d: 0,
+            insiderNetDollar90d: 1_000_000,
+            insiderClusterBuyFlag: true, insiderClusterSellFlag: false,
+            daysSinceLatestBuy: null, daysSinceLatestSell: null },
+        ],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 1,
+        tickersWithCikCount: 1,
+        watchUniverseTickerCount: 1,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
+        flaggedSellSectors: [],
+        form4SellClusterFlag: false,
+        maxAggregateZSell: null,
+        maxAggregateZSellSector: null,
+        compositeVersion: 'form_4_insider_v1',
+      },
+    }));
+    assert.match(md, /- DEFENSE — 4 insiders bought \(net \+\$1\.0M, last —\), code P/);
   });
 });

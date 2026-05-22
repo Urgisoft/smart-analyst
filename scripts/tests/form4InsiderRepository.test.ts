@@ -729,7 +729,7 @@ function fixtureSnapshot(overrides: Partial<Form4InsiderSnapshot> = {}): Form4In
       insiderSellerCount90d: 1,
       insiderNetDollar90d: 89500,
       insiderClusterBuyFlag: false,
-      insiderClusterSellFlag: false,
+      insiderClusterSellFlag: false, daysSinceLatestBuy: null, daysSinceLatestSell: null,
     }],
     inputsAvailableAggregate: 0,
     inputsAvailablePerTicker: 0,
@@ -809,7 +809,7 @@ describe('writeSnapshot', () => {
         insiderSellerCount90d: 4,
         insiderNetDollar90d: -11200000,
         insiderClusterBuyFlag: false,
-        insiderClusterSellFlag: true,
+        insiderClusterSellFlag: true, daysSinceLatestBuy: null, daysSinceLatestSell: null,
       }],
     }));
     const perTicker = JSON.parse(fake.inserts[0].values[0].per_ticker_json as string);
@@ -834,7 +834,7 @@ describe('loadLatestSnapshot', () => {
       insiderBuyCount90d: 2, insiderSellCount90d: 1,
       insiderBuyerCount90d: 2, insiderSellerCount90d: 1,
       insiderNetDollar90d: 89500,
-      insiderClusterBuyFlag: false, insiderClusterSellFlag: false,
+      insiderClusterBuyFlag: false, insiderClusterSellFlag: false, daysSinceLatestBuy: null, daysSinceLatestSell: null,
     }]);
     const flaggedSectorsJson = JSON.stringify([{
       sector: 'Information Technology', sectorSize: 70,

@@ -25,6 +25,7 @@ import {
   sumDollarsByCode,
   computeInsiderNetDollar,
   countDistinctInsidersByCode,
+  daysSinceLatestTradeByCode,
   flagInsiderCluster,
   computeSectorClusterRate,
   computeZ,
@@ -1310,5 +1311,76 @@ describe('constants (sanity)', () => {
     assert.deepEqual([...HIGH_SIGNAL_TRANSACTION_CODES], ['P', 'S']);
     assert.equal(BUY_CODE, 'P');
     assert.equal(SELL_CODE, 'S');
+  });
+});
+
+
+// ── T-F4-DSLB-{1..5} — daysSinceLatestTradeByCode + composite wiring ────────
+//
+// Gap #7 v2 per-row recency (S95 #4): adds `daysSinceLatestBuy` /
+// `daysSinceLatestSell` to the per-ticker row payload so the SPEC §8.2
+// "last 23d" recency hint lands on F4 cluster_buy / cluster_sell brief rows.
+
+describe('daysSinceLatestTradeByCode', () => {
+  it('T-F4-DSLB-1 returns days since most-recent trade in window for matching code', () => {
+    const trades = [
+      makeTrade({ acceptedAt: new Date(ASOF.getTime() - 23 * DAY_MS), transactionCode: 'P', personCik: 'A' }),
+      makeTrade({ acceptedAt: new Date(ASOF.getTime() - 41 * DAY_MS), transactionCode: 'P', personCik: 'B' }),
+      makeTrade({ acceptedAt: new Date(ASOF.getTime() - 7 * DAY_MS),  transactionCode: 'P', personCik: 'C' }),
+    ];
+    assert.equal(daysSinceLatestTradeByCode(trades, 'P', ASOF), 7);
+  });
+
+  it('T-F4-DSLB-2 returns null when window contains zero trades of the requested code', () => {
+    const trades = [
+      makeTrade({ acceptedAt: new Date(ASOF.getTime() - 10 * DAY_MS), transactionCode: 'P' }),
+    ];
+    assert.equal(daysSinceLatestTradeByCode(trades, 'S', ASOF), null);
+    assert.equal(daysSinceLatestTradeByCode([], 'P', ASOF), null);
+  });
+
+  it('T-F4-DSLB-3 isolates by direction — P-side recency ignores S-side trades and vice versa', () => {
+    const trades = [
+      makeTrade({ acceptedAt: new Date(ASOF.getTime() - 3 * DAY_MS),  transactionCode: 'S', personCik: 'S1' }),
+      makeTrade({ acceptedAt: new Date(ASOF.getTime() - 30 * DAY_MS), transactionCode: 'P', personCik: 'P1' }),
+    ];
+    assert.equal(daysSinceLatestTradeByCode(trades, 'P', ASOF), 30);
+    assert.equal(daysSinceLatestTradeByCode(trades, 'S', ASOF), 3);
+  });
+
+  it('T-F4-DSLB-4 floors fractional days (a trade 23.5d ago is "23d", not "24d")', () => {
+    const trades = [
+      makeTrade({
+        acceptedAt: new Date(ASOF.getTime() - (23 * DAY_MS + 12 * 60 * 60 * 1000)),
+        transactionCode: 'P',
+      }),
+    ];
+    assert.equal(daysSinceLatestTradeByCode(trades, 'P', ASOF), 23);
+  });
+
+  it('T-F4-DSLB-5 evaluateForm4InsiderComposite populates daysSinceLatestBuy + daysSinceLatestSell on the per-ticker row', () => {
+    // Distinct accessions per trade so dedupeTrades() doesn't collapse them.
+    const inputs = makeInputs({
+      perTicker: [{
+        ticker: 'QRST', cik: '0000222222', sector: null,
+        trades: [
+          makeTrade({ accession: 'X1', acceptedAt: new Date(ASOF.getTime() - 23 * DAY_MS), transactionCode: 'P', personCik: 'B1' }),
+          makeTrade({ accession: 'X2', acceptedAt: new Date(ASOF.getTime() - 12 * DAY_MS), transactionCode: 'P', personCik: 'B2' }),
+          makeTrade({ accession: 'X3', acceptedAt: new Date(ASOF.getTime() - 41 * DAY_MS), transactionCode: 'S', personCik: 'S1' }),
+        ],
+      }],
+    });
+    const snap = evaluateForm4InsiderComposite(inputs);
+    assert.equal(snap.perTickerRows.length, 1);
+    assert.equal(snap.perTickerRows[0]!.daysSinceLatestBuy, 12);
+    assert.equal(snap.perTickerRows[0]!.daysSinceLatestSell, 41);
+
+    // Zero-trade ticker produces null on both directions (cold-start).
+    const zeroInputs = makeInputs({
+      perTicker: [{ ticker: 'EMPTY', cik: '0000333333', sector: null, trades: [] }],
+    });
+    const zeroSnap = evaluateForm4InsiderComposite(zeroInputs);
+    assert.equal(zeroSnap.perTickerRows[0]!.daysSinceLatestBuy, null);
+    assert.equal(zeroSnap.perTickerRows[0]!.daysSinceLatestSell, null);
   });
 });

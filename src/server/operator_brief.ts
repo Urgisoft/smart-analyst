@@ -934,6 +934,8 @@ export function buildForm4InsiderSection(
       insiderNetDollar90d: r.insiderNetDollar90d,
       insiderClusterBuyFlag: r.insiderClusterBuyFlag,
       insiderClusterSellFlag: r.insiderClusterSellFlag,
+      daysSinceLatestBuy: r.daysSinceLatestBuy,
+      daysSinceLatestSell: r.daysSinceLatestSell,
     })),
     inputsAvailableAggregate: snapshot.inputsAvailableAggregate,
     inputsAvailablePerTicker: snapshot.inputsAvailablePerTicker,

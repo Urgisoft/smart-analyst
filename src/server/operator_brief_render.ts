@@ -821,6 +821,12 @@ export interface BriefForm4InsiderSection {
     insiderNetDollar90d: number;
     insiderClusterBuyFlag: boolean;
     insiderClusterSellFlag: boolean;
+    /** Days since most-recent P-code trade in 90d window; null when count
+     *  is 0. Surfaced as the SPEC §8.2 "last 23d" hint on cluster_buy rows. */
+    daysSinceLatestBuy: number | null;
+    /** Days since most-recent S-code trade in 90d window; null when count
+     *  is 0. Surfaced as the SPEC §8.2 "last 23d" hint on cluster_sell rows. */
+    daysSinceLatestSell: number | null;
   }>;
   /** Count of SPY-500 constituents with usable sector mapping. */
   inputsAvailableAggregate: number;
@@ -1930,6 +1936,15 @@ function formatDaysSince(v: number | null): string {
   return `${v}d ago`;
 }
 
+/** Variant of `formatDaysSince` matching SPEC §8.2's "last Xd" phrasing
+ *  (used on F4 cluster_buy / cluster_sell per-ticker rows). Null degrades
+ *  to "last —" so cluster_buy / cluster_sell rows render a consistent
+ *  segment shape regardless of whether the other direction also has signal. */
+function formatDaysSinceLast(v: number | null): string {
+  if (v == null) return 'last —';
+  return `last ${v}d`;
+}
+
 /**
  * Section #13 — ETF-flow composite. Informational only in v1 (SPEC §1
  * non-goal #1). v1 panel renders aggregate scalars + flagged ETFs + universe
@@ -2246,11 +2261,11 @@ function formatEightKItemList(row: {
  * per-ticker flagged rows (top-N per side: cluster_buy + cluster_sell) →
  * universe coverage + composite-version footer.
  *
- * Per-row format: `${ticker} — N insiders ${bought/sold} (net ${signed$}), code ${P/S}`.
+ * Per-row format: `${ticker} — N insiders ${bought/sold} (net ${signed$}, last Xd), code ${P/S}`.
  * Net-dollar formatting is load-bearing per T-OBR-F4-7 (sign + dollar units;
- * "+$2.3M" / "-$11.2M"). The SPEC §8.2 mockup also includes a "last 23d"
- * recency hint — deferred to v2 per BriefForm4InsiderSection JSDoc
- * (composite snapshot doesn't carry per-direction recency in v1).
+ * "+$2.3M" / "-$11.2M"). The "last Xd" recency hint matches SPEC §8.2 and
+ * uses `formatDaysSinceLast` (per-direction; null → "last —"). v2 gap #7
+ * per-row recency adds this surface; v1 had no per-direction recency.
  *
  * Universe-coverage line uses the composer-stamped `tickersWithCikCount`
  * (CIK-only count) instead of `inputsAvailablePerTicker` (sector-gated;
@@ -2397,9 +2412,10 @@ function renderForm4InsiderSection(b: MorningBrief): string {
       for (const r of buysShown) {
         const netStr = formatNetDollar(r.insiderNetDollar90d);
         const sectorAnnotation = formatSectorAnnotation(r.sector);
+        const recencyStr = formatDaysSinceLast(r.daysSinceLatestBuy);
         lines.push(
           `- ${r.ticker}${sectorAnnotation} — ${r.insiderBuyerCount90d} insiders bought ` +
-          `(net ${netStr}), code P`,
+          `(net ${netStr}, ${recencyStr}), code P`,
         );
       }
       if (buys.length > buysShown.length) {
@@ -2416,9 +2432,10 @@ function renderForm4InsiderSection(b: MorningBrief): string {
       for (const r of sellsShown) {
         const netStr = formatNetDollar(r.insiderNetDollar90d);
         const sectorAnnotation = formatSectorAnnotation(r.sector);
+        const recencyStr = formatDaysSinceLast(r.daysSinceLatestSell);
         lines.push(
           `- ${r.ticker}${sectorAnnotation} — ${r.insiderSellerCount90d} insiders sold ` +
-          `(net ${netStr}), code S`,
+          `(net ${netStr}, ${recencyStr}), code S`,
         );
       }
       if (sells.length > sellsShown.length) {
