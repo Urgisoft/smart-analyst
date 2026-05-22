@@ -1,83 +1,56 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-05-22 (session 95 #1 — **gap #7 v2 sell-cluster sector aggregation (S93-44) — F4 composite contract LIVE end-to-end at the composite layer**: `form4SellClusterFlag` + `flaggedSellSectors` + `maxAggregateZSell` + `maxAggregateZSellSector` shipped on `Form4InsiderSnapshot`; symmetric z-test on `baseline2ySell` panel; 6 new G2-SELL-F4-{1..6} tests + POPSEC-F4-1 extension. Single commit `b398b4e`. Buy/sell asymmetry CLOSED at the composite contract layer; persistence/render/daemon-log surface still buy-side-only — that's the follow-up slice. **NEXT default on `continue`: F4 sell-cluster G3 — DDL + writeSnapshot + loadLatestSnapshot + daemon log + brief renderer wiring.** 36 commits ahead of `origin/main`; push still operator-gated.)
+Last updated: 2026-05-22 (session 95 #2 — **gap #7 v2 sell-cluster F4 G3 (S95-2 persistence + render wiring) — F4 ARC CLOSED end-to-end**: DDL migration `migrate_add_sell_cluster_to_form_4_insider_snapshots.ts` adds 4 sell-side CH columns; `writeSnapshot` persists them; `loadLatestSnapshot` decodes them with malformed-JSON degrade; daemon `aggregateLogLine` extends with `sell_cluster_flag=` + `max_z_sell=` tokens; brief composer threads sell-side fields into `BriefForm4InsiderSection`; renderer section #15 §1.4 emits parallel "Sell-side cluster" panel (LIVE / no-flag-cleared / cold-start three-branch). 8 net new G2-SELL-G3-F4-{1..8} tests; full suite 2801 pass / 2 fail (pre-existing CH-unreachable) / 95 skipped; +8 net vs s95 #1. Single commit `d05eb39`. **37 commits ahead of `origin/main`; push still operator-gated.** **NEXT default on `continue`: operator pick — F4 arc fully closed; recommended slice if operator says only "continue": Gap #7 v2 per-row recency (S93-32 + S93-52 co-bootstrap of EK + F4 snapshot DDLs).**)
 
 ## What this turn delivered
 
-First slice of session 95 — and the slice that closes the small remaining
-buy/sell asymmetry in the F4 arc (per s94 #11 HANDOFF's recommended next-
-default pick). Composite contract layer ONLY, per HANDOFF's "low-friction"
-cap. Five files touched, one commit.
+Closure slice for the F4 v2 sell-cluster arc — the natural follow-up to
+s95 #1's composite-contract slice. Five files touched (one new), 8 net
+new tests, one operator-gated DDL migration ready to apply.
 
-1. **`src/server/form_4_insider.ts`** (~+90 / -20 LOC):
-   - `computeSectorClusterRate` gains a fourth parameter
-     `direction: HighSignalTransactionCode = BUY_CODE`. Default preserves
-     byte-equal behavior at all existing call sites; pass `SELL_CODE` for
-     the v2 sell-side baseline computation. Type-narrowed via the
-     `HighSignalTransactionCode` union — A/M/F/G can't be passed.
-   - `Form4InsiderInputs['sectors'][i]` gains a new REQUIRED field
-     `baseline2ySell: ReadonlyArray<number>` — the trailing-2y per-day
-     sell-cluster-rate panel. Independent of `baseline2y` (the two
-     metrics have different historical distributions per Lakonishok-Lee
-     2001 §4).
-   - `Form4InsiderSnapshot` gains four REQUIRED fields (S95-2 consistency
-     with S94-29 buy-side max-z posture):
-     - `flaggedSellSectors: ReadonlyArray<Form4InsiderFlaggedSector>` —
-       mirror of `flaggedSectors` for the sell-side track.
-     - `form4SellClusterFlag: boolean` — fires when any sector's
-       sell-side |z| > 2.0. Independent of `form4ClusterFlag`.
-     - `maxAggregateZSell: number | null` — signed z of the sell-side
-       sector with max |z|; null at cold-start.
-     - `maxAggregateZSellSector: string | null` — sector name; lexicographic
-       tie-break mirrors the buy-side counterpart.
-   - Orchestrator computes BOTH directions in the same sector loop
-     (single trade-panel scan; computeSectorClusterRate called twice per
-     sector — once with BUY_CODE for the buy-side z, once with SELL_CODE
-     for the sell-side z).
+1. **`scripts/migrate_add_sell_cluster_to_form_4_insider_snapshots.ts`** (NEW, ~290 LOC):
+   - Byte-equivalent control flow to `migrate_add_max_aggregate_z_to_form_4_insider_snapshots.ts` (s94 #8) — only the column list differs.
+   - 4 new CH columns:
+     - `form_4_sell_cluster_flag UInt8 DEFAULT 0`
+     - `flagged_sell_sectors_json String DEFAULT ''`
+     - `max_aggregate_z_sell Nullable(Float64)`
+     - `max_aggregate_z_sell_sector LowCardinality(Nullable(String))`
+   - Pre-migration rows resolve to cold-start defaults via DDL DEFAULTs + the `Nullable` semantic.
+   - npm scripts: `migrate:add-sell-cluster-form-4-insider-snapshots` (dry-run) + `…:apply` (operator-gated).
 
-2. **`src/server/form_4_insider_repository.ts`** (~+30 / -15 LOC):
-   - Imports `BUY_CODE` + `SELL_CODE` from the composite module.
-   - `populateSectorsForCycle` populates `baseline2ySell[]` in the same
-     per-day loop as `baseline2y[]`. No new I/O; the same already-
-     P/S-filtered trade panel feeds both directions.
-   - `loadLatestSnapshot` defaults the four new sell-side fields to
-     cold-start (`false` / `[]` / `null` / `null`) on read from the
-     existing CH columns — the snapshot DDL is NOT extended in this
-     slice; persistence wiring is the follow-up. The LIVE daemon-cycle
-     path emits real sell-side values from the in-memory snapshot.
+2. **`src/server/form_4_insider_repository.ts`** (~+60 / -20 LOC):
+   - `RawSnapshotRow` interface gains 4 sell-side fields.
+   - `writeSnapshot` persists all 4 (mirrors the buy-side JSON insert byte-for-byte except for the field names).
+   - `loadLatestSnapshot` SELECT extended; sell-side fields decoded with the same posture as the buy-side (malformed `flagged_sell_sectors_json` degrades to `[]` via try/catch; Nullable columns map to `null`).
+   - `runDaemonForm4InsiderEvaluation`'s `aggregateLogLine` extends with `sell_cluster_flag=<bool>` + `max_z_sell=<sector>:<z>` tokens at the tail (suffix-extension; existing buy-side tokens unchanged so the generic prefix regex still matches).
+   - Bottom "What could break this" watch-out updated to reflect full persistence + render coverage; EK/XD remain buy-side-only by design (no canon for symmetric sell tracking on those composites).
 
-3. **Tests (~+200 / -40 LOC)**:
-   - 6 new G2-SELL-F4-{1..6} tests in `scripts/tests/form4Insider.test.ts`:
-     - **G2-SELL-F4-1** — `computeSectorClusterRate(direction='S')` returns
-       sell-cluster-rate (mirror of T-F4-11).
-     - **G2-SELL-F4-2** — default direction is byte-equal to direction='P'
-       (backward-compat).
-     - **G2-SELL-F4-3** — `form4SellClusterFlag` fires on sell-side
-       |z| > 2.0; buy-side stays cold-start when only `baseline2ySell`
-       is populated.
-     - **G2-SELL-F4-4** — buy + sell flags are independent; both can fire
-       concurrently. Independence is about the FLAGS, not about whether
-       a sector appears in exactly one bucket (a zero-rate today against
-       a non-zero baseline produces a negative-z that the symmetric
-       |z| > 2 test legitimately flags — same posture as F4-6 / AFML §1.3).
-     - **G2-SELL-F4-5** — `maxAggregateZSell` + sector populated
-       symmetrically; lexicographic tie-break.
-     - **G2-SELL-F4-6** — cold-start (empty `baseline2ySell`) → sell-side
-       fields cold-start regardless of trades.
-   - POPSEC-F4-1 in `form4InsiderRepository.test.ts` extended with
-     `baseline2ySell` cardinality + zero-rate assertions (sell-rate
-     must be 0 across all panel days when the fixture has zero S
-     trades).
-   - 13 existing sector literals in `form4Insider.test.ts` updated with
-     `baseline2ySell: []`.
-   - 4 F4 snapshot literals in `operatorBrief.test.ts` updated with the
-     four new required fields.
+3. **`src/server/operator_brief.ts`** (~+10 LOC):
+   - `buildForm4InsiderSection` threads the 4 sell-side fields from the composite snapshot into `BriefForm4InsiderSection`. `flaggedSellSectors` maps element-by-element like `flaggedSectors`.
+
+4. **`src/server/operator_brief_render.ts`** (~+70 LOC):
+   - `BriefForm4InsiderSection` interface gains 4 REQUIRED sell-side fields (mirroring S95-2 buy-side posture from s95 #1).
+   - `renderForm4InsiderSection` emits a parallel "Sell-side cluster" panel under the existing buy-side panel with the same three-branch §1.4 structure (LIVE table / no-flag-cleared / cold-start).
+   - The sell-side no-flag-cleared branch carries a Lakonishok-Lee 2001 §4 interpretive footer (~30-50% diluted vs buys) so the operator can weight the asymmetric signal appropriately.
+
+5. **Tests (~+390 / -5 LOC across three test files; +8 net new tests)**:
+   - **G2-SELL-G3-F4-1** (`form4InsiderRepository.test.ts`) — `writeSnapshot` stamps all 4 sell-side columns from the snapshot (including JSON encoding for `flagged_sell_sectors_json` + cold-start pass-through).
+   - **G2-SELL-G3-F4-2** — `loadLatestSnapshot` recovers all 4 sell-side columns; pre-migration / cold-start row (empty-string DEFAULT on JSON column + Nullable NULL) resolves to cold-start defaults.
+   - **G2-SELL-G3-F4-3** — malformed `flagged_sell_sectors_json` degrades to `[]`.
+   - **G2-SELL-G3-F4-4** — daemon `aggregateLogLine` appends `sell_cluster_flag=` + `max_z_sell=` tokens; cold-start values are `false` + `n/a:n/a`.
+   - **G2-SELL-G3-F4-5** (`operatorBrief.test.ts`) — composer threads all 4 sell-side fields into the brief section; buy + sell are independent (cold-start buy-side coexists with live sell-side flag).
+   - **G2-SELL-G3-F4-6** (`operatorBriefRender.test.ts`) — LIVE sell-side branch renders the panel header + table; buy-side coexists with its own no-flag-cleared line.
+   - **G2-SELL-G3-F4-7** — no-flag-cleared sell-side renders the panel + k/11 + max-|z| + the L&L 2001 §4 dilution footer.
+   - **G2-SELL-G3-F4-8** — cold-start renders the "awaits SP500 constituents" text on BOTH panels.
+   - Existing G2-DAEMON-F4-1 regex pin updated for the new tail shape.
+   - Existing G2-RENDER-F4-1 `doesNotMatch` narrowed to the buy-side panel header (the sell-side now legitimately emits "No sectors flagged today" in that fixture).
+   - 17 existing `BriefForm4InsiderSection` test literals updated with the 4 new REQUIRED sell-side fields (replace_all on the stable `compositeVersion:` anchor).
 
 ## Where we are
 
 | Bucket | Status |
 | --- | --- |
-| All s73-s93 lock-ins | ✓ as documented |
+| All s73-s94 lock-ins | ✓ as documented |
 | Autonomous-execution + data-source policy (CLAUDE.md) | ✓ s89 |
 | ADR-041 Accepted (cycle-position v2 = yield-curve-only) | ✓ s89c#2 |
 | Gap #10 short-interest-tracking arc | ✓ DONE end-to-end (s89-s90) |
@@ -88,10 +61,10 @@ cap. Five files touched, one commit.
 | Gap #7+#8 v2 GICS-A1..A4 + ADR-042 RESEARCH | ✓ s94 #1-#5 |
 | ADR-042 ACCEPTED + companion SPEC | ✓ s94 #6 |
 | ADR-042 Steps 1-5 + OQ-G3-1 sub-slice | ✓ s94 #6-#11 (GAP #7+#8 v2 G2 ARC) |
-| **Gap #7 v2 sell-cluster aggregation (S93-44) — F4 composite contract** | **✓ s95 #1 (`b398b4e`) — COMPOSITE LAYER LIVE** |
-| Gap #7 v2 sell-cluster — DDL + persistence + daemon log + brief render | ☐ NEXT default-pick (S95-G3 follow-up) |
+| Gap #7 v2 sell-cluster F4 composite contract | ✓ s95 #1 (`b398b4e`) |
+| **Gap #7 v2 sell-cluster F4 G3 — DDL + persistence + daemon log + brief render** | **✓ s95 #2 (`d05eb39`) — F4 ARC FULLY CLOSED** |
 | ADR-041 implementation (`yield_curve_inverted` category) | ☐ DEFERRED — operator-pickable |
-| Gap #7 v2 per-row recency (S93-32 + S93-52 co-bootstrap) | ☐ deferred (operator-pickable) |
+| Gap #7 v2 per-row recency (S93-32 + S93-52 co-bootstrap) | ☐ deferred (operator-pickable; recommended next default) |
 | Gap #7 v2 CMP opportunistic-vs-routine classifier (per F4-1) | ☐ deferred (calendar-gated ≥6mo from F4-A1 first apply) |
 | Gap #7 v2 13D/13G arc (needs its own SPEC) | ☐ deferred (operator-pickable) |
 | Gap #7 v2 event-driven cadence promotion | ☐ deferred (Phase B-gated) |
@@ -100,62 +73,65 @@ cap. Five files touched, one commit.
 | Phase B campaigns for nine Layer-0 composites | ⏸ deferred — calendar OR backfill arc |
 | #5 capital-deployment-ramp ADR | ☐ operator self-assigned ~1 week; not blocking |
 | Drawdown framework §12 90d empirical retune | ☐ scheduled — earliest 2026-08-29 |
-| Push 36 commits to origin/main | ☐ operator-gated, HOLD |
+| Push 37 commits to origin/main | ☐ operator-gated, HOLD |
 
 ## Decisions locked in
 
-### Session 95 part 1 (this turn, one commit)
+### Session 95 part 2 (this turn, one commit)
 
-**S95-1. v2 sell-cluster aggregation IS canon-defensible at the same z-threshold (2.0) as the buy-side F4-6.**
-`Why:` Lakonishok-Lee 2001 *Rev. Fin. Studies* §4 documents that the insider-sell signal is ~30-50% diluted by tax/diversification/charity motives — informationally weaker than buys but non-zero. Seyhun 1986 *JFE* confirms. AFML §1.3 sample stddev (n-1) applies symmetrically to any series. Three-criterion fork test passed: (1) Tier-1 canon foundation; (2) zero in-sample tuning — threshold inherited unchanged from buy-side, no fitting against validation data per Bailey-LdP 2014 selection-bias canon; (3) zero new tunable knobs — same threshold, same MIN_Z_BASELINE=30, same cluster window (30d), same distinct-insider threshold (3).
+**S95-6. Sell-side persistence ALTER uses a SEPARATE migration script (not bolted onto the s94 #8 max-z migration).**
+`Why:` The s94 #8 `migrate_add_max_aggregate_z_to_form_4_insider_snapshots.ts` was operator-applied (or is about to be); rolling new columns into it now would require re-running the OQ-G3-1 strategy (β) decision tree. A separate script keeps the audit trail clean — each migration is one coherent slice. Same posture as the s94 #8 / OQ-G3-1 design that split per-composite migrations.
 
-`How to apply:` Future Layer-0 composites with directional asymmetries (buy/sell, positive/negative, accretive/dilutive) should default to symmetric z-tests with shared thresholds inherited from the primary direction UNLESS a separate methodology citation defends a directional asymmetry in threshold or window. Downstream consumers (brief render, position sizing) carry the interpretive burden — the composite emits independent booleans; the operator weights them.
+`How to apply:` Future composite-extension column adds (sell-side, sub-sector, etc.) get their own ALTER script keyed to the slice that introduced the composite-layer field. Idempotent ALTER pattern via system.columns pre-check skip.
 
-**S95-2. Sell-side snapshot fields are REQUIRED (not optional) on `Form4InsiderSnapshot`.**
-`Why:` S94-29's posture for the buy-side `maxAggregateZ`/`maxAggregateZSector` was REQUIRED-not-optional. Mirroring that for the sell-side preserves consistency at the type-graph boundary + forces all downstream snapshot constructors (test fixtures, composer pass-through stubs) to explicitly default sell-side state. Optional fields would silently propagate undefined into downstream consumers; REQUIRED fields surface mistakes at compile time.
+**S95-7. The daemon log line extends as a SUFFIX (sell-side tokens after buy-side `cluster_flag=`), NOT as an interleaved restructure.**
+`Why:` The shared generic regex pin `(xd|ek|f4)-aggregate\] sectors_with_z=…/11 floor_cleared=…/11 max_z=…:… cluster_flag=(true|false)` has no end-anchor and matches as a prefix. Appending sell-side tokens at the tail keeps that pin valid across all three composites without requiring per-composite regex variants. The F4-specific anchored test (G2-DAEMON-F4-1) was updated to anchor on the new tail shape.
 
-`How to apply:` Future composite-snapshot extensions follow the SAME REQUIRED-not-optional rule. Cold-start defaults (`false` / `[]` / `null` / `null`) provide the structural-completion path for `loadLatestSnapshot` when the persistence layer lags the composite contract.
+`How to apply:` Future composite log-line extensions follow the same suffix-extension posture. If EK or XD ever grow symmetric sell-side tracking (needs a canon argument), they extend the SAME way — appended after the existing tail tokens.
 
-**S95-3. Separate baseline panels per direction (`baseline2y` for buys, `baseline2ySell` for sells); NOT a shared baseline.**
-`Why:` A sector's typical sell-cluster-rate is meaningfully different from its typical buy-cluster-rate (sells are more frequent in steady state per L&L 2001 §4). Using a shared baseline would distort the z-test in BOTH directions: today's buy-rate against a mixed buy+sell baseline would understate buy-anomalies; today's sell-rate against the same mixed baseline would understate sell-anomalies. The metric-baseline matching invariant from AFML §1.3 + standard z-statistics is load-bearing.
+**S95-8. EK + XD aggregate log lines stay buy-side-only; symmetric sell tracking is F4-specific in v1.**
+`Why:` F4's symmetric track has a canon citation (Lakonishok-Lee 2001 §4 — insider sells are diluted but informationally non-zero). EK material events and XD executive departures have NO equivalent canon argument for treating "absence of event" as a symmetric signal — they are inherently one-directional (an event either happens or doesn't). Extending the symmetric posture to EK/XD without a canon defense would manufacture signal that the data doesn't carry.
 
-`How to apply:` Any future per-direction z-test in any Layer-0 composite (e.g., positive/negative flow imbalances) takes a separate baseline series per direction. Both populated from the same trade panel in the same loop is fine; what's load-bearing is that the baseline matches the metric.
+`How to apply:` A future v2 ADR can resurface symmetric tracking for EK/XD IF a canon citation supports it. Until then, the asymmetry is intentional + documented in the F4 "What could break this" tail.
 
-**S95-4. `computeSectorClusterRate` parameterized with default `direction = BUY_CODE`, NOT split into two functions.**
-`Why:` Buy + sell paths are identical except for the direction filter at the per-ticker distinct-count step (`countDistinctInsidersByCode(..., direction, ...)`). A single function with a parameter has one test surface, one bug surface, one update surface. Splitting into `computeSectorBuyClusterRate` + `computeSectorSellClusterRate` would force duplication; updating one and forgetting the other is a silent-divergence risk. Default = BUY_CODE preserves byte-equal behavior at all 12 pre-existing call sites without churn.
+**S95-9. Sell-side L&L 2001 §4 dilution footer rendered ONLY on the sell-side no-flag-cleared branch (NOT the LIVE branch).**
+`Why:` The LIVE branch's table is self-explanatory (the sector + z values speak for themselves; the operator reads off the magnitude); the no-flag-cleared branch is where the "interpret weak signal correctly" reminder is most needed (operator is more likely to under-weight a "no signal today" line if they don't internalize that the sell signal is diluted to begin with). The cold-start branch's "awaits coverage" wording is also clear without the L&L footer.
 
-`How to apply:` Similar buy/sell symmetric primitives in other Layer-0 composites should follow the same shape: parameterize with a direction default, type-narrowed via the `HighSignalTransactionCode` union so off-set codes can't be passed.
+`How to apply:` Future composites with directional asymmetry citations follow the same posture — interpretive footers attach to the branch where the operator is most likely to mis-weight the signal, not as a generic header.
 
-**S95-5. Snapshot persistence (writeSnapshot + DDL ALTER), daemon log-line, brief renderer/composer are OUT OF SCOPE for this slice — that's the follow-up "F4 sell-cluster G3" slice.**
-`Why:` HANDOFF s94 #11 capped this slice at "composite-layer addition + 1 new boolean field + ~6 tests." The composite contract IS the asymmetry-closing surface — anyone calling the composite gets the sell-side fields. The persistence/render/daemon-log are observability-only layers; deferring them to a separate slice keeps each commit a coherent unit. The CH DDL ALTER migration is operator-gated by design and shouldn't ride along with a code-only commit.
+**S95-10. `inputsAvailableAggregate` IS overloaded across buy + sell directions (Option C extension from S94-32).**
+`Why:` Sector membership in the SP500 PIT panel is direction-agnostic — a sector either has constituents today or it doesn't. The same cleared-floor count therefore applies to both directions. The separate baselines (`baseline2y` vs `baseline2ySell`) only affect whether each sector PRODUCES a z; the floor-cleared count derives from sector presence, not baseline length. Using a separate `inputsAvailableAggregateSell` would force the renderer to track two counts that are always equal by construction.
 
-`How to apply:` The next slice (F4 sell-cluster G3) extends:
-  - `migrate_add_sell_cluster_to_form_4_insider_snapshots.ts` — adds four CH columns (`form_4_sell_cluster_flag UInt8 DEFAULT 0`, `flagged_sell_sectors_json String DEFAULT ''`, `max_aggregate_z_sell Nullable(Float64)`, `max_aggregate_z_sell_sector Nullable(String) DEFAULT NULL`).
-  - `writeSnapshot` writes the four new columns.
-  - `loadLatestSnapshot` reads the four new columns + falls back to cold-start when absent (handles pre-migration rows).
-  - `runDaemonForm4InsiderEvaluation`'s `aggregateLogLine` extends to include `sell_cluster_flag=` + `max_z_sell=` tokens.
-  - Brief composer (`buildForm4InsiderSection`) + `BriefForm4InsiderSection` interface + `operator_brief_render.ts` section #15 §1.4 sell-side branch (new "Sell-side cluster" panel adjacent to the existing buy-side panel).
+`How to apply:` Future asymmetric-direction composites with separate baselines but shared universe use a SINGLE `inputsAvailableAggregate` (and the same daemon-log `sectors_with_z` + `floor_cleared` tokens). If a future composite has direction-SPECIFIC universe (e.g., only "growth" stocks for one direction), THAT composite needs separate counts.
+
+**Carry-over from s95 #1 (still in force):**
+
+- S95-1 — v2 sell-cluster aggregation at z=2.0 (symmetric, inherited from buy-side; zero new tuned parameters).
+- S95-2 — Sell-side snapshot fields are REQUIRED (not optional) on `Form4InsiderSnapshot` (now also on `BriefForm4InsiderSection`).
+- S95-3 — Separate baseline panels (`baseline2y` for buys, `baseline2ySell` for sells); NOT a shared baseline.
+- S95-4 — `computeSectorClusterRate` parameterized with `direction = BUY_CODE` default, NOT split into two functions.
 
 **Carry-over from s94 #11 (still in force):**
 
-- S94-32 — `sectors_with_z` AND `floor_cleared` both report `inputsAvailableAggregate` (Option C) in daemon log line.
-- S94-33 — Sector names underscore-tokenized in daemon log line via `.replace(/\s+/g, '_')`.
+- S94-32 — `sectors_with_z` AND `floor_cleared` both report `inputsAvailableAggregate` (Option C) in daemon log line. EXTENDED at S95-10.
+- S94-33 — Sector names underscore-tokenized in daemon log line via `.replace(/\s+/g, '_')` — applies to both `max_z=` and `max_z_sell=` tokens.
 
 **Carry-over from s94 #10 (still in force):**
 
-- S94-29 — `maxAggregateZ`/`maxAggregateZSector` REQUIRED across Brief*Section interfaces.
+- S94-29 — `maxAggregateZ`/`maxAggregateZSector` REQUIRED across Brief*Section interfaces. Sell-side counterparts (`maxAggregateZSell`/`maxAggregateZSellSector`) follow the same posture.
 - S94-30 — T-OBR-*-4 (cold-start tests) REWRITTEN in-place per G2-RENDER-*-3.
-- S94-31 — F4 panel header preserves "cluster-buy rate by GICS sector" framing.
+- S94-31 — F4 panel header preserves "cluster-buy rate by GICS sector" framing (now joined by parallel "cluster-sell rate by GICS sector" panel).
 
 ### Sessions 84-94 prior decisions (carried)
 
-All prior decisions preserved unchanged. S93-1..S93-54 + S94-1..S94-33 carry through.
+All prior decisions preserved unchanged. S93-1..S93-54 + S94-1..S94-33 + S95-1..S95-5 carry through.
 
 ## Open questions
 
-### Newly opened (s95 #1) — none
+### Newly opened (s95 #2) — none
 
-The follow-up slice scope is well-defined; no canon-thin forks remaining.
+The F4 sell-cluster arc is now fully closed end-to-end. No canon-thin
+forks remaining within the slice scope.
 
 ### Carried unchanged from s94 #11
 
@@ -179,93 +155,92 @@ The follow-up slice scope is well-defined; no canon-thin forks remaining.
 
 ## Next stage
 
-### Default on `continue` — F4 sell-cluster G3 (persistence + render wiring)
+### Default on `continue` — operator pick (F4 arc is closed)
 
-The composite contract is LIVE; the sell-side signal is observable end-to-end
-within a single daemon cycle (in-memory snapshot). The follow-up slice
-surfaces the signal across cycle boundaries (CH persistence) + to the
-operator (daemon log + brief render). Single slice, ~5 files, ~120 LOC,
-~8-10 tests, one operator-gated migration. Concrete checklist:
+The F4 v2 sell-cluster arc is now fully shipped end-to-end (composite +
+persistence + daemon-log + render). No code-only follow-up is naturally
+next on the F4 track. Operator chooses the next slice from the candidate
+list below. If the operator simply says "continue" without context, the
+recommended default is **Gap #7 v2 per-row recency (S93-32 + S93-52
+co-bootstrap of EK + F4 snapshot DDLs)** — that's the next code-only
+slice that builds incrementally on the gap #7 + #8 v2 arc without
+opening new methodology questions.
 
-1. **DDL migration** — `scripts/migrate_add_sell_cluster_to_form_4_insider_snapshots.ts`. Idempotent ALTER pattern mirrored from `migrate_add_max_aggregate_z_to_form_4_insider_snapshots.ts` (s94 #8). Four new columns: `form_4_sell_cluster_flag UInt8 DEFAULT 0`, `flagged_sell_sectors_json String DEFAULT ''`, `max_aggregate_z_sell Nullable(Float64)`, `max_aggregate_z_sell_sector Nullable(String) DEFAULT NULL`. Both `:dry` and `:apply` npm scripts.
+### Candidate slices (in rough order of "next obvious code-only work")
 
-2. **`writeSnapshot`** — extend the JSON insert to include the four new fields. JSON-encode `flaggedSellSectors` to `flagged_sell_sectors_json` (mirror of `flagged_sectors_json`).
+1. **Gap #7 v2 per-row recency** — S93-32 + S93-52 co-bootstrap of EK + F4 snapshot DDLs. Add `daysSinceLatestEvent` / `daysSinceLatestBuy` / `daysSinceLatestSell` fields to the per-ticker row payload so the SPEC §8.2 mockup's "last 23d" recency hint lands. Single-slice, ~3 files, ~80 LOC, ~6-8 tests. One operator-gated DDL migration (new columns on `eight_k_classifier_snapshots` + `form_4_insider_snapshots`).
 
-3. **`loadLatestSnapshot`** — extend the SELECT + the RawSnapshotRow interface + the return statement to read the four new columns. Pre-migration rows resolve to cold-start defaults via the DDL DEFAULTs + the `Nullable` semantic.
+2. **ADR-041 implementation** (`yield_curve_inverted` regime category) — operator-pickable, the canon work is done (ADR Accepted s89). Activation slice extends the regime classifier with the new category + adds the dashboard surfacing. ~5-6 files, ~150 LOC, ~10 tests.
 
-4. **`runDaemonForm4InsiderEvaluation`'s `aggregateLogLine`** — extend the log-line shape with `sell_cluster_flag=<bool>` + `max_z_sell=<sector>:<z>` tokens (mirror the existing buy-side tokens; underscore-tokenize sector names per S94-33). A new regex pin in `G2-DAEMON-F4-2` covers the extended shape.
+3. **Gap #9 v2 ETF.com/issuer-CSV cross-validation** — adds a secondary data path that cross-validates the primary etf-flow ingest against an issuer-supplied CSV when available; logs divergences as anomalies. Operator-pickable.
 
-5. **Brief composer + renderer** — `buildForm4InsiderSection` threads the four sell-side fields through to `BriefForm4InsiderSection`; renderer section #15 §1.4 emits a parallel "Sell-side cluster" sub-section under the existing buy-side panel. Three-branch (LIVE / no-flag-cleared / cold-start) mirrors the buy-side §1.4 from s94 #10.
+4. **Gap #7 v2 13D/13G arc** — needs its own SPEC first; deferred until operator says go.
 
-6. **Tests** — G2-SELL-G3-F4-{1..8} cover the persistence round-trip + daemon log shape + composer pass-through + renderer three-branch. ~8-10 tests total.
+5. **Gap #7 v2 event-driven cadence promotion** — Phase B-gated; cannot land until Phase B independence test has signal (~6-8 weeks of EDGAR ingest history).
 
-**Acceptance criteria:**
+6. **Gap #7 v2 CMP opportunistic-vs-routine classifier** — calendar-gated ≥6mo from F4-A1 first apply-run; earliest ~2026-11-20.
 
-- ✓ `npm test` green at +N net new tests (per the slice's test count).
-- ✓ `npx tsc --noEmit` baseline-clean (13 pre-existing errors unchanged).
-- ✓ `npm run check:help` green.
+7. **C-12 Phase B AlpacaAdapter** — operator-decision; paused indefinitely.
 
-### If operator reprioritizes (carried from s94 #11)
-
-- **Gap #7 v2 per-row recency** (S93-32 + S93-52 co-bootstrap of EK + F4 snapshot DDLs).
-- **Gap #7 v2 13D/13G arc** (needs its own SPEC).
-- **ADR-041 implementation** (`yield_curve_inverted` regime category).
-- **Gap #9 v2 ETF.com/issuer-CSV cross-validation**.
-- **Gap #7 v2 event-driven cadence promotion** (Phase B-gated).
-- **Gap #7 v2 CMP opportunistic-vs-routine classifier** (calendar-gated ≥6mo from F4-A1 first apply-run; earliest ~2026-11-20).
-- **C-12 Phase B AlpacaAdapter** (operator-decision — paused indefinitely).
-- **Phase B campaigns** for the nine Layer-0 composites.
+8. **Phase B campaigns for the nine Layer-0 composites** — calendar OR backfill arc.
 
 ### Operator-gated action items (carried)
 
-- Push 36 commits to origin/main (HOLD).
+- Apply DDL migration `migrate:add-sell-cluster-form-4-insider-snapshots:apply` to surface s95 #2 persistence end-to-end on the real CH instance.
+- Push 37 commits to origin/main (HOLD).
 - Drawdown framework §12 90d empirical retune — earliest 2026-08-29.
 
 ## Files / code state
 
-### EDITED this turn (s95 #1 — commit `b398b4e`)
+### EDITED this turn (s95 #2 — commit `d05eb39`)
 
 | Path | LOC delta | Notes |
 | --- | --- | --- |
-| `src/server/form_4_insider.ts` | +90 / -20 | F4-12 v2 sell-cluster aggregation; parameterized computeSectorClusterRate; four new snapshot fields; baseline2ySell on inputs.sectors. |
-| `src/server/form_4_insider_repository.ts` | +30 / -15 | populateSectorsForCycle populates baseline2ySell; loadLatestSnapshot defaults sell-side fields to cold-start. |
-| `scripts/tests/form4Insider.test.ts` | +170 / -15 | 6 new G2-SELL-F4-* tests + 13 existing sector literals updated. |
-| `scripts/tests/form4InsiderRepository.test.ts` | +10 / -2 | fixtureSnapshot helper + POPSEC-F4-1 sell-side assertions. |
-| `scripts/tests/operatorBrief.test.ts` | +16 / 0 | 4 F4 snapshot literals updated with sell-side fields. |
+| `scripts/migrate_add_sell_cluster_to_form_4_insider_snapshots.ts` | NEW (+290) | DDL migration; 4 new CH columns; operator-gated `:apply`. |
+| `package.json` | +2 | Two new npm scripts (`migrate:add-sell-cluster-form-4-insider-snapshots[:apply]`). |
+| `src/server/form_4_insider_repository.ts` | +60 / -20 | RawSnapshotRow extended; writeSnapshot persists 4 fields; loadLatestSnapshot decodes 4 fields; aggregateLogLine extended with sell-side tokens. |
+| `src/server/operator_brief.ts` | +10 | Composer threads 4 sell-side fields through buildForm4InsiderSection. |
+| `src/server/operator_brief_render.ts` | +70 / -2 | BriefForm4InsiderSection extended; parallel "Sell-side cluster" 3-branch panel in renderForm4InsiderSection. |
+| `scripts/tests/form4InsiderRepository.test.ts` | +163 / -5 | G2-SELL-G3-F4-{1..4}; G2-DAEMON-F4-1 regex pin updated. |
+| `scripts/tests/operatorBrief.test.ts` | +42 | G2-SELL-G3-F4-5 (composer pass-through). |
+| `scripts/tests/operatorBriefRender.test.ts` | +178 / -1 | G2-SELL-G3-F4-{6..8}; 17 BriefForm4InsiderSection literals updated with 4 new fields; G2-RENDER-F4-1 doesNotMatch narrowed. |
 
-### Carried from s94 #6-#11 (unchanged)
+### Carried from s94 #6-#11 + s95 #1 (unchanged)
 
 | Path | Status | Notes |
 | --- | --- | --- |
 | `docs/decisions/README.md` | ADR-042 ACCEPTED | Methodology defense + dependency wiring. |
 | `docs/specs/gics-sector-baseline-computation.md` | byte-template SPEC | Steps 1-5 SHIPPED. |
-| Three composite `xxx.ts` source files (XD/EK/F4) | s94 #11 close | maxAggregateZ + sector live; F4 now also has sell-side. |
-| Three `xxx_repository.ts` source files | s94 #11 close | populateSectorsForCycle wired; F4 now also computes baseline2ySell. |
+| Three composite `xxx.ts` source files (XD/EK/F4) | s95 #1 close | maxAggregateZ + sector live; F4 has sell-side composite contract. |
+| Three `xxx_repository.ts` source files | s95 #1+#2 close | populateSectorsForCycle wired across all; F4 computes baseline2ySell + persists + logs sell-side. |
 | Three migrate_add_max_aggregate_z*.ts scripts | s94 #8 SHIPPED | Operator-gated ALTERs ready to apply. |
-| `src/server/operator_brief_render.ts` | Step 4 SHIPPED (s94 #10) | §1.4 three-branch active on all three sections (buy-side only on F4). |
-| `src/server/operator_brief.ts` | Step 4 SHIPPED (s94 #10) | Composer pass-through for maxAggregateZ. |
+| **F4 migrate_add_sell_cluster_*.ts** | **s95 #2 SHIPPED** | Operator-gated ALTER ready to apply (4 new sell-side columns). |
+| `src/server/operator_brief_render.ts` | s95 #2 SHIPPED | §1.4 three-branch on XD/EK (buy-side); F4 buy-side AND sell-side parallel panels. |
+| `src/server/operator_brief.ts` | s95 #2 SHIPPED | Composer pass-through for maxAggregateZ + 4 sell-side fields on F4. |
 
 ### CH state
 
-- Nine Layer-0 composite snapshot tables + three event tables remain in the
-  state from s93 / s94 #6-#11 close. No new schema changes this turn.
+- Nine Layer-0 composite snapshot tables + three event tables remain in
+  the state from s93 / s94 / s95 #1 close. **NEW from s95 #2 (pending
+  operator-apply):** F4 snapshot table needs the FOURTH operator-gated
+  ALTER (`migrate:add-sell-cluster-form-4-insider-snapshots:apply`) to
+  surface sell-side persistence end-to-end. Pre-application: in-process
+  consumers see real sell-side values via in-memory snapshot;
+  cross-cycle stale-read consumers see cold-start sell-side defaults.
 - Carry from s94 #8: three Layer-0 snapshot tables each have a pending
-  ALTER migration ready to apply for `maxAggregateZ` persistence
+  ALTER migration for `maxAggregateZ` persistence
   (`migrate:add-max-z-<composite>-snapshots:apply`).
-- **NEW from s95 #1 (pending for follow-up slice):** the F4 snapshot table
-  needs a SECOND ALTER migration to persist the four sell-side columns
-  (`migrate_add_sell_cluster_to_form_4_insider_snapshots.ts` — NOT YET
-  AUTHORED; ships in F4 sell-cluster G3).
 
 ### Tests (validated this turn)
 
 ```text
-npx tsx --test scripts/tests/form4Insider.test.ts            # 73 pass / 0 fail
 npx tsx --test scripts/tests/form4InsiderRepository.test.ts \
-              scripts/tests/form4Insider.test.ts             # ALL F4-related green
+              scripts/tests/form4Insider.test.ts             # 141 pass / 0 fail / 6 CH-unreachable skips
+npx tsx --test scripts/tests/operatorBrief.test.ts \
+              scripts/tests/operatorBriefRender.test.ts      # 205 pass / 2 fail (pre-existing CH-unreachable) / 0 skipped
 
-npm test                                                      # 2890 / 2793 pass / 2 fail / 95 skipped
-                                                              # +6 net new tests vs s94 #11 (G2-SELL-F4-1..6)
+npm test                                                      # 2898 / 2801 pass / 2 fail / 95 skipped
+                                                              # +8 net new tests vs s95 #1 (G2-SELL-G3-F4-1..8)
                                                               # 2 fails pre-existing CH-unreachable (operatorBrief.test.ts BIAS_NOTE_PHASE1_V3)
 
 npx tsc --noEmit                                              # 13 baseline errors UNCHANGED
@@ -277,97 +252,36 @@ Full `pytest` baseline NOT re-run this turn (no Python touched).
 
 ## Watch-outs
 
-### NEW from this turn (s95 #1)
+### NEW from this turn (s95 #2)
 
-- **Composite snapshot has four NEW REQUIRED fields.** Any test fixture or
-  callsite that constructs a `Form4InsiderSnapshot` literal MUST include
-  `flaggedSellSectors`, `form4SellClusterFlag`, `maxAggregateZSell`,
-  `maxAggregateZSellSector`. This slice updated 4 F4 snapshot literals in
-  `operatorBrief.test.ts` + the `fixtureSnapshot` helper in
-  `form4InsiderRepository.test.ts`. Future contributors authoring new F4
-  snapshot fixtures must follow the cold-start pattern (`[]` / `false` /
-  `null` / `null`) UNLESS exercising sell-side behavior explicitly.
+- **`Form4InsiderSnapshot` writeSnapshot drops sell-side columns on PRE-MIGRATION tables.** CH ignores unknown column names under JSONEachRow inserts. Until the operator applies `migrate:add-sell-cluster-form-4-insider-snapshots:apply`, the 4 new fields silently fail to persist (in-memory snapshot is correct; cross-cycle stale-read reconstructs at cold-start defaults). After apply, persistence is end-to-end. There is no daemon outage at any point — the DDL ALTER is non-blocking.
 
-- **`inputs.sectors[i]` has a NEW REQUIRED field `baseline2ySell`.** Same
-  posture — 13 existing sector literals updated; future fixtures must
-  pass at least `[]` for cold-start.
+- **`BriefForm4InsiderSection` has 4 NEW REQUIRED fields** (`flaggedSellSectors`, `form4SellClusterFlag`, `maxAggregateZSell`, `maxAggregateZSellSector`). Any future test fixture or callsite constructing a `BriefForm4InsiderSection` literal MUST include them. The 17 existing fixtures in `operatorBriefRender.test.ts` were updated via the stable `compositeVersion:` anchor; future authors of new fixtures should default to cold-start (`[]` / `false` / `null` / `null`) UNLESS exercising the sell-side branch explicitly.
 
-- **`computeSectorClusterRate` default direction = BUY_CODE.** Backward-
-  compat preserved across all 12 pre-existing call sites. A future
-  refactor that flips the default to SELL_CODE would silently invert the
-  semantic at every untouched call site — the parameter name and order
-  are load-bearing.
+- **The daemon `[f4-aggregate]` log line has 2 NEW TAIL TOKENS** (`sell_cluster_flag=…` + `max_z_sell=…:…`). The shared generic regex pin `(xd|ek|f4)-aggregate\] … cluster_flag=(true|false)` is prefix-matched (no end-anchor) so it still matches across all three composites. The F4-specific anchored test (G2-DAEMON-F4-1) was updated to anchor on `max_z_sell=…$`. EK + XD log lines are UNCHANGED (still 4-token shape; the symmetric sell track is F4-specific per S95-8).
 
-- **Persistence is PARTIAL — sell-side fields NOT yet in CH DDL.** The
-  in-memory composite snapshot has the four sell-side fields; the
-  persisted CH snapshot does NOT. `writeSnapshot` silently drops them
-  (CH ignores unknown column names in the JSON insert). `loadLatestSnapshot`
-  reconstructs at cold-start defaults on read. In-process consumers
-  (anomaly-push, composer in the same cycle) see real sell-side values;
-  cross-cycle stale-read consumers (e.g., the morning brief reading
-  yesterday's snapshot) do NOT until the F4 sell-cluster G3 slice ships.
+- **Buy + sell aggregate panels are INDEPENDENT branches in the renderer.** Both can render simultaneously: e.g., LIVE buy-side table + no-flag-cleared sell-side line in the same brief. The buy-side panel header preserves "cluster-buy rate by GICS sector" (S94-31); the sell-side parallel uses "cluster-sell rate by GICS sector". A `.match(md, /No sectors flagged today/)` against a fixture with `inputsAvailableAggregate > 0` will match on the sell-side branch even if the buy-side is LIVE — narrow the regex to the panel header when this matters (see G2-RENDER-F4-1).
 
-- **Daemon log-line `cluster_flag=` token still references the BUY-side
-  flag only.** The sell-side flag is observable via the in-memory
-  snapshot only at this slice. The G3 follow-up extends the log-line
-  shape with a new `sell_cluster_flag=` token + a new regex pin.
+- **The L&L 2001 §4 dilution footer attaches to the sell-side no-flag-cleared branch ONLY** (not LIVE, not cold-start). Future composites adapting this pattern should put interpretive footers where the operator is most likely to mis-weight a weak signal, not as a generic panel header.
 
-- **Brief renderer section #15 §1.4 still renders the BUY-side panel
-  only.** The "cluster-buy rate by GICS sector" framing per S94-31
-  remains in force; the sell-side parallel panel ("cluster-sell rate
-  by GICS sector") ships in F4 sell-cluster G3.
+- **`inputsAvailableAggregate` is overloaded across BOTH directions (S95-10).** Sector membership in the SP500 PIT panel is direction-agnostic; the same cleared-floor count applies to both directions. The separate baseline panels only affect whether each sector PRODUCES a z; they don't gate floor-clearance.
 
-- **Sell signal is informationally weaker than buys (L&L 2001 §4).**
-  Downstream weighting (brief render emphasis, position sizing factor)
-  should NOT treat the two flags equivalently. The composite
-  intentionally emits two independent booleans + max-z fields so the
-  consumer carries the interpretive burden. v2 ADR for asymmetric
-  weighting is operator-pickable and deferred.
+- **`computeSectorClusterRate` is called TWICE per sector per cycle** (once with BUY_CODE, once with SELL_CODE). Same trade panel; the only added work is the second per-ticker distinct-insider count + the second z-computation. Performance regression risk: ~2x the sector-loop cost. The baseline-panel computation also runs both directions (per-day in the trailing 2y); this is the dominant cost in the populateSectorsForCycle workflow.
 
-- **Symmetric z-test fires on negative-z anomalies too.** A sector with
-  ZERO sell-clusters today against a baseline mean of ~0.02 (and stddev
-  ~0.005) produces a |z| ~ 4 negative anomaly that LEGITIMATELY fires
-  `form4SellClusterFlag = true`. Same posture as F4-6 buy-side. The G3
-  brief renderer should treat negative-z sell-cluster anomalies as
-  "abnormally LOW insider selling" — informationally distinct from
-  "abnormally HIGH insider selling" but flag-equivalent at the
-  composite layer.
+- **Symmetric z-test fires on negative-z sell-side anomalies too** (S95-1 carry). A sector with ZERO sell-clusters today against a non-zero baseline produces a |z| that LEGITIMATELY fires `form4SellClusterFlag = true` as "abnormally LOW insider selling". The brief renderer treats this as a flag-equivalent event at the composite layer; the LIVE branch table shows the sign via the `+/-` prefix on `σ`. Downstream weighting must read the sign to distinguish "high selling" from "low selling."
 
-### Carried (s89-s94 #11 + earlier)
+### Carried (s89-s95 #1 + earlier)
 
 All prior watch-outs preserved unchanged. Key carry-overs:
 
-- **Brief*Section types declare `maxAggregateZ`/`maxAggregateZSector` as
-  REQUIRED fields (S94-29).** Any new test fixture must include both.
-
-- **The §1.4 three-branch order is load-bearing: LIVE → no-flag-cleared
-  → cold-start.**
-
-- **The F4 panel header is "cluster-buy rate by GICS sector" (S94-31).**
-  Buy-side wording stays until the G3 follow-up adds the sell-side
-  parallel panel.
-
-- **`inputsAvailableAggregate` semantic overload (Option C; S94-32).**
-  Both `sectors_with_z` AND `floor_cleared` in the daemon log line use
-  the same value. The G3 follow-up's `sell_cluster_flag=` token follows
-  the same semantic.
-
-- **The three ALTER migrations are operator-gated on first run (s94 #8).**
-  Plus the new F4 sell-cluster ALTER will be a FOURTH operator-gated
-  migration once authored in G3.
-
-- **V1 event-query universe is today's PIT constituents only (S94-27).**
-
-- **Path A rolling-rate semantic locks per-composite intrinsic windowDays
-  (S94-26).** XD/EK use 90d; F4 uses 30d cluster window. The sell-side
-  baseline reuses F4's 30d cluster window (no change).
-
-- **`dayAsOf` uses end-of-day semantic (`day + 'T23:59:59.999Z'`).**
-
 - **The composite source files have `\0` literals in template strings.**
   `src/server/executive_departure.ts` (line 105), `eight_k_classifier.ts`
-  (line 133), `form_4_insider.ts` (line 163) — Read tool falls back to
-  binary at the early-line offset.
+  (line 133), `form_4_insider.ts` (line 163).
+
+- **The §1.4 three-branch order is load-bearing: LIVE → no-flag-cleared
+  → cold-start.** This applies symmetrically to BOTH directions now.
+
+- **`dayAsOf` uses end-of-day semantic (`day + 'T23:59:59.999Z'`).**
 
 - **Tie-break asymmetry on equal-|z| with opposite signs (carried).**
 
@@ -381,20 +295,20 @@ All prior watch-outs preserved unchanged. Key carry-overs:
 
 - Today's rate must be EXCLUDED from the baseline window per ADR-042 §4.
 
-(All earlier s89-s94 #11 watch-outs preserved unchanged.)
+(All earlier s89-s95 #1 watch-outs preserved unchanged.)
 
 ## Pre-loaded operational reminders
 
 ### Daily-keep-it-fresh
 
 ```text
-npm run daemon:daily                                    # all 7 Layer-0 + 8-K classifier (1k) + Form 4 (1l); aggregate-sector layer LIVE on XD/EK/F4 (buy-side); F4 sell-side LIVE in-memory but NOT persisted/logged yet (G3 follow-up).
+npm run daemon:daily                                    # all 7 Layer-0 + 8-K classifier (1k) + Form 4 (1l); aggregate-sector layer LIVE on XD/EK/F4 (buy-side); F4 sell-side LIVE end-to-end (composite + persistence + log + render).
 npm run audit:positions
 npx tsx scripts/_paper_trading_review.ts
-npm run brief:morning                                   # sections #7-#15 LIVE; F4 §1.4 still buy-side only.
+npm run brief:morning                                   # sections #7-#15 LIVE; F4 §15 emits BOTH buy-side AND sell-side parallel panels.
 ```
 
-### Gap #7+#8 v2 GICS activation — buy-side ARC CLOSED; sell-side composite contract LIVE (G3 follow-up pending)
+### Gap #7+#8 v2 GICS activation — buy-side ARC CLOSED; F4 sell-side ARC CLOSED end-to-end
 
 ```text
 # GICS map bootstrap + ingest (READY since s94 #1):
@@ -411,12 +325,13 @@ npm run migrate:add-max-z-eight-k-classifier-snapshots:apply    # applies ALTER 
 npm run migrate:add-max-z-form-4-insider-snapshots              # dry-run
 npm run migrate:add-max-z-form-4-insider-snapshots:apply        # applies ALTER (+2 columns)
 
+# NEW from s95 #2 — F4 sell-cluster persistence (READY to apply):
+npm run migrate:add-sell-cluster-form-4-insider-snapshots       # dry-run
+npm run migrate:add-sell-cluster-form-4-insider-snapshots:apply # applies ALTER (+4 sell-side columns)
+
 # G2 aggregate-panel activation:
 # Steps 1-5 DONE end-to-end on XD/EK/F4 buy-side per s94 #6-#11.
-# F4 v2 sell-cluster aggregation: composite-contract LIVE (s95 #1).
-#   - DDL ALTER + writeSnapshot/loadLatestSnapshot persistence: PENDING G3 follow-up.
-#   - Daemon log-line sell-side token: PENDING G3.
-#   - Brief renderer section #15 §1.4 sell-side branch: PENDING G3.
+# F4 v2 sell-cluster: COMPOSITE + PERSISTENCE + DAEMON LOG + RENDER all LIVE per s95 #1-#2.
 ```
 
 ### Gap #9 etf-flow activation (FULLY READY)
@@ -465,7 +380,7 @@ npm run daemon:daily
 npm run brief:morning
 ```
 
-### Gap #7 Form 4 (G2 LIVE on buy-side; v2 sell-side composite-contract LIVE — persistence/render PENDING G3)
+### Gap #7 Form 4 (G2 buy-side + v2 sell-side both LIVE end-to-end)
 
 ```text
 npm run edgar:form4:ingest:dry
@@ -473,34 +388,35 @@ npm run edgar:form4:ingest
 npm run migrate:create-form-4-insider-snapshots
 npm run migrate:create-form-4-insider-snapshots:apply
 npm run migrate:add-max-z-form-4-insider-snapshots:apply
-# F4 sell-cluster persistence migration (PENDING G3 follow-up):
-# npm run migrate:add-sell-cluster-form-4-insider-snapshots:apply  # NOT YET AUTHORED
-npm run daemon:daily                                            # emits [f4-aggregate] log line (buy-side token only); sell-side LIVE in-memory
-npm run brief:morning                                           # section #15 buy-side only; sell-side panel PENDING G3
+npm run migrate:add-sell-cluster-form-4-insider-snapshots:apply  # NEW s95 #2 — sell-side persistence
+npm run daemon:daily                                              # emits [f4-aggregate] log line with both buy-side AND sell-side tokens
+npm run brief:morning                                             # section #15 emits BOTH buy-side AND sell-side parallel panels
 ```
 
 ### Tests + dev
 
 ```text
-npm test                                                                       # TS — this turn 2890 / 2793 pass / 2 fail / 95 skipped (2 fails pre-existing CH-unreachable)
+npm test                                                                       # TS — this turn 2898 / 2801 pass / 2 fail / 95 skipped (2 fails pre-existing CH-unreachable)
 .venv/Scripts/python.exe -m pytest scripts/tests                               # Python — last full-run baseline 324 / 324
 npm run dev                                                                    # http://localhost:3000
-npm run check:help                                                             # FULLY GREEN at s95 #1 close
-npx tsx --test scripts/tests/form4Insider.test.ts                              # this turn — 73 pass / 0 fail (6 new G2-SELL-F4-*)
-npx tsx --test scripts/tests/form4InsiderRepository.test.ts                    # POPSEC-F4-1 extended; all sector-loading tests green
+npm run check:help                                                             # FULLY GREEN at s95 #2 close
+npx tsx --test scripts/tests/form4InsiderRepository.test.ts                    # this turn — 141 pass / 0 fail / 6 CH-unreachable skips (G2-SELL-G3-F4-{1..4})
+npx tsx --test scripts/tests/operatorBrief.test.ts                             # G2-SELL-G3-F4-5 + composer tests green
+npx tsx --test scripts/tests/operatorBriefRender.test.ts                       # G2-SELL-G3-F4-{6..8} + all 17 fixtures updated
 npx tsc --noEmit                                                               # 13 baseline errors unchanged
 ```
 
 ## For the next session — priority order
 
-**Default on `continue`:** F4 sell-cluster G3 (persistence + render
-wiring) — the natural completion of the s95 #1 composite-contract slice.
-Single-slice, ~5 files, ~120 LOC, ~8-10 tests, one operator-gated DDL
-migration. Concrete steps enumerated under "Next stage" above.
+**Default on `continue`:** operator picks the next slice (F4 arc is fully
+closed). If operator just says "continue" with no other context, the
+recommended default is **Gap #7 v2 per-row recency** (S93-32 + S93-52
+co-bootstrap of EK + F4 snapshot DDLs) — that's the next code-only slice
+that builds incrementally without opening new methodology questions.
 
 **Acceptance criteria** for whichever next slice ships:
 
-- ✓ `npm test` green at +N net new tests (per the slice's SPEC §5 test count).
+- ✓ `npm test` green at +N net new tests (per the slice's SPEC test count).
 - ✓ `npx tsc --noEmit` baseline-clean (13 pre-existing errors unchanged).
 - ✓ `npm run check:help` green.
 
@@ -508,9 +424,9 @@ migration. Concrete steps enumerated under "Next stage" above.
 default-next:
 
 - **Gap #7 v2 per-row recency** (S93-32 + S93-52 co-bootstrap of EK + F4 snapshot DDLs).
-- **Gap #7 v2 13D/13G arc** (needs its own SPEC).
 - **ADR-041 implementation** (`yield_curve_inverted` regime category).
 - **Gap #9 v2 ETF.com/issuer-CSV cross-validation**.
+- **Gap #7 v2 13D/13G arc** (needs its own SPEC).
 - **Gap #7 v2 event-driven cadence promotion** (Phase B-gated).
 - **Gap #7 v2 CMP opportunistic-vs-routine classifier** (calendar-gated ≥6mo from F4-A1 first apply-run; earliest ~2026-11-20).
 - **C-12 Phase B AlpacaAdapter** (operator-decision — paused indefinitely).
@@ -518,7 +434,8 @@ default-next:
 
 **Operator-gated action items (carried):**
 
-- Push 36 commits to origin/main (HOLD).
+- Apply `migrate:add-sell-cluster-form-4-insider-snapshots:apply` to surface s95 #2 sell-side persistence end-to-end on the real CH.
+- Push 37 commits to origin/main (HOLD).
 - Drawdown framework §12 90d empirical retune — earliest 2026-08-29.
 
 **Calendar-gated:**
@@ -538,40 +455,57 @@ default-next:
 
 ## Important framing for the next chat
 
-**The F4 buy/sell asymmetry is CLOSED at the composite contract layer.**
-`Form4InsiderSnapshot` now carries `form4SellClusterFlag`,
-`flaggedSellSectors`, `maxAggregateZSell`, `maxAggregateZSellSector`
-as required fields. The composite computes both directions in a single
-sector loop using the SAME trade panel; baselines are kept separate
-(`baseline2y` vs `baseline2ySell`) per S95-3.
+**The F4 v2 sell-cluster arc is FULLY CLOSED.** `Form4InsiderSnapshot`'s
+4 sell-side fields are persisted to CH (via the new ALTER), decoded on
+load, surfaced in the daemon log line via 2 new tail tokens, threaded
+through the brief composer, and rendered as a parallel "Sell-side
+cluster" §1.4 three-branch panel adjacent to the buy-side panel in
+section #15 of the morning brief.
 
-**Persistence, daemon log, and brief render are NOT yet extended.** The
-in-memory composite output is correct end-to-end; cross-cycle stale-read
-consumers see cold-start sell-side defaults until the F4 sell-cluster G3
-slice ships. The DDL ALTER migration is operator-gated.
+**EK + XD remain buy-side-only by design.** The symmetric sell-side
+track is F4-specific in v1 because Lakonishok-Lee 2001 §4 only argues
+for the symmetric posture on raw insider trades. No equivalent canon
+argument exists for EK material events or XD executive departures — a
+v2 ADR could open that question with a canon citation, but until then
+the asymmetry is intentional + documented in the F4 "What could break
+this" tail.
+
+**The DDL migration is operator-gated on first apply.** Pre-apply, the
+in-memory composite snapshot emits the sell-side fields correctly
+end-to-end within a cycle (anomaly-push + same-cycle composer); the
+persisted snapshot's sell-side fields drop silently (CH ignores unknown
+column names) until the operator runs
+`npm run migrate:add-sell-cluster-form-4-insider-snapshots:apply`.
+After apply, cross-cycle stale-read consumers (the morning brief reading
+yesterday's snapshot) see real sell-side values too.
 
 **The composite source files have `\0` literals (carried watch-out).**
 `src/server/executive_departure.ts` (line 105), `eight_k_classifier.ts`
 (line 133), `form_4_insider.ts` (line 163).
 
-**Parallel-tracks posture continues.** s95 #1 did NOT affect C-12 /
-paper-trading / real-money-flip arcs. Full `npm test` green at 2793
-pass (2 pre-existing CH-unreachable fails in operatorBrief.test.ts are
-NOT regressions; +6 net vs s94 #11 = exactly the 6 G2-SELL-F4-* tests).
+**Parallel-tracks posture continues.** s95 #2 did NOT affect C-12 /
+paper-trading / real-money-flip arcs. Full `npm test` green at 2801
+pass (2 pre-existing CH-unreachable fails are NOT regressions; +8 net
+vs s95 #1 = exactly the 8 G2-SELL-G3-F4-{1..8} tests).
 
-**The chain through s95 #1:**
+**The chain through s95 #2:**
 
 ```text
-ALL S41-S94 WORK                                       ✓ as documented
-S95 #1: gap #7 v2 sell-cluster F4 composite contract   ✓ committed (b398b4e)
+ALL S41-S94 WORK                                        ✓ as documented
+S95 #1: gap #7 v2 sell-cluster F4 composite contract    ✓ committed (b398b4e)
         + 6 G2-SELL-F4-* tests
-S95 #1 HANDOFF rewrite (this commit)                   ✓ this commit
-  → DEFAULT NEXT: F4 sell-cluster G3 — DDL ALTER + writeSnapshot +
-                  loadLatestSnapshot + daemon log + brief renderer
-                  wiring. ~5 files, ~120 LOC, ~8-10 tests.
-  → background: composite now emits two independent cluster signals on
-                F4 (buy + sell); buy-side is fully persisted/logged/
-                rendered; sell-side observable only via the in-memory
-                snapshot until G3 lands. The G2 wiring on XD/EK/F4
-                (buy-side) remains end-to-end live per s94 #11.
+S95 #2: gap #7 v2 sell-cluster F4 G3                    ✓ committed (d05eb39)
+        — DDL + persistence + daemon log + brief render
+        + 8 G2-SELL-G3-F4-* tests
+S95 #2 HANDOFF rewrite (this commit)                    ✓ this commit
+  → DEFAULT NEXT: operator pick — F4 arc fully closed.
+                  Recommended if operator says "continue" without
+                  context: Gap #7 v2 per-row recency (S93-32 +
+                  S93-52 co-bootstrap of EK + F4 snapshot DDLs).
+  → background: F4 emits four signals end-to-end now (buy-side
+                + sell-side per-ticker cluster flags; buy-side +
+                sell-side aggregate cluster flags). Buy-side has
+                been LIVE since s94 #11; sell-side composite landed
+                s95 #1; sell-side persistence + render landed s95 #2.
+                XD + EK arcs remain buy-side-only.
 ```
