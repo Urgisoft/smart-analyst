@@ -223,6 +223,49 @@ export function daysSinceLatestHighSignalEvent(
   return Math.floor(diffMs / (24 * 60 * 60 * 1000));
 }
 
+/** Per-event recency entry — one per high-signal item code with at least one
+ *  in-window event for this ticker. `daysSinceLatest` is the integer-day
+ *  truncated `(asOf - max(acceptedAt of this itemCode))` per the same
+ *  semantic as `daysSinceLatestHighSignalEvent`. SPEC §8.1 per-EVENT recency
+ *  ("restatement (4.02) 12d ago + auditor change (4.01) 18d ago"). */
+export interface EightKPerItemRecency {
+  itemCode: HighSignalItemCode;
+  daysSinceLatest: number;
+}
+
+/** Compute per-item-code recency for the high-signal subset of an event panel.
+ *  Returns one entry per item code that has ≥ 1 event inside
+ *  `[asOf - windowDays, asOf]`, in fixed HIGH_SIGNAL_ITEM_CODES order so
+ *  byte-equal output is stable across input permutations. Empty input or
+ *  no-in-window events ⇒ empty array. */
+export function computePerItemRecency(
+  events: ReadonlyArray<EightKEvent>,
+  asOf: Date,
+  windowDays: number = ROLLING_WINDOW_DAYS,
+): EightKPerItemRecency[] {
+  const inWindow = filterEventsInWindow(
+    events.filter((e) => HIGH_SIGNAL_ITEM_SET.has(e.itemCode)),
+    asOf,
+    windowDays,
+  );
+  if (inWindow.length === 0) return [];
+  const latestMsByItem = new Map<string, number>();
+  for (const e of inWindow) {
+    const t = e.acceptedAt.getTime();
+    const prev = latestMsByItem.get(e.itemCode);
+    if (prev == null || t > prev) latestMsByItem.set(e.itemCode, t);
+  }
+  const out: EightKPerItemRecency[] = [];
+  const oneDayMs = 24 * 60 * 60 * 1000;
+  for (const code of HIGH_SIGNAL_ITEM_CODES) {
+    const latestMs = latestMsByItem.get(code);
+    if (latestMs == null) continue;
+    const days = Math.floor((asOf.getTime() - latestMs) / oneDayMs);
+    out.push({ itemCode: code, daysSinceLatest: days });
+  }
+  return out;
+}
+
 // ── Sector-aggregate pure functions ─────────────────────────────────────────
 
 /** Sector event rate = count(distinct (ticker, accession) in sector ∩
@@ -308,6 +351,14 @@ export interface EightKClassifierPerTickerRow {
   controlChangeFlag: boolean;
   materialAgreementFlag: boolean;
   acquisitionFlag: boolean;
+  /** SPEC §8.1 per-EVENT recency (s95 #7): one entry per high-signal item
+   *  code with ≥ 1 in-window event for this ticker, ordered by
+   *  HIGH_SIGNAL_ITEM_CODES. Optional for backward compatibility with
+   *  pre-v2 snapshots persisted under the legacy single-recency contract;
+   *  the v2 evaluator always populates it (possibly as `[]` when no
+   *  high-signal events fall in window). Renderer treats absent OR empty
+   *  as the v1 trailing-recency fallback. */
+  eventsByItemCode?: ReadonlyArray<EightKPerItemRecency>;
 }
 
 /** A flagged sector row — only emitted for sectors with |z| > 2.0. */
@@ -419,6 +470,7 @@ export function evaluateEightKClassifierComposite(
 
     const recentEventCount90d = countDistinctAccessionsInHighSignalSet(deduped, inputs.asOf);
     const daysSinceLatestEvent = daysSinceLatestHighSignalEvent(deduped, inputs.asOf);
+    const eventsByItemCode = computePerItemRecency(deduped, inputs.asOf);
 
     const materialEventFlag = recentEventCount90d >= 1;
 
@@ -438,6 +490,7 @@ export function evaluateEightKClassifierComposite(
       controlChangeFlag: flagItem(controlChangeCount),
       materialAgreementFlag: flagItem(materialAgreementCount),
       acquisitionFlag: flagItem(acquisitionCount),
+      eventsByItemCode,
     });
   }
 

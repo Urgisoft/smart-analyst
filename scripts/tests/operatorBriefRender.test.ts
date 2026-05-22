@@ -2865,6 +2865,171 @@ describe('renderBriefMarkdown — 8-K classifier panel', () => {
     assert.doesNotMatch(md, /- NOMAP \[\]/);
   });
 
+  // T-OBR-EK-10 — s95 #7 per-EVENT recency (SPEC §8.1 v2): row carrying
+  // `eventsByItemCode` renders per-item recency interleaved inline; the
+  // trailing row-level "(Nd ago)" group is DROPPED.
+  // Contract: `ABCD — restatement (4.02) 12d ago + auditor change (4.01) 18d ago`.
+  // Order matches HIGH_SIGNAL_ITEM_CODES (4.01 before 4.02), NOT the input.
+  it('T-OBR-EK-10 multi-item: per-EVENT recency interleaved per item (SPEC §8.1 v2)', () => {
+    const md = renderBriefMarkdown(brief({
+      eightK: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        eightKClusterFlag: false,
+        perTickerRows: [{
+          ticker: 'ABCD', cik: '0000111111', sector: null,
+          recentEventCount90d: 2, daysSinceLatestEvent: 12,
+          materialEventFlag: true,
+          impairmentFlag: false, restatementFlag: true,
+          auditorChangeFlag: true, delistingFlag: false,
+          controlChangeFlag: false, materialAgreementFlag: false,
+          acquisitionFlag: false,
+          // Per-EVENT recency carried explicitly by the v2 evaluator.
+          eventsByItemCode: [
+            { itemCode: '4.01', daysSinceLatest: 18 },
+            { itemCode: '4.02', daysSinceLatest: 12 },
+          ],
+        }],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 1,
+        watchUniverseTickerCount: 60,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
+        compositeVersion: 'eight_k_classifier_v1',
+      },
+    }));
+    assert.match(md, /material_event \(1\):/);
+    assert.match(
+      md,
+      /- ABCD — auditor change \(4\.01\) 18d ago \+ restatement \(4\.02\) 12d ago/,
+    );
+    // The legacy trailing "(12d ago)" group MUST NOT appear once per-event
+    // recency is rendered inline.
+    assert.doesNotMatch(md, /- ABCD — .* \(12d ago\)/);
+  });
+
+  // T-OBR-EK-11 — Single-item per-EVENT recency: `EFGH — impairment (2.06) 7d ago`.
+  it('T-OBR-EK-11 single-item: per-EVENT recency on a single fired item', () => {
+    const md = renderBriefMarkdown(brief({
+      eightK: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        eightKClusterFlag: false,
+        perTickerRows: [{
+          ticker: 'EFGH', cik: '0000222222', sector: null,
+          recentEventCount90d: 1, daysSinceLatestEvent: 7,
+          materialEventFlag: true,
+          impairmentFlag: true, restatementFlag: false,
+          auditorChangeFlag: false, delistingFlag: false,
+          controlChangeFlag: false, materialAgreementFlag: false,
+          acquisitionFlag: false,
+          eventsByItemCode: [{ itemCode: '2.06', daysSinceLatest: 7 }],
+        }],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 1,
+        watchUniverseTickerCount: 60,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
+        compositeVersion: 'eight_k_classifier_v1',
+      },
+    }));
+    assert.match(md, /- EFGH — impairment \(2\.06\) 7d ago$/m);
+    assert.doesNotMatch(md, /- EFGH — .* \(7d ago\)/);
+  });
+
+  // T-OBR-EK-12 — Backward compat: row WITHOUT `eventsByItemCode` (legacy
+  // pre-v2 snapshot persisted under the v1 single-recency contract) renders
+  // the v1 trailing-recency format. Critical because old snapshots persist in
+  // CH `per_ticker_json` and the consumer reads them as-is.
+  it('T-OBR-EK-12 backward compat: row without eventsByItemCode falls back to v1 trailing recency', () => {
+    const md = renderBriefMarkdown(brief({
+      eightK: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        eightKClusterFlag: false,
+        perTickerRows: [{
+          // Legacy fixture: NO `eventsByItemCode` field.
+          ticker: 'LEGACY', cik: '0000333333', sector: null,
+          recentEventCount90d: 1, daysSinceLatestEvent: 9,
+          materialEventFlag: true,
+          impairmentFlag: false, restatementFlag: true,
+          auditorChangeFlag: false, delistingFlag: false,
+          controlChangeFlag: false, materialAgreementFlag: false,
+          acquisitionFlag: false,
+        }],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 1,
+        watchUniverseTickerCount: 60,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
+        compositeVersion: 'eight_k_classifier_v1',
+      },
+    }));
+    // v1 trailing-recency contract: single "(Nd ago)" suffix.
+    assert.match(md, /- LEGACY — restatement \(4\.02\) \(9d ago\)/);
+  });
+
+  // T-OBR-EK-13 — Sort order preserved: when both rows carry per-EVENT
+  // recency, the per-ticker sort still keys on `daysSinceLatestEvent`
+  // (NOT the per-item entries). Smaller `daysSinceLatestEvent` renders first.
+  it('T-OBR-EK-13 sort: per-ticker order keyed on daysSinceLatestEvent under v2 per-event recency', () => {
+    const md = renderBriefMarkdown(brief({
+      eightK: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        eightKClusterFlag: false,
+        perTickerRows: [
+          // Older row first in input — should render SECOND after the sort.
+          { ticker: 'OLDER', cik: '0000999988', sector: null,
+            recentEventCount90d: 1, daysSinceLatestEvent: 20,
+            materialEventFlag: true,
+            impairmentFlag: true, restatementFlag: false,
+            auditorChangeFlag: false, delistingFlag: false,
+            controlChangeFlag: false, materialAgreementFlag: false,
+            acquisitionFlag: false,
+            eventsByItemCode: [{ itemCode: '2.06', daysSinceLatest: 20 }] },
+          { ticker: 'NEWER', cik: '0000999977', sector: null,
+            recentEventCount90d: 1, daysSinceLatestEvent: 3,
+            materialEventFlag: true,
+            impairmentFlag: false, restatementFlag: true,
+            auditorChangeFlag: false, delistingFlag: false,
+            controlChangeFlag: false, materialAgreementFlag: false,
+            acquisitionFlag: false,
+            eventsByItemCode: [{ itemCode: '4.02', daysSinceLatest: 3 }] },
+        ],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 2,
+        watchUniverseTickerCount: 60,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
+        compositeVersion: 'eight_k_classifier_v1',
+      },
+    }));
+    const newerIdx = md.indexOf('- NEWER —');
+    const olderIdx = md.indexOf('- OLDER —');
+    assert.ok(newerIdx > -1, 'expected NEWER row');
+    assert.ok(olderIdx > -1, 'expected OLDER row');
+    assert.ok(newerIdx < olderIdx, 'NEWER (3d) must render before OLDER (20d)');
+    assert.match(md, /- NEWER — restatement \(4\.02\) 3d ago/);
+    assert.match(md, /- OLDER — impairment \(2\.06\) 20d ago/);
+  });
+
   // T-OBR-EK-9 — G1-A3 (s94 #3): non-null sector renders the bracket
   // annotation inline between ticker + " —". Mirrors T-OBR-F4-9
   // byte-for-byte. Load-bearing per the SPEC §8.1 mockup contract

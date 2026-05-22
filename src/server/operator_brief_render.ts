@@ -701,6 +701,14 @@ export interface BriefEightKClassifierSection {
     controlChangeFlag: boolean;
     materialAgreementFlag: boolean;
     acquisitionFlag: boolean;
+    /** SPEC §8.1 per-EVENT recency (s95 #7): optional ordered per-item-code
+     *  recency entries. Renderer interleaves `Nd ago` after each item label
+     *  when present. Absent OR empty ⇒ v1 trailing-recency fallback (back-
+     *  compat for pre-v2 snapshots persisted under the legacy contract). */
+    eventsByItemCode?: ReadonlyArray<{
+      itemCode: string;
+      daysSinceLatest: number;
+    }>;
   }>;
   /** Count of SPY-500 constituents with usable sector mapping. */
   inputsAvailableAggregate: number;
@@ -2190,10 +2198,20 @@ function renderEightKClassifierSection(b: MorningBrief): string {
   } else {
     lines.push(`material_event (${totalFlagged}):`);
     for (const r of shown) {
-      const items = formatEightKItemList(r);
-      const daysStr = formatDaysSince(r.daysSinceLatestEvent);
       const sectorAnnotation = formatSectorAnnotation(r.sector);
-      lines.push(`- ${r.ticker}${sectorAnnotation} — ${items} (${daysStr})`);
+      // s95 #7 per-EVENT recency: when the row carries per-item recency
+      // (v2 evaluator), interleave the recency inline per item and drop the
+      // trailing row-level recency group. Empty/absent ⇒ v1 fallback.
+      const hasPerEventRecency =
+        r.eventsByItemCode != null && r.eventsByItemCode.length > 0;
+      if (hasPerEventRecency) {
+        const items = formatEightKItemListWithRecency(r, r.eventsByItemCode!);
+        lines.push(`- ${r.ticker}${sectorAnnotation} — ${items}`);
+      } else {
+        const items = formatEightKItemList(r);
+        const daysStr = formatDaysSince(r.daysSinceLatestEvent);
+        lines.push(`- ${r.ticker}${sectorAnnotation} — ${items} (${daysStr})`);
+      }
     }
     if (totalFlagged > shown.length) {
       lines.push(``);
@@ -2251,6 +2269,55 @@ function formatEightKItemList(row: {
   if (row.restatementFlag) items.push('restatement (4.02)');
   if (row.controlChangeFlag) items.push('change in control (5.01)');
   return items.length > 0 ? items.join(' + ') : '(no items)';
+}
+
+/** Item-code → display label. Pinned to formatEightKItemList's per-flag
+ *  vocabulary; the per-EVENT-recency renderer keys off item codes (not
+ *  flag booleans) so it consults this map directly. */
+const EIGHT_K_ITEM_LABEL_BY_CODE: Record<string, string> = {
+  '1.01': 'material agreement (1.01)',
+  '2.01': 'acquisition (2.01)',
+  '2.06': 'impairment (2.06)',
+  '3.01': 'delisting (3.01)',
+  '4.01': 'auditor change (4.01)',
+  '4.02': 'restatement (4.02)',
+  '5.01': 'change in control (5.01)',
+};
+
+/**
+ * Per-EVENT recency renderer (s95 #7). Each per-item entry renders as
+ * `<label> Nd ago`; entries are joined with " + " in their input order.
+ * SPEC §8.1 contract: `restatement (4.02) 12d ago + auditor change (4.01) 18d ago`.
+ *
+ * The composite layer (`computePerItemRecency`) emits entries in fixed
+ * HIGH_SIGNAL_ITEM_CODES order; this renderer preserves that order so byte-
+ * equal stdout is stable across runs. Unknown item codes (defensive guard
+ * for forward-compat) render as the raw code in parentheses.
+ *
+ * Empty input is a programmer error here — the caller guards with
+ * `hasPerEventRecency` before invoking. We still handle it defensively
+ * by falling back to "(no items)".
+ */
+function formatEightKItemListWithRecency(
+  row: {
+    materialAgreementFlag: boolean;
+    acquisitionFlag: boolean;
+    impairmentFlag: boolean;
+    delistingFlag: boolean;
+    auditorChangeFlag: boolean;
+    restatementFlag: boolean;
+    controlChangeFlag: boolean;
+  },
+  events: ReadonlyArray<{ itemCode: string; daysSinceLatest: number }>,
+): string {
+  void row;
+  if (events.length === 0) return '(no items)';
+  const parts: string[] = [];
+  for (const e of events) {
+    const label = EIGHT_K_ITEM_LABEL_BY_CODE[e.itemCode] ?? `(${e.itemCode})`;
+    parts.push(`${label} ${e.daysSinceLatest}d ago`);
+  }
+  return parts.join(' + ');
 }
 
 /**

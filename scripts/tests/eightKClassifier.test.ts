@@ -21,6 +21,7 @@ import {
   flagItem,
   countDistinctAccessionsInHighSignalSet,
   daysSinceLatestHighSignalEvent,
+  computePerItemRecency,
   computeSectorEventRate,
   computeZ,
   flagEightKCluster,
@@ -818,6 +819,74 @@ describe('aggregate-layer maxAggregateZ + maxAggregateZSector (MAXZ-EK-1..4)', (
     assert.equal(snapA.maxAggregateZSector, 'Energy');
     assert.equal(snapB.maxAggregateZSector, 'Energy');
     assert.equal(snapA.maxAggregateZ, snapB.maxAggregateZ);
+  });
+});
+
+// ── T-EK-15 / T-EK-16 / T-EK-17 / T-EK-18: per-item recency (SPEC §8.1 v2) ──
+
+describe('computePerItemRecency (T-EK-15..T-EK-18 — SPEC §8.1 per-EVENT recency)', () => {
+  it('T-EK-15: returns one entry per fired item code in HIGH_SIGNAL_ITEM_CODES order', () => {
+    // Mixed item codes; expect entries ordered 4.01 before 4.02 per the
+    // HIGH_SIGNAL_ITEM_CODES constant, NOT the input order.
+    const events = [
+      makeEvent({ accession: 'a', itemCode: '4.02',
+        acceptedAt: new Date(ASOF.getTime() - 12 * DAY_MS) }),
+      makeEvent({ accession: 'b', itemCode: '4.01',
+        acceptedAt: new Date(ASOF.getTime() - 18 * DAY_MS) }),
+    ];
+    const out = computePerItemRecency(events, ASOF);
+    assert.deepEqual(out, [
+      { itemCode: '4.01', daysSinceLatest: 18 },
+      { itemCode: '4.02', daysSinceLatest: 12 },
+    ]);
+  });
+
+  it('T-EK-16: empty events ⇒ [], no-in-window events ⇒ []', () => {
+    assert.deepEqual(computePerItemRecency([], ASOF), []);
+    const outOfWindow = makeEvent({
+      itemCode: '2.06',
+      acceptedAt: new Date(ASOF.getTime() - 100 * DAY_MS),
+    });
+    assert.deepEqual(computePerItemRecency([outOfWindow], ASOF), []);
+    const offSet = makeEvent({ itemCode: '7.01' });
+    assert.deepEqual(computePerItemRecency([offSet], ASOF), []);
+  });
+
+  it('T-EK-17: per-item daysSinceLatest reflects the MOST-RECENT acceptedAt for that itemCode', () => {
+    const events = [
+      makeEvent({ accession: 'older', itemCode: '2.06',
+        acceptedAt: new Date(ASOF.getTime() - 30 * DAY_MS) }),
+      makeEvent({ accession: 'newer', itemCode: '2.06',
+        acceptedAt: new Date(ASOF.getTime() - 7 * DAY_MS) }),
+    ];
+    const out = computePerItemRecency(events, ASOF);
+    assert.deepEqual(out, [{ itemCode: '2.06', daysSinceLatest: 7 }]);
+  });
+
+  it('T-EK-18: via composite — row.eventsByItemCode populated on every per-ticker row, interleaves into the snapshot shape', () => {
+    const inputs = makeInputs({
+      perTicker: [{
+        ticker: 'ABCD', cik: '0000111111', sector: 'IT',
+        events: [
+          makeEvent({ accession: 'r', itemCode: '4.02',
+            acceptedAt: new Date(ASOF.getTime() - 12 * DAY_MS) }),
+          makeEvent({ accession: 'a', itemCode: '4.01',
+            acceptedAt: new Date(ASOF.getTime() - 18 * DAY_MS) }),
+        ],
+      }, {
+        ticker: 'EMPTY', cik: '0000222222', sector: 'IT',
+        events: [],
+      }],
+    });
+    const snap = evaluateEightKClassifierComposite(inputs);
+    const r0 = snap.perTickerRows[0];
+    const r1 = snap.perTickerRows[1];
+    assert.deepEqual(r0.eventsByItemCode, [
+      { itemCode: '4.01', daysSinceLatest: 18 },
+      { itemCode: '4.02', daysSinceLatest: 12 },
+    ]);
+    // Empty-events ticker still carries the field (as []) — no undefined leaks.
+    assert.deepEqual(r1.eventsByItemCode, []);
   });
 });
 
