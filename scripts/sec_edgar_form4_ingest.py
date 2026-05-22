@@ -672,6 +672,116 @@ def write_insider_ciks(client, entries) -> int:
     return len(data)
 
 
+# ── EDGAR XML-body discovery ─────────────────────────────────────────────────
+#
+# The EDGAR full-text search hit JSON for Form 4 does NOT include a
+# `primary_doc` or `file_name` field, so `parse_edgar_search_response` falls
+# through to "primary.htm" — which does not exist for Form 4 filings (the
+# data lives in an XML file named `primary_01.xml` for newer filings or
+# `wf-form4_<timestamp>.xml` / `<ticker>-form4.xml` for older ones).
+#
+# Storage CIK varies too: when a filing agent (Computershare, etc.) files on
+# behalf of an insider, the agent CIK appears in the accession prefix but
+# EDGAR stores the filing under one of the search hit's `ciks_all` entries
+# (typically the insider's CIK; sometimes the issuer's). The robust strategy
+# is to try each candidate CIK against the index.json directory listing and
+# accept the first 200.
+#
+# This function is invoked from `_xml_for` only when `parse_edgar_search_response`'s
+# fallback fired (filing_url ends in /primary.htm). Tests that inject a real
+# `primary_doc` into hit fixtures continue to use the parser-supplied URL
+# directly — no discovery round-trip required.
+
+_INDEX_JSON_URL = "https://www.sec.gov/Archives/edgar/data/{cik_int}/{accession_nodash}/index.json"
+
+
+def _select_form4_xml_from_directory(items: list[dict]) -> str | None:
+    """From an EDGAR index.json `directory.item[]` listing, pick the Form 4 XML.
+
+    Precedence:
+      1. .xml file whose name (lowercase) contains "form4"
+      2. .xml file whose name (lowercase) starts with "primary_"
+      3. any .xml file that is not a stylesheet (heuristic: name has no "xsl"
+         and no "x05"/"x06" — these mark Form 3/4/5 XSL renderings)
+
+    Returns the filename (no path), or None when no candidate matches. Multiple
+    matches at the same precedence tier resolve to directory order (first wins).
+    """
+    xmls = [
+        str(it.get("name", ""))
+        for it in items
+        if isinstance(it, dict) and str(it.get("name", "")).lower().endswith(".xml")
+    ]
+    if not xmls:
+        return None
+    for name in xmls:
+        if "form4" in name.lower():
+            return name
+    for name in xmls:
+        if name.lower().startswith("primary_"):
+            return name
+    for name in xmls:
+        lc = name.lower()
+        if "xsl" in lc or "x05" in lc or "x06" in lc:
+            continue
+        return name
+    return None
+
+
+def discover_form4_primary_xml_url(
+    accession_nodash: str,
+    candidate_ciks: list[str],
+    user_agent: str,
+    cache: dict[str, str],
+    fetch: "callable" = fetch_edgar,
+) -> str | None:
+    """Resolve a Form 4 filing's primary XML URL via EDGAR index.json.
+
+    Tries each candidate CIK in order; the first that returns a parseable
+    index.json with at least one selectable XML wins. Caches positive
+    resolutions by accession_nodash to keep re-runs cheap.
+
+    Returns the absolute archive URL, or None when discovery fails (caller
+    emits a structured WARN identical in shape to the existing body-fetch
+    failure path).
+    """
+    if accession_nodash in cache:
+        return cache[accession_nodash]
+    for raw_cik in candidate_ciks:
+        try:
+            cik_int = str(int(raw_cik))
+        except (TypeError, ValueError):
+            continue
+        index_url = _INDEX_JSON_URL.format(
+            cik_int=cik_int, accession_nodash=accession_nodash,
+        )
+        try:
+            body = fetch(index_url, user_agent=user_agent)
+        except (urllib.error.HTTPError, urllib.error.URLError):
+            continue
+        try:
+            data = json.loads(body.decode("utf-8", errors="replace"))
+        except (ValueError, json.JSONDecodeError):
+            continue
+        items = (
+            data.get("directory", {}).get("item", [])
+            if isinstance(data, dict) else []
+        )
+        if not isinstance(items, list):
+            continue
+        chosen = _select_form4_xml_from_directory(items)
+        if not chosen:
+            continue
+        resolved_url = EDGAR_ARCHIVES_BASE.format(
+            cik_int=cik_int,
+            accession_nodash=accession_nodash,
+            primary_doc=chosen,
+        )
+        cache[accession_nodash] = resolved_url
+        return resolved_url
+    return None
+
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def main() -> int:
@@ -742,10 +852,30 @@ def main() -> int:
     # issuer + insider CIKs.
     issuer_cache: dict[str, dict] = {}
     insider_cache: dict[str, dict] = {}
+    xml_url_cache: dict[str, str] = {}
 
     def _xml_for(filing: dict) -> list[dict]:
+        # The EDGAR full-text-search Form 4 hit JSON omits the XML filename.
+        # `parse_edgar_search_response` falls through to "primary.htm" (which
+        # does not exist for Form 4). Detect that fallback and resolve the
+        # real URL via index.json directory listing.
+        filing_url = filing["filing_url"]
+        if filing_url.endswith("/primary.htm"):
+            accession_nodash = filing["accession"].replace("-", "")
+            candidate_ciks = filing.get("ciks_all") or [filing.get("cik", "")]
+            resolved = discover_form4_primary_xml_url(
+                accession_nodash, candidate_ciks, args.user_agent, xml_url_cache,
+            )
+            if not resolved:
+                print(
+                    f"[edgar-form4] WARN body-fetch failed for {filing['accession']}: "
+                    f"XML discovery exhausted candidate CIKs {candidate_ciks}",
+                    file=sys.stderr,
+                )
+                return []
+            filing_url = resolved
         try:
-            body = fetch_edgar(filing["filing_url"], user_agent=args.user_agent)
+            body = fetch_edgar(filing_url, user_agent=args.user_agent)
         except (urllib.error.HTTPError, urllib.error.URLError) as e:
             print(f"[edgar-form4] WARN body-fetch failed for {filing['accession']}: {e}", file=sys.stderr)
             return []
@@ -753,7 +883,7 @@ def main() -> int:
             body,
             accession=filing["accession"],
             accepted_at=filing["accepted_at"],
-            filing_url=filing["filing_url"],
+            filing_url=filing_url,
         )
 
     def _ticker_for(cik: str) -> dict:

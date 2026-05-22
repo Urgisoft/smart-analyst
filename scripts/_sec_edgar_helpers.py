@@ -189,6 +189,13 @@ def parse_edgar_search_response(json_bytes: bytes) -> list[dict]:
         if not ciks:
             continue
         cik = cik10(ciks[0])
+        ciks_all: list[str] = []
+        seen_ciks: set[str] = set()
+        for raw_c in ciks:
+            padded = cik10(raw_c)
+            if padded not in seen_ciks:
+                seen_ciks.add(padded)
+                ciks_all.append(padded)
         form = src.get("form") or src.get("form_type") or ""
         if not form:
             continue
@@ -221,6 +228,7 @@ def parse_edgar_search_response(json_bytes: bytes) -> list[dict]:
         out.append({
             "accession": accession,
             "cik": cik,
+            "ciks_all": ciks_all,
             "form_type": form,
             "accepted_at": accepted_at,
             "period_of_report": per,

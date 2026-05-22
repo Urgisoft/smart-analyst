@@ -919,3 +919,181 @@ def test_default_user_agent_includes_contact_email():
     """SEC requires a contact-info User-Agent — fail closed if blank."""
     assert "@" in form4.DEFAULT_USER_AGENT
     assert "form4" in form4.DEFAULT_USER_AGENT
+
+
+# ── T-F4I-DISCOVER-{1..8}: Form 4 XML body URL discovery via index.json ──────
+#
+# The EDGAR full-text-search Form 4 hit JSON omits `primary_doc`/`file_name`,
+# so the parser's URL fallback (".../primary.htm") 404s 100% in production.
+# `discover_form4_primary_xml_url` resolves the real XML by fetching
+# index.json under each candidate CIK and selecting the data XML by name
+# precedence. See sec_edgar_form4_ingest.py for the full design rationale.
+
+def _index_json_bytes(items: list[dict]) -> bytes:
+    return json.dumps({"directory": {"item": items}}).encode("utf-8")
+
+
+def test_t_f4i_discover_1_picks_primary_01_xml_when_only_xml():
+    """T-F4I-DISCOVER-1 — directory with `primary_01.xml` returns it."""
+    body = _index_json_bytes([
+        {"name": "0001324948-26-000015-index-headers.html", "type": "text.gif"},
+        {"name": "0001324948-26-000015-index.html", "type": "text.gif"},
+        {"name": "0001324948-26-000015.txt", "type": "text.gif"},
+        {"name": "primary_01.xml", "type": "text.gif", "size": "14576"},
+    ])
+
+    def fake_fetch(url, user_agent):
+        return body
+
+    cache: dict[str, str] = {}
+    url = form4.discover_form4_primary_xml_url(
+        "000132494826000015", ["0001324948"], "ua", cache, fetch=fake_fetch,
+    )
+    assert url is not None
+    assert url.endswith("/1324948/000132494826000015/primary_01.xml")
+    assert cache["000132494826000015"] == url
+
+
+def test_t_f4i_discover_2_prefers_form4_named_xml_over_primary_when_both_exist():
+    """T-F4I-DISCOVER-2 — older-style `wf-form4_*.xml` outranks `primary_*.xml`."""
+    body = _index_json_bytes([
+        {"name": "primary_01.xml", "type": "text.gif"},
+        {"name": "wf-form4_1716345600.xml", "type": "text.gif"},
+    ])
+
+    def fake_fetch(url, user_agent):
+        return body
+
+    url = form4.discover_form4_primary_xml_url(
+        "0001234567-26-000001".replace("-", ""), ["0001234567"], "ua", {}, fetch=fake_fetch,
+    )
+    assert url is not None
+    assert url.endswith("/wf-form4_1716345600.xml")
+
+
+def test_t_f4i_discover_3_falls_through_to_any_xml_when_no_obvious_match():
+    """T-F4I-DISCOVER-3 — non-conventional .xml name still resolves."""
+    body = _index_json_bytes([
+        {"name": "ownership_doc.xml", "type": "text.gif"},
+    ])
+
+    def fake_fetch(url, user_agent):
+        return body
+
+    url = form4.discover_form4_primary_xml_url(
+        "000999999926000099", ["0009999999"], "ua", {}, fetch=fake_fetch,
+    )
+    assert url is not None
+    assert url.endswith("/ownership_doc.xml")
+
+
+def test_t_f4i_discover_4_tries_each_cik_until_one_returns_200():
+    """T-F4I-DISCOVER-4 — first candidate 404s; second succeeds.
+
+    Models the Computershare-style agent case where `ciks_all[0]` (insider)
+    is the wrong storage path but `ciks_all[1]` (issuer) works.
+    """
+    body = _index_json_bytes([{"name": "primary_01.xml", "type": "text.gif"}])
+
+    seen_urls: list[str] = []
+
+    def fake_fetch(url, user_agent):
+        seen_urls.append(url)
+        if "/1111111/" in url:
+            raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+        return body
+
+    url = form4.discover_form4_primary_xml_url(
+        "000162828026037195",
+        ["0001111111", "0002222222"],
+        "ua",
+        {},
+        fetch=fake_fetch,
+    )
+    assert url is not None
+    assert url.endswith("/2222222/000162828026037195/primary_01.xml")
+    # We tried the first CIK (404) before falling through to the second.
+    assert len(seen_urls) == 2
+    assert "/1111111/" in seen_urls[0]
+    assert "/2222222/" in seen_urls[1]
+
+
+def test_t_f4i_discover_5_returns_none_when_all_ciks_404():
+    """T-F4I-DISCOVER-5 — exhausting all candidates yields None for the WARN path."""
+    def fake_fetch(url, user_agent):
+        raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+
+    url = form4.discover_form4_primary_xml_url(
+        "000000000026000001",
+        ["0001111111", "0002222222"],
+        "ua",
+        {},
+        fetch=fake_fetch,
+    )
+    assert url is None
+
+
+def test_t_f4i_discover_6_caches_resolved_url_per_accession():
+    """T-F4I-DISCOVER-6 — second call for same accession hits cache, no fetch."""
+    body = _index_json_bytes([{"name": "primary_01.xml", "type": "text.gif"}])
+
+    call_count = {"n": 0}
+
+    def fake_fetch(url, user_agent):
+        call_count["n"] += 1
+        return body
+
+    cache: dict[str, str] = {}
+    url1 = form4.discover_form4_primary_xml_url(
+        "000132494826000015", ["0001324948"], "ua", cache, fetch=fake_fetch,
+    )
+    url2 = form4.discover_form4_primary_xml_url(
+        "000132494826000015", ["0001324948"], "ua", cache, fetch=fake_fetch,
+    )
+    assert url1 == url2
+    assert call_count["n"] == 1  # cache hit on second call
+
+
+def test_t_f4i_discover_7_skips_stylesheet_xml_files():
+    """T-F4I-DISCOVER-7 — XSL-renderer XML files are excluded from selection."""
+    body = _index_json_bytes([
+        {"name": "xslF345X06.xml", "type": "text.gif"},  # stylesheet — skip
+        {"name": "primary_01.xml", "type": "text.gif"},
+    ])
+
+    def fake_fetch(url, user_agent):
+        return body
+
+    url = form4.discover_form4_primary_xml_url(
+        "000132494826000015", ["0001324948"], "ua", {}, fetch=fake_fetch,
+    )
+    # primary_01.xml wins via precedence tier 2 (starts with "primary_"),
+    # the xsl-tagged file would lose at tier 3 anyway.
+    assert url is not None
+    assert url.endswith("/primary_01.xml")
+
+
+def test_t_f4i_discover_8_parse_response_emits_ciks_all_field():
+    """T-F4I-DISCOVER-8 — `parse_edgar_search_response` exposes the full CIK list.
+
+    The form 4 ingest needs the full `ciks_all` list to try each candidate
+    CIK against EDGAR's index.json. The new field is zero-padded to 10
+    digits and de-duplicated in source order.
+    """
+    body = json.dumps({
+        "hits": {
+            "hits": [{
+                "_source": {
+                    "adsh": "0001324948-26-000015",
+                    "ciks": ["0001310979", "0001324948", "0001310979"],  # duplicate
+                    "form": "4",
+                    "accepted": "2026-05-21T14:25:04.000Z",
+                },
+            }],
+        },
+    }).encode("utf-8")
+    filings = form4.parse_edgar_search_response(body)
+    assert len(filings) == 1
+    f = filings[0]
+    assert f["cik"] == "0001310979"  # unchanged: first CIK
+    assert f["ciks_all"] == ["0001310979", "0001324948"]  # zero-padded, deduped
