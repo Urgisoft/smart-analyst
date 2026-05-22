@@ -1,36 +1,35 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-05-21 (session 94 #10 — **ADR-042 Step 4 ATOMIC DONE**: renderer §1.4 three-branch + composer pass-through landed across sections #12 (XD) + #14 (EK) + #15 (F4) as ONE commit per S94-14; 12 new tests green (9 G2-RENDER + 3 G2-COMPOSER); commit `a1d194d`. Aggregate-sector layer brief surface FLIPS from "OQ-G2-1-awaiting" wording to ADR-042 Option (a) live wording. `npm run brief:morning` will now render the LIVE branch (when sectors flagged), the "No sectors flagged today" branch (k/11 cleared MIN_Z_BASELINE; max-|z|=VAL at SECTOR), or the cold-start branch (constituents-table trailing-2y coverage pending) per snapshot state. 31 commits ahead of `origin/main`; **NEXT: Step 5 daemon-orchestrator log-line wiring (~20 LOC × 3 + 3 G2-DAEMON tests) to close the G2 arc**. Push still operator-gated.)
+Last updated: 2026-05-21 (session 94 #11 — **ADR-042 Step 5 DONE → gap #7+#8 v2 G2 arc CLOSED END-TO-END**: daemon-cycle aggregate log line + 3 G2-DAEMON tests landed across XD/EK/F4 as ONE commit `a20d57b`. The five-step G2 arc (Steps 1-5) is now fully shipped; the v1 GICS-A1..A4 + G2-A1..A3 + the OQ-G3-1 persistence sub-slice constitute the complete gap #7+#8 v2 deliverable. **NEXT: operator-pickable from the deferred queue** (no obvious default-next on the v2 GICS thread; the arc is done). `npm run daemon:daily` will now emit one `[<xd|ek|f4>-aggregate]` line per composite per cycle alongside the existing `[<exec-departure|eight-k|form-4>]` summaryLine. 35 commits ahead of `origin/main`; push still operator-gated.)
 
 ## What this turn delivered
 
-Tenth slice of the gap #7+#8 v2 GICS-activation arc. ADR-042 Step 4 (the S94-14 atomic-triple-edit) closes. The brief renderer now consumes the populated `inputs.sectors[]` shape that Steps 1-3 produced + the `maxAggregateZ`/`maxAggregateZSector` snapshot fields that Step 2 + OQ-G3-1 wired. With Step 4 shipped, the only remaining G2 surface is the daemon-cycle log line (Step 5).
+Eleventh slice of the gap #7+#8 v2 GICS-activation arc — and the slice that closes it. ADR-042 Step 5 (the daemon-orchestrator log-line wiring) ships. With Step 5 done, the v2 G2 arc has no remaining surface; the rolled-up deliverable is the GICS-sector aggregate-baseline panel rendered LIVE in sections #12/#14/#15 + persisted into the three snapshot tables + emitted as a per-cycle daemon log line.
 
-1. **Renderer interface extension (~+22 LOC across three Brief*Section interfaces in `src/server/operator_brief_render.ts`):**
-   - `BriefExecutiveDepartureSection` / `BriefEightKClassifierSection` / `BriefForm4InsiderSection` each gain two new required fields: `maxAggregateZ: number | null` + `maxAggregateZSector: string | null`. Sourced from the composite snapshot per SPEC §2; consumed by the §1.4 "No sectors flagged today" branch.
+1. **`XxxDaemonResult` interface extension (~+30 LOC across 3 repository interfaces in `src/server/{executive_departure,eight_k_classifier,form_4_insider}_repository.ts`):**
+   - Each `ExecutiveDepartureDaemonResult` / `EightKClassifierDaemonResult` / `Form4InsiderDaemonResult` interface gains one new required field: `aggregateLogLine: string`. JSDoc names the SPEC anchor (§1.3 + §5.5) + the v1 Option C semantic per ADR-042 §"Watch-outs".
 
-2. **Three-branch §1.4 rendering (~+108 LOC across sections #12/#14/#15 in `operator_brief_render.ts`):**
-   - **Branch (a)** — `flaggedSectors.length > 0` → existing flagged-sectors table renders unchanged (regression catch).
-   - **Branch (b)** — `flaggedSectors=[]` AND `inputsAvailableAggregate > 0` → emits the line: `**Aggregate (SPY 500 by GICS sector):** No sectors flagged today (<k>/11 cleared MIN_Z_BASELINE; max-|z|=<value> at <Sector>). Per-sector baseline re-computed per daemon cycle from raw events + PIT constituents + GICS map (ADR-042 Option a).`
-   - **Branch (c)** — `flaggedSectors=[]` AND `inputsAvailableAggregate === 0` → emits the cold-start line: `**Aggregate (SPY 500 by GICS sector):** Aggregate-cluster panel awaits SP500 constituents-table trailing-2y coverage (ADR-042 §"Watch-outs"; rate denominator is 0 across the cold-start window). Per-ticker sector annotations are active from \`quantlab.gics_sector_map\` (s94 #1 G1-A1).`
-   - F4 panel uses the "cluster-buy rate by GICS sector" header instead of "by GICS sector" (per composite-specific framing).
-   - Universe-coverage qualifier across all three sections drops the G1-only suffix + replaces with `(per-ticker + aggregate-sector layers active under G1-A2/A3/A4 + G2-A1/A2/A3)._`.
-   - Composite-tagline footers swap `aggregate-sector layer dormant pending OQ-G2-1 ADR` → `aggregate-sector layer LIVE under ADR-042 Option (a)`.
+2. **Log-line construction in three `runDaemon*Evaluation` orchestrators (~+18 LOC × 3 in the same three files):**
+   - Builds `aggMaxToken` from `(snapshot.maxAggregateZSector, snapshot.maxAggregateZ)`:
+     - When both non-null: `${sectorTokenized}:${z.toFixed(2)}` (e.g. `Energy:2.34` or `Consumer_Discretionary:-2.15`).
+     - When either null: `n/a:n/a` (cold-start sentinel).
+   - Sector names with spaces (e.g. "Consumer Discretionary") are underscore-tokenized via `.replace(/\s+/g, '_')` so the §5.5 regex `max_z=(\S+):(\S+)` matches without bleeding into `cluster_flag`.
+   - Final shape per composite:
+     ```text
+     [<xd|ek|f4>-aggregate] sectors_with_z=${inputsAvailableAggregate}/11 floor_cleared=${inputsAvailableAggregate}/11 max_z=${aggMaxToken} cluster_flag=${cluster ? 'true' : 'false'}
+     ```
+   - **v1 Option C semantic (ADR-042 §"Watch-outs"):** `sectors_with_z` AND `floor_cleared` both report `inputsAvailableAggregate`. The floor's only practical failure is the empty-baseline2y cold-start case, which fires only when `inputsAvailableAggregate=0` anyway — so the two counts agree in v1. v2 tightening (separate `sectorsClearedFloor` snapshot field requiring DDL ALTER + composite-evaluator + test churn) is operator-pickable.
+   - Cluster-flag field name varies per composite: XD → `executiveClusterDeparture`, EK → `eightKClusterFlag`, F4 → `form4ClusterFlag`. Carried watch-out from prior slices.
 
-3. **Composer pass-through (+6 LOC in `src/server/operator_brief.ts`):**
-   - `buildExecutiveDepartureSection` / `buildEightKClassifierSection` / `buildForm4InsiderSection` each pass through `snapshot.maxAggregateZ` + `snapshot.maxAggregateZSector` to the renderer-input shape.
+3. **Daemon call-site wiring (+3 LOC in `scripts/daily_signal_daemon.ts`):**
+   - One additional `console.log(<result>.aggregateLogLine)` after the existing `console.log(<result>.summaryLine)` at each of the three call sites (steps 1i / 1k / 1l). Non-fatal-by-design (no try/catch needed; the orchestrator builds the line as a pure string before the existing try/catch closes).
 
-4. **Twelve new tests:**
-   - **G2-RENDER-XD/EK/F4-{1..3}** (9 tests in `scripts/tests/operatorBriefRender.test.ts`) — byte-pinned coverage of all three §1.4 branches per composite.
-     - `*-1` (LIVE): `flaggedSectors > 0` → table renders + no "No sectors flagged" line.
-     - `*-2` (NO-FLAG-BUT-CLEARED): `flaggedSectors=[]` + `aggregate>0` → "No sectors flagged today (k/11 cleared MIN_Z_BASELINE; max-|z|=VAL at SECTOR)" line.
-     - `*-3` (COLD-START): `flaggedSectors=[]` + `aggregate=0` → ADR-042 §"Watch-outs" cold-start wording.
-   - **G2-COMPOSER-XD/EK/F4-1** (3 tests in `scripts/tests/operatorBrief.test.ts`) — pass-through regression catch on the composer for each composite.
-
-5. **Existing-test migrations (41 fixtures + 6 assertion blocks):**
-   - All 41 existing render-test fixtures bulk-injected with `maxAggregateZ: null, maxAggregateZSector: null` before `compositeVersion: '...'` (matches the new required Brief*Section interface).
-   - T-OBR-XD-4 / T-OBR-EK-4 / T-OBR-F4-4 cold-start assertions rewritten to match the new ADR-042 §"Watch-outs" wording (replaces the prior OQ-G2-1-awaiting phrase).
-   - Universe-coverage + composite-tagline assertions in the three "renders the universe coverage line" tests rewritten to assert the new `per-ticker + aggregate-sector layers active under G1-A2/A3/A4 + G2-A1/A2/A3` + `aggregate-sector layer LIVE under ADR-042 Option (a)` phrasing.
+4. **Three new tests (one per composite):**
+   - **G2-DAEMON-XD-1** in `scripts/tests/executiveDepartureRepository.test.ts` (+34 LOC).
+   - **G2-DAEMON-EK-1** in `scripts/tests/eightKClassifierRepository.test.ts` (+29 LOC).
+   - **G2-DAEMON-F4-1** in `scripts/tests/form4InsiderRepository.test.ts` (+29 LOC).
+   - Each test asserts the §5.5 regex `\[(xd|ek|f4)-aggregate\] sectors_with_z=\d+\/11 floor_cleared=\d+\/11 max_z=(\S+):(\S+) cluster_flag=(true|false)` against `r.aggregateLogLine` + cold-start sentinel (`max_z=n/a:n/a` + `cluster_flag=false`) + per-composite prefix discrimination (`^\[xd-aggregate\] ` etc.) + Option C count equality (`sectors_with_z=0\/11 floor_cleared=0\/11`).
+   - Cold-start fixtures (sectors=[]) → `inputsAvailableAggregate=0` → both counts 0 + max_z sentinel. Mirrors POPSEC-*-4 fixture posture.
 
 ## Where we are
 
@@ -50,8 +49,8 @@ Tenth slice of the gap #7+#8 v2 GICS-activation arc. ADR-042 Step 4 (the S94-14 
 | ADR-042 Step 2 — composite-layer maxAggregateZ + 12 MAXZ tests | ✓ s94 #7 (`1a3fc00`) |
 | OQ-G3-1 sub-slice — persistence wiring strategy (β) + 6 G3R tests | ✓ s94 #8 (`dd366b6`) |
 | ADR-042 Step 3 — populateSectorsForCycle + 12 POPSEC tests | ✓ s94 #9 (`3f9b414`) |
-| **ADR-042 Step 4 ATOMIC — renderer §1.4 3-branch + composer + 12 tests** | **✓ s94 #10 (`a1d194d`)** |
-| Gap #7+#8 v2 G2 Step 5 (daemon-orchestrator wiring + 3 G2-DAEMON tests) | ☐ NEXT |
+| ADR-042 Step 4 ATOMIC — renderer §1.4 3-branch + composer + 12 tests | ✓ s94 #10 (`a1d194d`) |
+| **ADR-042 Step 5 — daemon-cycle log line + 3 G2-DAEMON tests** | **✓ s94 #11 (`a20d57b`) — GAP #7+#8 v2 G2 ARC CLOSED** |
 | ADR-041 implementation (`yield_curve_inverted` category) | ☐ DEFERRED — operator-pickable |
 | Gap #7 v2 per-row recency (S93-32 + S93-52 co-bootstrap) | ☐ deferred (operator-pickable) |
 | Gap #7 v2 CMP opportunistic-vs-routine classifier (per F4-1) | ☐ deferred (calendar-gated ≥6mo from F4-A1 first apply) |
@@ -63,26 +62,27 @@ Tenth slice of the gap #7+#8 v2 GICS-activation arc. ADR-042 Step 4 (the S94-14 
 | Phase B campaigns for nine Layer-0 composites | ⏸ deferred — calendar OR backfill arc |
 | #5 capital-deployment-ramp ADR | ☐ operator self-assigned ~1 week; not blocking |
 | Drawdown framework §12 90d empirical retune | ☐ scheduled — earliest 2026-08-29 |
-| Push 31 commits to origin/main | ☐ operator-gated, HOLD |
+| Push 35 commits to origin/main | ☐ operator-gated, HOLD |
 
 ## Decisions locked in
 
-### Session 94 part 10 (this turn, one commit)
+### Session 94 part 11 (this turn, one commit)
 
-**S94-29. `maxAggregateZ` + `maxAggregateZSector` made REQUIRED (not optional) in the three `Brief*Section` interfaces.**
-`Why:` The composite snapshot interface already declares them as required `number | null` / `string | null` since Step 2 (s94 #7). Making them optional in the renderer interface would create a typing asymmetry that future composer evolutions could silently break. The cost (bulk-injecting 41 existing fixtures with `null` defaults) is a one-time mechanical edit per `replace_all`; the benefit is a single source of truth (composite snapshot owns the contract; renderer mirrors it). Selection-bias canon (AFML §11) on optionality: optional fields with implicit-null fallbacks are a maintenance trap — make the type strict + force callers to acknowledge the field.
+**S94-32. v1 daemon log-line semantic — `sectors_with_z` AND `floor_cleared` both report `inputsAvailableAggregate` (Option C from HANDOFF s94 #10).**
+`Why:` The SPEC §1.3 daemon log line has two count slots: `<k>` (sectors with sectorSize > 0) and `<m>` (sectors that cleared MIN_Z_BASELINE AND received a non-null z). v1 has no `sectorsClearedFloor` snapshot field — the composite-snapshot interface exposes `inputsAvailableAggregate` (= sectors with sectorSize > 0 from inputs.sectors[]) but not the strict floor-clearance count. In practice the two counts agree because every sector with sectorSize > 0 has a non-empty trailing-2y baseline that meets MIN_Z_BASELINE=30 (the floor's only practical failure is the empty-baseline2y cold-start case, which fires only when `inputsAvailableAggregate=0` anyway). Option A (add `sectorsClearedFloor` to the snapshot interface) requires DDL ALTER + composite-evaluator + composite tests + persistence tests + repository test churn — disproportionate cost for the cold-start delta. Selection-bias canon (AFML §11) on minimum-viable counters: don't add a new field that has the same value as an existing field across all practical states.
 
-`How to apply:` Future Layer-0 composite renderer-interface fields that come from the snapshot should ALSO be required (not optional) + bulk-injected into existing fixtures. The pattern: declare the snapshot field with explicit `| null` for cold-start; declare the renderer-interface field with the SAME type; pass through unchanged in the composer.
+`How to apply:` Future Layer-0 composites that emit per-cycle aggregate log lines should follow the same Option C semantic UNLESS the composite has a meaningfully different floor-vs-inputs count distinction. v2 tightening (separate `sectorsClearedFloor` field) lands ONLY when a Phase B observation surfaces an `inputsAvailableAggregate > sectorsClearedFloor` case in production.
 
-**S94-30. T-OBR-*-4 (cold-start tests) REWRITTEN in-place rather than deleted in favor of new G2-RENDER-*-3 tests.**
-`Why:` Both T-OBR-*-4 and G2-RENDER-*-3 exercise the same fixture shape (`flaggedSectors=[]` + `inputsAvailableAggregate=0`). Deleting T-OBR-*-4 would (i) lose the T-OBR-* numbering continuity (T-OBR-*-1..9 covers the section's full render surface), and (ii) require a renumbering churn that's not worth the small overlap. Keeping both gives parallel regression-catch density on the cold-start branch (≈duplicate coverage is cheap; deleting a test that already passes is a "future-you" liability).
+**S94-33. Sector names underscore-tokenized in the daemon log line via `.replace(/\s+/g, '_')`.**
+`Why:` The SPEC §5.5 G2-DAEMON regex pins `max_z=(\S+):(\S+) cluster_flag=`. Whitespace in the sector name (e.g. "Consumer Discretionary", "Real Estate", "Health Care", "Communication Services", "Information Technology", "Consumer Staples") would break the `\S+` capture. Options considered: (a) underscore-tokenize, (b) drop spaces (PascalCase), (c) change the SPEC regex to `[^:]+`. (a) is operator-readable and least-invasive — the SPEC stays untouched, the log line remains parseable by line-oriented tooling (`grep "Energy:"` / `grep "Consumer_Discretionary:"`), and the round-trip with the renderer's `replace(/\s+/g, '_')`-free §1.4 sector annotation is fine because the renderer doesn't read the daemon log. (b) would lose readability ("ConsumerDiscretionary"). (c) would loosen the regex contract beyond the SPEC's explicit token.
 
-`How to apply:` When SPEC §5 adds tests that overlap an existing test's fixture-shape, prefer rewriting the existing test's brittle assertions to the new wording + adding the new test for explicit SPEC-anchor naming + parallel coverage. Don't delete the old test.
+`How to apply:` Future Layer-0 composite log lines that include a sector token should apply the same underscore tokenization. The §1.4 brief renderer should NOT underscore-tokenize — operator-facing prose retains canonical "Consumer Discretionary" wording. The split lives at the boundary: structured log emits underscores; rendered prose emits spaces.
 
-**S94-31. Per-composite header framing preserved in the F4 panel: "cluster-buy rate by GICS sector" stays distinct from the XD/EK "by GICS sector" framing.**
-`Why:` F4's aggregate metric is the cluster-buy rate (≥3 distinct insiders within 30d), not the raw event/departure rate. The panel header has been "cluster-buy rate by GICS sector" since F4-A1 (s93 #7) — this differs from XD/EK's "by GICS sector" framing for operator-clarity reasons (the rate metric IS the cluster-buy rate, not a raw count rate). Preserving this asymmetry in the §1.4 rewrite keeps the operator-facing surface stable.
+**Carry-over from s94 #10 (still in force):**
 
-`How to apply:` G2-RENDER-F4-{1..3} tests pin the F4-specific header against `**Aggregate \(SPY 500 cluster-buy rate by GICS sector\):**` — do NOT generalize to a single header constant across all three composites. The metadata-header drift is intentional + part of the operator-clarity contract.
+- S94-29 — `maxAggregateZ`/`maxAggregateZSector` REQUIRED (not optional) across the three Brief*Section interfaces.
+- S94-30 — T-OBR-*-4 (cold-start tests) REWRITTEN in-place rather than deleted in favor of G2-RENDER-*-3.
+- S94-31 — F4 panel header preserves "cluster-buy rate by GICS sector" framing vs XD/EK's "by GICS sector".
 
 **Carry-over from s94 #9 (still in force):**
 
@@ -90,15 +90,15 @@ Tenth slice of the gap #7+#8 v2 GICS-activation arc. ADR-042 Step 4 (the S94-14 
 - S94-27 — V1 event-query universe = today's PIT constituents only.
 - S94-28 — `readGicsSectorTimeline` + `findGoverningSector` as reusable primitives.
 
-### Sessions 84-93 + s94 #1..#9 prior decisions (carried)
+### Sessions 84-93 + s94 #1..#10 prior decisions (carried)
 
-All prior decisions preserved unchanged. S93-1..S93-54 + S94-1..S94-28 carry through.
+All prior decisions preserved unchanged. S93-1..S93-54 + S94-1..S94-31 carry through.
 
 ## Open questions
 
-### Newly opened (s94 #10) — none
+### Newly opened (s94 #11) — none
 
-### Carried unchanged from s94 #9
+### Carried unchanged from s94 #10
 
 - **OQ-G2-2 (LOW — deferred)** — EDGAR-amendment forensic tooling default. Per ADR-042 §5 silent re-write is the v1 default; ADR-043 opens only if Phase B testing reveals operational impact.
 
@@ -120,83 +120,70 @@ All prior decisions preserved unchanged. S93-1..S93-54 + S94-1..S94-28 carry thr
 
 ## Next stage
 
-### Default on "continue"
+### The G2 arc is CLOSED. No obvious default-next on the v2 GICS thread.
 
-**Step 5 — Daemon-orchestrator log-line wiring (~20 LOC × 3 + 3 G2-DAEMON tests) to close the gap #7+#8 v2 G2 arc.**
+The five-step ADR-042 arc (Steps 1-5) is fully shipped. The OQ-G3-1 persistence sub-slice is also shipped. There is no remaining surface on the gap #7+#8 v2 deliverable. The "default on `continue`" pattern from prior slices does NOT apply here — the operator must reprioritize.
 
-Per SPEC §1.3 + §3 + §5.5. In `scripts/daily_signal_daemon.ts`:
+**Recommended next-default candidates (operator picks):**
 
-1. The `populateSectorsForCycle(asOf)` call is ALREADY encapsulated inside `readInputsForCycle` (s94 #9 wiring). The daemon's call-site shape already passes through — no orchestrator-level wiring changes needed.
-2. Emit the SPEC §1.3 daemon-cycle log line AFTER `evaluateXxxComposite` returns, one line per composite per cycle:
-   ```text
-   [<composite>-aggregate] sectors_with_z=<k>/<11> floor_cleared=<m>/<11> max_z=<sector>:<value> cluster_flag=<true|false>
-   ```
-   Where:
-   - `<composite>` ∈ {`xd`, `ek`, `f4`}.
-   - `<k>` = sectors with at least an attempted z-computation (`s.sectorSize > 0` — derived from `snapshot.inputsAvailableAggregate` since that's the same count).
-   - `<m>` = sectors that cleared MIN_Z_BASELINE AND received a non-null z. NOT directly exposed by the snapshot; v1 approximation = `inputsAvailableAggregate` (clears-floor count ≈ inputs-available count in v1 because every sector with sectorSize>0 has a non-empty trailing-2y baseline that meets MIN_Z_BASELINE=30; the floor's only practical failure is the empty-baseline2y cold-start case, which fires only when `inputsAvailableAggregate=0` anyway).
-   - `<sector>:<value>` = `${snapshot.maxAggregateZSector}:${snapshot.maxAggregateZ.toFixed(2)}` when both non-null; otherwise `n/a:n/a`.
-   - `<cluster_flag>` = `snapshot.executiveClusterDeparture` / `snapshot.eightKClusterFlag` / `snapshot.form4ClusterFlag`.
-3. Tests: G2-DAEMON-XD-1 / G2-DAEMON-EK-1 / G2-DAEMON-F4-1 — regex assertions per `/\[(xd|ek|f4)-aggregate\] sectors_with_z=\d+\/11 floor_cleared=\d+\/11 max_z=(\S+):(\S+) cluster_flag=(true|false)/`.
-
-**Recommended approach:** Option C (v1 approximation as above). Lowest-friction path; defensible because the floor's only practical failure is the empty-baseline2y cold-start case. Document the v2 tightening path (Option A: add `sectorsClearedFloor` snapshot field requires DDL ALTER + composite-evaluator + test churn) in the slice's commit message.
-
-### After Step 5 ships + tests green + tsc clean
-
-The gap #7+#8 v2 arc closes end-to-end. Remaining operator-pickable next-default candidates:
-
-- **ADR-041 implementation** (`yield_curve_inverted` regime category).
-- **Gap #7 v2 per-row recency** (S93-32 + S93-52 co-bootstrap of EK + F4 snapshot DDLs).
-- **Gap #7 v2 CMP opportunistic-vs-routine classifier** (calendar-gated ≥6mo from F4-A1 first apply-run; earliest ~2026-11-20).
-- **Gap #7 v2 13D/13G arc** (needs its own SPEC; would consume the new helpers).
-- **Gap #7 v2 sell-cluster sector aggregation** (per S93-44; single slice on F4 composite).
-- **Gap #7 v2 event-driven cadence promotion** (Phase B-gated).
-- **Gap #9 v2 ETF.com/issuer-CSV cross-validation**.
-- **C-12 Phase B AlpacaAdapter** (operator-decision — paused indefinitely).
-- **Phase B campaigns** for the nine Layer-0 composites.
+- **Gap #7 v2 sell-cluster sector aggregation (S93-44)** — single-slice on F4 composite; would consume the new helpers + extend the existing per-sector aggregate panel to track sell clusters (currently only buy clusters fire `form4ClusterFlag`). Low-friction: composite-layer addition + 1 new boolean field + ~6 tests. Closes a small remaining asymmetry in the F4 arc.
+- **Gap #7 v2 per-row recency (S93-32 + S93-52 co-bootstrap)** — adds `lastEventDate` / `lastTradeDate` columns to EK + F4 snapshot DDLs so the brief can render "n days since last 8-K" / "n days since last cluster-buy" per ticker. Single migration + composer + renderer slice; ~8-10 tests.
+- **Gap #7 v2 13D/13G arc** — NEEDS its own SPEC. Activist filings; would consume the existing readGicsSector* helpers + introduce a new Layer-0 composite. Larger slice (~3-4 commits). Operator must authorize the SPEC drafting first.
+- **ADR-041 implementation** (`yield_curve_inverted` regime category) — Accepted methodology; slot un-queued. Single category + the regime-classify v3 integration. Cleanly bounded.
+- **Gap #9 v2 ETF.com/issuer-CSV cross-validation** — supplementary data source for the etf-flow composite; would add a divergence check between the daemon's flow inputs and a public ETF.com sample. Operator-pickable.
+- **Gap #7 v2 event-driven cadence promotion** — Phase B-gated. Would shift the daemon from daily-cycle to event-driven for the three EDGAR composites. Earliest ~2026-08-20 (90d Phase B parallel-comparison window).
+- **Gap #7 v2 CMP opportunistic-vs-routine classifier** — calendar-gated ≥6mo from F4-A1 first apply-run; earliest ~2026-11-20.
+- **C-12 Phase B AlpacaAdapter** — operator-decision; paused indefinitely.
+- **Phase B campaigns** for the nine Layer-0 composites — calendar OR backfill arc.
 
 ### Operator-gated action items (carried)
 
-- Push 31 commits to origin/main (HOLD).
+- Push 35 commits to origin/main (HOLD).
 - Drawdown framework §12 90d empirical retune — earliest 2026-08-29.
 
 ## Files / code state
 
-### EDITED this turn (s94 #10 — commit `a1d194d`)
+### EDITED this turn (s94 #11 — commit `a20d57b`)
 
 | Path | LOC delta | Notes |
 | --- | --- | --- |
-| `src/server/operator_brief_render.ts` | +155 / -47 | Brief*Section interface extensions (×3) + sector-panel rewrite (×3 sections) + universe-coverage + composite-tagline rewrites. |
-| `src/server/operator_brief.ts` | +6 / 0 | Composer pass-through across XD/EK/F4 `build*Section` functions. |
-| `scripts/tests/operatorBriefRender.test.ts` | +373 / -64 | 41 fixture bulk-injections + 6 assertion rewrites + 9 new G2-RENDER tests. |
-| `scripts/tests/operatorBrief.test.ts` | +69 / 0 | 3 new G2-COMPOSER tests appended to each existing describe block. |
+| `src/server/executive_departure_repository.ts` | +27 / -1 | `aggregateLogLine` field on `ExecutiveDepartureDaemonResult` + log-line build + return. |
+| `src/server/eight_k_classifier_repository.ts` | +21 / -1 | Same pattern for EK; `[ek-aggregate]` prefix + `eightKClusterFlag`. |
+| `src/server/form_4_insider_repository.ts` | +21 / -1 | Same pattern for F4; `[f4-aggregate]` prefix + `form4ClusterFlag`. |
+| `scripts/daily_signal_daemon.ts` | +3 / 0 | One `console.log(<result>.aggregateLogLine)` after each summaryLine print (×3 call sites). |
+| `scripts/tests/executiveDepartureRepository.test.ts` | +34 / 0 | G2-DAEMON-XD-1 appended to runDaemon describe block. |
+| `scripts/tests/eightKClassifierRepository.test.ts` | +29 / 0 | G2-DAEMON-EK-1 appended to runDaemon describe block. |
+| `scripts/tests/form4InsiderRepository.test.ts` | +29 / 0 | G2-DAEMON-F4-1 appended to runDaemon describe block. |
 
-### Carried from s94 #6-#9 (unchanged)
+### Carried from s94 #6-#10 (unchanged)
 
 | Path | Status | Notes |
 | --- | --- | --- |
 | `docs/decisions/README.md` | ADR-042 ACCEPTED | Methodology defense + dependency wiring. |
-| `docs/specs/gics-sector-baseline-computation.md` | byte-template SPEC | Steps 1-4 SHIPPED; Step 5 daemon-orchestrator wiring next. |
+| `docs/specs/gics-sector-baseline-computation.md` | byte-template SPEC | Steps 1-5 SHIPPED; arc closed. |
 | Three composite `xxx.ts` source files | Step 2 SHIPPED | `maxAggregateZ` + `maxAggregateZSector` evaluator logic live. |
-| Three `xxx_repository.ts` source files | Step 3 SHIPPED | `populateSectorsForCycle` orchestrator wired into `readInputsForCycle`. |
+| Three `xxx_repository.ts` source files | Step 3 + Step 5 SHIPPED | `populateSectorsForCycle` orchestrator wired into `readInputsForCycle`; `aggregateLogLine` built in `runDaemon*Evaluation`. |
 | Three migrate_add_max_aggregate_z*.ts scripts | s94 #8 SHIPPED | ALTER migrations ready to apply per operator-gated cadence. |
+| `src/server/operator_brief_render.ts` | Step 4 SHIPPED (s94 #10) | §1.4 three-branch active on all three sections. |
+| `src/server/operator_brief.ts` | Step 4 SHIPPED (s94 #10) | Composer pass-through for `maxAggregateZ` + `maxAggregateZSector`. |
 
 ### CH state
 
 - All seven Layer-0 composite snapshot tables + the three event tables remain in the state from s93 / s94 #6 close. No new schema changes this turn.
-- **Carry from s94 #8:** the three Layer-0 snapshot tables each have a pending ALTER migration ready to apply (`migrate:add-max-z-<composite>-snapshots:apply`). Idempotent (pre-check detects existing columns + skips); operator must run them BEFORE Step 5 daemon log line will see real `maxAggregateZ` values from `loadLatestSnapshot`.
+- **Carry from s94 #8:** the three Layer-0 snapshot tables each have a pending ALTER migration ready to apply (`migrate:add-max-z-<composite>-snapshots:apply`). Idempotent (pre-check detects existing columns + skips); operator must run them BEFORE the brief's stale-read path (via `loadLatestSnapshot`) will see real `maxAggregateZ` values — but the live daemon-cycle path emits real values from the in-memory snapshot immediately.
 - `quantlab.eight_k_events` / `eight_k_classifier_snapshots` / `insider_trades` / `insider_ciks` / `form_4_insider_snapshots` / `gics_sector_map` — NOT yet created. Lazy-create on first ingest or migration apply.
 
 ### Tests (validated this turn)
 
 ```text
-npx tsx --test scripts/tests/operatorBriefRender.test.ts \
-              scripts/tests/operatorBrief.test.ts
-              # 201 pass / 0 skipped / 2 fail (pre-existing CH-unreachable; documented)
+npx tsx --test scripts/tests/executiveDepartureRepository.test.ts \
+              scripts/tests/eightKClassifierRepository.test.ts \
+              scripts/tests/form4InsiderRepository.test.ts
+              # 201 pass / 0 fail / 18 skipped (CH-unreachable EXPLAIN PLANs)
 
-npm test                                                      # 2881 / 2784 pass / 2 fail / 95 skipped
-                                                              # +12 net new tests vs s94 #9 (9 G2-RENDER + 3 G2-COMPOSER)
-                                                              # 2 fails are pre-existing CH-unreachable (operatorBrief.test.ts)
+npm test                                                      # 2884 / 2787 pass / 2 fail / 95 skipped
+                                                              # +3 net new tests vs s94 #10 (G2-DAEMON-XD/EK/F4-1)
+                                                              # 2 fails pre-existing CH-unreachable (operatorBrief.test.ts)
 
 npx tsc --noEmit                                              # 13 baseline errors UNCHANGED
 
@@ -207,76 +194,66 @@ Full `pytest` baseline NOT re-run this turn (no Python touched).
 
 ## Watch-outs
 
-### NEW from this turn (s94 #10)
+### NEW from this turn (s94 #11)
 
-- **Brief*Section types now declare `maxAggregateZ`/`maxAggregateZSector` as REQUIRED fields (S94-29).** Any new test fixture that constructs a `BriefExecutiveDepartureSection` / `BriefEightKClassifierSection` / `BriefForm4InsiderSection` literal MUST include both fields. Use `maxAggregateZ: null, maxAggregateZSector: null` for cold-start scenarios; real values for LIVE / no-flag-cleared scenarios.
+- **Daemon log-line `cluster_flag=` value uses string `'true'`/`'false'` (lowercase) per SPEC §5.5 regex.** The composite snapshot field is a JS `boolean`, but the log line emits the explicit lowercase string via `${snapshot.flag ? 'true' : 'false'}`. Do NOT change to `String(snapshot.flag)` (would emit correctly today but couples the log shape to JS's `Boolean.toString()` implementation). Future composites should mirror the explicit ternary.
 
-- **The §1.4 three-branch order is load-bearing: LIVE → no-flag-cleared → cold-start.** The renderer's `if/else if/else` chain checks `flaggedSectors > 0` FIRST so the LIVE branch always takes precedence over the no-flag-cleared branch even when both `flaggedSectors > 0` AND `inputsAvailableAggregate > 0`. Reordering the branches breaks the LIVE regression-catch on G2-RENDER-*-1.
+- **Sector-name underscore-tokenization in daemon log line is one-way (no inverse).** "Consumer Discretionary" → `Consumer_Discretionary` in the log; the renderer's §1.4 prose retains "Consumer Discretionary" (with space). Operator tooling that round-trips between the log line and the brief should map `_ → ' '` explicitly. NOTE: a sector named "Real_Estate" (with literal underscore) is structurally impossible under GICS_SECTORS — the underscore-replacement is information-preserving in practice.
 
-- **The F4 panel header is "cluster-buy rate by GICS sector" not "by GICS sector" (S94-31).** Per-composite intentional asymmetry. Do NOT generalize to a single header constant across all three composites. G2-RENDER-F4-{1..3} tests pin this against the F4-specific header.
+- **The orchestrator builds `aggregateLogLine` BEFORE the existing try/catch closes.** Pure-string operation on already-resolved snapshot fields; no I/O. The catch block in `daily_signal_daemon.ts` step 1i/1k/1l covers the entire daemon-call surface (read → compute → write → log). If a future refactor moves the log-line build OUTSIDE the orchestrator (into the daemon caller), the caller MUST add its own try/catch around the log line construction to preserve the non-fatal posture.
 
-- **`max-|z|=VAL at SECTOR` formatting uses signed-z, not absolute z** in the §1.4 branch (b) wording. The renderer formats as `${z >= 0 ? '+' : ''}${z.toFixed(2)}` to match the existing `+2.34σ` / `-2.34σ` convention from the LIVE flagged-sectors table. Renaming to `|max-z|=` (absolute) would lose the sign info that operators need for sector-rotation interpretation.
+- **`inputsAvailableAggregate` semantic overload (Option C; S94-32).** Both `sectors_with_z` AND `floor_cleared` slots in the log line use the same `snapshot.inputsAvailableAggregate` value. This is a v1 approximation that holds because the floor's only practical failure is the empty-baseline2y cold-start case. If a future production observation surfaces an `inputsAvailableAggregate > sectorsClearedFloor` case (some sectors have sectorSize > 0 but baseline2y has < MIN_Z_BASELINE=30 entries), the log line will OVERSTATE `floor_cleared`. v2 tightening lands by adding a `sectorsClearedFloor: number` field to each snapshot interface + DDL ALTER per-composite + composite-eval + composite tests + persistence tests + the log-line denominator.
 
-- **The "k/11 cleared MIN_Z_BASELINE" semantic uses `inputsAvailableAggregate` as the count.** This is technically a slight overload — `inputsAvailableAggregate` counts sectors with `sectorSize > 0` (i.e., constituents present), NOT sectors that explicitly cleared MIN_Z_BASELINE=30. In practice this is approximately right (every sector with a non-empty trailing-2y baseline clears the floor; the floor only fires on cold-start when the baseline is shorter than 30). v2 tightening if needed: add a `sectorsClearedFloor: number` snapshot field (see Step 5 implementation note Option A).
+- **3 new tests use cold-start fixtures (sectors=[]) — they do NOT exercise the LIVE/non-trivial-z branch.** G2-DAEMON-*-1 asserts the regex shape + the cold-start sentinel (`max_z=n/a:n/a`) + Option C count equality (`0/11 ≡ 0/11`). A LIVE-z assertion (e.g., maxAggregateZ=2.34 at "Energy" emitting `max_z=Energy:2.34`) would require seeding the SP500 PIT panel + gics_sector_map + events panel — significant fixture-construction churn for a one-test regex pin. The MAXZ-*-1..4 tests in `executiveDeparture.test.ts` etc. already pin the LIVE-z computation at the composite layer; the daemon log line just stringifies what the composite produces.
 
-- **Step 5's `floor_cleared=<m>/<11>` log-line slot has the same semantic gap.** Recommended approach (Option C above): use `inputsAvailableAggregate` as the count + document the v1 approximation in the commit message.
-
-- **41 existing render-test fixtures now carry `maxAggregateZ: null, maxAggregateZSector: null`.** Any future fixture addition must follow the same pattern (insert before `compositeVersion`). The `replace_all` pattern `        compositeVersion: 'xxx_v1',` is exhausted — new fixtures CANNOT use the same pattern for further bulk-injection. If a future schema change adds more required fields, do them one-by-one OR use a more targeted regex.
-
-- **Existing 2 `npm test` failures in `operatorBrief.test.ts` are NOT regressions** from this turn — they're pre-existing CH-unreachable failures documented in s94 #8/#9 watch-outs. The +12-tests-vs-s94 #9 delta matches exactly the 12 new G2-RENDER + G2-COMPOSER tests added this turn (2772 → 2784 pass).
-
-### Carried (s89-s94 #9 + earlier)
+### Carried (s89-s94 #10 + earlier)
 
 All prior watch-outs preserved unchanged. Key carry-overs:
 
-- **`FakeClickHouse.route` is first-match-wins (S94-25).** Applies to Step 5 G2-DAEMON tests if they exercise the daemon-cycle CH path.
+- **Brief*Section types declare `maxAggregateZ`/`maxAggregateZSector` as REQUIRED fields (S94-29).** Any new test fixture that constructs a `BriefExecutiveDepartureSection` / `BriefEightKClassifierSection` / `BriefForm4InsiderSection` literal MUST include both fields.
 
-- **The three ALTER migrations are operator-gated on first run (s94 #8).** Each script's `:apply` variant is destructive per the migration's own banner. Operator MUST run them BEFORE Step 5's daemon log line will see real `maxAggregateZ` values from `loadLatestSnapshot` — but ONLY against tables that already exist (the create-* migrations come first).
+- **The §1.4 three-branch order is load-bearing: LIVE → no-flag-cleared → cold-start.** The renderer's `if/else if/else` chain checks `flaggedSectors > 0` FIRST.
 
-- **V1 event-query universe is today's PIT constituents only (S94-27).** Historical-only tickers (in SP500 historically but not today) have their events dropped from baseline attribution. v2 widening lands when `gics_sector_map` gets PIT backfill.
+- **The F4 panel header is "cluster-buy rate by GICS sector" not "by GICS sector" (S94-31).**
 
-- **Path A rolling-rate semantic locks per-composite intrinsic windowDays (S94-26).** XD/EK use 90d; F4 uses 30d cluster window. Each baseline2y[i] is the rolling N-day rate at panel day d, computed by reusing the composite's own pure-function rate evaluator.
+- **The "k/11 cleared MIN_Z_BASELINE" semantic uses `inputsAvailableAggregate` as the count.** Same as the new S94-32 lock-in — the §1.4 renderer also uses this count.
 
-- **`dayAsOf` uses end-of-day semantic (`day + 'T23:59:59.999Z'`) for baseline rate evaluation.** Events accepted ON day d MUST be included in the (d-N, d] window.
+- **`FakeClickHouse.route` is first-match-wins (S94-25).** Applies to the new G2-DAEMON tests too; the cold-start fixture uses a catch-all (`_ => true, []`) so order doesn't matter, but if a future test seeds a LIVE-z fixture, route most-specific-first.
 
-- **The composite source files have `\0` literals in template strings.** `src/server/executive_departure.ts` (line 105), `eight_k_classifier.ts` (line 133), `form_4_insider.ts` (line 163) — Read tool falls back to binary at the early-line offset. Use Read with `offset` past the literal OR `tr -d '\000'` workaround to a temp dir. Edits work normally.
+- **The three ALTER migrations are operator-gated on first run (s94 #8).** Each script's `:apply` variant is destructive per the migration's own banner. Operator MUST run them BEFORE the brief renderer's stale-read path (via `loadLatestSnapshot`) will see real `maxAggregateZ` values — but the live daemon-cycle path emits real values from the in-memory snapshot immediately.
 
-- **Tie-break asymmetry on equal-|z| with opposite signs (carried).** Sectors with `z = +2.5` and `z = -2.5` have `absZ === 2.5` AND distinct names; the lexicographic tie-break picks the lexicographically earlier sector. Tests pin order-independence + assert sector identity; they do NOT pin the signed-z direction on opposite-sign ties.
+- **V1 event-query universe is today's PIT constituents only (S94-27).** Historical-only tickers (in SP500 historically but not today) have their events dropped from baseline attribution.
+
+- **Path A rolling-rate semantic locks per-composite intrinsic windowDays (S94-26).** XD/EK use 90d; F4 uses 30d cluster window.
+
+- **`dayAsOf` uses end-of-day semantic (`day + 'T23:59:59.999Z'`) for baseline rate evaluation.**
+
+- **The composite source files have `\0` literals in template strings.** `src/server/executive_departure.ts` (line 105), `eight_k_classifier.ts` (line 133), `form_4_insider.ts` (line 163) — Read tool falls back to binary at the early-line offset.
+
+- **Tie-break asymmetry on equal-|z| with opposite signs (carried).**
 
 - `gics_sector_repository_helper.ts` is the byte-template owner for per-ticker (`readGicsSectorByTicker`) + per-day-panel (`readSectorMembershipPanel`) + per-ticker-timeline (`readGicsSectorTimeline`) sector lookups.
-- Section #12's table-cell sector annotation position is byte-pinned by T-OBR-XD-9.
-- `inputsAvailablePerTicker` semantic is meaningful (not structurally 0) across all three composites.
-- The helper's `asOf` is ALWAYS coerced to `YYYY-MM-DD`.
-- `LIMIT 1 BY ticker` is ClickHouse-specific (non-portable).
-- Cross-language drift on `gics_sector_map` DDL (test parity in `migrateCreateGicsSectorMap.test.ts`).
-- `MIN_ROWS_FLOOR = 480` is a SCHEMA-DRIFT alarm, not a happy-path floor.
-- `GICS_SECTORS` enum is the load-bearing canonical-name pin (Python-side at `scripts/sp500_gics_sector_ingest.py`; no TS-side constant — composites operate on free-form sector strings from the GICS map).
-- `TICKER_REGEX` accepts only EDGAR-style dots (BRK.B), NOT yfinance dashes (BRK-B).
-- Wikipedia 403s default Python-urllib User-Agent.
-- Snapshot semantics v1 = `snapshot_date = today()`.
-- `source` LowCardinality DEFAULT `'wikipedia_sp500'` requires explicit write for alternative sources.
-- Parser locates table by HEADER SIGNATURE not by index.
-- `_clean_text` footnote regex `\[[^\]]*\]` greedy assumption.
-- `parse_sp500_table` raises ValueError (NOT returns empty).
-- `index_granularity = 8192` is the Layer-0 lookup-table idiom.
-- **`MIN_Z_BASELINE = 30` floor stays at 30** across all three composites per ADR-042 §6.
-- **`stddevSamp` not `stddevPop`** — Bessel correction. Composite-layer `computeZ` already uses sample stddev.
-- **Today's rate must be EXCLUDED from the baseline window** per ADR-042 §4. `populateSectorsForCycle` sets `asOfEnd = asOf - 1 day`.
 
-(All earlier s89-s94 #9 watch-outs preserved unchanged.)
+- `MIN_Z_BASELINE = 30` floor stays at 30 across all three composites per ADR-042 §6.
+
+- `stddevSamp` not `stddevPop` — Bessel correction.
+
+- Today's rate must be EXCLUDED from the baseline window per ADR-042 §4.
+
+(All earlier s89-s94 #10 watch-outs preserved unchanged.)
 
 ## Pre-loaded operational reminders
 
 ### Daily-keep-it-fresh
 
 ```text
-npm run daemon:daily                                    # all 7 Layer-0 + 8-K classifier (1k) + Form 4 (1l); aggregate-sector layer ACTIVE on XD/EK/F4
+npm run daemon:daily                                    # all 7 Layer-0 + 8-K classifier (1k) + Form 4 (1l); aggregate-sector layer LIVE on XD/EK/F4 — emits [xd|ek|f4]-aggregate log line per cycle
 npm run audit:positions
 npx tsx scripts/_paper_trading_review.ts
 npm run brief:morning                                   # sections #7-#15 LIVE — Step 4 renderer §1.4 three-branch ACTIVE
 ```
 
-### Gap #7+#8 v2 GICS activation (G1 FULLY READY; G2 — Step 5 NEXT)
+### Gap #7+#8 v2 GICS activation — ARC CLOSED
 
 ```text
 # GICS map bootstrap + ingest (READY since s94 #1):
@@ -293,13 +270,13 @@ npm run migrate:add-max-z-eight-k-classifier-snapshots:apply    # applies ALTER 
 npm run migrate:add-max-z-form-4-insider-snapshots              # dry-run
 npm run migrate:add-max-z-form-4-insider-snapshots:apply        # applies ALTER (+2 columns)
 
-# G2 aggregate-panel activation (in flight):
+# G2 aggregate-panel activation (FULLY DONE end-to-end):
 # Step 1 DONE — readSectorMembershipPanel helper
 # Step 2 DONE — composite-layer maxAggregateZ + maxAggregateZSector
 # OQ-G3-1 sub-slice DONE — persistence wiring strategy (β)
 # Step 3 DONE — populateSectorsForCycle across all three repos
-# Step 4 DONE (this turn, ATOMIC) — renderer §1.4 three-branch + composer pass-through
-# Step 5 NEXT — daemon-orchestrator log-line wiring (~20 LOC × 3 + 3 G2-DAEMON tests)
+# Step 4 DONE (ATOMIC) — renderer §1.4 three-branch + composer pass-through
+# Step 5 DONE — daemon-orchestrator log-line wiring (~20 LOC × 3 + 3 G2-DAEMON tests)
 ```
 
 ### Gap #9 etf-flow activation (FULLY READY)
@@ -324,19 +301,19 @@ npm run daemon:daily
 npm run brief:morning
 ```
 
-### Gap #8 executive-departure activation
+### Gap #8 executive-departure activation (G2 LIVE)
 
 ```text
 .venv/Scripts/python.exe scripts/sec_edgar_8k_item_5_02_ingest.py --dry-run
 .venv/Scripts/python.exe scripts/sec_edgar_8k_item_5_02_ingest.py --apply
 npm run migrate:create-executive-departure-snapshots
 npm run migrate:create-executive-departure-snapshots:apply
-npm run migrate:add-max-z-executive-departure-snapshots:apply   # s94 #8 — required for §1.4 LIVE / no-flag-cleared branch
-npm run daemon:daily                                            # daemon's populateSectorsForCycle ACTIVE (s94 #9)
+npm run migrate:add-max-z-executive-departure-snapshots:apply   # s94 #8 — required for §1.4 LIVE / no-flag-cleared branch in the brief
+npm run daemon:daily                                            # daemon's populateSectorsForCycle ACTIVE (s94 #9); emits [xd-aggregate] log line (s94 #11)
 npm run brief:morning                                           # section #12 LIVE — §1.4 three-branch ACTIVE (s94 #10)
 ```
 
-### Gap #7 8-K classifier (FULLY READY)
+### Gap #7 8-K classifier (G2 LIVE)
 
 ```text
 npm run edgar:8k-event:ingest:dry
@@ -344,11 +321,11 @@ npm run edgar:8k-event:ingest
 npm run migrate:create-eight-k-classifier-snapshots
 npm run migrate:create-eight-k-classifier-snapshots:apply
 npm run migrate:add-max-z-eight-k-classifier-snapshots:apply
-npm run daemon:daily
+npm run daemon:daily                                            # emits [ek-aggregate] log line
 npm run brief:morning
 ```
 
-### Gap #7 Form 4 (FULLY READY)
+### Gap #7 Form 4 (G2 LIVE)
 
 ```text
 npm run edgar:form4:ingest:dry
@@ -356,51 +333,48 @@ npm run edgar:form4:ingest
 npm run migrate:create-form-4-insider-snapshots
 npm run migrate:create-form-4-insider-snapshots:apply
 npm run migrate:add-max-z-form-4-insider-snapshots:apply
-npm run daemon:daily
+npm run daemon:daily                                            # emits [f4-aggregate] log line
 npm run brief:morning
 ```
 
 ### Tests + dev
 
 ```text
-npm test                                                                       # TS — this turn 2881 / 2784 pass / 2 fail / 95 skipped (2 fails pre-existing CH-unreachable)
+npm test                                                                       # TS — this turn 2884 / 2787 pass / 2 fail / 95 skipped (2 fails pre-existing CH-unreachable)
 .venv/Scripts/python.exe -m pytest scripts/tests                               # Python — last full-run baseline 324 / 324
 npm run dev                                                                    # http://localhost:3000
-npm run check:help                                                             # FULLY GREEN at s94 #10 close
-npx tsx --test scripts/tests/operatorBriefRender.test.ts \
-              scripts/tests/operatorBrief.test.ts                              # this turn — 201 pass / 0 skipped / 2 fail (pre-existing CH-unreachable)
+npm run check:help                                                             # FULLY GREEN at s94 #11 close
+npx tsx --test scripts/tests/executiveDepartureRepository.test.ts \
+              scripts/tests/eightKClassifierRepository.test.ts \
+              scripts/tests/form4InsiderRepository.test.ts                     # this turn — 201 pass / 0 fail / 18 skipped
 npx tsc --noEmit                                                               # 13 baseline errors unchanged
 ```
 
 ## For the next session — priority order
 
-**Default on `continue`:** open with **Step 5 — Daemon-orchestrator log-line wiring (~20 LOC × 3 + 3 G2-DAEMON tests)** to close the gap #7+#8 v2 G2 arc.
+**Default on `continue`:** the gap #7+#8 v2 G2 arc is CLOSED — no default-next on the v2 GICS thread. Operator must reprioritize from the deferred queue. **Recommended pick** (lowest-friction next-default that consumes existing helpers): **Gap #7 v2 sell-cluster sector aggregation (S93-44)** — single-slice F4-only addition that closes a small remaining asymmetry in the F4 arc (currently only buy clusters fire `form4ClusterFlag`; sell clusters are tracked per-ticker but don't aggregate to a per-sector flag).
 
-**Recommended approach:** Option C for the v1 daemon log line — use `snapshot.inputsAvailableAggregate` for both `sectors_with_z=<k>/11` AND `floor_cleared=<m>/11` (overloads the semantic: clears-floor count ≈ inputs-available count in v1 because every sector with sectorSize>0 has a non-empty trailing-2y baseline that meets MIN_Z_BASELINE=30). Document the v2 tightening path (Option A: add `sectorsClearedFloor` snapshot field) in the slice's commit message. Lowest-friction; defensible because the floor's only practical failure is the empty-baseline2y cold-start case, which fires only when `inputsAvailableAggregate=0` anyway.
+**Acceptance criteria** for whichever next slice ships:
 
-**Acceptance criteria for the G2 close (Step 5):**
-
-- ✓ `npm test` green at +3 net new tests (3 G2-DAEMON: XD-1, EK-1, F4-1; cumulative 45 of SPEC §5's 45 + the 6 G3R sub-slice tests outside §5 = 51 G2-arc tests).
+- ✓ `npm test` green at +N net new tests (per the slice's SPEC §5 test count).
 - ✓ `npx tsc --noEmit` baseline-clean (13 pre-existing errors unchanged).
 - ✓ `npm run check:help` green.
-- ✓ `npm run daemon:daily` emits the SPEC §1.3 line for each composite per cycle.
-- ✓ `npm run brief:morning` renders sections #12 + #14 + #15 with the LIVE / no-flag-cleared / cold-start branches per snapshot state (already DONE in this turn).
 
-**If operator reprioritizes:** any of these candidates can replace G2-completion as the default-next:
+**If operator reprioritizes:** any of these candidates can be the default-next:
 
-- **ADR-041 implementation** (`yield_curve_inverted` regime category).
-- **Gap #7 v2 per-row recency** (S93-32 + S93-52 co-bootstrap of EK + F4 snapshot DDLs).
-- **Gap #7 v2 CMP opportunistic-vs-routine classifier** (calendar-gated ≥6mo from F4-A1 first apply-run; earliest ~2026-11-20).
-- **Gap #7 v2 13D/13G arc** (needs its own SPEC; would consume the new helpers).
 - **Gap #7 v2 sell-cluster sector aggregation** (per S93-44; single slice on F4 composite).
-- **Gap #7 v2 event-driven cadence promotion** (Phase B-gated).
+- **Gap #7 v2 per-row recency** (S93-32 + S93-52 co-bootstrap of EK + F4 snapshot DDLs).
+- **Gap #7 v2 13D/13G arc** (needs its own SPEC; would consume the new helpers).
+- **ADR-041 implementation** (`yield_curve_inverted` regime category).
 - **Gap #9 v2 ETF.com/issuer-CSV cross-validation**.
+- **Gap #7 v2 event-driven cadence promotion** (Phase B-gated).
+- **Gap #7 v2 CMP opportunistic-vs-routine classifier** (calendar-gated ≥6mo from F4-A1 first apply-run; earliest ~2026-11-20).
 - **C-12 Phase B AlpacaAdapter** (operator-decision — paused indefinitely).
 - **Phase B campaigns** for the nine Layer-0 composites.
 
 **Operator-gated action items (carried):**
 
-- Push 31 commits to origin/main (HOLD).
+- Push 35 commits to origin/main (HOLD).
 - Drawdown framework §12 90d empirical retune — earliest 2026-08-29.
 
 **Calendar-gated:**
@@ -418,17 +392,15 @@ npx tsc --noEmit                                                               #
 
 ## Important framing for the next chat
 
-**Step 4 IS DONE.** Renderer §1.4 three-branch landed across sections #12 + #14 + #15 as ONE commit per S94-14. `npm run brief:morning` will now render the LIVE branch (when sectors flagged), the "No sectors flagged today (k/11 cleared MIN_Z_BASELINE; max-|z|=VAL at SECTOR)" branch, or the cold-start "awaits SP500 constituents-table trailing-2y coverage" branch per snapshot state. Commit `a1d194d`.
+**The gap #7+#8 v2 G2 arc is CLOSED.** Five SPEC steps + the OQ-G3-1 persistence sub-slice + the s94 #1-#4 G1 wiring constitute the complete v2 deliverable. `npm run daemon:daily` will emit one `[<xd|ek|f4>-aggregate]` log line per composite per cycle. `npm run brief:morning` will render sections #12 + #14 + #15 with the LIVE / no-flag-cleared / cold-start branches per snapshot state.
 
-**The companion SPEC at [`docs/specs/gics-sector-baseline-computation.md`](../docs/specs/gics-sector-baseline-computation.md) is the byte-template for the remaining Step 5.** It pins function signatures, the test list (45 total; 42 shipped via 6 SMP + 12 MAXZ + 12 POPSEC + 9 G2-RENDER + 3 G2-COMPOSER; 6 G3R sub-slice tests are additional + outside the §5 count), the §1.3 daemon log-line shape, and the implementation order.
+**The companion SPEC at [`docs/specs/gics-sector-baseline-computation.md`](../docs/specs/gics-sector-baseline-computation.md) is fully shipped.** All 45 §5 tests landed (6 SMP + 12 MAXZ + 12 POPSEC + 9 G2-RENDER + 3 G2-COMPOSER + 3 G2-DAEMON), plus the 6 G3R sub-slice tests outside the §5 count (51 G2-arc tests total).
 
-**The composite source files have `\0` literals (carried watch-out).** `src/server/executive_departure.ts` (line 105), `eight_k_classifier.ts` (line 133), `form_4_insider.ts` (line 163) — Read tool falls back to binary at the early-line offset. Use Read with `offset` past the literal OR `tr -d '\000'` workaround to a temp dir. Edits work normally — the `\0` literal is fine in JSON-encoded `old_string` parameters.
+**The composite source files have `\0` literals (carried watch-out).** `src/server/executive_departure.ts` (line 105), `eight_k_classifier.ts` (line 133), `form_4_insider.ts` (line 163) — Read tool falls back to binary at the early-line offset.
 
-**`FakeClickHouse.route` first-match-wins (carried S94-25).** Step 5 G2-DAEMON tests will exercise the daemon-cycle path which DOES hit CH — apply the most-specific-route-first ordering from POPSEC-* test fixtures as the template.
+**Parallel-tracks posture continues.** s94 #11 did NOT affect C-12 / paper-trading / real-money-flip arcs. Full `npm test` green at 2787 pass (2 pre-existing CH-unreachable fails in operatorBrief.test.ts are NOT regressions from this turn; confirmed by the +3-tests-vs-s94 #10 delta matching exactly the 3 G2-DAEMON tests added).
 
-**Parallel-tracks posture continues.** s94 #10 did NOT affect C-12 / paper-trading / real-money-flip arcs. Full `npm test` green at 2784 pass (2 pre-existing CH-unreachable fails in operatorBrief.test.ts are NOT regressions from this turn; confirmed by the +12-tests-vs-s94 #9 delta matching exactly the 12 G2-RENDER + G2-COMPOSER tests added).
-
-**The chain through s94 #10:**
+**The chain through s94 #11:**
 
 ```text
 ALL S41-S93 WORK                                       ✓ as documented
@@ -451,11 +423,12 @@ S94 #9: Step 3 populateSectorsForCycle across all      ✓ committed (3f9b414)
 S94 #9 HANDOFF rewrite                                 ✓ committed (55f6f2b)
 S94 #10: Step 4 ATOMIC renderer §1.4 3-branch +        ✓ committed (a1d194d)
         composer pass-through + 12 tests (9 G2-RENDER + 3 G2-COMPOSER)
-S94 #10 HANDOFF rewrite (this commit)                  ✓ this commit
-  → DEFAULT NEXT: Step 5 daemon-orchestrator log line (~20 LOC × 3 +
-    3 G2-DAEMON tests) to close the gap #7+#8 v2 G2 arc end-to-end.
-  → Recommended: Option C (use inputsAvailableAggregate for both k + m
-    in the log line; v1 approximation; document v2 tightening).
+S94 #10 HANDOFF rewrite                                ✓ committed (443bf80)
+S94 #11: Step 5 daemon-cycle log line +                ✓ committed (a20d57b)
+        3 G2-DAEMON tests — GAP #7+#8 v2 G2 ARC CLOSED
+S94 #11 HANDOFF rewrite (this commit)                  ✓ this commit
+  → DEFAULT NEXT: G2 arc CLOSED; operator reprioritizes from deferred queue.
+  → Recommended pick: Gap #7 v2 sell-cluster sector aggregation (S93-44).
   → background: daemon writes per-cycle snapshots for all 9 Layer-0 composites
                 that have applied migrations. GICS map ingest is operator-run +
                 expected weekly cadence (quarterly Wikipedia rebalances).
@@ -463,7 +436,9 @@ S94 #10 HANDOFF rewrite (this commit)                  ✓ this commit
                 gics_sector_map row exists; aggregate-layer ACTIVE end-to-end —
                 composites consume populated inputs.sectors[] + emit non-null
                 maxAggregateZ / maxAggregateZSector; renderer renders the §1.4
-                three-branch per snapshot state. Daemon log line + persistence
-                ALTER migrations operator-run; the brief renders correctly
-                whether or not the persisted observability columns exist.
+                three-branch per snapshot state; daemon emits the per-cycle
+                aggregate log line. Persistence ALTER migrations operator-run;
+                the brief renders correctly whether or not the persisted
+                observability columns exist (live daemon-cycle path uses the
+                in-memory snapshot; brief's stale-read path needs the columns).
 ```
