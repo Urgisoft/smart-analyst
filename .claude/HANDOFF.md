@@ -1,109 +1,85 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-05-22 (session 96 #3 — **Gap #7 v2 XD13-A2 — Schedule 13D/G pure composite + 22 tests SHIPPED**: second code slice of the third Layer-0 composite under gap #7. 2 commits `74c9d7f` (docs/index.md side-fix) + `afcc418` (XD13-A2 slice) / 3 files / +1585 LOC / 57 new sub-tests (22 SPEC-numbered T-XD13-1..22 + helper coverage). **66 commits ahead of `origin/main`** (was 64). **NEXT default on `continue`:** XD13-A3 — `quantlab.schedule_13d_g_snapshots` migration + `migrate_create_schedule_13d_g_snapshots.ts` + drift-test on the byte-pinned DDL. Alternative: Gap #9 v3.1 SSGA-SPDR Playwright XLSX → canonical-CSV adapter (operator-pickable).
+Last updated: 2026-05-22 (session 96 #4 — **Gap #7 v2 XD13-A3 — Schedule 13D/G snapshot table + migration SHIPPED**: third code slice of the XD13 arc. 1 commit `90dd459` / 3 files / +609 LOC / 34 new sub-tests covering SPEC §9.5 T-XD13M-1..5 + byte-pin + EXPLAIN PLAN gates. **68 commits ahead of `origin/main`** (was 66). **NEXT default on `continue`:** XD13-A4 — `src/server/schedule_13d_g_repository.ts` + daemon hook position 1m + repository tests (T-XD13R-*). Alternative: Gap #9 v3.1 SSGA-SPDR Playwright XLSX → canonical-CSV adapter (operator-pickable).
 
 ## What this slice delivered
 
-Implements the A2 sub-arc from the s96 #1 SPEC. Pure-function
-composite + 22 unit tests; no CH wiring; no daemon changes. Plus
-a small side-fix (docs/index.md) that resolves Quartz's
-"missing index.md at content root" warning that was 404'ing `/`.
+Implements the A3 sub-arc from the s96 #1 SPEC. Single-table snapshot
+migration (the source table shipped in XD13-A1 / s96 #2). DDL byte-pinned
+to SPEC §6 lines 383-399. No daemon changes; no composite changes; no
+CH apply (operator-gated).
 
-### Two commits (s96 #3)
+### One commit (s96 #4)
 
-**`74c9d7f` — docs/index.md — Quartz homepage landing for /.** 1 file, +30 LOC.
-Handwritten landing page with curated links to dashboard.md (auto-generated
-TOC), conventions, critic_workflow, and top-level sections
-(`obsidian/_Index.md`, `specs/`, `decisions/`, `teach/`,
-`obsidian/gaps/`, `components/`). Resolves the 404 on `http://localhost:8080/`
-when running `npm run docs:serve`. Tangential to gap #7; committed
-separately for clean blame.
+**`90dd459` — Gap #7 v2 XD13-A3 — schedule_13d_g_snapshots migration + 34 tests.**
+3 files, +609 LOC:
 
-**`afcc418` — Gap #7 v2 XD13-A2 — Schedule 13D/G pure composite + 22 tests.**
-2 files, +1555 LOC:
+- **NEW** `scripts/migrate_create_schedule_13d_g_snapshots.ts` (~280 LOC).
+  Single-table migration mirroring the s96 #2 sibling
+  `migrate_create_schedule_13d_g_filings.ts` pattern. Key surface:
+  - `PLANNED_DDL` constant — byte-pinned to SPEC §6 lines 383-399.
+    10 columns (snapshot_date, last_edgar_query_at, bd_since_last_query,
+    schedule_13d_cluster_flag, flagged_sectors_json, per_ticker_json,
+    inputs_available_aggregate, inputs_available_per_ticker,
+    composite_version DEFAULT 'schedule_13d_g_v1', ingested_at).
+    `ENGINE = ReplacingMergeTree(ingested_at)` — SPEC default; NO
+    Layer-0 `DateTime64(3) computed_at` deviation (diverges from F4
+    sibling intentionally — see S96-17 below). `ORDER BY (snapshot_date,
+    composite_version)` — composite sort key per SPEC §6, forward-proofs
+    v2 coexistence with v1 rows. `SETTINGS index_granularity = 1024` —
+    SPEC pinned, sparse-event sibling convention.
+  - `EXPECTED_COLUMNS` (10 columns, frozen tuple).
+  - `runPreChecks` — system.tables absence probe + system.mutations
+    pending-count (informational).
+  - `runPostChecks` — system.columns probe against EXPECTED_COLUMNS.
+  - `runDryRun` + `runApply` — orchestrators with idempotent
+    CREATE IF NOT EXISTS; safe to re-run.
+  - Inline `help: HelpEntry[]` exports for the npm-script wrapper.
 
-- **NEW** `src/server/schedule_13d_g.ts` — ~450 LOC pure-function layer.
-  Mirrors the EK composite's per-filing shape (closer to 13D/G than F4's
-  per-transaction model). Key surface:
-  - Form-type partition (XD-1) via `is13DForm` / `is13GForm` /
-    `isNew13DForm` / `isAmendmentForm` predicates.
-    `SCHEDULE_FORM_TYPES = ['SC 13D', 'SC 13D/A', 'SC 13G', 'SC 13G/A']`
-    (the four pinned EDGAR strings).
-  - `ScheduleFiling` row type — mirrors the s96 #2
-    `schedule_13d_g_filings` raw-event schema (accession, issuerCik,
-    issuerTicker, filerCik, filerName, formType, isAmendment, acceptedAt,
-    periodOfReport).
-  - Per-stock helpers: `dedupeFilings` keyed on `(issuerCik, accession)`
-    + `filterFilingsToScheduleForms` (defense-in-depth alongside
-    ingest-side filter) + `filterFilingsInWindow` (inclusive boundaries
-    matching EK + F4 convention) + `countFilingsBy` +
-    `countDistinctFilersBy` + `daysSinceLatestFilingBy`. All
-    parameterized on a form-type predicate so one helper covers 13D /
-    13G / NEW-13D paths.
-  - Aggregate helpers: `computeSectorNew13DRate` (NEW-13D only per
-    XD-5 asymmetric filter); `computeZ` + `flagSchedule13DCluster` —
-    byte-identical shape to EK + F4 + executive_departure +
-    etf_flow + cross_asset_signals + short_interest.
-  - `evaluateSchedule13DGComposite` orchestrator — eight per-ticker
-    fields per SPEC §5.1 (`new13DFilingFlag30d`, `new13GFilingFlag30d`,
-    `recent13DCount90d`, `recent13GCount90d`, `new13DCount90d`,
-    `distinct13DFilers90d`, `daysSinceLatest13D`,
-    `daysSinceLatest13G`); aggregate per §5.2;
-    `Schedule13DGSnapshot` payload per §5.3. Version stamp =
-    `'schedule_13d_g_v1'`.
-  - `inputsAvailableAggregate` per SPEC §5.3 = sum of finite baseline
-    entries across sectors (`Σ_sectors |finite(baseline2y_s)|`); brief
-    cold-start guard at `MIN_Z_BASELINE × sectorCount = 330` (11 GICS
-    sectors). Differs from sibling EK + F4 which use "sectors with
-    non-zero size"; the divergence is documented in the snapshot type
-    docstring.
-  - `inputsAvailablePerTicker` = rows with ≥ 1 in-window filing
-    (informational, not a gate).
-  - `maxAggregateZ` + `maxAggregateZSector` with lexicographic tie-break
-    (matches EK + F4 brief contract).
+- **NEW** `scripts/tests/migrateCreateSchedule13DGSnapshots.test.ts`
+  (~290 LOC, 34 sub-tests). Coverage:
+  - Identity constants (DATABASE = quantlab, TABLE = schedule_13d_g_snapshots).
+  - PLANNED_DDL byte-pin (CREATE IF NOT EXISTS shape, RMT engine,
+    ORDER BY composite key, every column type pinned, granularity 1024).
+  - EXPECTED_COLUMNS SPEC-§6 alignment (10 columns; ordered exactly
+    per SPEC lines 383-399; metadata/flag/JSON/counter/provenance
+    blocks asserted explicitly).
+  - T-XD13M-3 runPreChecks — table-absent / table-present /
+    pending-mutations / parameterized-query coverage.
+  - T-XD13M-4 runPostChecks — all-present / table-absent /
+    missing-column gaps (composite_version + flagged_sectors_json
+    drop scenarios).
+  - T-XD13M-1 + T-XD13M-2 + T-XD13M-5 — idempotent-shape (CREATE IF
+    NOT EXISTS) + single-statement (no chained DDL) + referential
+    constant (no per-call builder drift).
+  - CH grammar validation — EXPLAIN PLAN gates on pre/post queries
+    against live CH (skip when CH unreachable).
 
-- **NEW** `scripts/tests/schedule13dg.test.ts` — ~700 LOC, 57 sub-tests
-  total. The 22 SPEC-numbered tests T-XD13-1..22 plus helper coverage:
-  - T-XD13-1..3: per-stock flags fire on 30d windows + form-type
-    partition; per-stock includes amendments (XD-5).
-  - T-XD13-4..5: count semantics + filer dedup.
-  - T-XD13-6..7: null days-since-latest on no qualifying filings.
-  - T-XD13-8: universe-filter at composite layer.
-  - T-XD13-9..15: aggregate sector NEW-13D rate + z-score at
-    MIN_Z_BASELINE floor + cold-start null branches + cluster flag
-    on |z|>2.0 + XD-5 asymmetric filter (BOTH sides — amendments OUT
-    of aggregate, IN per-stock).
-  - T-XD13-16..17: 30d / 90d boundary inclusion (inclusive at
-    `acceptedAt = asOf - Nd 00:00:00`; exclusive at `asOf - Nd - 1ms`).
-  - T-XD13-18: composite-side acceptance-date anti-leak.
-  - T-XD13-19..20: 13G-only / mixed 13D+13G ticker.
-  - T-XD13-21: version stamp = 'schedule_13d_g_v1'.
-  - T-XD13-22: `inputsAvailableAggregate` semantics (sum of non-NaN
-    baseline entries across sectors).
-  - Plus helper-coverage suites for `dedupeFilings`,
-    `filterFilingsToScheduleForms`, `countFilingsBy`,
-    `countDistinctFilersBy`, `daysSinceLatestFilingBy`.
+- **modified** `package.json` (+2 npm scripts):
+  - `migrate:create-schedule-13d-g-snapshots` (dry-run)
+  - `migrate:create-schedule-13d-g-snapshots:apply` (apply)
 
 ### What this slice does NOT ship (carried per SPEC §10)
 
-- No `quantlab.schedule_13d_g_snapshots` table or migration —
-  **XD13-A3** slice (NEXT).
-- No `src/server/schedule_13d_g_repository.ts` — XD13-A4 slice.
+- No CH apply of `quantlab.schedule_13d_g_snapshots` — operator-gated.
+- No `src/server/schedule_13d_g_repository.ts` — **XD13-A4** slice (NEXT).
 - No daemon hook position 1m wired — XD13-A4 slice.
 - No brief section #16 renderer — XD13-A5 slice.
 
 ### Verification gates at commit time (all green)
 
 ```text
-npm test                                            # 2996 pass / 1 fail (pre-existing) / 28 skip
+npm test                                            # 3030 pass / 1 fail (pre-existing) / 28 skip
 .venv/Scripts/python.exe -m pytest scripts/tests   # 377 pass (unchanged — no Python touched)
 npx tsc --noEmit                                    # 13 baseline errors unchanged
 npm run check:help                                  # green
 ```
 
-The single `npm test` failure is the pre-existing CH-unreachable
-`gicsSectorRepositoryHelper SMP-6` — confirmed NOT a regression
-(persists across all recent slices).
+Pass-count diff +34 = exactly the new sub-tests in this slice; no
+regressions. The single `npm test` failure is the carry-forward
+`gicsSectorRepositoryHelper SMP-6` infra-side EXPLAIN PLAN rejection
+(sp500_constituents schema mismatch unrelated to anything in this
+slice; documented at s96 #3 close as the "pre-existing" failure).
 
 ## Where we are
 
@@ -127,10 +103,11 @@ The single `npm test` failure is the pre-existing CH-unreachable
 | Gap #9 v3 issuer-CSV live secondary panel ingest | ✓ s95 #9 (GAP #9 ARC FULLY CLOSED v1+v2+v3) |
 | Gap #7 v2 Schedule 13D/13G arc — SPEC + ADR-043 | ✓ s96 #1 (`d68c2ab`) |
 | Gap #7 v2 Schedule 13D/13G arc — XD13-A1 (ingest) | ✓ s96 #2 (`3796fde`) |
-| **Gap #7 v2 Schedule 13D/13G arc — XD13-A2 (pure composite + 22 tests)** | **✓ s96 #3 (`afcc418`) — 2 files / +1555 LOC / 57 sub-tests** |
+| Gap #7 v2 Schedule 13D/13G arc — XD13-A2 (pure composite + 22 tests) | ✓ s96 #3 (`afcc418`) |
 | Quartz `/` 404 fix (docs/index.md) | ✓ s96 #3 (`74c9d7f`) — operator-side; restart `docs:serve` to pick up |
-| Gap #7 v2 Schedule 13D/13G arc — XD13-A3 (snapshot table + migration) | ☐ NEXT (recommended default on `continue`) |
-| Gap #7 v2 Schedule 13D/13G arc — XD13-A4..A5 | ☐ queued after A3 |
+| **Gap #7 v2 Schedule 13D/13G arc — XD13-A3 (snapshot table + migration)** | **✓ s96 #4 (`90dd459`) — 3 files / +609 LOC / 34 sub-tests** |
+| Gap #7 v2 Schedule 13D/13G arc — XD13-A4 (repository + daemon hook) | ☐ NEXT (recommended default on `continue`) |
+| Gap #7 v2 Schedule 13D/13G arc — XD13-A5 | ☐ queued after A4 |
 | Gap #9 v3.1 SSGA-SPDR XLSX → canonical-CSV Playwright adapter | ☐ deferred (operator-pickable) |
 | Gap #7 v2 CMP opportunistic-vs-routine classifier (per F4-1) | ☐ deferred (calendar-gated ≥6mo from F4-A1 first apply) |
 | Gap #7 v2 event-driven cadence promotion | ☐ deferred (Phase B-gated) |
@@ -138,42 +115,36 @@ The single `npm test` failure is the pre-existing CH-unreachable
 | Phase B campaigns for nine Layer-0 composites | ⏸ deferred — calendar OR backfill arc |
 | #5 capital-deployment-ramp ADR | ☐ operator self-assigned ~1 week; not blocking |
 | Drawdown framework §12 90d empirical retune | ☐ scheduled — earliest 2026-08-29 |
-| Push 66 commits to origin/main | ☐ operator-gated, HOLD |
+| Push 68 commits to origin/main | ☐ operator-gated, HOLD |
 
 ## Decisions locked in
 
-### Session 96 #3 (this slice)
+### Session 96 #4 (this slice)
 
-**S96-12. `inputsAvailableAggregate` semantic is sum-of-finite-baseline-entries across sectors, NOT count of non-null rates.** The metric is `Σ_sectors |{b ∈ baseline2y_s : Number.isFinite(b)}|`. Brief cold-start guard fires at `MIN_Z_BASELINE × sectorCount = 30 × 11 = 330` (11 GICS sectors).
-`Why:` SPEC §5.3 wording: "count of (sector, day) tuples with non-null new_13d_rate over the 2y baseline used at this snapshot". The threshold value (330) only makes sense if summed across the panel, not the snapshot. This diverges from the EK + F4 sibling implementations (which use `if (s.sectorSize > 0) inputsAvailableAggregate++;`); the SPEC §5.3 contract for XD13 is more demanding because the aggregate uses a single track (NEW-13D rate) so the cold-start state needs richer panel-level evidence.
-`How to apply:` Reuse `computeZ`'s `baselineSize` return value — it already filters non-NaN entries and is computed regardless of whether `z` is null. Accumulate `inputsAvailableAggregate += baselineSize` inside the per-sector loop. Test T-XD13-22 pins the semantic (sums + NaN-filtering).
+**S96-17. XD13 snapshot table preserves SPEC §6 defaults; NO Layer-0 deviations.** ReplacingMergeTree(ingested_at) + ORDER BY (snapshot_date, composite_version) + DEFAULT 'schedule_13d_g_v1' on composite_version + index_granularity = 1024 — every clause matches the SPEC §6 wording byte-for-byte (modulo `IF NOT EXISTS` idempotency upgrade).
+`Why:` SPEC §6 was authored with these choices specifically (composite ORDER BY forward-proofs v2 coexistence; granularity 1024 matches sparse-event sibling tables; ingested_at as RMT version key is sufficient because the daemon writes at-most-once per snapshot_date so DateTime resolution suffices). The F4 sibling deviated to `DateTime64(3) computed_at` + `ORDER BY (snapshot_date)` only + granularity 8192 because the F4 SPEC was thinner — XD13 SPEC §6 is more prescriptive, so respecting the SPEC wins over sibling-pattern parity.
+`How to apply:` Any future migration that wants to extend XD13 snapshot DDL (e.g. an A4 follow-up adding max_aggregate_z per sibling-table precedent) must add columns via the s95-style `add-*` migration pattern, NOT rewrite the table. The PLANNED_DDL constant is pinned in tests; any drift will hard-fail.
 
-**S96-13. Form-type predicates are 4-way partition with explicit asymmetric helpers.** `is13DForm` and `is13GForm` are inclusive of /A; `isNew13DForm` matches only 'SC 13D' (NOT '/A'); `isAmendmentForm` covers both /A variants.
-`Why:` SPEC's XD-5 asymmetry (aggregate excludes amendments, per-stock includes them) is load-bearing. A single "is13D" predicate that ambiguously includes /A would force every caller to re-check `isAmendment` at the call site — easy to forget, easy to silently break the asymmetric filter. Two distinct predicates make the asymmetry explicit at the call site.
-`How to apply:` Aggregate path uses `isNew13DForm`; per-stock path uses `is13DForm`. The orchestrator calls each exactly once. Future refactors that consolidate into a single predicate will silently break either the announcement-effect signal or the per-stock forensic coverage.
+**S96-18. The five SPEC T-XD13M labels structure 34 sub-tests, NOT 5.** Each SPEC label (T-XD13M-1..5) is satisfied by multiple granular sub-tests grouped under `describe()` blocks named with the SPEC label.
+`Why:` The SPEC's T-XD13M labels are intentionally coarse — one label per "responsibility" (dry-run, apply, pre-check, post-check, idempotency). The granular sub-tests under each label make individual failure modes self-locating (a single failure message names exactly which clause of the DDL or which branch of the pre/post-check tree broke). Mirrors the EK + F4 sibling test files' style.
+`How to apply:` Future migration slices (XD13-A4 repository tests, XD13-A5 brief renderer tests) should follow the same convention: SPEC labels at the describe-block level; granular assertions at the `it()` level. Net test count is allowed to exceed the SPEC's coarse label count; the SPEC defines coverage minimums, not test maximums.
 
-**S96-14. `inputsAvailablePerTicker` semantic = rows with ≥ 1 in-window filing across ANY form type.** The metric does NOT discriminate 13D from 13G; it counts ticker rows with non-empty 90d window coverage.
-`Why:` Informational coverage gauge for the per-stock signal, not a gate. The brief renderer (XD13-A5) will use it to show "X/N tickers have current filings" — for that purpose, treating 13D + 13G as equal contributors is the right call (both are signal). The CIK-coverage gauge ("tickers with current CIK mapping") is a separate metric handled at the repository (XD13-A4) layer.
-`How to apply:` Increment inside the per-ticker loop when `recent13DCount90d + recent13GCount90d > 0`. Test T-XD13-22 confirms the 13G-only ticker still counts toward `inputsAvailablePerTicker`.
+**S96-19. Single-table migration scope is justified at A3 by the s96 #2 split.** The SPEC §6 (and §9.5) was originally written when A1+A3 were envisioned as a combined two-table migration. The s96 #2 ingest slice split them: filings shipped at A1; snapshots ship at A3. SPEC §9.5 T-XD13M-2 still reads "for both `schedule_13d_g_filings` + `schedule_13d_g_snapshots`" — the s96 #4 test file documents the inheritance inline (the filings half is implicitly covered by the XD13-A1 Python ingest's lazy-create assertions in `scripts/tests/test_sec_edgar_13d_g_ingest.py`).
+`Why:` Operator-friendliness + clean slice commits per EK / F4 / gap-#9 precedent. The two tables are needed at different points in the lifecycle (filings at first-ingest; snapshots at first-daemon-write), so splitting their migrations into separate slices means an operator who wants to pre-flight one half independently can.
+`How to apply:` If a future divergence-resolution between the SPEC's "both tables together" text and the as-shipped split arises (e.g. an audit asks "where's the combined migration?"), point to this decision + the s96 #2 commit `3796fde` + the s96 #4 commit `90dd459` for the split-arc receipts.
 
-**S96-15. Composite-layer acceptance-date anti-leak gate is defense in depth, NOT optional.** Filings with `acceptedAt > asOf` are rejected at composite-read time by `filterFilingsInWindow`, mirroring the ingest-layer rejection in `sec_edgar_13d_g_ingest.py`.
-`Why:` SPEC §11 watch-out #8 + EDF-5 inheritance. The ingest layer enforces it at parse-time, but the composite is a separate reading boundary — a CH-rewind on the snapshot date would otherwise read tomorrow's ingest as today's window. Defense in depth.
-`How to apply:` `filterFilingsInWindow` is the single source of truth. Test T-XD13-18 pins the composite-side gate via a synthetic future-dated filing.
-
-**S96-16. Quartz `docs/` content root needs `index.md` to serve `/`.** Created handwritten landing page linking to dashboard.md (auto-generated TOC) + curated entry points to top-level sections.
-`Why:` Quartz emits a warning ("missing index.md home page file") and 404s `/` without it. Auto-generated `dashboard.md` works at `/dashboard` but `/` is the natural entry point. The handwritten index doesn't conflict with the generator (only `dashboard.md` is auto-generated; `index.md` is hand-maintained).
-`How to apply:` `docs/index.md` is a small (~30 LOC) hand-maintained landing page. Do NOT regenerate it from any script; future expansion (e.g. linking to new top-level sections) is a manual edit. If the operator later decides the dashboard SHOULD be the homepage, the cleanest refactor is to modify `scripts/generate_docs_dashboard.ts` to emit `docs/index.md` and delete the current handwritten file; the divergence is preserved for future judgment.
-
-**Carry-overs (still in force):** S96-1..S96-11 (all s96 #1 + s96 #2 decisions); S95-1..S95-50; S94-1..S94-33; S93-1..S93-54; all prior s73-s92 lock-ins.
+**Carry-overs (still in force):** S96-1..S96-16 (all s96 #1 + s96 #2 + s96 #3 decisions); S95-1..S95-50; S94-1..S94-33; S93-1..S93-54; all prior s73-s92 lock-ins.
 
 ## Open questions
 
-### Newly opened (s96 #3)
+### Newly opened (s96 #4)
 
-None. The composite is a mechanical implementation of SPEC §5.1-§5.3
-locked at s96 #1; no canon-thin forks emerged at implementation time.
+None. The migration is a mechanical implementation of SPEC §6 DDL locked
+at s96 #1; no canon-thin forks emerged at implementation time. The
+SPEC §9.5 wording-vs-as-shipped split arc (S96-19) is documented, not
+unresolved.
 
-### CARRIED (unchanged from s96 #2)
+### CARRIED (unchanged from s96 #3)
 
 - **OQ-XD13-1.** Phase B independence-test threshold for form-type-only signal. Estimated gate: ~6-8 weeks of `schedule_13d_g_filings` ingest history after XD13-A1 (LIVE s96 #2) + a backfill arc to populate historical baseline. Calendar clock started s96 #2.
 - **OQ-XD13-2.** v2 filer-reputation table sourcing: hand-maintained vs auto-learned. UNCHANGED.
@@ -197,54 +168,52 @@ locked at s96 #1; no canon-thin forks emerged at implementation time.
 
 ## Next stage
 
-### Default on `continue` — recommended: XD13-A3 (snapshot table + migration)
+### Default on `continue` — recommended: XD13-A4 (repository + daemon hook position 1m)
 
-The composite + raw-event ingest are live; the natural next code slice
-is XD13-A3 (snapshot table migration). This is the SQL/storage half;
-no composite changes.
+The composite + raw-event ingest + snapshot table are live; the natural
+next code slice is XD13-A4 (repository + daemon hook). This wires the
+pure composite to the storage layer and to the daily daemon.
 
-1. **NEW** `scripts/migrate_create_schedule_13d_g_snapshots.ts` —
-   ~190-220 LOC. Source-table migration matching the byte-pinned DDL
-   from SPEC §6 lines 384-400:
+1. **NEW** `src/server/schedule_13d_g_repository.ts` — ~350-450 LOC.
+   Sibling of `src/server/form_4_insider_repository.ts` +
+   `src/server/eight_k_classifier_repository.ts`. Surface:
+   - `schedule13dgSnapshotsTableExists(ch)` — boolean probe matching
+     the snapshot-table absence-safe pattern across sibling Layer-0
+     composites.
+   - `readScheduleFilingsAsOf(ch, asOf)` — pulls latest non-future
+     rows from `schedule_13d_g_filings` with composite-side anti-leak
+     filter (defense in depth per S96-15).
+   - `writeSnapshot(ch, snapshot)` — JSON-stringify
+     `flagged_sectors` + `per_ticker` columns; insert one row to
+     `schedule_13d_g_snapshots`.
+   - `readLatestSnapshot(ch)` — for the brief renderer in A5.
+   - `runDaemonSchedule13DGEvaluation(ch, asOf)` — orchestrates
+     `readScheduleFilingsAsOf` → `evaluateSchedule13DGComposite`
+     (from `src/server/schedule_13d_g.ts`) → `writeSnapshot`.
+     Cold-start: missing source table → write a cold-start snapshot
+     (all flags false; all counters 0; null query metadata), NOT a
+     throw, per SPEC §7.
 
-   ```sql
-   CREATE TABLE quantlab.schedule_13d_g_snapshots (
-     snapshot_date              Date,
-     last_edgar_query_at        Nullable(DateTime),
-     bd_since_last_query        Nullable(Int32),
-     schedule_13d_cluster_flag  UInt8,
-     flagged_sectors_json       String,
-     per_ticker_json            String,
-     inputs_available_aggregate UInt32,
-     inputs_available_per_ticker UInt32,
-     composite_version          LowCardinality(String) DEFAULT 'schedule_13d_g_v1',
-     ingested_at                DateTime DEFAULT now()
-   ) ENGINE = ReplacingMergeTree(ingested_at)
-   ORDER BY (snapshot_date, composite_version)
-   SETTINGS index_granularity = 1024;
-   ```
+2. **modified** `src/server/daemon.ts` (or whichever file holds
+   the daily-daemon step chain) — add step 1m between Form 4 (1l)
+   and §2 cells/bundles. Pattern: `if (!noMacro && !dryRun) await
+   runDaemonSchedule13DGEvaluation(ch, asOf)`. Gated by
+   `NO_MACRO || DRY_RUN` per SPEC §7.
 
-   Pattern mirrors `scripts/migrate_create_schedule_13d_g_filings.ts`
-   from s96 #2: pre-checks (table absence + pending mutations) +
-   post-checks (all 10 expected columns present); idempotent
-   `CREATE TABLE IF NOT EXISTS`; inline `help: HelpEntry[]` exports
-   for the npm-script wrapper.
+3. **NEW** `scripts/tests/schedule13dgRepository.test.ts` — ~400 LOC,
+   covers SPEC §9.2 T-XD13R-1..N+5:
+   - T-XD13R-1: `writeSnapshot` round-trip with FakeClickHouse —
+     JSON columns stringified + 10 columns written.
+   - T-XD13R-Nplus: `readLatestSnapshot` returns most-recent per
+     `(snapshot_date, composite_version)`.
+   - T-XD13R-Nplus2: `schedule13dgSnapshotsTableExists` true/false.
+   - T-XD13R-Nplus3: `runDaemonSchedule13DGEvaluation` end-to-end
+     with synthetic CH state.
+   - T-XD13R-Nplus4: cold-start when source table missing → returns
+     cold-start snapshot, NOT a throw.
+   - T-XD13R-Nplus5: acceptance-date filter at repository layer.
 
-2. **NEW** `scripts/tests/migrateCreateSchedule13DGSnapshots.test.ts`
-   — ~250-300 LOC. T-XD13M-1..5 per SPEC §9.5:
-   - T-XD13M-1: dry-run prints planned DDL without executing.
-   - T-XD13M-2: apply executes `CREATE TABLE IF NOT EXISTS`.
-   - T-XD13M-3: pre-checks validate CH connectivity + database
-     existence.
-   - T-XD13M-4: post-checks validate table existence via
-     `system.tables` probe.
-   - T-XD13M-5: re-run is idempotent.
-
-3. **modified** `package.json` — 2 new npm scripts:
-   - `migrate:create-schedule-13d-g-snapshots` (dry-run)
-   - `migrate:create-schedule-13d-g-snapshots:apply` (apply)
-
-Estimated: 2-3 files / ~500-600 LOC / 5 tests / 1 commit.
+Estimated: 2-3 files / ~750-900 LOC / 6+ tests / 1 commit.
 
 ### Alternative slices (operator-pickable)
 
@@ -272,14 +241,18 @@ If operator prefers a different next slice:
 
 ### Operator-gated action items (carried + new)
 
-**NEW from s96 #3:**
+**NEW from s96 #4:**
 
-- **`docs/index.md`** (s96 #3, `74c9d7f`): restart any running
+- (NEW) Apply the XD13-A3 migration once per environment:
+  `npm run migrate:create-schedule-13d-g-snapshots:apply`. Idempotent
+  (CREATE IF NOT EXISTS); safe to re-run. Pre-flight; daemon writes
+  to this table once XD13-A4 lands.
+
+**CARRIED (unchanged from s96 #3):**
+
+- (carried) `docs/index.md` (s96 #3, `74c9d7f`): restart any running
   `npm run docs:serve` process to pick up the new landing page;
   no further action needed.
-
-**CARRIED (unchanged from s96 #2):**
-
 - (carried) Run `npm run migrate:create-schedule-13d-g-filings:apply`
   once per environment.
 - (carried) Run `npm run edgar:13d-g:ingest --apply` to populate the
@@ -295,87 +268,88 @@ If operator prefers a different next slice:
   - `migrate:add-max-z-{executive-departure,eight-k-classifier,form-4-insider}-snapshots:apply` (×3).
   - `migrate:create-etf-shares-outstanding-secondary:apply`.
 - (carried) Create `data/etf_flow_issuer_csv/` + drop canonical-schema CSVs.
-- (carried) Push 66 commits to origin/main — HOLD.
+- (carried) Push 68 commits to origin/main — HOLD.
 - (carried) Drawdown framework §12 90d empirical retune — earliest 2026-08-29.
 
 ## Files / code state
 
-### NEW this slice (s96 #3 — 2 commits)
+### NEW this slice (s96 #4 — 1 commit)
 
 | Path | LOC | Notes |
 | --- | --- | --- |
-| `docs/index.md` | +30 (NEW) | Quartz landing page; resolves `/` 404. Hand-maintained. Tangential to gap #7. |
-| `src/server/schedule_13d_g.ts` | +~450 (NEW) | Pure-function composite. Form-type partition + per-stock metrics + aggregate NEW-13D rate per XD-5 asymmetric filter + snapshot type + orchestrator. Mirrors EK shape (per-filing). |
-| `scripts/tests/schedule13dg.test.ts` | +~700 (NEW) | 22 SPEC-numbered tests T-XD13-1..22 + helper-coverage suites. 57 sub-tests, all green. |
+| `scripts/migrate_create_schedule_13d_g_snapshots.ts` | +~280 (NEW) | Single-table snapshot migration. SPEC §6 byte-pinned DDL. Idempotent CREATE IF NOT EXISTS. Pre/post checks. Inline help exports. |
+| `scripts/tests/migrateCreateSchedule13DGSnapshots.test.ts` | +~290 (NEW) | 34 sub-tests covering SPEC §9.5 T-XD13M-1..5 + byte-pin + EXPLAIN PLAN gates. |
+| `package.json` | +2 lines | Two new npm scripts (dry-run + apply). |
 
 ### CH state (no apply this slice — operator-gated)
 
 Migrations still pending operator apply:
 - `quantlab.schedule_13d_g_filings` — DDL ready in
   `scripts/migrate_create_schedule_13d_g_filings.ts` (from s96 #2).
-- `quantlab.schedule_13d_g_snapshots` — NOT YET MIGRATED (XD13-A3
-  ships the migration).
-- Other carried pending migrations per s96 #2 HANDOFF.
+- `quantlab.schedule_13d_g_snapshots` — DDL ready in
+  `scripts/migrate_create_schedule_13d_g_snapshots.ts` (THIS SLICE).
+- Other carried pending migrations per s96 #3 HANDOFF.
 
 ### Tests (new this slice)
 
-- `scripts/tests/schedule13dg.test.ts`: 57 sub-tests pass.
-- Full npm test at commit time: 2996 passed (was 2939; +57 new) / 1
-  failed (pre-existing CH-unreachable, NOT a regression) / 28 skipped.
+- `scripts/tests/migrateCreateSchedule13DGSnapshots.test.ts`: 34 sub-tests pass.
+- Full npm test at commit time: 3030 passed (was 2996; +34 new) / 1
+  failed (pre-existing CH-side EXPLAIN PLAN gate on
+  `gicsSectorRepositoryHelper`, NOT a regression) / 28 skipped.
 - Full pytest at commit time: 377 passed (unchanged — no Python touched).
 - `npx tsc --noEmit` baseline: 13 errors unchanged.
 - `npm run check:help`: green.
 
 ## Watch-outs
 
-### NEW from this turn (s96 #3)
+### NEW from this turn (s96 #4)
 
-- **XD-5 asymmetric filter (load-bearing at the composite layer).**
-  `computeSectorNew13DRate` filters to `isNew13DForm` (excludes /A);
-  per-stock helpers (`countFilingsBy(..., is13DForm, ...)`) include /A.
-  Any refactor that consolidates the two paths into a single "use this
-  filter everywhere" approach will silently break either the
-  announcement-effect signal (Brav-Jiang-Partnoy-Thomas 2008) or the
-  per-stock forensic coverage. The two helpers + four-way form-type
-  predicates make the asymmetry explicit at the call site.
+- **XD13 snapshot DDL diverges from F4 sibling on PURPOSE.** F4
+  used `DateTime64(3) computed_at` + `ORDER BY (snapshot_date)` only +
+  granularity 8192. XD13 uses SPEC §6 defaults: `ingested_at DateTime`
+  + composite ORDER BY + granularity 1024. Any "consolidate snapshot
+  DDLs to a shared template" refactor will silently break either v2
+  composite-version coexistence (composite ORDER BY drops) OR snapshot
+  millisecond-resolution dedup (RMT version key downgrade). See S96-17.
 
-- **`inputsAvailableAggregate` diverges from sibling-composite
-  semantics.** EK + F4 + others use "sectors with non-zero size"; XD13
-  uses "sum of finite baseline entries across sectors" per SPEC §5.3.
-  Future refactors that consolidate the metric across composites would
-  silently break the XD13 cold-start guard (threshold 330, not
-  "11 non-null sectors"). Documented in the snapshot type docstring.
+- **Pre-existing CH-side gicsSectorRepositoryHelper failure is NOT
+  the "CH-unreachable" failure the s96 #3 HANDOFF described.** It's a
+  schema-mismatch on `sp500_constituents.effective_date` (the CH-side
+  column appears to be String, but the test query binds it to
+  `{asOfEnd:Date}` for EXPLAIN PLAN). Unrelated to anything XD13.
+  Wording in the s96 #3 HANDOFF was loose; the actual failure mode is
+  "EXPLAIN PLAN rejected by live CH due to type mismatch". Future
+  refactors that touch `sp500_constituents` DDL should investigate
+  whether the table schema needs reconciliation.
 
-- **`inputsAvailablePerTicker` does NOT discriminate 13D vs 13G.** Both
-  contribute to the gauge. The brief's "X/N tickers have current
-  filings" message should NOT be interpreted as "X tickers with
-  activist activity"; for that, gate on `recent13DCount90d > 0`
-  per-row.
+- **`migrate:create-schedule-13d-g-snapshots:apply` is the FIRST
+  XD13-side migration that the daemon actually requires before XD13-A4
+  lands.** The A1 migration (`schedule_13d_g_filings`) is also lazy-
+  created by the Python ingest, so operators who only ran
+  `edgar:13d-g:ingest --apply` already have it. The A3 migration has
+  NO lazy-create equivalent — XD13-A4's `writeSnapshot` will throw
+  on missing table if the operator hasn't applied it. The next
+  session may want to add a lazy-create or absent-safe shim at
+  `writeSnapshot` (sibling repositories do this); decide at A4 time.
 
-- **`assertClose(actual, expected, msg)` is wrong — msg is `eps`.**
-  Initial test draft passed message strings as the third arg, which
-  caused `Math.abs(...) < "string"` → NaN → false. Fixed before commit;
-  future tests should use `assertClose(actual, expected)` without a
-  message arg (the assertion-failure message is sufficient).
+### Carried from s96 #3
 
-- **`docs/index.md` is hand-maintained.** The Quartz dashboard
-  generator (`scripts/generate_docs_dashboard.ts`) writes
-  `docs/dashboard.md`; do NOT extend it to also write `docs/index.md`
-  without operator sign-off. The two files serve different purposes
-  (TOC vs landing page) and conflating them risks losing the
-  hand-curated entry points.
+All s96 #1 + s96 #2 + s96 #3 watch-outs preserved unchanged. Key
+carry-overs:
 
-### Carried from s96 #2
-
-All s96 #1 + s96 #2 watch-outs preserved unchanged. Key carry-overs:
-
-- The SPEC is the contract for XD13-A3..A5 — any divergence is a SPEC
-  violation, not a SPEC update.
+- XD-5 asymmetric filter (load-bearing at the composite layer).
+- `inputsAvailableAggregate` diverges from sibling-composite
+  semantics (sum of finite baseline entries, NOT count of non-null
+  sectors).
+- `inputsAvailablePerTicker` does NOT discriminate 13D vs 13G.
+- `assertClose(actual, expected, msg)` third-arg footgun.
+- `docs/index.md` is hand-maintained.
+- The SPEC is the contract for XD13-A4..A5 — any divergence is a
+  SPEC violation, not a SPEC update.
 - Issuer/filer split structural (s96 #2 watch-out).
 - Filer-name resolution is opt-in via `--resolve-filer-names`.
 - DDL byte-pinned across Python ingest + TS migration.
-- `is_amendment` derived from `form_type` suffix (now also tested at
-  composite layer via `isAmendmentForm` predicate).
+- `is_amendment` derived from `form_type` suffix.
 - Filer CIK ≠ issuer CIK at every layer.
 - Pre-filing return capture is structurally impossible.
 - 13G is canon-documented to carry signal (Edmans-Fang-Zur 2013).
@@ -392,7 +366,7 @@ npx tsx scripts/_paper_trading_review.ts
 npm run brief:morning
 ```
 
-### Quartz docs site (carried + docs/index.md added)
+### Quartz docs site (carried)
 
 ```text
 npm run docs:install                                    # ONE-TIME per clone
@@ -402,7 +376,7 @@ npm run docs:dashboard                                  # regen dashboard.md onl
 npm run dev:all                                         # dashboard (:3000) + Quartz (:8080) parallel
 ```
 
-### Gap #7 v2 Schedule 13D/G (A1 + A2 LIVE; A3 NEXT)
+### Gap #7 v2 Schedule 13D/G (A1 + A2 + A3 LIVE; A4 NEXT)
 
 ```text
 # Operator-pending (XD13-A1 first run):
@@ -412,9 +386,10 @@ npm run edgar:13d-g:ingest:dry                          # dry-run
 npm run edgar:13d-g:ingest                              # apply ingest
 # Optional: resolve filer names today (v2 ADR will lift this default):
 .venv/Scripts/python.exe scripts/sec_edgar_13d_g_ingest.py --resolve-filer-names --apply
-# Once XD13-A3 lands (NEXT):
-npm run migrate:create-schedule-13d-g-snapshots:apply
-# Once XD13-A4 lands:
+# Operator-pending (XD13-A3 NEW THIS SLICE):
+npm run migrate:create-schedule-13d-g-snapshots         # dry-run
+npm run migrate:create-schedule-13d-g-snapshots:apply   # apply DDL
+# Once XD13-A4 lands (NEXT):
 npm run daemon:daily                                    # populates schedule_13d_g_snapshots
 # Once XD13-A5 lands:
 npm run brief:morning                                   # §16 renders
@@ -466,35 +441,40 @@ npm run macro:backfill:v3
 ### Tests + dev
 
 ```text
-npm test                                                                       # TS — last green at s96 #3 close: 2996 pass / 1 fail / 28 skipped
-.venv/Scripts/python.exe -m pytest scripts/tests                               # Python — last green at s96 #3 close: 377 pass
+npm test                                                                       # TS — last green at s96 #4 close: 3030 pass / 1 fail / 28 skipped
+.venv/Scripts/python.exe -m pytest scripts/tests                               # Python — last green at s96 #4 close: 377 pass
 npm run dev                                                                    # http://localhost:3000
-npm run check:help                                                             # GREEN at s96 #3 close
+npm run check:help                                                             # GREEN at s96 #4 close
 npx tsc --noEmit                                                               # 13 baseline errors unchanged
-npm run docs:build                                                             # 301 emitted from 115 inputs (after docs/index.md)
+npm run docs:build                                                             # 301 emitted from 115 inputs
 ```
 
 ## For the next session — priority order
 
-**Default on `continue`:** **XD13-A3** — `quantlab.schedule_13d_g_snapshots`
-migration + drift-tested DDL. Pattern established from the s96 #2
-sibling migration `scripts/migrate_create_schedule_13d_g_filings.ts`.
-Estimated 2-3 files / ~500-600 LOC / 5 tests / 1 commit.
+**Default on `continue`:** **XD13-A4** —
+`src/server/schedule_13d_g_repository.ts` + daemon hook position 1m +
+repository tests (`scripts/tests/schedule13dgRepository.test.ts`,
+T-XD13R-*). Sibling of `src/server/form_4_insider_repository.ts` +
+`src/server/eight_k_classifier_repository.ts`. Pattern established;
+~2-3 files, ~750-900 LOC, 6+ tests, 1 commit.
 
-**Acceptance criteria** for XD13-A3:
+**Acceptance criteria** for XD13-A4:
 
-- ✓ `npm test` green at +5 new migration tests.
+- ✓ `npm test` green at +6 (or more) new repository tests.
 - ✓ `npx tsc --noEmit` baseline-clean.
 - ✓ `npm run check:help` green.
-- ✓ `migrate_create_schedule_13d_g_snapshots.ts` follows the s96 #2
-  migration template exactly (pre/post checks, idempotent
-  `CREATE IF NOT EXISTS`, inline help exports).
-- ✓ DDL matches SPEC §6 lines 384-400 byte-for-byte (column names,
-  types, defaults, ENGINE, ORDER BY, SETTINGS).
-- ✓ 2 new npm scripts (`migrate:create-schedule-13d-g-snapshots` +
-  `:apply`).
-- ✓ Pre-existing 1 CH-unreachable `gicsSectorRepositoryHelper SMP-6`
-  failure is NOT a regression — ignore.
+- ✓ `schedule_13d_g_repository.ts` follows the F4 + EK repository
+  pattern (writeSnapshot stringifies JSON columns + writes 10 columns;
+  readLatest pulls most-recent per ORDER BY key; tableExists boolean
+  probe; runDaemon orchestrator with cold-start branch).
+- ✓ Daemon hook wired at step 1m position (between 1l Form 4 and §2
+  cells/bundles) per SPEC §7; gated by `NO_MACRO || DRY_RUN`.
+- ✓ Cold-start path: missing source table → cold-start snapshot
+  (all flags false; counters 0; null query metadata), NOT a throw.
+- ✓ Repository-layer acceptance-date filter (defense in depth
+  alongside composite-layer S96-15 filter).
+- ✓ Pre-existing 1 `gicsSectorRepositoryHelper` failure is NOT a
+  regression — ignore.
 
 **If operator reprioritizes:** any of these candidates can be the
 default-next:
@@ -531,23 +511,25 @@ of progress:**
 
 - **EK (8-K classifier)** — DONE end-to-end (s93..s95 #7), with per-EVENT recency LIVE.
 - **F4 (Form 4 insider)** — DONE end-to-end (s93..s95 #4), with sell-cluster + per-row recency LIVE.
-- **XD13 (Schedule 13D/13G activist-stake)** — **A1 + A2 LIVE
-  (s96 #2 + s96 #3); A3 NEXT.** SPEC + ADR shipped s96 #1; ingest +
-  raw-event table shipped s96 #2; pure composite + 22 tests shipped
-  s96 #3. A3..A5 queued.
+- **XD13 (Schedule 13D/13G activist-stake)** — **A1 + A2 + A3 LIVE
+  (s96 #2 + s96 #3 + s96 #4); A4 NEXT.** SPEC + ADR shipped s96 #1;
+  ingest + raw-event table shipped s96 #2; pure composite + 22 tests
+  shipped s96 #3; snapshot table + migration + 34 tests shipped s96 #4.
+  A4..A5 queued.
 
-**The arc-shape parity is load-bearing.** XD13-A3 is the sibling of
-F4-A3 + EK-A3. The shared infrastructure (`_sec_edgar_helpers.py`,
+**The arc-shape parity is load-bearing.** XD13-A4 is the sibling of
+F4-A4 + EK-A4. The shared infrastructure (`_sec_edgar_helpers.py`,
 `cik_ticker_map`, acceptance-date anti-leak gate, ReplacingMergeTree
 idempotency, version stamps, snapshot table structure) is established
-across EK + F4 + XD13. The XD13 differences (carried from s96 #2 +
-extended by s96 #3):
+across EK + F4 + XD13. The XD13 differences (carried from s96 #3 +
+extended by s96 #4):
 
 - **Form type set.** XD13 = `{SC 13D, SC 13D/A, SC 13G, SC 13G/A}`.
 - **Schema shape.** XD13's raw-event table has no item_code; has
-  `filer_cik` + `filer_name`. Snapshot table mirrors EK + F4 shape
-  but with `flagged_sectors_json` (NEW-13D rate per sector) + a
-  per-ticker JSON column (no per-form sub-flags — they're in the JSON).
+  `filer_cik` + `filer_name`. Snapshot table preserves SPEC §6
+  defaults — RMT(ingested_at) + ORDER BY (snapshot_date,
+  composite_version) + granularity 1024. Diverges from F4 + EK
+  sibling Layer-0 deviations (S96-17).
 - **Composite logic.** XD13 = form-type-only proxy (XD-1) with the
   XD-5 asymmetric filter (aggregate = NEW-13D only; per-stock includes
   amendments).
@@ -563,19 +545,17 @@ them.
 **Backward compat preserved on three fronts:**
 
 1. **CH:** No DDL apply this slice (operator-gated). The XD13-A3
-   slice (NEXT) ships an idempotent `CREATE IF NOT EXISTS`
-   migration safe to apply at any time.
-2. **Type:** New TS types this slice (`ScheduleFiling`,
-   `Schedule13DGPerTickerRow`, `Schedule13DGFlaggedSector`,
-   `Schedule13DGInputs`, `Schedule13DGSnapshot`). All additive;
-   nothing existing changed.
-3. **Daemon:** Code untouched this slice. Future A4 slice wires step 1m.
+   migration is an idempotent `CREATE IF NOT EXISTS` safe to apply
+   at any time.
+2. **Type:** No new TS types this slice — the migration only re-uses
+   existing `HelpEntry` + `ClickHouseClient`. Nothing existing changed.
+3. **Daemon:** Code untouched this slice. Next A4 slice wires step 1m.
 
-**Parallel-tracks posture continues.** s96 #3 did NOT affect C-12 /
+**Parallel-tracks posture continues.** s96 #4 did NOT affect C-12 /
 paper-trading / real-money-flip arcs. Code-only slice — daemon
 output unchanged + brief output unchanged.
 
-**The chain through s96 #3:**
+**The chain through s96 #4:**
 
 ```text
 ALL S41-S95 WORK                                        ✓ as documented
@@ -583,14 +563,19 @@ S96 #1: SPEC + ADR-043                                  ✓ committed (d68c2ab)
 S96 #2: XD13-A1 — ingest + raw-event table              ✓ committed (3796fde)
 S96 #3: docs/index.md — Quartz landing                  ✓ committed (74c9d7f)
 S96 #3: XD13-A2 — pure composite + 22 tests             ✓ committed (afcc418)
-        — src/server/schedule_13d_g.ts (~450 LOC)
-        — scripts/tests/schedule13dg.test.ts (~700 LOC, 57 sub-tests)
-S96 #3 HANDOFF rewrite (this commit)                    ⏳ in-progress
-  → DEFAULT NEXT: XD13-A3 (snapshot table + migration).
-                  Sibling of F4-A3 + EK-A3. Pattern
-                  established; ~2-3 files, ~500-600 LOC,
-                  5 tests, 1 commit.
+S96 #3 HANDOFF rewrite                                  ✓ committed (fb119a4)
+S96 #4: XD13-A3 — snapshot table + migration + 34 tests ✓ committed (90dd459)
+        — scripts/migrate_create_schedule_13d_g_snapshots.ts (~280 LOC)
+        — scripts/tests/migrateCreateSchedule13DGSnapshots.test.ts (~290 LOC)
+        — package.json (+2 npm scripts)
+S96 #4 HANDOFF rewrite (this commit)                    ⏳ in-progress
+  → DEFAULT NEXT: XD13-A4 (repository + daemon hook).
+                  Sibling of F4-A4 + EK-A4. Pattern
+                  established; ~2-3 files, ~750-900 LOC,
+                  6+ tests, 1 commit.
   → background: brief §16 placeholder; activates as
                 soon as XD13-A5 lands. Until then,
-                daily daemon runs unchanged.
+                daily daemon runs unchanged (until A4
+                wires step 1m, in which case the daemon
+                writes a snapshot row each run).
 ```
