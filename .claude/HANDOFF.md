@@ -1,22 +1,37 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-05-22 (session 95 #6 — **Quartz docs site slice LIVE**: 5 commits / 348 files / ~38.9k insertions (293 vendored Quartz files + ~55 SignalForge ones); ~646 LOC of new TS across `scripts/_apply_docs_frontmatter.ts` + `scripts/generate_docs_dashboard.ts` + `scripts/tests/generateDocsDashboard.test.ts`. Slice commits `437332b → 25d0ff0 → 92f2719 → e5b50b9 → eac2561` on top of `4406674` (ADR-041). The vault under `docs/` is now Quartz-rendered at `npm run docs:serve` → `http://localhost:8080`, with 50 priority docs carrying YAML frontmatter, an auto-generated status dashboard at `docs/dashboard.md` (gitignored — regenerated on every build), 5 canonical Mermaid templates under `docs/_templates/`, and a vault-conventions doc at `docs/conventions.md`. Quartz v4.5.2 vendored at `quartz/` — operator-pending `npm run docs:install` once to populate `quartz/node_modules/` before first build. **52 commits ahead of `origin/main`.** **NEXT default on `continue`: operator pick — recommended slice if operator says only "continue": per-EVENT EK recency (§8.1 "12d ago + 18d ago") OR Gap #9 v2 ETF.com cross-validation; both pre-scoped.**)
+Last updated: 2026-05-22 (session 95 #7 — **Gap #7 v2 per-EVENT EK recency LIVE**: SPEC §8.1 "12d ago + 18d ago" per-item format. 1 commit `5a9ed8e` / 4 files / +357 LOC. Each fired item code now carries its own days-since-latest, interleaved inline per item — replacing the single trailing-recency group that v1 suffixed for the whole ticker row. New `computePerItemRecency` pure function + new `eventsByItemCode?` field on `EightKClassifierPerTickerRow` + `MorningBrief.eightK.perTickerRows[]`. Persistence: zero-migration — `per_ticker_json` is a free-form blob; new field flows through JSON serialization. Pre-v2 snapshots round-trip without the field; the renderer fallback handles them. +8 net new tests (4 pure-fn T-EK-15..T-EK-18 + 4 render T-OBR-EK-10..T-OBR-EK-13). **53 commits ahead of `origin/main`.** **NEXT default on `continue`: operator pick — recommended slice if operator says only "continue": Gap #9 v2 ETF.com/issuer-CSV cross-validation (pre-scoped, ~4 files / ~150 LOC / ~8-10 tests).**)
 
 ## What this slice delivered
 
-Materializes the Quartz docs site that's been operator-queued since s95 #4. Vault is the single source of truth; the rendered site + auto-generated dashboard are derived. Architecture lock-ins from s95 #4 (S95-20..S95-23) all hold as designed; no plan drift.
+Closes the only remaining piece of the Gap #7 v2 EK arc that was deferred at s95 #4. Per SPEC §8.1 line 541-544:
 
-### Commit chain (s95 #6a..#6e)
+```text
+ABCD — restatement (4.02) 12d ago + auditor change (4.01) 18d ago
+EFGH — impairment (2.06) 7d ago
+```
 
-1. **`437332b` — install + config + scripts.** Scaffolds Quartz v4.5.2 under `quartz/` via degit; customizes `quartz.config.ts` (SignalForge branding, analytics:null, baseUrl localhost:8080, ignorePatterns extended); adds 4 root npm scripts (`docs:build`, `docs:serve`, `docs:install`, `dev:all`); installs `concurrently@^9` as root devDep for the parallel `:3000 + :8080` pattern; adds `docs/.quartz-site/` + `quartz/.quartz-cache/` to `.gitignore`; explicit `exclude` block added to root `tsconfig.json` (quartz/, dist, build, node_modules, docs/.quartz-site/) so root `tsc` no longer scans Quartz's vendored source (would surface 4 false errors). EXTRA_HELP entries land in `scripts/help.ts` for the 4 new scripts.
+…replaces the v1 shape `ABCD — restatement (4.02) + auditor change (4.01) (12d ago)`. Each fired item code carries its own per-item recency; the trailing row-level `(daysStr)` group is dropped when the v2 field is present.
 
-2. **`25d0ff0` — frontmatter rollout to 50 priority docs.** `scripts/_apply_docs_frontmatter.ts` (one-shot, idempotent — `_`-prefixed so help.ts auto-discovery skips) prepends YAML frontmatter to the load-bearing doc set: 11 core architecture (obsidian/01..08 + 99 + README + _Index), 14 gaps (with status mapped to slice state: done × 4, active × 6, deferred × 3, partially-superseded × 1), 3 ADRs + decisions index, 16 specs, 6 misc (recaps × 2, reviews × 2, analysis × 1, components README, critic workflow). Schema per S95-21: `status / phase / last_updated / owner / type / [slice_id] / [depends_on]`. Re-running the script after the first pass writes 0 / skips 50.
+### Single commit (s95 #7)
 
-3. **`92f2719` — dashboard generator + 12 fixture tests.** `scripts/generate_docs_dashboard.ts` walks `docs/`, parses each file's YAML frontmatter (hand-rolled shallow parser: scalars + `depends_on:` block sequence; mid-doc `---` lines never misread as frontmatter — only opens on `---\n` at byte 0), groups entries by status → type → phase, and emits `docs/dashboard.md`. Chained into `docs:build` / `docs:serve` as a pre-step (`tsx scripts/generate_docs_dashboard.ts && npm --prefix quartz run signalforge:build`); standalone alias `docs:dashboard` for incremental regen. Dashboard is GENERATED state — gitignored alongside `docs/.quartz-site/`. Source of truth is each doc's own `---` block. `scripts/tests/generateDocsDashboard.test.ts` pins the contract: 12 tests / 4 suites (parseFrontmatter × 4 — including the mid-doc-`---` false-positive guard; extractTitle × 2; groupBy × 2; renderDashboard × 4). Pure functions, no FS, no CH; <200ms.
+**`5a9ed8e` — Gap #7 v2 per-EVENT EK recency (SPEC §8.1 "12d ago + 18d ago" per-item format).** 4 files, +357 LOC:
 
-4. **`e5b50b9` — Mermaid chart templates.** `docs/_templates/mermaid-templates.md` — copy-ready scaffolds for the 5 diagram types the vault uses most (data-flow `flowchart LR`, daemon stage `flowchart TD`, stage-state `stateDiagram-v2`, ingest `sequenceDiagram`, rollout `gantt`). Plus a "how to add a diagram" walkthrough + Mermaid-features-Quartz-supports list + 3 watch-outs. Proof-of-concept inline diagram added to `docs/obsidian/gaps/README.md` (subgraph status overview showing done / active / deferred buckets). Vault style match (flowchart LR, bracketed labels, `<br/>` in-node line breaks) — vault already had 9 Mermaid blocks across obsidian/01..08 + _Index.
+- `src/server/eight_k_classifier.ts` — adds `EightKPerItemRecency` interface + `computePerItemRecency(events, asOf, windowDays)` pure function. Returns one entry per fired item code, in HIGH_SIGNAL_ITEM_CODES order (4.01 before 4.02 even when input order is reversed), each carrying integer-day-truncated `floor((asOf - max(acceptedAt of that itemCode)) / 1d)`. Empty input / no-in-window / all-off-set ⇒ `[]`. `EightKClassifierPerTickerRow` gains optional `eventsByItemCode?: ReadonlyArray<EightKPerItemRecency>`; the evaluator always populates it (possibly `[]`).
 
-5. **`eac2561` — conventions doc.** `docs/conventions.md` — the "how to use the vault" reference. Covers directory layout, frontmatter schema with full status / type vocabularies, dashboard contract (never hand-edit warning), all 5 npm scripts, diagram authoring + pointer at `_templates/`, 6 watch-outs (gitignored dashboards, shallow YAML parser, mid-doc `---`, serve-mode dashboard-staleness, vendored Quartz install step, `_`-prefixed rollout script), and a "why Quartz over Docusaurus / MkDocs / VitePress" tradeoff record.
+- `src/server/operator_brief_render.ts` — `MorningBrief.eightK.perTickerRows[]` gains the matching optional field. New `formatEightKItemListWithRecency` interleaves `Nd ago` per item. Per-ticker row branch: when `eventsByItemCode` is non-empty, drop the trailing `(daysStr)` group and use the v2 inline format; when absent or empty, fall back to v1 trailing-recency for backward compat with pre-v2 snapshots persisted under the legacy contract. Sort order unchanged (still keys on `daysSinceLatestEvent`).
+
+- `scripts/tests/eightKClassifier.test.ts` — +4 tests / 1 new describe block:
+  - **T-EK-15** — returns one entry per fired item code in HIGH_SIGNAL_ITEM_CODES order (load-bearing: input order-independent).
+  - **T-EK-16** — empty events ⇒ `[]`; out-of-window events ⇒ `[]`; off-set items ⇒ `[]`.
+  - **T-EK-17** — per-item `daysSinceLatest` reflects the MOST-RECENT `acceptedAt` for that item code (not the oldest).
+  - **T-EK-18** — via composite orchestrator: `eventsByItemCode` populated on every per-ticker row, including `[]` on empty-events tickers.
+
+- `scripts/tests/operatorBriefRender.test.ts` — +4 tests:
+  - **T-OBR-EK-10** — multi-item: per-EVENT recency interleaved per item (the load-bearing SPEC §8.1 contract `ABCD — auditor change (4.01) 18d ago + restatement (4.02) 12d ago`). Negative guard: legacy trailing `(12d ago)` group MUST NOT appear.
+  - **T-OBR-EK-11** — single-item: per-EVENT recency on a single fired item.
+  - **T-OBR-EK-12** — backward compat: row WITHOUT `eventsByItemCode` (legacy pre-v2 snapshot) falls back to v1 trailing-recency format.
+  - **T-OBR-EK-13** — sort: per-ticker order keyed on `daysSinceLatestEvent`; NEWER (3d) before OLDER (20d) even when both rows carry the v2 field.
 
 ## Where we are
 
@@ -34,55 +49,52 @@ Materializes the Quartz docs site that's been operator-queued since s95 #4. Vaul
 | ADR-042 ACCEPTED + companion SPEC | ✓ s94 #6 |
 | ADR-042 Steps 1-5 + OQ-G3-1 sub-slice | ✓ s94 #6-#11 (GAP #7+#8 v2 G2 ARC) |
 | Gap #7 v2 sell-cluster F4 composite contract | ✓ s95 #1 (`b398b4e`) |
-| Gap #7 v2 sell-cluster F4 G3 (DDL + persistence + log + render) | ✓ s95 #2 (`d05eb39`) — F4 ARC FULLY CLOSED |
+| Gap #7 v2 sell-cluster F4 G3 | ✓ s95 #2 (`d05eb39`) — F4 ARC FULLY CLOSED |
 | Form 4 ingest XML body URL discovery (hotfix) | ✓ s95 #3 (`831b1b0`) |
 | Gap #7 v2 per-row recency (F4 daysSinceLatestBuy/Sell) | ✓ s95 #4 (`b3d63a2`) |
 | ADR-041 implementation | ✓ s95 #5 (`4406674`) |
-| **Quartz docs site + frontmatter + auto-dashboard + Mermaid + conventions** | **✓ s95 #6 (5 commits `437332b..eac2561`) LIVE** |
-| Gap #7 v2 per-EVENT EK recency (§8.1 "12d ago + 18d ago" per-item format) | ☐ deferred — operator-pickable, RECOMMENDED next default |
+| Quartz docs site + frontmatter + auto-dashboard + Mermaid + conventions | ✓ s95 #6 (5 commits `437332b..eac2561`) |
+| **Gap #7 v2 per-EVENT EK recency (§8.1 "12d ago + 18d ago" per-item format)** | **✓ s95 #7 (`5a9ed8e`) LIVE — EK v2 ARC FULLY CLOSED** |
 | Gap #7 v2 CMP opportunistic-vs-routine classifier (per F4-1) | ☐ deferred (calendar-gated ≥6mo from F4-A1 first apply) |
 | Gap #7 v2 13D/13G arc (needs its own SPEC) | ☐ deferred (operator-pickable) |
 | Gap #7 v2 event-driven cadence promotion | ☐ deferred (Phase B-gated) |
-| Gap #9 v2 ETF.com/issuer-CSV cross-validation | ☐ deferred (operator-pickable) |
+| Gap #9 v2 ETF.com/issuer-CSV cross-validation | ☐ deferred (operator-pickable; RECOMMENDED next default) |
 | C-12 Phase B (AlpacaAdapter) | ⏸ INDEFINITELY PAUSED |
 | Phase B campaigns for nine Layer-0 composites | ⏸ deferred — calendar OR backfill arc |
 | #5 capital-deployment-ramp ADR | ☐ operator self-assigned ~1 week; not blocking |
 | Drawdown framework §12 90d empirical retune | ☐ scheduled — earliest 2026-08-29 |
-| Push 52 commits to origin/main | ☐ operator-gated, HOLD |
+| Push 53 commits to origin/main | ☐ operator-gated, HOLD |
 
 ## Decisions locked in
 
-### Session 95 #6 (this slice, 5 commits)
+### Session 95 #7 (this slice)
 
-**S95-29. Quartz v4.5.2 is vendored under `quartz/` (NOT installed as an npm dep).**
-`Why:` Quartz v4 ships as a self-contained Node.js project — a scaffold, not a library. The official install path per upstream docs is `git clone github.com/jackyzha0/quartz && npm install`. Vendoring keeps the full toolchain reproducible (no version drift between operator machines / future clones) at the cost of ~280 committed source files. Alternative (sibling-clone outside the project root) was rejected because it puts the toolchain outside `git ls-files` — anyone cloning the SignalForge repo would have to know to also clone Quartz separately.
+**S95-35. Per-EVENT recency is rendered inline per item; the trailing row-level `(daysStr)` group is DROPPED when the v2 field is present.**
+`Why:` SPEC §8.1 mockup line 541 is the byte-pinned target: `ABCD — restatement (4.02) 12d ago + auditor change (4.01) 18d ago`. A row carrying two fired items renders TWO recency hints, one per item — not one summary "Nd ago" at the end. The v1 single-recency wasted information when a ticker had multiple items at different acceptedAt times; the operator couldn't tell which item was 12d ago and which was 18d. Now they can.
 
-`How to apply:` Future docs-site upgrades = re-degit Quartz over the existing `quartz/` folder, diff `quartz.config.ts` / `quartz/package.json` for any customizations, re-apply, run `npm run docs:install`. Don't try to npm-install Quartz at root; it's not a library and you'll thrash the dep tree.
+`How to apply:` Future per-item-flag panels (form 4 already has its own per-direction recency; XD is single-item per row by nature; etf-flow doesn't have item codes) follow the same posture — per-item recency at the item level, never a summary recency that loses sub-item detail. The v1 trailing-recency renderer survives only as the back-compat fallback (S95-37).
 
-**S95-30. `docs/dashboard.md` is GENERATED state — gitignored alongside `docs/.quartz-site/`.**
-`Why:` The dashboard is purely derived from per-doc frontmatter. Committing it would create per-build diff churn AND would drift unless every doc-edit is paired with a regeneration commit. The trade-off — the dashboard isn't visible on raw-GitHub browse — is acceptable because the live-served vault (`npm run docs:serve` → `http://localhost:8080`) is the canonical view. The repo's job is to carry SOURCE; rendered views live on demand.
+**S95-36. `eventsByItemCode` order is fixed-code (HIGH_SIGNAL_ITEM_CODES), NOT input order, NOT chronological.**
+`Why:` Byte-equal stdout across runs is load-bearing for snapshot-diff debugging and for byte-pinned tests. Input order is non-deterministic (depends on EDGAR ingest order, CH query plan, etc.); chronological would render newer items first within a row, which breaks the muscle memory of "1.01 → 5.01 left-to-right" the operator already has from v1. Fixed code order = stable + matches the v1 reading pattern.
 
-`How to apply:` Future auto-generated vault files (e.g. a generated ADR-index, a generated test-coverage map, a generated cross-link audit) follow the same posture: gitignore them, regenerate on `docs:build`. The convention doc (`docs/conventions.md`) explicitly calls this out as the vault rule.
+`How to apply:` `computePerItemRecency` iterates over `HIGH_SIGNAL_ITEM_CODES` and emits entries in that order. T-EK-15 pins this with a swapped-input fixture (input is 4.02 first, output must be 4.01 first). The renderer preserves the input order it receives; the composite is the canonical-order enforcement layer.
 
-**S95-31. The dashboard generator's YAML parser is hand-rolled and deliberately shallow (scalars + `depends_on:` block sequence only).**
-`Why:` Pulling in `gray-matter` at the root would double the test surface (need to test gray-matter's behavior under our schema invariants) and inflate the dep tree. The hand-rolled parser is ~70 LOC, covers the closed schema, and is testable on its own. The only-opens-on-`---\n`-at-byte-0 invariant is the single most-load-bearing guard — every spec doc in the vault uses mid-document `---` as section separators; misreading those as frontmatter would corrupt the dashboard. Test `T-PARSE-4` pins this explicitly.
+**S95-37. `eventsByItemCode` is OPTIONAL on `EightKClassifierPerTickerRow`; absent or empty ⇒ v1 trailing-recency fallback.**
+`Why:` Pre-v2 snapshots in CH `per_ticker_json` were persisted without the field; the consumer must read them as-is. Forcing the field to be REQUIRED would either (a) break all existing CH snapshots until a backfill ran, or (b) force a migration + backfill arc. Neither is worth it — the v2 evaluator always populates the field on FRESH snapshots, so the operator sees the new format within one daemon cycle. Old snapshots persist with the v1 format harmlessly. The renderer dispatches on `eventsByItemCode != null && eventsByItemCode.length > 0` so the two formats coexist cleanly.
 
-`How to apply:` Schema extensions (e.g. nested maps for `related:` or anchors for shared fields) need the parser + its test to be extended TOGETHER. The closed-schema posture is by design; widen only when the schema actually grows.
+`How to apply:` T-OBR-EK-12 pins the back-compat contract: a row literal that omits the field renders the v1 `restatement (4.02) (9d ago)` shape. Existing fixtures (FLAGGED_PER_TICKER, T-OBR-EK-2, T-OBR-EK-7, T-OBR-EK-8, T-OBR-EK-9) continue to pass without modification because they all lack the field — they exercise the back-compat path. Once those older fixtures are upgraded to carry `eventsByItemCode`, their assertions will need to migrate to the v2 format.
 
-**S95-32. Frontmatter rollout target = 50 load-bearing docs (out of 114 total in the vault), NOT all docs.**
-`Why:` Teach docs (~30 files), phase artifacts (`phase1_breadth_restoration/`, `phase2_*/RESULT.md`), symbol-analysis worksheets, and `experiments/*/SUMMARY.md` are point-in-time artifacts — they don't change status or phase over their lifetime. Adding frontmatter to them would be noise on the dashboard. The rollout script's `ENTRIES` array is the canonical "what's load-bearing" list; extend it when a NEW doc needs to land on the dashboard, NOT to back-fill stale point-in-time files.
+**S95-38. Zero CH migration. `per_ticker_json` is a free-form blob; new field flows through JSON serialization.**
+`Why:` The EK A3 schema persists `per_ticker_json String` — the whole per-ticker payload is a JSON blob. Adding a column for `eventsByItemCode` would be ceremonial; the field is already serialized + deserialized via `JSON.stringify(snapshot.perTickerRows)` / `JSON.parse(r.per_ticker_json)`. The repository's read path was already loose-typed: `parsed as EightKClassifierPerTickerRow[]` swallows the new field without complaint. No DDL change, no apply step, no migration test.
 
-`How to apply:` Files that should appear on the dashboard get frontmatter; files that are "snapshot of a moment" don't. The dashboard's "Unclassified (no frontmatter)" bucket surfaces drift, so misses are visible.
+`How to apply:` Any future per-ticker payload extensions (e.g. per-item severity tier, per-event acceptedAt timestamps for forensic queries) follow the same posture — extend the in-memory row shape, the JSON blob carries it through. The trade-off (no CH-side schema constraint) is acceptable because the snapshot is a derived artifact; the source of truth lives in `eight_k_events` + the composite version stamp.
 
-**S95-33. `docs:serve` does NOT auto-regen the dashboard on frontmatter edits.**
-`Why:` The pre-step `tsx scripts/generate_docs_dashboard.ts && …` runs exactly once at startup. Quartz's own file watcher handles all subsequent re-renders of doc bodies + Mermaid + prose, but it doesn't know about our generator. Building a custom watcher (chokidar over `docs/**/*.md` re-running the generator on YAML-block changes) would be ~30 LOC + a debounce + another test surface. Not worth it for v1; the operator restart cost is small.
+**S95-39. Sort order remains keyed on `daysSinceLatestEvent` (row-level summary), NOT on the min `daysSinceLatest` across `eventsByItemCode`.**
+`Why:` The row-level summary `daysSinceLatestEvent` IS `min(eventsByItemCode[].daysSinceLatest)` by construction (most-recent high-signal event across all item codes), so the two keys would agree on every fresh v2 snapshot. But pre-v2 snapshots lack the per-event field; the row-level summary is the only sort key that works across both formats without a special case. Keeping the existing sort behavior also preserves the byte-pinned T-OBR-EK-2 truncation test (sort by ascending recency).
 
-`How to apply:` After editing a `---` block during `docs:serve`, kill and restart serve (or run `npm run docs:dashboard` separately to regen, then refresh the browser tab). The conventions doc and the dashboard generator's own header note both call this out.
+`How to apply:` T-OBR-EK-13 pins this: NEWER (3d) renders before OLDER (20d) even though both rows carry the v2 field. The sort comparator (`sortByRecency(a.daysSinceLatestEvent, b.daysSinceLatestEvent)`) is unchanged.
 
-**S95-34. `concurrently` is the dev-mode-only multiplexer (`dev:all`); NOT a production dep.**
-`Why:` `concurrently@^9` lives in root `devDependencies` because the only consumer is the `dev:all` script (parallel `:3000 app + :8080 docs`). Nothing in the deployed app touches it. Keeping it dev-only avoids inflating the production bundle.
-
-`How to apply:` Future parallel-dev patterns use the same idiom — `concurrently -n a,b -c blue,green "npm:scriptA" "npm:scriptB"`. Don't reach for `npm-run-all`, `pm2`, or shell-script wrappers; `concurrently` is the standing pick.
+**Carry-over from s95 #6 (still in force):** S95-29..S95-34 — Quartz vendored, dashboard gitignored, hand-rolled YAML parser, frontmatter scope, no auto-regen on serve, concurrently dev-only.
 
 **Carry-over from s95 #5 (still in force):** S95-24..S95-28 — ADR-041 "Replace in place" canon; `INPUTS_MISSING_T10Y3M` bit value 64; new column is `Nullable(UInt8)`; `T10Y3M_PREFIX_DAYS = 35`; counter null policy.
 
@@ -98,13 +110,13 @@ Materializes the Quartz docs site that's been operator-queued since s95 #4. Vaul
 
 ### Sessions 84-94 prior decisions (carried)
 
-All prior decisions preserved unchanged. S93-1..S93-54 + S94-1..S94-33 + S95-1..S95-28 carry through.
+All prior decisions preserved unchanged. S93-1..S93-54 + S94-1..S94-33 + S95-1..S95-34 carry through.
 
 ## Open questions
 
-### Newly opened (s95 #6) — none
+### Newly opened (s95 #7) — none
 
-The slice was fully autonomous within the pre-locked s95 #4 architecture. The only decisions that needed forking (commit dashboard to git vs gitignore — S95-30; hand-rolled vs gray-matter parser — S95-31; frontmatter rollout scope — S95-32) all had clear three-criterion-test answers and were resolved without operator pause.
+The slice was fully autonomous within the pre-locked s95 #4 architecture. All design forks (optional vs required field, sort-key behavior, fixed-code vs input order, migration vs no migration) had clear three-criterion-test answers and were resolved without operator pause.
 
 ### Carried from s95 #3
 
@@ -129,126 +141,115 @@ The slice was fully autonomous within the pre-locked s95 #4 architecture. The on
 
 ### Default on `continue` — operator pick
 
-The Quartz docs site arc is closed end-to-end. Operator picks the next slice. If they just say "continue" with no context, the recommended default is **Gap #7 v2 per-EVENT EK recency** (§8.1 "12d ago + 18d ago" per-item format) — this is the only remaining piece of the gap #7 v2 arc that didn't ship in s95 #4. Modest scope (~3 files, ~80 LOC, ~5-6 tests), high signal value (closes the v2 EK side end-to-end), no operator-pending dependencies. If the operator prefers a non-EK slice, the next-best default is **Gap #9 v2 ETF.com/issuer-CSV cross-validation** (also pre-scoped).
+The Gap #7 v2 EK arc is closed end-to-end (per-row recency at s95 #4 + per-EVENT recency at s95 #7). Operator picks the next slice. If they just say "continue" with no context, the recommended default is **Gap #9 v2 ETF.com/issuer-CSV cross-validation** — pre-scoped (~4 files, ~150 LOC, ~8-10 tests), no operator-pending dependencies, fills a real data-quality gap on the etf-flow side. If the operator prefers a non-ETF slice, the next-best default is **Gap #7 v2 13D/13G arc** — but that needs its own SPEC first, so it's not "code-only."
 
 ### Candidate slices (in rough order of "next obvious code-only work")
 
-1. **Gap #7 v2 per-EVENT EK recency** (§8.1 "12d ago + 18d ago" per-item format) — RECOMMENDED default. Separate row shape: `eventsByItemCode: Array<{itemCode: string, daysSinceLatest: number}>` on the EK per-ticker row. Renderer extends `formatEightKItemList` to interleave the per-item recency. ~3 files, ~80 LOC, ~5-6 tests.
+1. **Gap #9 v2 ETF.com/issuer-CSV cross-validation** — RECOMMENDED default. Adds a secondary data path that cross-validates the primary etf-flow ingest against an issuer-supplied CSV when available; logs divergences as anomalies. ~4 files, ~150 LOC, ~8-10 tests.
 
-2. **Gap #9 v2 ETF.com/issuer-CSV cross-validation** — adds a secondary data path that cross-validates the primary etf-flow ingest against an issuer-supplied CSV when available; logs divergences as anomalies. ~4 files, ~150 LOC, ~8-10 tests.
+2. **Gap #7 v2 13D/13G arc** — needs its own SPEC first; deferred until operator says go. Once SPEC lands, code arc is comparable in size to EK A1..A5 (~10-15 commits over multiple sessions).
 
-3. **Gap #7 v2 13D/13G arc** — needs its own SPEC first; deferred until operator says go.
+3. **Gap #7 v2 event-driven cadence promotion** — Phase B-gated; cannot land until Phase B independence test has signal (~6-8 weeks of EDGAR ingest history).
 
-4. **Gap #7 v2 event-driven cadence promotion** — Phase B-gated; cannot land until Phase B independence test has signal (~6-8 weeks of EDGAR ingest history).
+4. **Gap #7 v2 CMP opportunistic-vs-routine classifier** — calendar-gated ≥6mo from F4-A1 first apply-run; earliest ~2026-11-20.
 
-5. **Gap #7 v2 CMP opportunistic-vs-routine classifier** — calendar-gated ≥6mo from F4-A1 first apply-run; earliest ~2026-11-20.
+5. **C-12 Phase B AlpacaAdapter** — operator-decision; paused indefinitely.
 
-6. **C-12 Phase B AlpacaAdapter** — operator-decision; paused indefinitely.
+6. **Phase B campaigns for the nine Layer-0 composites** — calendar OR backfill arc.
 
-7. **Phase B campaigns for the nine Layer-0 composites** — calendar OR backfill arc.
-
-8. **Extend the Quartz docs site** — operator-pickable refinements:
+7. **Extend the Quartz docs site** — operator-pickable refinements:
    - Add a home-page `docs/index.md` (Quartz currently warns about its absence).
    - Add live dashboard regen to `docs:serve` via chokidar (S95-33 deferral).
    - Promote ADR-040 from `research` → `accepted` once the operator decides on correlation-weighted allocation.
    - Frontmatter extend to teach docs (currently 0 / ~30 carry frontmatter) so they show on the dashboard's "By type" view.
 
-### Operator-gated action items (carried + NEW from this turn)
+8. **Renderer docstring refresh** — `operator_brief_render.ts` line 2086-2107 still says "v1 does NOT carry per-item recency" — stale post-s95 #7. Light cleanup pass.
 
-- **NEW (s95 #6): Run `npm run docs:install` once** — populates `quartz/node_modules/` (~480 packages, ~10s). Without this, `docs:build` / `docs:serve` / `dev:all` fail at the Quartz invocation step. One-time per clone.
-- **NEW (s95 #6): Operator can now `npm run docs:serve`** at `http://localhost:8080` to browse the vault with backlinks + graph view + Mermaid rendering. `npm run dev:all` runs the dashboard app (:3000) AND Quartz docs (:8080) in parallel.
+### Operator-gated action items (carried)
+
+- (carried) Run `npm run docs:install` once (per clone) — populates `quartz/node_modules/`. Without it, `docs:build` / `docs:serve` / `dev:all` fail.
 - (carried) Re-run `npm run macro:backfill:v3` — rewrites historical `quantlab.macro_regimes` rows under T10Y3M corpus-wide. Non-blocking.
-- (carried) Re-run `npm run edgar:form4:ingest --apply` — UNBLOCKED s95 #3; produces real F4 cluster_buy / cluster_sell rows with "last Xd" recency hints visible in the morning brief.
+- (carried) Re-run `npm run edgar:form4:ingest --apply` — UNBLOCKED s95 #3; produces real F4 cluster_buy / cluster_sell rows.
 - (carried) Apply the operator-pending CH migrations:
   - `migrate:create-form-4-insider-snapshots:apply` (REQUIRED — base table absent in operator's local CH).
   - `migrate:add-sell-cluster-form-4-insider-snapshots:apply` (carry from s95 #2).
   - `migrate:add-max-z-{executive-departure,eight-k-classifier,form-4-insider}-snapshots:apply` (×3, carry from s94 #8).
-- (carried) Push 52 commits to origin/main — HOLD.
+- (carried) Push 53 commits to origin/main — HOLD.
 - (carried) Drawdown framework §12 90d empirical retune — earliest 2026-08-29.
 
 ## Files / code state
 
-### NEW this slice (s95 #6 — 5 commits)
+### NEW this slice (s95 #7 — 1 commit `5a9ed8e`)
 
 | Path | LOC | Notes |
 | --- | --- | --- |
-| `quartz/` (293 vendored files) | ~38,000+ | Quartz v4.5.2 toolchain vendored via degit. Branding customized in `quartz/quartz.config.ts` (SignalForge title, localhost:8080 baseUrl, analytics:null, extended ignorePatterns); `quartz/package.json` carries 2 new scripts (`signalforge:build`, `signalforge:serve`) invoking `./quartz/bootstrap-cli.mjs` directly. |
-| `scripts/_apply_docs_frontmatter.ts` | +182 | One-shot, idempotent frontmatter rollout. `_`-prefixed (out of help.ts auto-discovery). 50 entries in `ENTRIES`; extend to back-fill more docs. Re-running writes 0 / skips 50 once the rollout has run. |
-| `scripts/generate_docs_dashboard.ts` | +281 | Walks `docs/`, parses frontmatter, emits `docs/dashboard.md`. Exports `parseFrontmatter / extractTitle / walkMarkdown / loadDocs / groupBy / renderDashboard` for fixture tests. `help` export wires the `docs:dashboard` alias into check:help. |
-| `scripts/tests/generateDocsDashboard.test.ts` | +183 | 12 tests / 4 suites pinning the generator contract. Pure functions, no FS, <200ms. |
-| `docs/_templates/mermaid-templates.md` | +120 | 5 copy-ready Mermaid scaffolds + walkthrough + watch-outs. |
-| `docs/conventions.md` | +194 | Vault-conventions reference. |
-| `docs/` (50 priority files) | +~600 | YAML frontmatter prepended via the rollout script. Schema per S95-21. |
-| `docs/obsidian/gaps/README.md` | +~30 | Inline status-overview Mermaid subgraph (done / active / deferred). |
-| `package.json` | +5 | 5 root scripts + `concurrently@^9` devDep. |
-| `tsconfig.json` | +7 | Explicit `exclude` block. |
-| `.gitignore` | +10 | `docs/.quartz-site/`, `quartz/.quartz-cache/`, `docs/dashboard.md`. |
-| `scripts/help.ts` | +4 | EXTRA_HELP entries for `dev:all`, `docs:install`, `docs:build`, `docs:serve`. |
+| `src/server/eight_k_classifier.ts` | +53 | New `EightKPerItemRecency` interface + `computePerItemRecency` pure function (~40 LOC). `EightKClassifierPerTickerRow` gains optional `eventsByItemCode` field. Evaluator populates the field on every per-ticker row. |
+| `src/server/operator_brief_render.ts` | +70 / -3 | `MorningBrief.eightK.perTickerRows[]` gains optional `eventsByItemCode`. New `formatEightKItemListWithRecency` + `EIGHT_K_ITEM_LABEL_BY_CODE` lookup. Per-ticker render branch dispatches on field presence. |
+| `scripts/tests/eightKClassifier.test.ts` | +69 | T-EK-15..T-EK-18 (4 pure-fn tests / 1 new describe block). |
+| `scripts/tests/operatorBriefRender.test.ts` | +165 | T-OBR-EK-10..T-OBR-EK-13 (4 render tests). |
 
-### Carried unchanged from s95 #5 (per-file)
+### Carried unchanged from s95 #6 (per-file)
 
 | Path | Status | Notes |
 | --- | --- | --- |
-| `src/server/macro_regime_v3.ts` | s95 #5 LIVE | T10Y3M throughout; new helpers. |
-| `src/server/clickhouse.ts` | s95 #5 LIVE | `yield_curve_inversion_days_20d` ALTER auto-applies. |
-| `src/server/regime_dashboard.ts` | s95 #5 LIVE | BIAS_NOTE_PHASE1_V3 reworded. |
-| `docs/specs/macro-regime-classifier-phase1_v3.md` | s95 #5 LIVE + s95 #6 frontmatter | PARTIALLY SUPERSEDED header; now carries frontmatter. |
-| `scripts/tests/macroRegimeV3.test.ts` | s95 #5 LIVE | 58 pass under ADR-041 canon. |
+| `quartz/` (293 vendored files) | s95 #6 LIVE | Quartz v4.5.2 toolchain vendored. |
+| `scripts/_apply_docs_frontmatter.ts` | s95 #6 LIVE | One-shot, idempotent. |
+| `scripts/generate_docs_dashboard.ts` | s95 #6 LIVE | `docs:build` pre-step. |
+| `scripts/tests/generateDocsDashboard.test.ts` | s95 #6 LIVE | 12 fixture tests. |
+| `docs/_templates/mermaid-templates.md` | s95 #6 LIVE | 5 copy-ready scaffolds. |
+| `docs/conventions.md` | s95 #6 LIVE | Vault-conventions reference. |
+| `docs/` (50 priority files) | s95 #6 LIVE | YAML frontmatter prepended. |
 
-### CH state (unchanged from s95 #5)
+### CH state (unchanged from s95 #6)
 
-- `quantlab.macro_regimes` gains `yield_curve_inversion_days_20d Nullable(UInt8)` on next daemon startup (idempotent migration).
-- `quantlab.macro_regimes.yield_curve_value` carries mixed T10Y2Y / T10Y3M semantic across the ADR-041 cut until operator runs `npm run macro:backfill:v3`.
-- Nine Layer-0 composite snapshot tables + three event tables.
-- Operator-pending ALTERs unchanged from s95 #5.
+- `quantlab.eight_k_classifier_snapshots.per_ticker_json` continues to carry the JSON blob; the new `eventsByItemCode` field is serialized into it on every fresh snapshot. Pre-v2 snapshots persist without the field (back-compat fallback handles them in the renderer).
+- All other CH state carries unchanged from s95 #6.
 
 ### Tests (validated this turn)
 
 ```text
-npx tsx --test scripts/tests/generateDocsDashboard.test.ts    # 12 pass / 0 fail (NEW this slice)
-npm test                                                       # TS — 2902 / 2901 pass / 1 fail / 28 skipped (+12 net vs s95 #5)
-                                                               # 1 fail = pre-existing CH-unreachable gicsSectorRepositoryHelper SMP-6
-npx tsc --noEmit                                               # 13 baseline errors unchanged
-npm run check:help                                             # green
-npm run docs:build                                             # 295 emitted from 113 inputs in ~14s
+npx tsx --test scripts/tests/eightKClassifier.test.ts        # 66 pass (+4 new — T-EK-15..T-EK-18)
+npx tsx --test scripts/tests/operatorBriefRender.test.ts     # 153 pass (+4 new — T-OBR-EK-10..T-OBR-EK-13)
+npm test                                                      # TS — 2910 pass / 1 fail / 28 skipped (+8 net vs s95 #6)
+                                                              # 1 fail = pre-existing CH-unreachable gicsSectorRepositoryHelper SMP-6
+npx tsc --noEmit                                              # 13 baseline errors unchanged
+npm run check:help                                            # green
 ```
 
 `pytest` baseline NOT re-run this turn (no Python touched).
 
 ## Watch-outs
 
-### NEW from this turn (s95 #6)
+### NEW from this turn (s95 #7)
 
-- **`docs/dashboard.md` is gitignored — never check it in.** It's auto-generated on every `docs:build` from per-doc frontmatter. Source of truth = each doc's own `---` block. Operators who try to hand-edit it will see their changes overwritten on the next build (the conventions doc + the dashboard's own generated header both warn loudly).
+- **`eventsByItemCode` is OPTIONAL on the row shape — never assume it's defined.** The v2 evaluator always populates it (possibly as `[]`) on fresh snapshots, but pre-v2 snapshots in CH lack the field entirely. The renderer dispatches on `eventsByItemCode != null && eventsByItemCode.length > 0`; both `undefined` and `[]` route to the v1 trailing-recency fallback. T-OBR-EK-12 pins this; tests that construct row fixtures by hand can either include the field (exercise v2 format) or omit it (exercise v1 fallback) — choose deliberately.
 
-- **The dashboard generator's parser ONLY opens on `---\n` at byte 0.** This is the single most-load-bearing invariant — every spec doc in the vault uses mid-document `---` as a section separator. Test `T-PARSE-4` (`returns null when the only --- lines are mid-document thematic breaks`) pins this; do not relax the byte-0 check without rewriting the test.
+- **Renderer order is preserved from the composite, NOT re-sorted.** `computePerItemRecency` emits entries in fixed `HIGH_SIGNAL_ITEM_CODES` order; the renderer iterates the array as-is. If a future caller bypasses the composite and constructs `eventsByItemCode` directly (e.g. a forensic CLI), the entries will render in the order the caller emits them. T-EK-15 + T-OBR-EK-10 jointly pin "fixed-code order" as the canonical contract.
 
-- **The frontmatter rollout script's `ENTRIES` array is the canonical "what's load-bearing" list.** Files that appear on the dashboard get an entry; files that are "snapshot of a moment" (teach docs, phase artifacts, experiment SUMMARYs, symbol-analysis worksheets) don't. New ADRs / specs / gaps that need to land on the dashboard MUST get either (a) a hand-added frontmatter block, or (b) an entry in the rollout script. Misses surface in the "Unclassified" bucket but are otherwise silent — periodically scan that bucket.
+- **The renderer docstring at line 2086-2107 still says "v1 does NOT carry per-item recency."** Stale comment — left in place to keep this commit scoped to the SPEC §8.1 v2 behavior change, but a docstring refresh in the next docs-touching slice would be cleaner. The behavior is correct; only the comment is outdated.
 
-- **`docs:serve` does NOT auto-regen the dashboard on frontmatter edits.** The pre-step generator runs once at startup. After editing a `---` block during a serve session, restart serve OR run `npm run docs:dashboard` separately to refresh. The convention doc + dashboard generator's own header note both call this out.
+- **`daysSinceLatestEvent` is still on the row + still the sort key.** S95-39 pins this. The two fields agree on every fresh v2 snapshot (`daysSinceLatestEvent === min(eventsByItemCode[].daysSinceLatest)` by construction), but a future refactor that removes `daysSinceLatestEvent` would break the sort comparator AND break the v1 back-compat fallback simultaneously. Treat the field as load-bearing.
 
-- **Quartz's vendored source MUST stay excluded from root `tsc`.** `tsconfig.json` has an explicit `exclude` block adding `quartz/` because Quartz's own source carries 4 baseline TS errors against the root config (incompatible `lib` config, missing `remark-parse/lib` types, etc.). Removing the exclude would inflate the baseline error count from 13 to 17. Quartz has its own `tsconfig.json` at `quartz/tsconfig.json` that handles its source correctly.
-
-- **`npm run docs:install` must run once per clone.** Without it, `quartz/node_modules/` is empty and `docs:build` fails immediately at the `./quartz/bootstrap-cli.mjs` invocation. The conventions doc warns about this; the `docs:install` script alias is the standing recipe.
-
-- **The Quartz build warns "missing index.md home page file at the root of docs/".** Harmless for `docs:serve` (lands on a directory listing or the first nav entry) but would matter for a deployed static site. Not in scope for v1; flagged as a Quartz-extend slice option if operator wants to deploy publicly.
-
-- **The pre-existing `gicsSectorRepositoryHelper SMP-6 EXPLAIN PLAN` test failure is NOT a regression.** Same CH-unreachable failure as s95 #4 + #5. NOT in s95 #6 scope.
-
-### Carried from s95 #5 + earlier
+### Carried from s95 #6 + earlier
 
 All prior watch-outs preserved unchanged. Key carry-overs:
 
+- `docs/dashboard.md` gitignored — never check it in (S95-30).
+- Dashboard parser only opens on `---\n` at byte 0 — T-PARSE-4 pins it (S95-31).
+- Frontmatter rollout script `ENTRIES` array is canonical "what's load-bearing" list (S95-32).
+- `docs:serve` does NOT auto-regen the dashboard on frontmatter edits (S95-33).
+- Quartz vendored source MUST stay excluded from root `tsc`.
+- `npm run docs:install` must run once per clone.
 - `yield_curve_value` mixed-semantic across the ADR-041 cut until backfill.
 - `MacroRegimeRowV3.yield_curve_inversion_days_20d` is REQUIRED on every row constructor.
 - `INPUTS_MISSING_T10Y3M` reuses bit value 64.
 - F4 recency uses `acceptedAt` not `transactionDate` (S95-15).
 - `Form4InsiderPerTickerRow` carries 2 REQUIRED recency fields.
-- EK per-EVENT recency STILL deferred (recommended next default slice).
 - Composite source files have `\0` literals (carried).
 - §1.4 three-branch order is load-bearing.
+- The pre-existing `gicsSectorRepositoryHelper SMP-6 EXPLAIN PLAN` test failure is NOT a regression.
 
-(All earlier s89-s95 #5 watch-outs preserved unchanged.)
+(All earlier s89-s95 #6 watch-outs preserved unchanged.)
 
 ## Pre-loaded operational reminders
 
@@ -261,7 +262,7 @@ npx tsx scripts/_paper_trading_review.ts
 npm run brief:morning
 ```
 
-### NEW (s95 #6) — Quartz docs site
+### Quartz docs site (carried from s95 #6)
 
 ```text
 npm run docs:install                                    # ONE-TIME per clone — populates quartz/node_modules/
@@ -289,7 +290,7 @@ npm run daemon:daily
 npm run brief:morning
 ```
 
-### Gap #7 8-K classifier (G2 LIVE; per-row daysSinceLatestEvent ALREADY LIVE)
+### Gap #7 8-K classifier (G2 LIVE; per-row + per-EVENT recency BOTH LIVE)
 
 ```text
 npm run edgar:8k-event:ingest:dry
@@ -313,18 +314,19 @@ npm run brief:morning
 ### Tests + dev
 
 ```text
-npm test                                                                       # TS — this turn 2902 / 2901 pass / 1 fail / 28 skipped
+npm test                                                                       # TS — this turn 2910 pass / 1 fail / 28 skipped
 .venv/Scripts/python.exe -m pytest scripts/tests                               # Python — 332 pass at s95 #3 close (unchanged)
-npx tsx --test scripts/tests/generateDocsDashboard.test.ts                     # 12 pass — NEW this slice
+npx tsx --test scripts/tests/eightKClassifier.test.ts                          # 66 pass (+4 new this turn)
+npx tsx --test scripts/tests/operatorBriefRender.test.ts                       # 153 pass (+4 new this turn)
 npm run dev                                                                    # http://localhost:3000
-npm run check:help                                                             # FULLY GREEN at s95 #6 close
+npm run check:help                                                             # FULLY GREEN at s95 #7 close
 npx tsc --noEmit                                                               # 13 baseline errors unchanged
 npm run docs:build                                                             # 295 emitted from 113 inputs
 ```
 
 ## For the next session — priority order
 
-**Default on `continue`:** operator picks the next slice. If they just say "continue" with no context, the recommended default is **Gap #7 v2 per-EVENT EK recency** (§8.1 "12d ago + 18d ago" per-item format) — the only remaining piece of the gap #7 v2 arc that didn't ship in s95 #4. ~3 files, ~80 LOC, ~5-6 tests.
+**Default on `continue`:** operator picks the next slice. If they just say "continue" with no context, the recommended default is **Gap #9 v2 ETF.com/issuer-CSV cross-validation** — pre-scoped, ~4 files / ~150 LOC / ~8-10 tests, no operator-pending dependencies. (The Gap #7 v2 EK arc is now closed end-to-end at s95 #7.)
 
 **Acceptance criteria** for whichever next slice ships:
 
@@ -335,24 +337,24 @@ npm run docs:build                                                             #
 
 **If operator reprioritizes:** any of these candidates can be the default-next:
 
-- **Gap #7 v2 per-EVENT EK recency** (recommended default).
-- **Gap #9 v2 ETF.com/issuer-CSV cross-validation**.
+- **Gap #9 v2 ETF.com/issuer-CSV cross-validation** (recommended default).
 - **Gap #7 v2 13D/13G arc** (needs its own SPEC).
 - **Gap #7 v2 event-driven cadence promotion** (Phase B-gated).
 - **Gap #7 v2 CMP opportunistic-vs-routine classifier** (calendar-gated ≥6mo from F4-A1 first apply-run; earliest ~2026-11-20).
 - **C-12 Phase B AlpacaAdapter** (operator-decision — paused indefinitely).
 - **Phase B campaigns** for the nine Layer-0 composites.
 - **Quartz docs site extensions** (home-page index.md, live dashboard watcher, teach-doc frontmatter rollout, promote ADR-040 status).
+- **Renderer docstring refresh** for the EK section (line 2086-2107 of `operator_brief_render.ts` still says "v1 does NOT carry per-item recency" — stale post-s95 #7).
 
-**Operator-gated action items (carried + NEW):**
+**Operator-gated action items (carried):**
 
-- **NEW (s95 #6): `npm run docs:install`** — ONE-TIME per clone; populates `quartz/node_modules/` so `docs:build` / `docs:serve` / `dev:all` run. Without it, those scripts fail at the Quartz invocation step.
+- (carried) `npm run docs:install` — ONE-TIME per clone; populates `quartz/node_modules/`.
 - (carried) Re-run `npm run macro:backfill:v3` — rewrites historical `quantlab.macro_regimes` rows under T10Y3M corpus-wide. Non-blocking.
 - (carried) Re-run `npm run edgar:form4:ingest --apply` (UNBLOCKED s95 #3).
 - (carried) Apply `migrate:create-form-4-insider-snapshots:apply` (REQUIRED).
 - (carried) Apply the three `migrate:add-max-z-…-snapshots:apply` ALTERs.
 - (carried) Apply `migrate:add-sell-cluster-form-4-insider-snapshots:apply`.
-- (carried) Push 52 commits to origin/main (HOLD).
+- (carried) Push 53 commits to origin/main (HOLD).
 - (carried) Drawdown framework §12 90d empirical retune — earliest 2026-08-29.
 
 **Calendar-gated:**
@@ -369,22 +371,20 @@ npm run docs:build                                                             #
 
 ## Important framing for the next chat
 
-**The Quartz docs site is FULLY LIVE.** 5 commits land it end-to-end:
-  - install + config + scripts (`437332b`)
-  - frontmatter rollout to 50 priority docs (`25d0ff0`)
-  - dashboard generator + 12 fixture tests (`92f2719`)
-  - Mermaid chart templates (`e5b50b9`)
-  - conventions doc (`eac2561`)
+**The Gap #7 v2 EK arc is FULLY CLOSED end-to-end.** Per-row recency landed at s95 #4 (`b3d63a2`); per-EVENT recency landed at s95 #7 (`5a9ed8e`). Both surfaces now flow from EDGAR → composite → snapshot → renderer → operator brief.
 
-**Operator can now `npm run docs:install` once + `npm run docs:serve`** at `http://localhost:8080` to browse the vault with backlinks + graph view + Mermaid rendering. `npm run dev:all` runs the dashboard app (:3000) AND docs (:8080) in parallel.
+**The §8.1 byte-pinned contract is live:**
 
-**The vault stays single-source-of-truth.** Markdown under `docs/` is canonical; the rendered site (`docs/.quartz-site/`) and the auto-generated dashboard (`docs/dashboard.md`) are both gitignored, regenerated on every build. The hand-rolled YAML parser correctly distinguishes head-block frontmatter from mid-doc thematic-break `---` lines (the parser's load-bearing invariant; T-PARSE-4 pins it).
+- Multi-item row: `ABCD — restatement (4.02) 12d ago + auditor change (4.01) 18d ago`
+- Single-item row: `EFGH — impairment (2.06) 7d ago`
 
-**Quartz is vendored, NOT installed as an npm dep.** `quartz/` under git carries the ~280-file Quartz scaffold; `quartz/node_modules/` is gitignored and populated by `npm run docs:install`. Future upgrades = re-degit + diff config customizations + re-apply.
+**Backward compat is preserved.** Pre-v2 snapshots in CH continue to render the v1 trailing-recency format `restatement (4.02) (9d ago)` because the new field is optional + the renderer falls back when absent. Fresh daemon cycles produce the v2 format. The two formats coexist cleanly within one brief render.
 
-**Parallel-tracks posture continues.** s95 #6 did NOT affect C-12 / paper-trading / real-money-flip arcs. Full `npm test` green at 2901 pass + 12 new dashboard generator tests (+12 net vs s95 #5). 1 pre-existing CH-unreachable fail is NOT a regression.
+**Zero CH migration was needed.** `per_ticker_json` is a free-form blob; the new `eventsByItemCode` field flows through JSON serialization without DDL changes. The trade-off (no schema constraint on the field) is acceptable per S95-38.
 
-**The chain through s95 #6:**
+**Parallel-tracks posture continues.** s95 #7 did NOT affect C-12 / paper-trading / real-money-flip arcs. Full `npm test` green at 2910 pass + 8 new tests (4 pure-fn + 4 render). 1 pre-existing CH-unreachable fail is NOT a regression.
+
+**The chain through s95 #7:**
 
 ```text
 ALL S41-S94 WORK                                        ✓ as documented
@@ -394,21 +394,16 @@ S95 #3: form 4 ingest XML body URL discovery (HOTFIX)   ✓ committed (831b1b0)
 S95 #4: gap #7 v2 per-row recency (F4 side)             ✓ committed (b3d63a2)
 S95 #5: ADR-041 implementation                          ✓ committed (4406674)
 S95 #6: Quartz docs site (5 commits)                    ✓ committed (437332b → eac2561)
-        — install + config + npm scripts
-        — frontmatter rollout to 50 priority docs
-        — dashboard generator + 12 fixture tests
-        — Mermaid chart templates
-        — vault conventions doc
-S95 #6 HANDOFF rewrite (this commit)                    ✓ this commit
+S95 #7: gap #7 v2 per-EVENT EK recency                  ✓ committed (5a9ed8e)
+        — §8.1 "12d ago + 18d ago" per-item format
+        — Gap #7 v2 EK arc FULLY CLOSED end-to-end
+S95 #7 HANDOFF rewrite (this commit)                    ✓ this commit
   → DEFAULT NEXT: operator picks. Recommended default if
                   operator says "continue" without context:
-                  Gap #7 v2 per-EVENT EK recency
-                  (§8.1 "12d ago + 18d ago" per-item format;
-                  ~3 files, ~80 LOC, ~5-6 tests).
-  → background: operator can now npm run docs:install once
-                + npm run docs:serve to browse the vault at
-                http://localhost:8080 with backlinks, graph
-                view, and Mermaid rendering. Auto-generated
-                status dashboard at /dashboard regenerates on
-                every docs:build from per-doc frontmatter.
+                  Gap #9 v2 ETF.com/issuer-CSV cross-validation
+                  (~4 files, ~150 LOC, ~8-10 tests).
+  → background: pre-v2 EK snapshots render under v1 trailing-
+                recency fallback; v2 snapshots render with
+                per-item recency inline. Operator sees the
+                new format within one daemon cycle.
 ```
