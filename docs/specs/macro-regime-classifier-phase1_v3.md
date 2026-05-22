@@ -1,6 +1,10 @@
 # SPEC — Macro regime classifier phase1_v3
 
-> **Status:** DRAFT — produced from the 2026-05-11 RESEARCH+PUSHBACK turn (session 38 turn 4) · **Author:** producer (Claude) · **Authority:** [ADR-037](../decisions/README.md), [HANDOFF](../../.claude/HANDOFF.md), session-38 turn-4 user direction to "skip Sharadar, use leading indicators"
+> **Status:** PARTIALLY SUPERSEDED — produced from the 2026-05-11 RESEARCH+PUSHBACK turn (session 38 turn 4); the `yield_curve_inverted` category was redefined under [ADR-041](../decisions/README.md) (Accepted 2026-05-19, session 95 #5 implementation). See §2.3 line 4 + §2.1 footnote on the canon swap.
+>
+> **ADR-041 supersession:** The original `yield_curve_inverted` rule — `T10Y2Y < 0 for ≥3 consecutive trading days` (Estrella-Hardouvelis 1997) — was replaced by `T10Y3M < 0 on the latest FRED observation` (Estrella-Mishkin 1998, Tier 1 canon, no persistence requirement, zero free parameters). The same category name `yield_curve_inverted` carries the new semantic in place; column `yield_curve_value` now stores T10Y3M (pre-ADR-041 rows still carry T10Y2Y values until re-backfill). A new diagnostic counter `yield_curve_inversion_days_20d` ships alongside as a NULL-able UInt8 column for "flash vs sustained" operator context; the counter is NOT part of the firing logic. See ADR-041 in [`docs/decisions/README.md`](../decisions/README.md) for full canon defense + the three-criterion test.
+>
+> **Author:** producer (Claude) · **Authority:** [ADR-037](../decisions/README.md), [ADR-041](../decisions/README.md), [HANDOFF](../../.claude/HANDOFF.md), session-38 turn-4 user direction to "skip Sharadar, use leading indicators"
 >
 > **Stage in Vector Core build:** SPEC. RESEARCH closed in the same turn. CODE follows over 2-3 turns (this turn = data layer; next turn = classifier rules + backfill; turn after = fixture verification + ramp).
 

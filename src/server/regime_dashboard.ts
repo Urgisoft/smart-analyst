@@ -254,13 +254,14 @@ export const BIAS_NOTE_PHASE1_V3: BiasNote = {
     'Phase 1 v3 of the macro regime classifier ships under classifier_version=phase1_v3 and is ' +
     'survivorship-immune. The v2 `breadth_narrow` category (the sole source of survivorship bias ' +
     'per ADR-037) is dropped from the category count and replaced with four free leading indicators: ' +
-    'yield_curve_inverted (T10Y2Y < 0 for ≥3 consecutive trading days; Estrella-Hardouvelis 1997), ' +
-    'credit_stress (HYG/LQD 20d return < −3%; Gilchrist-Zakrajšek 2012 analogue), risk_off_rotation ' +
-    '(SPY 20d − TLT 20d < −10pp), and sentiment_extreme (CBOE ^CPC 5d MA OR VIX/VIX3M ≤ 0.80; ' +
-    'Whaley 2009). None depend on S&P 500 constituent membership — see ADR-037 ramp PR and SPEC ' +
-    'phase1_v3 §2.',
+    'yield_curve_inverted (T10Y3M < 0 on the latest FRED observation — single-day fire, no ' +
+    'persistence required; Estrella-Mishkin 1998 canon, ADR-041), credit_stress (HYG/LQD 20d ' +
+    'return < −3%; Gilchrist-Zakrajšek 2012 analogue), risk_off_rotation (SPY 20d − TLT 20d < ' +
+    '−10pp), and sentiment_extreme (CBOE ^CPC 5d MA OR VIX/VIX3M ≤ 0.80; Whaley 2009). None depend ' +
+    'on S&P 500 constituent membership — see ADR-037 ramp PR and SPEC phase1_v3 §2.',
   docLinks: [
     { label: 'ADR-037', href: '/docs/decisions/README.md' },
+    { label: 'ADR-041', href: '/docs/decisions/README.md' },
     { label: 'SPEC phase1_v3', href: '/docs/specs/macro-regime-classifier-phase1_v3.md' },
     { label: 'Bias quantification', href: '/docs/phase1_breadth_restoration/bias_quantification.md' },
   ],

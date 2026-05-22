@@ -741,8 +741,17 @@ export async function ensureMacroRegimeTables(): Promise<void> {
   // backfill populates them. Idempotent via IF NOT EXISTS.
   //
   // Columns:
-  //   - yield_curve_value          : T10Y2Y on this date (FRED, from
-  //                                  quantlab.macro_indicators_fred).
+  //   - yield_curve_value          : Latest yield-curve observation on this
+  //                                  date (FRED, from
+  //                                  quantlab.macro_indicators_fred). Pre-
+  //                                  ADR-041 rows carry T10Y2Y; post-ADR-041
+  //                                  rows carry T10Y3M. The semantic shifts
+  //                                  at the trade_date of the first backfill
+  //                                  run that landed under ADR-041 — see
+  //                                  ADR-041 §Consequences + the macro_regime_v3
+  //                                  module-level "What could break this" note.
+  //                                  A full re-backfill rewrites historical
+  //                                  rows under the new T10Y3M source.
   //   - hyg_lqd_ratio_20d_return   : 20-trading-day return of HYG_close/LQD_close.
   //   - spy_minus_tlt_20d_return   : SPY 20d return MINUS TLT 20d return
   //                                  (risk-on/risk-off rotation gap, in
@@ -759,7 +768,13 @@ export async function ensureMacroRegimeTables(): Promise<void> {
   //                                  re-calibrated 0.85→0.80 in session 40
   //                                  to land sentiment_extreme at the
   //                                  ~5% Whaley 2009 §3 prevalence target.
-  //   - yield_curve_inverted       : 1 when T10Y2Y < 0 for >= 3 consecutive days.
+  //   - yield_curve_inverted       : 1 when T10Y3M < 0 on the latest FRED
+  //                                  observation (single-day, no persistence
+  //                                  per ADR-041 / Estrella-Mishkin 1998).
+  //                                  Pre-ADR-041 rows used T10Y2Y < 0 for
+  //                                  ≥3 consecutive days; the column is
+  //                                  reinterpreted in place — no rename, no
+  //                                  separate column.
   //   - credit_stress              : 1 when hyg_lqd_ratio_20d_return < -0.03.
   //   - risk_off_rotation          : 1 when spy_minus_tlt_20d_return < -0.10.
   //   - sentiment_extreme          : 1 when put_call_value_5d_ma is extreme
@@ -776,6 +791,22 @@ export async function ensureMacroRegimeTables(): Promise<void> {
         ADD COLUMN IF NOT EXISTS credit_stress             UInt8 DEFAULT 0   AFTER yield_curve_inverted,
         ADD COLUMN IF NOT EXISTS risk_off_rotation         UInt8 DEFAULT 0   AFTER credit_stress,
         ADD COLUMN IF NOT EXISTS sentiment_extreme         UInt8 DEFAULT 0   AFTER risk_off_rotation
+    `,
+  });
+
+  // ADR-041 (Accepted 2026-05-19) — diagnostic counter for the new
+  // yield-curve category. Counts T10Y3M observations < 0 in the trailing
+  // 20 trading days inclusive of today. NOT part of the firing logic;
+  // surfaced to disambiguate "flash inversion" vs "sustained inversion"
+  // at-a-glance for the operator + LLM context. Null when the loader
+  // supplied fewer than 20 non-null trailing values (warmup or gap
+  // window). Idempotent ADD COLUMN IF NOT EXISTS — historical phase1_v3
+  // rows get NULL for this column under the default until a re-backfill
+  // rewrites them.
+  await ch.command({
+    query: `
+      ALTER TABLE quantlab.macro_regimes
+        ADD COLUMN IF NOT EXISTS yield_curve_inversion_days_20d Nullable(UInt8) AFTER yield_curve_value
     `,
   });
 

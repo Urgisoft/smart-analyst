@@ -10,6 +10,14 @@
  * 2020_covid) are NOT in this file — those run against real CH-backed
  * data, not synthetic inputs. They live in macroRegimeBackfill.test.ts
  * and gate on the v3 backfill having been run.
+ *
+ * ADR-041 (Accepted 2026-05-19) replaced the yield-curve firing rule:
+ *   - source : T10Y2Y → T10Y3M (Estrella-Mishkin 1998 canon)
+ *   - rule   : "< 0 for ≥3 consecutive trading days" → "< 0 on today's value"
+ *   - bonus  : diagnostic counter `yield_curve_inversion_days_20d`
+ * The yield-curve tests below were rewritten on the ADR-041 cut. The
+ * earlier T10Y2Y persistence-check tests are gone — they're preserved
+ * in git history.
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -17,6 +25,7 @@ import {
   classifyMacroRegimeV3,
   ratio20dReturn,
   checkYieldCurveInverted,
+  computeInversionDays20d,
   checkSentimentExtreme,
   CLASSIFIER_VERSION_V3,
   CREDIT_STRESS_20D_RETURN_FLOOR,
@@ -24,8 +33,8 @@ import {
   PUT_CALL_FEAR_HIGH,
   PUT_CALL_COMPLACENCY_LOW,
   VIX_TERM_COMPLACENCY_FLOOR,
-  YIELD_CURVE_PERSISTENCE_DAYS,
-  INPUTS_MISSING_T10Y2Y,
+  YIELD_CURVE_INVERSION_DAYS_WINDOW,
+  INPUTS_MISSING_T10Y3M,
   INPUTS_MISSING_LQD,
   INPUTS_MISSING_TLT,
   INPUTS_MISSING_PUT_CALL,
@@ -55,6 +64,13 @@ function tltFlat(close = 95, n = 21): number[] {
   return flatArr(close, n);
 }
 
+/** 20-entry T10Y3M history at the supplied value, oldest-first. Length
+ *  matches YIELD_CURVE_INVERSION_DAYS_WINDOW so the diagnostic counter
+ *  warms up; firing logic reads only today (`length-1`). */
+function t10y3mFlat(value: number, n: number = YIELD_CURVE_INVERSION_DAYS_WINDOW): number[] {
+  return Array.from({ length: n }, () => value);
+}
+
 function baseInputV3(overrides: Partial<ClassifierInputV3> = {}): ClassifierInputV3 {
   return {
     trade_date: '2026-05-10',
@@ -64,7 +80,7 @@ function baseInputV3(overrides: Partial<ClassifierInputV3> = {}): ClassifierInpu
     spy_history: spyFlat(),
     pct_above_50dma: 70,
     pct_above_50dma_source: 'stooq_a50r',
-    t10y2y_history: [0.5, 0.5, 0.5], // positive → no inversion
+    t10y3m_history: t10y3mFlat(0.5), // 20-entry positive → no inversion, counter = 0
     lqd_history: lqdFlat(),
     tlt_history: tltFlat(),
     put_call_value_5d_ma: 0.9, // mid-range → no extreme
@@ -83,63 +99,162 @@ describe('classifyMacroRegimeV3 — version label', () => {
   });
 });
 
-// ── 1. yield_curve_inverted ─────────────────────────────────────────────────
+// ── 1. yield_curve_inverted (ADR-041: T10Y3M < 0 single-day) ───────────────
 
-describe('classifyMacroRegimeV3 — yield_curve_inverted', () => {
-  it('fires when T10Y2Y is negative for >=3 consecutive days', () => {
+describe('classifyMacroRegimeV3 — yield_curve_inverted (ADR-041)', () => {
+  it('fires when today\'s T10Y3M is strictly < 0 (single-day, no persistence)', () => {
     const r = classifyMacroRegimeV3(
-      baseInputV3({ t10y2y_history: [-0.1, -0.2, -0.3] }),
+      baseInputV3({ t10y3m_history: t10y3mFlat(-0.3) }),
     );
     assert.equal(r.yield_curve_inverted, 1);
     assert.equal(r.yield_curve_value, -0.3);
   });
 
-  it('does NOT fire if only the last 2 days are negative (persistence required)', () => {
+  it('fires on day 1 of inversion (no persistence requirement per ADR-041 §Resolved at Accept item 1)', () => {
+    // 19 positive days then a single negative today — under the old T10Y2Y rule
+    // this required 3 consecutive days to fire; under ADR-041 it fires same-day.
+    const history = [...Array(19).fill(0.5), -0.1];
     const r = classifyMacroRegimeV3(
-      baseInputV3({ t10y2y_history: [0.1, -0.1, -0.2] }),
+      baseInputV3({ t10y3m_history: history }),
+    );
+    assert.equal(r.yield_curve_inverted, 1);
+    assert.equal(r.yield_curve_value, -0.1);
+  });
+
+  it('does NOT fire on the 0.00 boundary (strict < 0 per ADR-041 §Resolved at Accept item 2)', () => {
+    const r = classifyMacroRegimeV3(
+      baseInputV3({ t10y3m_history: t10y3mFlat(0) }),
     );
     assert.equal(r.yield_curve_inverted, 0);
   });
 
-  it('does NOT fire on the 0.0 boundary (strict < 0)', () => {
+  it('does NOT fire at +0.01 (just-positive boundary)', () => {
     const r = classifyMacroRegimeV3(
-      baseInputV3({ t10y2y_history: [0, 0, 0] }),
+      baseInputV3({ t10y3m_history: t10y3mFlat(0.01) }),
     );
     assert.equal(r.yield_curve_inverted, 0);
   });
 
-  it('does NOT fire when history is shorter than the persistence window', () => {
+  it('fires at -0.01 (just-inverted boundary)', () => {
     const r = classifyMacroRegimeV3(
-      baseInputV3({ t10y2y_history: [-0.5, -0.4] }),
+      baseInputV3({ t10y3m_history: t10y3mFlat(-0.01) }),
     );
-    assert.equal(r.yield_curve_inverted, 0);
+    assert.equal(r.yield_curve_inverted, 1);
   });
 
-  it('flags inputs_missing when today value is null', () => {
+  it('does NOT fire when today\'s value is null and flags INPUTS_MISSING_T10Y3M', () => {
+    const history: (number | null)[] = [...Array(19).fill(-0.3), null];
     const r = classifyMacroRegimeV3(
-      baseInputV3({ t10y2y_history: [-0.1, -0.2, null] }),
+      baseInputV3({ t10y3m_history: history }),
     );
     assert.equal(r.yield_curve_inverted, 0);
-    assert.ok(r.inputs_missing & INPUTS_MISSING_T10Y2Y);
+    assert.ok(r.inputs_missing & INPUTS_MISSING_T10Y3M);
   });
 
-  it('does NOT fire if one of the trailing N values is null (gap)', () => {
+  it('does NOT fire when the history is empty (cold-start)', () => {
     const r = classifyMacroRegimeV3(
-      baseInputV3({ t10y2y_history: [-0.3, null, -0.1] }),
+      baseInputV3({ t10y3m_history: [] }),
+    );
+    assert.equal(r.yield_curve_inverted, 0);
+    assert.equal(r.yield_curve_value, null);
+    assert.ok(r.inputs_missing & INPUTS_MISSING_T10Y3M);
+  });
+
+  it('historical days do NOT influence today\'s fire (no persistence dependency)', () => {
+    // 19 strongly-inverted days then today is +0.1 (un-inverted) → should NOT fire.
+    const history = [...Array(19).fill(-0.5), 0.1];
+    const r = classifyMacroRegimeV3(
+      baseInputV3({ t10y3m_history: history }),
     );
     assert.equal(r.yield_curve_inverted, 0);
   });
 });
 
-describe('checkYieldCurveInverted (pure helper)', () => {
-  it('fires when trailing N values are all strictly negative', () => {
-    assert.equal(checkYieldCurveInverted([-0.1, -0.2, -0.3], 3), 1);
-    assert.equal(checkYieldCurveInverted([0.5, -0.1, -0.2, -0.3], 3), 1);
+describe('checkYieldCurveInverted (pure helper, single-arg per ADR-041)', () => {
+  it('fires when today (last entry) is strictly < 0', () => {
+    assert.equal(checkYieldCurveInverted([-0.3]), 1);
+    assert.equal(checkYieldCurveInverted([0.5, -0.1]), 1);
+    assert.equal(checkYieldCurveInverted([0.1, 0.2, -0.01]), 1);
   });
 
-  it('does not fire on any non-negative value in window', () => {
-    assert.equal(checkYieldCurveInverted([-0.1, 0, -0.2], 3), 0);
-    assert.equal(checkYieldCurveInverted([-0.1, 0.01, -0.2], 3), 0);
+  it('does not fire on >= 0 or null today', () => {
+    assert.equal(checkYieldCurveInverted([-0.3, 0]), 0);
+    assert.equal(checkYieldCurveInverted([-0.3, 0.01]), 0);
+    assert.equal(checkYieldCurveInverted([-0.3, null]), 0);
+  });
+
+  it('does not fire on empty history (cold-start)', () => {
+    assert.equal(checkYieldCurveInverted([]), 0);
+  });
+
+  it('ignores historical entries (no persistence requirement)', () => {
+    // Only today (last entry) matters under ADR-041 — historical positives
+    // do NOT block firing, historical negatives do NOT force firing.
+    assert.equal(checkYieldCurveInverted([0.5, 0.5, -0.1]), 1);
+    assert.equal(checkYieldCurveInverted([-0.5, -0.5, 0.1]), 0);
+  });
+});
+
+describe('computeInversionDays20d (diagnostic helper, NOT part of firing logic)', () => {
+  it('counts strictly-negative entries in the trailing 20-day window', () => {
+    // 10 negative + 10 positive → 10
+    const mixed = [...Array(10).fill(-0.1), ...Array(10).fill(0.2)];
+    assert.equal(computeInversionDays20d(mixed), 10);
+  });
+
+  it('returns 20 when every entry in the window is negative', () => {
+    assert.equal(computeInversionDays20d(Array(20).fill(-0.3)), 20);
+  });
+
+  it('returns 0 when every entry is >= 0 (zero is NOT inverted, strict < 0)', () => {
+    assert.equal(computeInversionDays20d(Array(20).fill(0)), 0);
+    assert.equal(computeInversionDays20d(Array(20).fill(0.5)), 0);
+  });
+
+  it('returns null when history is shorter than the window (truncated)', () => {
+    assert.equal(computeInversionDays20d(Array(19).fill(-0.3)), null);
+    assert.equal(computeInversionDays20d([]), null);
+  });
+
+  it('returns null when the trailing window has null gaps (insufficient non-null values)', () => {
+    // 19 non-null negatives + 1 null → only 19 non-null in the 20-day window → null
+    const history: (number | null)[] = [...Array(19).fill(-0.3), null];
+    assert.equal(computeInversionDays20d(history), null);
+  });
+
+  it('reads the trailing window only — older entries beyond the window are ignored', () => {
+    // 5 positives, then 20 negatives → window is the last 20 (all negative) → 20
+    const history = [...Array(5).fill(0.5), ...Array(20).fill(-0.3)];
+    assert.equal(computeInversionDays20d(history), 20);
+  });
+});
+
+describe('classifyMacroRegimeV3 — yield_curve_inversion_days_20d field (ADR-041 diagnostic)', () => {
+  it('populates the field on the row for the warmed-up case', () => {
+    const r = classifyMacroRegimeV3(
+      baseInputV3({ t10y3m_history: t10y3mFlat(-0.3) }),
+    );
+    assert.equal(r.yield_curve_inversion_days_20d, 20);
+  });
+
+  it('returns null on the row when the history is too short for the diagnostic', () => {
+    const r = classifyMacroRegimeV3(
+      baseInputV3({ t10y3m_history: [-0.3] }),
+    );
+    assert.equal(r.yield_curve_inverted, 1);          // firing still works
+    assert.equal(r.yield_curve_inversion_days_20d, null); // counter does not
+  });
+
+  it('counter is INDEPENDENT of the firing rule — fire=0, counter=20 is a valid state', () => {
+    // 19 inverted days then today goes positive: yield_curve_inverted should
+    // be 0 (today's value is positive) but the counter should still see 19
+    // inversion days in the trailing 20.
+    const history = [...Array(19).fill(-0.3), 0.1];
+    const r = classifyMacroRegimeV3(
+      baseInputV3({ t10y3m_history: history }),
+    );
+    assert.equal(r.yield_curve_inverted, 0);
+    assert.equal(r.yield_curve_inversion_days_20d, 19);
   });
 });
 
@@ -436,7 +551,7 @@ describe('classifyMacroRegimeV3 — composite tiers', () => {
   it('orange when 2+ categories fire today', () => {
     const r = classifyMacroRegimeV3(baseInputV3({
       put_call_value_5d_ma: 1.5,
-      t10y2y_history: [-0.2, -0.3, -0.4],
+      t10y3m_history: t10y3mFlat(-0.3),
     }));
     assert.equal(r.categories_firing >= 2, true);
     assert.equal(r.regime, 'orange');
@@ -458,7 +573,7 @@ describe('classifyMacroRegimeV3 — composite tiers', () => {
       spy_history: spy,
       lqd_history: lqdFlat(),
       tlt_history: tlt,
-      t10y2y_history: [-0.1, -0.2, -0.3], // yield_curve_inverted
+      t10y3m_history: t10y3mFlat(-0.3), // yield_curve_inverted (today < 0)
       put_call_value_5d_ma: 1.5, // sentiment_extreme
     }));
     // Should fire: vix_term_inverted, hyg_spy_divergence, credit_stress,
@@ -491,14 +606,14 @@ describe('classifyMacroRegimeV3 — composite tiers', () => {
 // ── 7. inputs_missing audit bitmask ─────────────────────────────────────────
 
 describe('classifyMacroRegimeV3 — inputs_missing', () => {
-  it('flags T10Y2Y, LQD, TLT, put/call together when all absent', () => {
+  it('flags T10Y3M, LQD, TLT, put/call together when all absent', () => {
     const r = classifyMacroRegimeV3(baseInputV3({
-      t10y2y_history: [null, null, null],
+      t10y3m_history: [null, null, null],
       lqd_history: [...Array(20).fill(110), null] as any,
       tlt_history: [...Array(20).fill(95), null] as any,
       put_call_value_5d_ma: null,
     }));
-    assert.ok(r.inputs_missing & INPUTS_MISSING_T10Y2Y);
+    assert.ok(r.inputs_missing & INPUTS_MISSING_T10Y3M);
     assert.ok(r.inputs_missing & INPUTS_MISSING_LQD);
     assert.ok(r.inputs_missing & INPUTS_MISSING_TLT);
     assert.ok(r.inputs_missing & INPUTS_MISSING_PUT_CALL);
@@ -508,8 +623,14 @@ describe('classifyMacroRegimeV3 — inputs_missing', () => {
 // ── 8. Threshold constants — guard against silent changes ──────────────────
 
 describe('phase1_v3 threshold constants — locked', () => {
-  it('threshold constants match SPEC §2.3', () => {
-    assert.equal(YIELD_CURVE_PERSISTENCE_DAYS, 3);
+  it('threshold constants match SPEC §2.3 + ADR-041', () => {
+    // ADR-041 (Accepted 2026-05-19) replaced the yield-curve firing rule:
+    // the 3-day persistence requirement was canon-thin (no Estrella source
+    // proposes it) and the new rule is single-day < 0 — so there is no
+    // persistence-days constant to pin. The diagnostic window for the
+    // `yield_curve_inversion_days_20d` counter is pinned at 20 trading
+    // days to match this file's 20d-return window conventions.
+    assert.equal(YIELD_CURVE_INVERSION_DAYS_WINDOW, 20);
     assert.equal(CREDIT_STRESS_20D_RETURN_FLOOR, -0.03);
     assert.equal(RISK_OFF_SPREAD_FLOOR, -0.10);
     assert.equal(PUT_CALL_FEAR_HIGH, 1.15);

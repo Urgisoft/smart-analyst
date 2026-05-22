@@ -6,7 +6,12 @@
  * (`pct_above_50dma` — the source of ADR-037's bias quarantine) is DROPPED
  * from the category count. Four free leading indicators replace it:
  *
- *   4. yield_curve_inverted (T10Y2Y < 0 for >=3 consecutive trading days)
+ *   4. yield_curve_inverted (T10Y3M < 0 on the latest FRED observation;
+ *                            single-day fire — no persistence required.
+ *                            ADR-041 (Accepted 2026-05-19) replaces the
+ *                            prior T10Y2Y/3-day rule with the Estrella-
+ *                            Mishkin 1998 canon construct; `inversion_days_20d`
+ *                            ships as a diagnostic-only counter alongside.)
  *   5. credit_stress        (20d return of HYG/LQD ratio < -3%)
  *   6. risk_off_rotation    (SPY 20d return - TLT 20d return < -10pp)
  *   7. sentiment_extreme    (CBOE ^CPC 5d MA extreme OR VIX/VIX3M <= 0.80)
@@ -32,7 +37,13 @@
  * than inline) makes the version split structural, not policy.
  *
  * Sources:
- *   - Yield curve: Estrella & Hardouvelis (1997), NY Fed recession-probability model
+ *   - Yield curve: Estrella & Mishkin (1998) "Predicting U.S. Recessions:
+ *     Financial Variables as Leading Indicators," Review of Economics and
+ *     Statistics 80(1), 45-61 — Tier 1 canon, T10Y3M identified as the
+ *     single most reliable financial-variable leading indicator for U.S.
+ *     recessions. Out-of-sample extension: Estrella-Trubin 2006 FRBNY
+ *     Current Issues; Bauer-Mertens 2018 FRBSF Economic Letter. Locked
+ *     by ADR-041 (docs/decisions/README.md).
  *   - Credit spreads via HYG/LQD ratio: Gilchrist-Zakrajšek 2012 (analogue;
  *     they use BAA-Treasury OAS, we use HYG/LQD as a free ETF proxy)
  *   - Sentiment via put/call: Whaley (2009) Understanding VIX §3
@@ -83,10 +94,14 @@ export const _PHASE1_V2_REFERENCE = PHASE1_V2_VERSION;
 
 // ── Phase 1 v3 threshold constants ──────────────────────────────────────────
 
-/** Yield-curve inversion persistence requirement: T10Y2Y < 0 for >= this many
- *  consecutive trading days. Avoids intraday spike false positives;
- *  matches NY Fed's monthly-average convention in trading-day form. */
-export const YIELD_CURVE_PERSISTENCE_DAYS = 3;
+/** Diagnostic window for the `yield_curve_inversion_days_20d` counter —
+ *  count of T10Y3M observations < 0 in the trailing N trading days
+ *  (inclusive of today). NOT part of the firing logic; surfaced for
+ *  operator + LLM context to disambiguate flash vs sustained inversion
+ *  per ADR-041 §Resolved at Accept item 1. Window picked at 20 trading
+ *  days (≈1 calendar month) to match the existing 20d-return window
+ *  conventions in this file. */
+export const YIELD_CURVE_INVERSION_DAYS_WINDOW = 20;
 
 /** Credit stress floor: 20-trading-day return of HYG/LQD ratio below this
  *  threshold (decimal, e.g. -0.03 = 3% decline) fires `credit_stress`. */
@@ -181,8 +196,12 @@ export const CREDIT_AND_ROTATION_LOOKBACK = HYG_SPY_DIVERGENCE_LOOKBACK;
 
 // ── inputs_missing extension ────────────────────────────────────────────────
 
-/** Bit 6: T10Y2Y missing on this date (FRED). */
-export const INPUTS_MISSING_T10Y2Y = 1 << 6;       // 64
+/** Bit 6: T10Y3M missing on this date (FRED). Replaces the prior
+ *  T10Y2Y bit per ADR-041 — same numeric value (64) preserved so any
+ *  historical-row decode of pre-ADR-041 inputs_missing snapshots still
+ *  surfaces as "yield-curve input absent" (the bit semantic is the same
+ *  even though the underlying FRED series changed). */
+export const INPUTS_MISSING_T10Y3M = 1 << 6;       // 64
 /** Bit 7: LQD close missing on this date. */
 export const INPUTS_MISSING_LQD = 1 << 7;          // 128
 /** Bit 8: TLT close missing on this date. */
@@ -218,9 +237,13 @@ export interface ClassifierInputV3 {
   pct_above_50dma_source: string;
 
   // ── New for phase1_v3 ────────────────────────────────────────────────
-  /** T10Y2Y values, oldest first; today is `length-1`. Used for the
-   *  consecutive-days persistence check (last 3 values < 0). */
-  t10y2y_history: (number | null)[];
+  /** T10Y3M values, oldest first; today is `length-1`. The firing logic
+   *  reads only today's value (`length-1`) per ADR-041 §2/§5 (single-day
+   *  fire, no persistence). The full window is consumed by the
+   *  diagnostic `yield_curve_inversion_days_20d` counter — loader should
+   *  supply ≥ YIELD_CURVE_INVERSION_DAYS_WINDOW values so the counter is
+   *  not truncated. */
+  t10y3m_history: (number | null)[];
   /** LQD closes, oldest first; today is `length-1`. Aligned with
    *  `hyg_history` by date in the loader. */
   lqd_history: (number | null)[];
@@ -267,7 +290,20 @@ export interface MacroRegimeRowV3 {
   realized_stress: 0 | 1;
 
   // ── New for phase1_v3 ────────────────────────────────────────────────
+  /** Today's T10Y3M observation (the firing input under ADR-041). The
+   *  database column is still named `yield_curve_value`; the underlying
+   *  FRED series changed from T10Y2Y to T10Y3M on the ADR-041 acceptance
+   *  cut. Pre-ADR-041 rows in this column carry T10Y2Y values — see
+   *  `clickhouse.ts` migration notes + ADR-041 §Consequences. */
   yield_curve_value: number | null;
+  /** Diagnostic counter, NOT part of the firing logic. Count of T10Y3M
+   *  observations < 0 in the trailing `YIELD_CURVE_INVERSION_DAYS_WINDOW`
+   *  trading days (inclusive of today). Null when the loader supplied
+   *  fewer than the window's worth of non-null values. Surfaced under
+   *  ADR-041 §Resolved at Accept item 1 to give the operator + LLM the
+   *  "flash vs sustained" distinction at-a-glance without inserting a
+   *  tuning knob into the firing rule. */
+  yield_curve_inversion_days_20d: number | null;
   hyg_lqd_ratio_20d_return: number | null;
   spy_minus_tlt_20d_return: number | null;
   put_call_value_5d_ma: number | null;
@@ -350,20 +386,64 @@ export function ratio20dReturn(
 }
 
 /**
- * Yield-curve inversion persistence check. Returns 1 if T10Y2Y < 0 for
- * each of the trailing `persistence_days` values (inclusive of today).
- * Returns 0 if any of those values is >= 0, null, or absent.
+ * Yield-curve inversion check per ADR-041 (Accepted 2026-05-19).
+ *
+ * Fires (returns 1) iff today's T10Y3M observation is strictly < 0.
+ * Returns 0 on >= 0, null, or empty history. No persistence requirement
+ * per ADR-041 §Resolved at Accept item 1 — the "flash vs sustained"
+ * distinction is surfaced separately via `computeInversionDays20d`.
+ *
+ * Strict `< 0` boundary per ADR-041 §Resolved at Accept item 2:
+ *  - 0.00 → 0 (not inverted)
+ *  - +0.01 → 0
+ *  - -0.01 → 1 (inverted)
+ *  - null/absent → 0
+ *
+ * Canon: Estrella-Mishkin 1998 §3 (probit framework treats sign-change
+ * as the inflection); FRED publishes T10Y3M to 2-decimal precision so
+ * basis-point measurement noise is below the canon's threshold of
+ * concern.
  */
 export function checkYieldCurveInverted(
-  t10y2y_history: (number | null)[],
-  persistence_days: number,
+  t10y3m_history: (number | null)[],
 ): 0 | 1 {
-  if (t10y2y_history.length < persistence_days) return 0;
-  for (let i = t10y2y_history.length - persistence_days; i < t10y2y_history.length; i++) {
-    const v = t10y2y_history[i];
-    if (v == null || v >= 0) return 0;
+  if (t10y3m_history.length === 0) return 0;
+  const today = t10y3m_history[t10y3m_history.length - 1];
+  return today != null && today < 0 ? 1 : 0;
+}
+
+/**
+ * Diagnostic counter: how many of the trailing
+ * `YIELD_CURVE_INVERSION_DAYS_WINDOW` T10Y3M observations were strictly
+ * < 0 (inclusive of today). NOT part of the firing logic; surfaced for
+ * operator + LLM context per ADR-041 §Resolved at Accept item 1.
+ *
+ * Returns null when the history has fewer non-null values than the
+ * window length — the count would be misleading on a truncated window.
+ * Null entries inside an otherwise-full window are treated as "not
+ * inverted" (they don't increment the counter) since FRED's
+ * business-day calendar produces legitimate nulls on weekends/holidays
+ * the loader passes through.
+ */
+export function computeInversionDays20d(
+  t10y3m_history: (number | null)[],
+  window: number = YIELD_CURVE_INVERSION_DAYS_WINDOW,
+): number | null {
+  if (t10y3m_history.length < window) return null;
+  const tail = t10y3m_history.slice(t10y3m_history.length - window);
+  // Reject if the window is mostly nulls — the counter would understate
+  // sustained inversion. Require ≥ window non-null values; FRED business-
+  // day cadence means ~20 trading days has ≥20 non-null values when the
+  // loader supplies a sufficient prefix.
+  let nonNull = 0;
+  let inverted = 0;
+  for (const v of tail) {
+    if (v == null) continue;
+    nonNull++;
+    if (v < 0) inverted++;
   }
-  return 1;
+  if (nonNull < window) return null;
+  return inverted;
 }
 
 /**
@@ -412,7 +492,7 @@ export function classifyMacroRegimeV3(input: ClassifierInputV3): MacroRegimeRowV
   if (input.spy_history.length < SPY_NEAR_HIGH_LOOKBACK) {
     inputs_missing |= INPUTS_MISSING_SPY_WARMUP;
   }
-  if (nthFromLast(input.t10y2y_history, 0) == null) inputs_missing |= INPUTS_MISSING_T10Y2Y;
+  if (nthFromLast(input.t10y3m_history, 0) == null) inputs_missing |= INPUTS_MISSING_T10Y3M;
   if (nthFromLast(input.lqd_history, 0) == null) inputs_missing |= INPUTS_MISSING_LQD;
   if (nthFromLast(input.tlt_history, 0) == null) inputs_missing |= INPUTS_MISSING_TLT;
   if (input.put_call_value_5d_ma == null) inputs_missing |= INPUTS_MISSING_PUT_CALL;
@@ -467,12 +547,10 @@ export function classifyMacroRegimeV3(input: ClassifierInputV3): MacroRegimeRowV
   const realized_stress: 0 | 1 = 0;
 
   // ── New v3 categories ────────────────────────────────────────────────
-  const t10y2y_today = nthFromLast(input.t10y2y_history, 0);
-  const yield_curve_value = t10y2y_today;
-  const yield_curve_inverted = checkYieldCurveInverted(
-    input.t10y2y_history,
-    YIELD_CURVE_PERSISTENCE_DAYS,
-  );
+  const t10y3m_today = nthFromLast(input.t10y3m_history, 0);
+  const yield_curve_value = t10y3m_today;
+  const yield_curve_inverted = checkYieldCurveInverted(input.t10y3m_history);
+  const yield_curve_inversion_days_20d = computeInversionDays20d(input.t10y3m_history);
 
   const hyg_lqd_ratio_20d_return = ratio20dReturn(
     input.hyg_history,
@@ -568,6 +646,7 @@ export function classifyMacroRegimeV3(input: ClassifierInputV3): MacroRegimeRowV
     realized_stress,
 
     yield_curve_value,
+    yield_curve_inversion_days_20d,
     hyg_lqd_ratio_20d_return,
     spy_minus_tlt_20d_return,
     put_call_value_5d_ma: input.put_call_value_5d_ma,
@@ -623,9 +702,10 @@ export interface RegimeDataBundleV3 {
   tltDates: string[];
   tltByDate: Map<string, number>;
 
-  /** T10Y2Y observation dates + value map (FRED). Sorted ASC. */
-  t10y2yDates: string[];
-  t10y2yByDate: Map<string, number>;
+  /** T10Y3M observation dates + value map (FRED). Sorted ASC. Replaces
+   *  the prior T10Y2Y bundle field per ADR-041. */
+  t10y3mDates: string[];
+  t10y3mByDate: Map<string, number>;
 
   /** CBOE ^CPC 5-day MA by date. Loader is responsible for the rolling
    *  average (date-aligned with the CBOE calendar; missing days fall
@@ -654,10 +734,11 @@ export function classifyDateRangeFromBundleV3(
   for (let i = 0; i < bundle.spyDates.length; i++) spyIdx.set(bundle.spyDates[i], i);
   const hygIdx = new Map<string, number>();
   for (let i = 0; i < bundle.hygDates.length; i++) hygIdx.set(bundle.hygDates[i], i);
-  const t10y2yIdx = new Map<string, number>();
-  for (let i = 0; i < bundle.t10y2yDates.length; i++) {
-    t10y2yIdx.set(bundle.t10y2yDates[i], i);
+  const t10y3mIdx = new Map<string, number>();
+  for (let i = 0; i < bundle.t10y3mDates.length; i++) {
+    t10y3mIdx.set(bundle.t10y3mDates[i], i);
   }
+  void t10y3mIdx; // bundle is consumed via byDate map below; idx kept for parity with other series
 
   const out: MacroRegimeRowV3[] = [];
   let priors: PriorDayFiresV3[] = [];
@@ -680,17 +761,20 @@ export function classifyDateRangeFromBundleV3(
       d, bundle.hygDates, hygIdx, bundle.lqdByDate, HYG_SPY_DIVERGENCE_LOOKBACK,
     );
 
-    // T10Y2Y: FRED publishes only on business days; missing dates → null
-    // entries. We only need the last YIELD_CURVE_PERSISTENCE_DAYS values
-    // aligned to the SPY calendar (NYSE), so look up by SPY trading day.
-    const t10y2y_history: (number | null)[] = [];
+    // T10Y3M: FRED publishes only on business days; missing dates → null
+    // entries. The firing logic reads only today's value (no persistence
+    // per ADR-041) but `computeInversionDays20d` consumes the trailing
+    // YIELD_CURVE_INVERSION_DAYS_WINDOW values aligned to the SPY
+    // (NYSE) calendar. Loader supplies that full window so the counter
+    // is not silently truncated.
+    const t10y3m_history: (number | null)[] = [];
     const sIdx = spyIdx.get(d);
     if (sIdx != null) {
-      const startIdx = Math.max(0, sIdx - (YIELD_CURVE_PERSISTENCE_DAYS - 1));
+      const startIdx = Math.max(0, sIdx - (YIELD_CURVE_INVERSION_DAYS_WINDOW - 1));
       for (let i = startIdx; i <= sIdx; i++) {
         const dt = bundle.spyDates[i];
-        const v = bundle.t10y2yByDate.get(dt);
-        t10y2y_history.push(v == null ? null : v);
+        const v = bundle.t10y3mByDate.get(dt);
+        t10y3m_history.push(v == null ? null : v);
       }
     }
 
@@ -705,7 +789,7 @@ export function classifyDateRangeFromBundleV3(
       spy_history,
       pct_above_50dma: breadth?.pct ?? null,
       pct_above_50dma_source: breadth?.source ?? '',
-      t10y2y_history,
+      t10y3m_history,
       lqd_history,
       tlt_history,
       put_call_value_5d_ma: putCallMa == null ? null : putCallMa,
@@ -736,9 +820,12 @@ const REGIME_SOURCE = 'yfinance_regime';
 
 const SPY_PREFIX_DAYS = 380;
 const HYG_PREFIX_DAYS = 40;
-/** T10Y2Y is published continuously; pad enough days for the persistence
- *  lookback to never warmup-clip after the first 3 business days. */
-const T10Y2Y_PREFIX_DAYS = 20;
+/** T10Y3M is published on every business day. Pad enough wall-clock
+ *  days so the 20-trading-day diagnostic counter
+ *  (`yield_curve_inversion_days_20d`) is fully warmed up from the very
+ *  first classify date — 20 trading days fits inside ~30 wall-clock
+ *  days even with two weekends + a holiday. */
+const T10Y3M_PREFIX_DAYS = 35;
 /** CBOE put/call 5d MA — need 5 trading days of prefix. Generous wall-clock
  *  buffer covers weekends + holidays. */
 const PUTCALL_PREFIX_DAYS = 12;
@@ -885,7 +972,8 @@ async function loadCboeSeriesAsMa(
 
 /**
  * Backfill `quantlab.macro_regimes` under `classifier_version='phase1_v3'`.
- * Reads SPY/HYG/VIX/VIX3M/LQD/TLT candles, breadth, T10Y2Y (FRED), and
+ * Reads SPY/HYG/VIX/VIX3M/LQD/TLT candles, breadth, T10Y3M (FRED, per
+ * ADR-041; T10Y2Y is no longer consumed by this classifier), and
  * CBOE put/call out of CH, classifies every SPY trading day in
  * [startDate, endDate], writes results back. Idempotent.
  *
@@ -902,10 +990,10 @@ export async function backfillMacroRegimesV3(args: {
 
   const spyFrom = isoMinusDays(args.startDate, SPY_PREFIX_DAYS);
   const hygFrom = isoMinusDays(args.startDate, HYG_PREFIX_DAYS);
-  const t10y2yFrom = isoMinusDays(args.startDate, T10Y2Y_PREFIX_DAYS);
+  const t10y3mFrom = isoMinusDays(args.startDate, T10Y3M_PREFIX_DAYS);
   const cboeFrom = isoMinusDays(args.startDate, PUTCALL_PREFIX_DAYS);
 
-  const [spy, hyg, vix, vix3m, lqd, tlt, breadth, t10y2y, putCallMa] = await Promise.all([
+  const [spy, hyg, vix, vix3m, lqd, tlt, breadth, t10y3m, putCallMa] = await Promise.all([
     loadCandleSeries(ch, SPY_ADDR, spyFrom, args.endDate),
     loadCandleSeries(ch, HYG_ADDR, hygFrom, args.endDate),
     loadCandleSeries(ch, VIX_ADDR, args.startDate, args.endDate),
@@ -913,7 +1001,7 @@ export async function backfillMacroRegimesV3(args: {
     loadCandleSeries(ch, LQD_ADDR, hygFrom, args.endDate),
     loadCandleSeries(ch, TLT_ADDR, spyFrom, args.endDate),
     loadBreadthSeries(ch, args.startDate, args.endDate),
-    loadFredSeries(ch, 'T10Y2Y', t10y2yFrom, args.endDate),
+    loadFredSeries(ch, 'T10Y3M', t10y3mFrom, args.endDate),
     loadCboeSeriesAsMa(ch, 'CPC', cboeFrom, args.endDate),
   ]);
 
@@ -932,8 +1020,8 @@ export async function backfillMacroRegimesV3(args: {
     lqdByDate: lqd.byDate,
     tltDates: tlt.dates,
     tltByDate: tlt.byDate,
-    t10y2yDates: t10y2y.dates,
-    t10y2yByDate: t10y2y.byDate,
+    t10y3mDates: t10y3m.dates,
+    t10y3mByDate: t10y3m.byDate,
     putCall5dMaByDate: putCallMa,
   };
   const rows = classifyDateRangeFromBundleV3(bundle);
@@ -963,6 +1051,7 @@ export async function backfillMacroRegimesV3(args: {
         breadth_narrow: r.breadth_narrow,
         realized_stress: r.realized_stress,
         yield_curve_value: r.yield_curve_value,
+        yield_curve_inversion_days_20d: r.yield_curve_inversion_days_20d,
         hyg_lqd_ratio_20d_return: r.hyg_lqd_ratio_20d_return,
         spy_minus_tlt_20d_return: r.spy_minus_tlt_20d_return,
         put_call_value_5d_ma: r.put_call_value_5d_ma,
@@ -1020,7 +1109,7 @@ export async function fetchMacroRegimeV3(
  * protects against the daemon firing before Yahoo's official close
  * lands (mirrors the v2 fail-soft from SPEC §6).
  *
- * FRED T10Y2Y and CBOE ^CPC are NOT in the date-readiness check because
+ * FRED T10Y3M and CBOE ^CPC are NOT in the date-readiness check because
  * the classifier handles them as fail-soft inputs (yield_curve fails
  * suppress rather than firing; CBOE-dark arm of sentiment_extreme is
  * the operational norm post-2019-10-04). The six candle sources are
@@ -1080,11 +1169,26 @@ export async function classifyLatestMacroRegimeV3(): Promise<MacroRegimeRowV3 | 
  *    path alone. That's an intended fail-soft, but the operator should
  *    check `INPUTS_MISSING_PUT_CALL` bit on a recent row to confirm the
  *    classifier is running degraded, not silently green.
- *  - FRED T10Y2Y date alignment: FRED publishes on weekdays the bond
+ *  - FRED T10Y3M date alignment: FRED publishes on weekdays the bond
  *    market is open, which mostly but not always matches NYSE. Missing
- *    dates are aligned to the SPY (NYSE) calendar with null fallback; the
- *    persistence check naturally requires 3 non-null trailing values to
- *    fire, so single-day FRED gaps suppress (not flip) the indicator.
+ *    dates are aligned to the SPY (NYSE) calendar with null fallback;
+ *    today's null suppresses the indicator (returns 0, sets the
+ *    INPUTS_MISSING_T10Y3M bit), so single-day FRED gaps do NOT flip
+ *    fire/no-fire. The trailing-20d diagnostic counter
+ *    (`yield_curve_inversion_days_20d`) requires a full window of
+ *    non-null values and returns null on truncated histories — that's
+ *    surfaced via the column rather than a separate inputs_missing bit
+ *    because the counter is purely diagnostic, not part of the firing
+ *    logic.
+ *  - Pre-ADR-041 historical rows (T10Y2Y) coexist with post-ADR-041
+ *    rows (T10Y3M) in the same `yield_curve_value` column. A re-backfill
+ *    rewrites the historical rows under the new T10Y3M source; until
+ *    that runs, `quantlab.macro_regimes` carries a mix of T10Y2Y values
+ *    (older trade_date) and T10Y3M values (newer trade_date) under the
+ *    same column. Consumers that read this column historically should
+ *    expect a step-change in semantic at the trade_date of the first
+ *    classifier run post-ADR-041 — see HANDOFF for the re-backfill
+ *    operator action.
  *  - HYG/LQD ratio length mismatch: ratio20dReturn returns null if the
  *    two histories aren't equal length. The bundle loader uses HYG's
  *    calendar for both (LQD trades on NYSE too), so mismatch should only
