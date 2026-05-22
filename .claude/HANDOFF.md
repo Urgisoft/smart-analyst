@@ -98,6 +98,41 @@ Lifts F4 brief from v1 (no per-direction recency) to v2 (SPEC §8.2 compliance).
 
 `How to apply:` Any future recency helpers on similar semantics (days-since-something) follow the floor convention. The constant `MS_PER_DAY = 86_400_000` is inlined in the helper; no global constant pulled.
 
+### Architecture queued s95 #4 (Quartz docs site — not yet executed)
+
+**S95-20. Quartz vault scope is `docs/` root, NOT `docs/obsidian/`.**
+`Why:` Of 114 .md files in `docs/`, only 9 + gaps + symbol-analysis live under `docs/obsidian/`. The docs the operator named to frontmatter (ADRs, specs, gap docs, component docs) live across 5 parent folders. Restructuring would churn ~50 paths + break external links + break grep-based references in source/scripts. Expanding Quartz scope is the lowest-churn option.
+
+`How to apply:` When the slice executes, `quartz.config.ts` sets `vault: '../docs'`. No file moves; existing folder layout preserved. Future ADRs/specs continue to land in their current folders; the convention doc (commit 5 of the slice) explains the no-move posture.
+
+**S95-21. Dashboard generation is a build-time TS script, NOT a Quartz plugin / Dataview equivalent.**
+`Why:` Quartz v4 does NOT support Dataview queries (that's an Obsidian-runtime plugin). A build-time generator is deterministic, testable in isolation, no runtime dependency, and gives full control over chart shape. Generator runs as part of `npm run docs:build` BEFORE Quartz so the regenerated `dashboard.md` is part of the corpus Quartz indexes.
+
+`How to apply:` Generator at `scripts/generate_docs_dashboard.ts`; tests at `scripts/tests/generate_docs_dashboard.test.ts` against a frontmatter fixture set. Output `docs/dashboard.md` is committed (so the dashboard is browsable without rebuilding); it's regenerated, NEVER hand-edited. Hand-edits get overwritten on the next build.
+
+**S95-22. Frontmatter schema includes a `type` field (NOT just status/phase/last_updated/owner).**
+`Why:` Without `type`, the dashboard can't group correctly (ADRs vs specs vs gaps vs components vs analyses). The operator's spec implied the grouping ("ADRs, specs, gap docs, component docs") — the `type` field materializes that intent. One extra line per file, big simplicity win for the generator.
+
+`How to apply:` Frontmatter schema is:
+
+```yaml
+status: shipped | in-progress | inventory | blocked
+phase: <freeform string, ideally matching an enum>
+last_updated: YYYY-MM-DD
+owner: claude | operator | both
+type: adr | spec | gap | component | analysis | experiment
+# optional:
+slice_id: s95-4
+depends_on: [adr-042]
+```
+
+Bulk-stamp rollout: commit 2 of the slice assigns current-best-guess values from HANDOFF + manual edge-case review.
+
+**S95-23. Single source of truth confirmed: vault Markdown is the only state.**
+`Why:` Operator explicitly asked for confirmation. Architecture: frontmatter lives IN the .md files; Quartz reads them → HTML; Claude reads them → context; generator reads them → dashboard.md. The dashboard is regenerated, never hand-edited. If frontmatter goes stale, the generator and Quartz fail the same way (= correct failure mode for a single-source-of-truth design). NO duplicate state in any external db / spreadsheet / config.
+
+`How to apply:` Future ADRs/specs are born WITH frontmatter (convention doc enforces). Existing docs get stamped during commit 2 of the slice. Any future drift between dashboard claims and reality is a frontmatter bug — fix the frontmatter, regenerate.
+
 **Carry-over from s95 #3 (still in force):**
 
 - S95-11..S95-14 — EDGAR Form 4 body URL discovery contract, `ciks_all` parser field, XML selection precedence, positive-only cache.
@@ -152,21 +187,30 @@ The v2 per-row recency slice ships F4-side. EK's per-row `daysSinceLatestEvent` 
 
 ### Candidate slices (in rough order of "next obvious code-only work")
 
-1. **ADR-041 implementation** (`yield_curve_inverted` regime category) — operator-pickable, the canon work is done. Activation slice extends the regime classifier with the new category + adds the dashboard surfacing. ~5-6 files, ~150 LOC, ~10 tests.
+1. **Quartz docs site + status frontmatter + auto-generated dashboard** (operator-queued s95 #4, architecture confirmed) — pre-scoped, ready to execute. **5 commits, ~600 LOC, ~6 tests.** Operator says "do the Quartz slice" / "start docs visualization" to kick off. Pre-locked architecture (S95-20..S95-23 below):
+   - **Vault scope = `docs/` root** (not `docs/obsidian/`). Quartz indexes the whole tree as-is. NO file moves; no path breakage. Frontmatter rolls out to ~50 priority docs first (ADRs/specs/gaps/components); rest stamped as touched.
+   - **Dashboard = build-time TS script** (`scripts/generate_docs_dashboard.ts`). Scans frontmatter, writes `docs/dashboard.md` with grouped lists (Shipped / In-Progress / Inventory / Blocked) + Mermaid charts (status pie, phase gantt, dependency DAG from `depends_on`, recent-activity timeline, owner split). Regenerated on every `npm run docs:build`; never hand-edited.
+   - **Frontmatter schema:** `status` (shipped/in-progress/inventory/blocked), `phase`, `last_updated`, `owner` (claude/operator/both), `type` (adr/spec/gap/component/analysis/experiment), optional `slice_id`, `depends_on: []`.
+   - **Quartz config:** v4, source = `docs/`, output = `docs/.quartz-site/` (gitignored), dark theme + dense Bloomberg-style layout, plugins = ObsidianFlavoredMarkdown (includes Mermaid + callouts + wikilinks) + Latex + SyntaxHighlighting. npm scripts: `docs:build` (build) + `docs:serve` (build --serve for local preview).
+   - **Single source of truth confirmed:** vault Markdown files ARE the state; frontmatter is part of those files; Quartz reads them → HTML; Claude reads them → context; dashboard is regenerated from same frontmatter. Zero duplicate state to maintain — the dashboard generator and Quartz fail the same way if frontmatter goes stale (correct failure mode).
+   - **Commit plan:** (1) install Quartz + config + npm scripts + gitignore; (2) frontmatter rollout to ~50 priority docs (bulk-stamped from HANDOFF + manual edge-case review); (3) `generate_docs_dashboard.ts` + ~6 fixture tests; (4) Mermaid chart templates baked into generator; (5) convention doc + HANDOFF note for future ADRs/specs born with frontmatter.
+   - **NOT default on bare `continue`** — ADR-041 remains the default; operator picks Quartz explicitly when ready.
 
-2. **Gap #7 v2 per-EVENT EK recency** (§8.1 "12d ago + 18d ago" per-item format) — separate row shape: `eventsByItemCode: Array<{itemCode: string, daysSinceLatest: number}>` on the EK per-ticker row. Renderer extends `formatEightKItemList` to interleave the per-item recency. ~3 files, ~80 LOC, ~5-6 tests. NOT in s95 #4 scope; needs its own slice.
+2. **ADR-041 implementation** (`yield_curve_inverted` regime category) — **recommended default on bare `continue`**. The canon work is done. Activation slice extends the regime classifier with the new category + adds the dashboard surfacing. ~5-6 files, ~150 LOC, ~10 tests.
 
-3. **Gap #9 v2 ETF.com/issuer-CSV cross-validation** — adds a secondary data path that cross-validates the primary etf-flow ingest against an issuer-supplied CSV when available; logs divergences as anomalies. Operator-pickable.
+3. **Gap #7 v2 per-EVENT EK recency** (§8.1 "12d ago + 18d ago" per-item format) — separate row shape: `eventsByItemCode: Array<{itemCode: string, daysSinceLatest: number}>` on the EK per-ticker row. Renderer extends `formatEightKItemList` to interleave the per-item recency. ~3 files, ~80 LOC, ~5-6 tests. NOT in s95 #4 scope; needs its own slice.
 
-4. **Gap #7 v2 13D/13G arc** — needs its own SPEC first; deferred until operator says go.
+4. **Gap #9 v2 ETF.com/issuer-CSV cross-validation** — adds a secondary data path that cross-validates the primary etf-flow ingest against an issuer-supplied CSV when available; logs divergences as anomalies. Operator-pickable.
 
-5. **Gap #7 v2 event-driven cadence promotion** — Phase B-gated; cannot land until Phase B independence test has signal (~6-8 weeks of EDGAR ingest history).
+5. **Gap #7 v2 13D/13G arc** — needs its own SPEC first; deferred until operator says go.
 
-6. **Gap #7 v2 CMP opportunistic-vs-routine classifier** — calendar-gated ≥6mo from F4-A1 first apply-run; earliest ~2026-11-20.
+6. **Gap #7 v2 event-driven cadence promotion** — Phase B-gated; cannot land until Phase B independence test has signal (~6-8 weeks of EDGAR ingest history).
 
-7. **C-12 Phase B AlpacaAdapter** — operator-decision; paused indefinitely.
+7. **Gap #7 v2 CMP opportunistic-vs-routine classifier** — calendar-gated ≥6mo from F4-A1 first apply-run; earliest ~2026-11-20.
 
-8. **Phase B campaigns for the nine Layer-0 composites** — calendar OR backfill arc.
+8. **C-12 Phase B AlpacaAdapter** — operator-decision; paused indefinitely.
+
+9. **Phase B campaigns for the nine Layer-0 composites** — calendar OR backfill arc.
 
 ### Operator-gated action items (carried + still pending)
 
