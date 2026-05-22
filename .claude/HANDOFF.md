@@ -1,50 +1,28 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-05-22 (session 95 #2 — **gap #7 v2 sell-cluster F4 G3 (S95-2 persistence + render wiring) — F4 ARC CLOSED end-to-end**: DDL migration `migrate_add_sell_cluster_to_form_4_insider_snapshots.ts` adds 4 sell-side CH columns; `writeSnapshot` persists them; `loadLatestSnapshot` decodes them with malformed-JSON degrade; daemon `aggregateLogLine` extends with `sell_cluster_flag=` + `max_z_sell=` tokens; brief composer threads sell-side fields into `BriefForm4InsiderSection`; renderer section #15 §1.4 emits parallel "Sell-side cluster" panel (LIVE / no-flag-cleared / cold-start three-branch). 8 net new G2-SELL-G3-F4-{1..8} tests; full suite 2801 pass / 2 fail (pre-existing CH-unreachable) / 95 skipped; +8 net vs s95 #1. Single commit `d05eb39`. **37 commits ahead of `origin/main`; push still operator-gated.** **NEXT default on `continue`: operator pick — F4 arc fully closed; recommended slice if operator says only "continue": Gap #7 v2 per-row recency (S93-32 + S93-52 co-bootstrap of EK + F4 snapshot DDLs).**)
+Last updated: 2026-05-22 (session 95 #3 — **HOTFIX: form 4 ingest XML body URL discovery via EDGAR index.json**. First-apply-run surfaced two stacked bugs in `npm run edgar:form4:ingest --apply` (100% 404 on body fetch): (a) EDGAR Form 4 search hit JSON omits `primary_doc`/`file_name`, so `parse_edgar_search_response` fell through to the non-existent `primary.htm`; (b) `ciks: [insider, issuer]` ordering means a single fallback CIK is risky for agent-filed cases. Fix: `discover_form4_primary_xml_url` fetches `/Archives/.../index.json`, tries each `ciks_all[]` candidate until 200, selects the XML by precedence (form4-named → primary_* → any non-stylesheet .xml). Session-local cache. 3 files touched, +318 / -2 LOC, 8 new tests `T-F4I-DISCOVER-{1..8}`. Python suite 332 pass (324 baseline + 8 new). Live-fire validation against two of the operator's actual 404'd accessions resolves correctly (`primary_01.xml` + `form4-05212026_060556.xml`). Single commit `831b1b0`. **38 commits ahead of `origin/main`.** **NEXT default on `continue`: operator re-runs `npm run edgar:form4:ingest --apply` to actually populate `insider_trades` — then daemon + brief surface the buy/sell panels with real data. After that: operator pick from the candidate list (recommended if just "continue": Gap #7 v2 per-row recency).**)
 
 ## What this turn delivered
 
-Closure slice for the F4 v2 sell-cluster arc — the natural follow-up to
-s95 #1's composite-contract slice. Five files touched (one new), 8 net
-new tests, one operator-gated DDL migration ready to apply.
+A code hotfix that unblocks the **first-real-apply** of the Form 4 ingest. Earlier sessions (s93 #7-#11) shipped the F4 architecture end-to-end and the operator's `npm test` was green — but the unit tests inject `primary_doc: "wk-form4.xml"` into hit fixtures, masking the real EDGAR behavior where Form 4 hits omit that field entirely. The handoff has long carried a "First-apply-run EDGAR Item-filter OR-clause behavior (S93-15 best-guess; verification deferred to first ingest run)" risk — this turn surfaced + closed exactly that risk for the XML body fetch path.
 
-1. **`scripts/migrate_add_sell_cluster_to_form_4_insider_snapshots.ts`** (NEW, ~290 LOC):
-   - Byte-equivalent control flow to `migrate_add_max_aggregate_z_to_form_4_insider_snapshots.ts` (s94 #8) — only the column list differs.
-   - 4 new CH columns:
-     - `form_4_sell_cluster_flag UInt8 DEFAULT 0`
-     - `flagged_sell_sectors_json String DEFAULT ''`
-     - `max_aggregate_z_sell Nullable(Float64)`
-     - `max_aggregate_z_sell_sector LowCardinality(Nullable(String))`
-   - Pre-migration rows resolve to cold-start defaults via DDL DEFAULTs + the `Nullable` semantic.
-   - npm scripts: `migrate:add-sell-cluster-form-4-insider-snapshots` (dry-run) + `…:apply` (operator-gated).
+1. **`scripts/_sec_edgar_helpers.py`** (+8 LOC):
+   - `parse_edgar_search_response` now emits a new `ciks_all: list[str]` field on each filing dict — the full deduped CIK list, zero-padded to 10 digits, in source order. Existing `cik` field unchanged (still `cik10(ciks[0])`). 8-K consumers are unaffected (the new field is additive, not consumed by them).
 
-2. **`src/server/form_4_insider_repository.ts`** (~+60 / -20 LOC):
-   - `RawSnapshotRow` interface gains 4 sell-side fields.
-   - `writeSnapshot` persists all 4 (mirrors the buy-side JSON insert byte-for-byte except for the field names).
-   - `loadLatestSnapshot` SELECT extended; sell-side fields decoded with the same posture as the buy-side (malformed `flagged_sell_sectors_json` degrades to `[]` via try/catch; Nullable columns map to `null`).
-   - `runDaemonForm4InsiderEvaluation`'s `aggregateLogLine` extends with `sell_cluster_flag=<bool>` + `max_z_sell=<sector>:<z>` tokens at the tail (suffix-extension; existing buy-side tokens unchanged so the generic prefix regex still matches).
-   - Bottom "What could break this" watch-out updated to reflect full persistence + render coverage; EK/XD remain buy-side-only by design (no canon for symmetric sell tracking on those composites).
+2. **`scripts/sec_edgar_form4_ingest.py`** (+134 / -2 LOC):
+   - `_select_form4_xml_from_directory(items)` — pure helper that picks the data XML from an EDGAR index.json `directory.item[]` listing. Precedence: (1) name contains `form4` (case-insensitive); (2) name starts with `primary_`; (3) any `.xml` that isn't a stylesheet (heuristic: name has no `xsl` / `x05` / `x06`). Multiple matches at same tier → first in directory order.
+   - `discover_form4_primary_xml_url(accession_nodash, candidate_ciks, user_agent, cache, fetch=fetch_edgar)` — tries each CIK against `/Archives/edgar/data/{cik}/{accession}/index.json`; first 200 with a selectable XML wins. Returns absolute URL or None. Cached by accession; cache is positive-only (failures retry).
+   - `_xml_for(filing)` in `main()` — detects the parser's `primary.htm` fallback by suffix match. If hit, invokes discovery with `filing["ciks_all"]` as candidates and falls through to the legacy WARN path if discovery exhausts all CIKs. If the parser supplied an explicit `primary_doc` URL (test path), the discovery round-trip is skipped — test fidelity preserved.
 
-3. **`src/server/operator_brief.ts`** (~+10 LOC):
-   - `buildForm4InsiderSection` threads the 4 sell-side fields from the composite snapshot into `BriefForm4InsiderSection`. `flaggedSellSectors` maps element-by-element like `flaggedSectors`.
-
-4. **`src/server/operator_brief_render.ts`** (~+70 LOC):
-   - `BriefForm4InsiderSection` interface gains 4 REQUIRED sell-side fields (mirroring S95-2 buy-side posture from s95 #1).
-   - `renderForm4InsiderSection` emits a parallel "Sell-side cluster" panel under the existing buy-side panel with the same three-branch §1.4 structure (LIVE table / no-flag-cleared / cold-start).
-   - The sell-side no-flag-cleared branch carries a Lakonishok-Lee 2001 §4 interpretive footer (~30-50% diluted vs buys) so the operator can weight the asymmetric signal appropriately.
-
-5. **Tests (~+390 / -5 LOC across three test files; +8 net new tests)**:
-   - **G2-SELL-G3-F4-1** (`form4InsiderRepository.test.ts`) — `writeSnapshot` stamps all 4 sell-side columns from the snapshot (including JSON encoding for `flagged_sell_sectors_json` + cold-start pass-through).
-   - **G2-SELL-G3-F4-2** — `loadLatestSnapshot` recovers all 4 sell-side columns; pre-migration / cold-start row (empty-string DEFAULT on JSON column + Nullable NULL) resolves to cold-start defaults.
-   - **G2-SELL-G3-F4-3** — malformed `flagged_sell_sectors_json` degrades to `[]`.
-   - **G2-SELL-G3-F4-4** — daemon `aggregateLogLine` appends `sell_cluster_flag=` + `max_z_sell=` tokens; cold-start values are `false` + `n/a:n/a`.
-   - **G2-SELL-G3-F4-5** (`operatorBrief.test.ts`) — composer threads all 4 sell-side fields into the brief section; buy + sell are independent (cold-start buy-side coexists with live sell-side flag).
-   - **G2-SELL-G3-F4-6** (`operatorBriefRender.test.ts`) — LIVE sell-side branch renders the panel header + table; buy-side coexists with its own no-flag-cleared line.
-   - **G2-SELL-G3-F4-7** — no-flag-cleared sell-side renders the panel + k/11 + max-|z| + the L&L 2001 §4 dilution footer.
-   - **G2-SELL-G3-F4-8** — cold-start renders the "awaits SP500 constituents" text on BOTH panels.
-   - Existing G2-DAEMON-F4-1 regex pin updated for the new tail shape.
-   - Existing G2-RENDER-F4-1 `doesNotMatch` narrowed to the buy-side panel header (the sell-side now legitimately emits "No sectors flagged today" in that fixture).
-   - 17 existing `BriefForm4InsiderSection` test literals updated with the 4 new REQUIRED sell-side fields (replace_all on the stable `compositeVersion:` anchor).
+3. **`scripts/tests/test_sec_edgar_form4_ingest.py`** (+178 LOC; 8 new tests):
+   - **T-F4I-DISCOVER-1** — directory with only `primary_01.xml` resolves.
+   - **T-F4I-DISCOVER-2** — `wf-form4_*.xml` outranks `primary_*.xml` by precedence.
+   - **T-F4I-DISCOVER-3** — non-conventional `ownership_doc.xml` resolves via fall-through tier.
+   - **T-F4I-DISCOVER-4** — first CIK 404s; second succeeds (models Computershare-style agent case).
+   - **T-F4I-DISCOVER-5** — all candidates 404 → returns None for the WARN path.
+   - **T-F4I-DISCOVER-6** — cache reuse: second call for same accession hits cache, zero extra fetches.
+   - **T-F4I-DISCOVER-7** — stylesheet `xslF345X06.xml` excluded; `primary_01.xml` wins.
+   - **T-F4I-DISCOVER-8** — `parse_edgar_search_response` emits `ciks_all` (10-padded, deduped, source order).
 
 ## Where we are
 
@@ -62,7 +40,8 @@ new tests, one operator-gated DDL migration ready to apply.
 | ADR-042 ACCEPTED + companion SPEC | ✓ s94 #6 |
 | ADR-042 Steps 1-5 + OQ-G3-1 sub-slice | ✓ s94 #6-#11 (GAP #7+#8 v2 G2 ARC) |
 | Gap #7 v2 sell-cluster F4 composite contract | ✓ s95 #1 (`b398b4e`) |
-| **Gap #7 v2 sell-cluster F4 G3 — DDL + persistence + daemon log + brief render** | **✓ s95 #2 (`d05eb39`) — F4 ARC FULLY CLOSED** |
+| Gap #7 v2 sell-cluster F4 G3 (DDL + persistence + log + render) | ✓ s95 #2 (`d05eb39`) — F4 ARC FULLY CLOSED |
+| **Form 4 ingest XML body URL discovery (hotfix)** | **✓ s95 #3 (`831b1b0`) — UNBLOCKS first apply** |
 | ADR-041 implementation (`yield_curve_inverted` category) | ☐ DEFERRED — operator-pickable |
 | Gap #7 v2 per-row recency (S93-32 + S93-52 co-bootstrap) | ☐ deferred (operator-pickable; recommended next default) |
 | Gap #7 v2 CMP opportunistic-vs-routine classifier (per F4-1) | ☐ deferred (calendar-gated ≥6mo from F4-A1 first apply) |
@@ -73,67 +52,55 @@ new tests, one operator-gated DDL migration ready to apply.
 | Phase B campaigns for nine Layer-0 composites | ⏸ deferred — calendar OR backfill arc |
 | #5 capital-deployment-ramp ADR | ☐ operator self-assigned ~1 week; not blocking |
 | Drawdown framework §12 90d empirical retune | ☐ scheduled — earliest 2026-08-29 |
-| Push 37 commits to origin/main | ☐ operator-gated, HOLD |
+| Push 38 commits to origin/main | ☐ operator-gated, HOLD |
 
 ## Decisions locked in
 
-### Session 95 part 2 (this turn, one commit)
+### Session 95 part 3 (this turn, one commit `831b1b0`)
 
-**S95-6. Sell-side persistence ALTER uses a SEPARATE migration script (not bolted onto the s94 #8 max-z migration).**
-`Why:` The s94 #8 `migrate_add_max_aggregate_z_to_form_4_insider_snapshots.ts` was operator-applied (or is about to be); rolling new columns into it now would require re-running the OQ-G3-1 strategy (β) decision tree. A separate script keeps the audit trail clean — each migration is one coherent slice. Same posture as the s94 #8 / OQ-G3-1 design that split per-composite migrations.
+**S95-11. EDGAR Form 4 body URL is discovered, not constructed.** The full-text-search Form 4 hit JSON omits `primary_doc`/`file_name`; storage paths vary (`primary_01.xml` modern / `wf-form4_<digits>.xml` older / `form4-<timestamp>_<seq>.xml` agent-filed). The robust resolver fetches `/Archives/edgar/data/{cik}/{accession_nodash}/index.json`, picks the data XML by name precedence, and tries each candidate CIK until one returns 200.
+`Why:` The parser was constructing URLs against a missing field, falling through to `primary.htm` which doesn't exist for Form 4 — producing 100% 404 on first-apply. Tests masked this by injecting `primary_doc` into hit fixtures. Discovery via `index.json` is canonical EDGAR practice and adds ~1 round-trip per filing (free at 10 req/sec ceiling) on uncached entries.
 
-`How to apply:` Future composite-extension column adds (sell-side, sub-sector, etc.) get their own ALTER script keyed to the slice that introduced the composite-layer field. Idempotent ALTER pattern via system.columns pre-check skip.
+`How to apply:` Discovery is INVOKED only when the parser's `primary.htm` fallback fires (suffix match on filing_url). Test fixtures with explicit `primary_doc` skip the round-trip — backwards-compatible. If a future Form 3/5 ingest emerges, it should use the same discovery shape (same EDGAR storage convention).
 
-**S95-7. The daemon log line extends as a SUFFIX (sell-side tokens after buy-side `cluster_flag=`), NOT as an interleaved restructure.**
-`Why:` The shared generic regex pin `(xd|ek|f4)-aggregate\] sectors_with_z=…/11 floor_cleared=…/11 max_z=…:… cluster_flag=(true|false)` has no end-anchor and matches as a prefix. Appending sell-side tokens at the tail keeps that pin valid across all three composites without requiring per-composite regex variants. The F4-specific anchored test (G2-DAEMON-F4-1) was updated to anchor on the new tail shape.
+**S95-12. `parse_edgar_search_response` emits a NEW `ciks_all: list[str]` field.**
+`Why:` Form 4 search hits return `ciks: [insider, issuer]`. The legacy `cik` field is `ciks[0]` (insider), but EDGAR sometimes stores the filing under a different CIK (agent-filed cases where Computershare et al. submit on behalf of an insider). The discovery resolver needs the full list to try each candidate.
 
-`How to apply:` Future composite log-line extensions follow the same suffix-extension posture. If EK or XD ever grow symmetric sell-side tracking (needs a canon argument), they extend the SAME way — appended after the existing tail tokens.
+`How to apply:` 8-K consumers ignore the new field (additive, non-breaking). Future EDGAR ingest scripts that need multi-CIK fallback use `filing["ciks_all"]` directly; single-CIK consumers continue using `filing["cik"]`.
 
-**S95-8. EK + XD aggregate log lines stay buy-side-only; symmetric sell tracking is F4-specific in v1.**
-`Why:` F4's symmetric track has a canon citation (Lakonishok-Lee 2001 §4 — insider sells are diluted but informationally non-zero). EK material events and XD executive departures have NO equivalent canon argument for treating "absence of event" as a symmetric signal — they are inherently one-directional (an event either happens or doesn't). Extending the symmetric posture to EK/XD without a canon defense would manufacture signal that the data doesn't carry.
+**S95-13. XML selection precedence: form4-named → primary_* → any non-stylesheet .xml.**
+`Why:` Modern EDGAR Form 4 filings name the data file `primary_01.xml`; older ones use `wf-form4_<digits>.xml` or `<ticker>-form4.xml`; agent-filed ones use `form4-<timestamp>_<seq>.xml`. The form4-substring tier covers older + agent-filed; the `primary_` tier covers modern; the catch-all handles non-conventional naming. Stylesheet XMLs (`xslF345X06.xml`) are excluded via name heuristics.
 
-`How to apply:` A future v2 ADR can resurface symmetric tracking for EK/XD IF a canon citation supports it. Until then, the asymmetry is intentional + documented in the F4 "What could break this" tail.
+`How to apply:` If a future Form 4 filing legitimately ships multiple `*form4*.xml` files (multi-part rare case), the FIRST in directory order wins. Document the assumption; revisit only if a real case surfaces. Single XML files always resolve cleanly via the catch-all tier even if naming is unconventional.
 
-**S95-9. Sell-side L&L 2001 §4 dilution footer rendered ONLY on the sell-side no-flag-cleared branch (NOT the LIVE branch).**
-`Why:` The LIVE branch's table is self-explanatory (the sector + z values speak for themselves; the operator reads off the magnitude); the no-flag-cleared branch is where the "interpret weak signal correctly" reminder is most needed (operator is more likely to under-weight a "no signal today" line if they don't internalize that the sell signal is diluted to begin with). The cold-start branch's "awaits coverage" wording is also clear without the L&L footer.
+**S95-14. Discovery cache is positive-only (negative results NOT cached).**
+`Why:` A 404 on first attempt could be transient (EDGAR archive replication lag, transient CDN miss). Caching negative results would lock in transient failures across a multi-day ingest run. Positive results are stable (once an XML is found at a given URL, that URL doesn't move).
 
-`How to apply:` Future composites with directional asymmetry citations follow the same posture — interpretive footers attach to the branch where the operator is most likely to mis-weight the signal, not as a generic header.
+`How to apply:` On all-CIK exhaustion, the resolver returns None and emits the WARN; the next ingest run retries from scratch. Cache lifetime is per-process (no on-disk persistence — the ingest typically completes in one process invocation).
 
-**S95-10. `inputsAvailableAggregate` IS overloaded across buy + sell directions (Option C extension from S94-32).**
-`Why:` Sector membership in the SP500 PIT panel is direction-agnostic — a sector either has constituents today or it doesn't. The same cleared-floor count therefore applies to both directions. The separate baselines (`baseline2y` vs `baseline2ySell`) only affect whether each sector PRODUCES a z; the floor-cleared count derives from sector presence, not baseline length. Using a separate `inputsAvailableAggregateSell` would force the renderer to track two counts that are always equal by construction.
+**Carry-over from s95 #2 (still in force):**
 
-`How to apply:` Future asymmetric-direction composites with separate baselines but shared universe use a SINGLE `inputsAvailableAggregate` (and the same daemon-log `sectors_with_z` + `floor_cleared` tokens). If a future composite has direction-SPECIFIC universe (e.g., only "growth" stocks for one direction), THAT composite needs separate counts.
+- S95-6..S95-10 — sell-side persistence + render conventions, log-line suffix-extension, EK/XD buy-side-only, footer placement.
 
 **Carry-over from s95 #1 (still in force):**
 
-- S95-1 — v2 sell-cluster aggregation at z=2.0 (symmetric, inherited from buy-side; zero new tuned parameters).
-- S95-2 — Sell-side snapshot fields are REQUIRED (not optional) on `Form4InsiderSnapshot` (now also on `BriefForm4InsiderSection`).
-- S95-3 — Separate baseline panels (`baseline2y` for buys, `baseline2ySell` for sells); NOT a shared baseline.
-- S95-4 — `computeSectorClusterRate` parameterized with `direction = BUY_CODE` default, NOT split into two functions.
+- S95-1..S95-5 — sell-cluster composite parameters + interface posture.
 
 **Carry-over from s94 #11 (still in force):**
 
-- S94-32 — `sectors_with_z` AND `floor_cleared` both report `inputsAvailableAggregate` (Option C) in daemon log line. EXTENDED at S95-10.
-- S94-33 — Sector names underscore-tokenized in daemon log line via `.replace(/\s+/g, '_')` — applies to both `max_z=` and `max_z_sell=` tokens.
-
-**Carry-over from s94 #10 (still in force):**
-
-- S94-29 — `maxAggregateZ`/`maxAggregateZSector` REQUIRED across Brief*Section interfaces. Sell-side counterparts (`maxAggregateZSell`/`maxAggregateZSellSector`) follow the same posture.
-- S94-30 — T-OBR-*-4 (cold-start tests) REWRITTEN in-place per G2-RENDER-*-3.
-- S94-31 — F4 panel header preserves "cluster-buy rate by GICS sector" framing (now joined by parallel "cluster-sell rate by GICS sector" panel).
+- S94-29..S94-33 — sector cluster rate, daemon log line tokens, render branch order.
 
 ### Sessions 84-94 prior decisions (carried)
 
-All prior decisions preserved unchanged. S93-1..S93-54 + S94-1..S94-33 + S95-1..S95-5 carry through.
+All prior decisions preserved unchanged. S93-1..S93-54 + S94-1..S94-33 + S95-1..S95-10 carry through.
 
 ## Open questions
 
-### Newly opened (s95 #2) — none
+### Newly opened (s95 #3) — none
 
-The F4 sell-cluster arc is now fully closed end-to-end. No canon-thin
-forks remaining within the slice scope.
+The discovery fix is self-contained; no canon-thin forks remain within the slice scope.
 
-### Carried unchanged from s94 #11
+### Carried unchanged from s95 #2
 
 - **OQ-G2-2 (LOW — deferred)** — EDGAR-amendment forensic tooling default. Per ADR-042 §5 silent re-write is the v1 default.
 
@@ -150,21 +117,22 @@ forks remaining within the slice scope.
 - ADR-041 implementation slot in slice queue — operator-pickable.
 - Push commits to origin/main — operator-gated.
 - Gap #9 v2 cross-validation enhancement — operator-pickable.
-- First-apply-run EDGAR Item-filter OR-clause behavior (S93-15 best-guess; verification deferred to first ingest run).
+- First-apply-run EDGAR Item-filter OR-clause behavior (S93-15 best-guess; verification deferred to first ingest run) — **note: the XML-body half of this risk closed s95 #3; the Item-filter half remains open.**
 - Cold-start cascade timing for EK + F4 + XD arcs (~6-8 weeks of EDGAR ingest history before Phase B validation has signal).
 
 ## Next stage
 
-### Default on `continue` — operator pick (F4 arc is closed)
+### Default on `continue` — operator re-runs the Form 4 ingest
 
-The F4 v2 sell-cluster arc is now fully shipped end-to-end (composite +
-persistence + daemon-log + render). No code-only follow-up is naturally
-next on the F4 track. Operator chooses the next slice from the candidate
-list below. If the operator simply says "continue" without context, the
-recommended default is **Gap #7 v2 per-row recency (S93-32 + S93-52
-co-bootstrap of EK + F4 snapshot DDLs)** — that's the next code-only
-slice that builds incrementally on the gap #7 + #8 v2 arc without
-opening new methodology questions.
+The hotfix unblocks the first real `--apply` run. Recommended sequence the operator picked up mid-runbook last turn:
+
+```text
+npm run edgar:form4:ingest               # NOW WORKS — was 100% 404 before s95 #3
+npm run daemon:daily                     # F4 aggregate panel populates from real data
+npm run brief:morning                    # section #15 surfaces real buy/sell panels (was cold-start)
+```
+
+After that, the operator picks the next code slice. If they just say "continue" with no context, the recommended next is **Gap #7 v2 per-row recency** (S93-32 + S93-52 co-bootstrap of EK + F4 snapshot DDLs) — the next code-only slice that builds incrementally on the v2 arc without opening new methodology questions.
 
 ### Candidate slices (in rough order of "next obvious code-only work")
 
@@ -184,26 +152,31 @@ opening new methodology questions.
 
 8. **Phase B campaigns for the nine Layer-0 composites** — calendar OR backfill arc.
 
-### Operator-gated action items (carried)
+### Operator-gated action items (carried + new)
 
-- Apply DDL migration `migrate:add-sell-cluster-form-4-insider-snapshots:apply` to surface s95 #2 persistence end-to-end on the real CH instance.
-- Push 37 commits to origin/main (HOLD).
+- **NEW:** Re-run `npm run edgar:form4:ingest --apply` (was blocked pre-s95 #3; now works).
+- Apply DDL migration `migrate:add-sell-cluster-form-4-insider-snapshots:apply` to surface s95 #2 persistence end-to-end on the real CH instance (still pending from s95 #2).
+- Push 38 commits to origin/main (HOLD).
 - Drawdown framework §12 90d empirical retune — earliest 2026-08-29.
 
 ## Files / code state
 
-### EDITED this turn (s95 #2 — commit `d05eb39`)
+### EDITED this turn (s95 #3 — commit `831b1b0`)
 
 | Path | LOC delta | Notes |
 | --- | --- | --- |
-| `scripts/migrate_add_sell_cluster_to_form_4_insider_snapshots.ts` | NEW (+290) | DDL migration; 4 new CH columns; operator-gated `:apply`. |
-| `package.json` | +2 | Two new npm scripts (`migrate:add-sell-cluster-form-4-insider-snapshots[:apply]`). |
-| `src/server/form_4_insider_repository.ts` | +60 / -20 | RawSnapshotRow extended; writeSnapshot persists 4 fields; loadLatestSnapshot decodes 4 fields; aggregateLogLine extended with sell-side tokens. |
-| `src/server/operator_brief.ts` | +10 | Composer threads 4 sell-side fields through buildForm4InsiderSection. |
-| `src/server/operator_brief_render.ts` | +70 / -2 | BriefForm4InsiderSection extended; parallel "Sell-side cluster" 3-branch panel in renderForm4InsiderSection. |
-| `scripts/tests/form4InsiderRepository.test.ts` | +163 / -5 | G2-SELL-G3-F4-{1..4}; G2-DAEMON-F4-1 regex pin updated. |
-| `scripts/tests/operatorBrief.test.ts` | +42 | G2-SELL-G3-F4-5 (composer pass-through). |
-| `scripts/tests/operatorBriefRender.test.ts` | +178 / -1 | G2-SELL-G3-F4-{6..8}; 17 BriefForm4InsiderSection literals updated with 4 new fields; G2-RENDER-F4-1 doesNotMatch narrowed. |
+| `scripts/_sec_edgar_helpers.py` | +8 | `parse_edgar_search_response` adds `ciks_all: list[str]` (zero-padded, deduped, source order). Existing `cik` unchanged. |
+| `scripts/sec_edgar_form4_ingest.py` | +134 / -2 | `_select_form4_xml_from_directory` + `discover_form4_primary_xml_url` + `_xml_for` rewrite to invoke discovery on parser-fallback path. Session-local `xml_url_cache`. |
+| `scripts/tests/test_sec_edgar_form4_ingest.py` | +178 | 8 new `T-F4I-DISCOVER-{1..8}` tests covering precedence + CIK iteration + cache + stylesheet exclusion + ciks_all parser field. |
+
+### Carried unchanged from s95 #2 (per-file)
+
+| Path | Status | Notes |
+| --- | --- | --- |
+| `scripts/migrate_add_sell_cluster_to_form_4_insider_snapshots.ts` | s95 #2 SHIPPED | Operator-gated ALTER ready to apply (4 sell-side columns). |
+| `src/server/form_4_insider_repository.ts` | s95 #2 LIVE | Persists + decodes sell-side fields; daemon log line carries sell-side tokens. |
+| `src/server/operator_brief.ts` | s95 #2 LIVE | Composer pass-through for buy + sell maxAggregateZ + 4 sell-side fields. |
+| `src/server/operator_brief_render.ts` | s95 #2 LIVE | §1.4 parallel buy/sell three-branch panels on F4. |
 
 ### Carried from s94 #6-#11 + s95 #1 (unchanged)
 
@@ -214,98 +187,99 @@ opening new methodology questions.
 | Three composite `xxx.ts` source files (XD/EK/F4) | s95 #1 close | maxAggregateZ + sector live; F4 has sell-side composite contract. |
 | Three `xxx_repository.ts` source files | s95 #1+#2 close | populateSectorsForCycle wired across all; F4 computes baseline2ySell + persists + logs sell-side. |
 | Three migrate_add_max_aggregate_z*.ts scripts | s94 #8 SHIPPED | Operator-gated ALTERs ready to apply. |
-| **F4 migrate_add_sell_cluster_*.ts** | **s95 #2 SHIPPED** | Operator-gated ALTER ready to apply (4 new sell-side columns). |
-| `src/server/operator_brief_render.ts` | s95 #2 SHIPPED | §1.4 three-branch on XD/EK (buy-side); F4 buy-side AND sell-side parallel panels. |
-| `src/server/operator_brief.ts` | s95 #2 SHIPPED | Composer pass-through for maxAggregateZ + 4 sell-side fields on F4. |
 
 ### CH state
 
-- Nine Layer-0 composite snapshot tables + three event tables remain in
-  the state from s93 / s94 / s95 #1 close. **NEW from s95 #2 (pending
-  operator-apply):** F4 snapshot table needs the FOURTH operator-gated
-  ALTER (`migrate:add-sell-cluster-form-4-insider-snapshots:apply`) to
-  surface sell-side persistence end-to-end. Pre-application: in-process
-  consumers see real sell-side values via in-memory snapshot;
-  cross-cycle stale-read consumers see cold-start sell-side defaults.
-- Carry from s94 #8: three Layer-0 snapshot tables each have a pending
-  ALTER migration for `maxAggregateZ` persistence
-  (`migrate:add-max-z-<composite>-snapshots:apply`).
+- Nine Layer-0 composite snapshot tables + three event tables remain in the state from s93 / s94 / s95 #1+#2 close.
+- **Operator-pending ALTERs:**
+  - `migrate:add-max-z-{executive-departure,eight-k-classifier,form-4-insider}-snapshots:apply` (×3, carry from s94 #8) — adds `maxAggregateZ` + `maxAggregateZSector` columns on each Layer-0 snapshot table.
+  - `migrate:add-sell-cluster-form-4-insider-snapshots:apply` (carry from s95 #2) — adds 4 sell-side columns on F4 snapshot table.
+- **No new CH state from s95 #3.** This was a pure Python ingest hotfix.
 
 ### Tests (validated this turn)
 
 ```text
-npx tsx --test scripts/tests/form4InsiderRepository.test.ts \
-              scripts/tests/form4Insider.test.ts             # 141 pass / 0 fail / 6 CH-unreachable skips
-npx tsx --test scripts/tests/operatorBrief.test.ts \
-              scripts/tests/operatorBriefRender.test.ts      # 205 pass / 2 fail (pre-existing CH-unreachable) / 0 skipped
+.venv/Scripts/python.exe -m pytest scripts/tests/test_sec_edgar_form4_ingest.py -q
+                                                              # 47 pass (39 original + 8 new T-F4I-DISCOVER-{1..8})
 
-npm test                                                      # 2898 / 2801 pass / 2 fail / 95 skipped
-                                                              # +8 net new tests vs s95 #1 (G2-SELL-G3-F4-1..8)
-                                                              # 2 fails pre-existing CH-unreachable (operatorBrief.test.ts BIAS_NOTE_PHASE1_V3)
+.venv/Scripts/python.exe -m pytest scripts/tests/test_sec_edgar_8k_item_5_02_ingest.py \
+                                  scripts/tests/test_sec_edgar_8k_event_ingest.py -q
+                                                              # 53 pass — confirms ciks_all parser field is non-breaking
 
-npx tsc --noEmit                                              # 13 baseline errors UNCHANGED
-
-npm run check:help                                            # green
+.venv/Scripts/python.exe -m pytest scripts/tests -q           # 332 pass / 24 warnings (sklearn FutureWarning, pre-existing)
+                                                              # +8 net vs baseline 324 = exactly the T-F4I-DISCOVER-{1..8} tests
 ```
 
-Full `pytest` baseline NOT re-run this turn (no Python touched).
+Live-fire smoke against two of the operator's actual 404'd accessions:
+
+```text
+0001324948-26-000015 → https://www.sec.gov/.../1310979/000132494826000015/primary_01.xml
+0001811085-26-000006 → https://www.sec.gov/.../1811085/000181108526000006/form4-05212026_060556.xml
+```
+
+Both resolve successfully. The first illustrates the modern `primary_01.xml` naming; the second illustrates the agent/timestamp-style `form4-<date>_<seq>.xml` naming.
+
+`npm test` NOT re-run this turn (no TS touched). Last full-run baseline at s95 #2 close was 2898 / 2801 pass / 2 fail (pre-existing CH-unreachable) / 95 skipped.
 
 ## Watch-outs
 
-### NEW from this turn (s95 #2)
+### NEW from this turn (s95 #3)
 
-- **`Form4InsiderSnapshot` writeSnapshot drops sell-side columns on PRE-MIGRATION tables.** CH ignores unknown column names under JSONEachRow inserts. Until the operator applies `migrate:add-sell-cluster-form-4-insider-snapshots:apply`, the 4 new fields silently fail to persist (in-memory snapshot is correct; cross-cycle stale-read reconstructs at cold-start defaults). After apply, persistence is end-to-end. There is no daemon outage at any point — the DDL ALTER is non-blocking.
+- **`discover_form4_primary_xml_url` adds ~1 HTTP round-trip per filing on the first apply run.** At EDGAR's 10 req/sec ceiling, a 100-filing ingest takes ~10 extra seconds on top of the existing 100 body fetches (~20 seconds total). For a 90-day window (~10k-20k Form 4s), that's ~30-60 extra minutes. The cache amortizes within a single process, but each ingest invocation starts cold. If this becomes a perf issue, an on-disk cache keyed by accession would amortize across runs — but it's not needed for daily ingest cadences.
 
-- **`BriefForm4InsiderSection` has 4 NEW REQUIRED fields** (`flaggedSellSectors`, `form4SellClusterFlag`, `maxAggregateZSell`, `maxAggregateZSellSector`). Any future test fixture or callsite constructing a `BriefForm4InsiderSection` literal MUST include them. The 17 existing fixtures in `operatorBriefRender.test.ts` were updated via the stable `compositeVersion:` anchor; future authors of new fixtures should default to cold-start (`[]` / `false` / `null` / `null`) UNLESS exercising the sell-side branch explicitly.
+- **The discovery resolver consumes `filing["ciks_all"]`, which only exists after the s95 #3 parser change.** If a future ingest script reads cached JSON from an older session and expects the post-s95-#3 dict shape, it MAY get a KeyError on `ciks_all`. `_xml_for` defends with `.get("ciks_all") or [filing.get("cik", "")]` — single-CIK fallback. If you write a new EDGAR ingest, prefer `filing["ciks_all"]` over `filing["cik"]` when multi-CIK fallback matters.
 
-- **The daemon `[f4-aggregate]` log line has 2 NEW TAIL TOKENS** (`sell_cluster_flag=…` + `max_z_sell=…:…`). The shared generic regex pin `(xd|ek|f4)-aggregate\] … cluster_flag=(true|false)` is prefix-matched (no end-anchor) so it still matches across all three composites. The F4-specific anchored test (G2-DAEMON-F4-1) was updated to anchor on `max_z_sell=…$`. EK + XD log lines are UNCHANGED (still 4-token shape; the symmetric sell track is F4-specific per S95-8).
+- **The XML selection heuristics MAY misclassify if EDGAR ever ships a non-stylesheet XML whose name contains `xsl` / `x05` / `x06`.** That's a low-probability case (Form 4 XML data files don't currently carry those substrings) but worth knowing. If a future EDGAR rename triggers misclassification, the test list pin (`T-F4I-DISCOVER-7`) needs an additional case + the heuristics refined.
 
-- **Buy + sell aggregate panels are INDEPENDENT branches in the renderer.** Both can render simultaneously: e.g., LIVE buy-side table + no-flag-cleared sell-side line in the same brief. The buy-side panel header preserves "cluster-buy rate by GICS sector" (S94-31); the sell-side parallel uses "cluster-sell rate by GICS sector". A `.match(md, /No sectors flagged today/)` against a fixture with `inputsAvailableAggregate > 0` will match on the sell-side branch even if the buy-side is LIVE — narrow the regex to the panel header when this matters (see G2-RENDER-F4-1).
+- **Discovery cache is positive-only (S95-14).** Transient 404s on first attempt retry on every re-run of the script. Multi-day persistent failures would surface as repeated WARN lines per accession in the daemon log — operator should watch for this pattern as a sign of EDGAR archive trouble (vs a missing single filing).
 
-- **The L&L 2001 §4 dilution footer attaches to the sell-side no-flag-cleared branch ONLY** (not LIVE, not cold-start). Future composites adapting this pattern should put interpretive footers where the operator is most likely to mis-weight a weak signal, not as a generic panel header.
+- **The legacy `_xml_for` fallback path (filing_url NOT ending in `/primary.htm`) is now reserved for tests + future EDGAR-API-change-recovery.** If EDGAR fixes the search-hit JSON to include `primary_doc` for Form 4, the discovery round-trip disappears automatically (the parser fallback never fires) — no code change needed.
 
-- **`inputsAvailableAggregate` is overloaded across BOTH directions (S95-10).** Sector membership in the SP500 PIT panel is direction-agnostic; the same cleared-floor count applies to both directions. The separate baseline panels only affect whether each sector PRODUCES a z; they don't gate floor-clearance.
-
-- **`computeSectorClusterRate` is called TWICE per sector per cycle** (once with BUY_CODE, once with SELL_CODE). Same trade panel; the only added work is the second per-ticker distinct-insider count + the second z-computation. Performance regression risk: ~2x the sector-loop cost. The baseline-panel computation also runs both directions (per-day in the trailing 2y); this is the dominant cost in the populateSectorsForCycle workflow.
-
-- **Symmetric z-test fires on negative-z sell-side anomalies too** (S95-1 carry). A sector with ZERO sell-clusters today against a non-zero baseline produces a |z| that LEGITIMATELY fires `form4SellClusterFlag = true` as "abnormally LOW insider selling". The brief renderer treats this as a flag-equivalent event at the composite layer; the LIVE branch table shows the sign via the `+/-` prefix on `σ`. Downstream weighting must read the sign to distinguish "high selling" from "low selling."
-
-### Carried (s89-s95 #1 + earlier)
+### Carried from s95 #2 + earlier
 
 All prior watch-outs preserved unchanged. Key carry-overs:
 
-- **The composite source files have `\0` literals in template strings.**
-  `src/server/executive_departure.ts` (line 105), `eight_k_classifier.ts`
-  (line 133), `form_4_insider.ts` (line 163).
-
-- **The §1.4 three-branch order is load-bearing: LIVE → no-flag-cleared
-  → cold-start.** This applies symmetrically to BOTH directions now.
-
-- **`dayAsOf` uses end-of-day semantic (`day + 'T23:59:59.999Z'`).**
-
-- **Tie-break asymmetry on equal-|z| with opposite signs (carried).**
-
-- `gics_sector_repository_helper.ts` is the byte-template owner for
-  per-ticker + per-day-panel + per-ticker-timeline sector lookups.
-
-- `MIN_Z_BASELINE = 30` floor stays at 30 across all three composites
-  per ADR-042 §6.
-
+- **`Form4InsiderSnapshot` writeSnapshot drops sell-side columns on PRE-MIGRATION tables** until the operator applies `migrate:add-sell-cluster-form-4-insider-snapshots:apply`.
+- **`BriefForm4InsiderSection` has 4 REQUIRED sell-side fields** — any future fixture must include them.
+- **The daemon `[f4-aggregate]` log line has 2 TAIL TOKENS** (`sell_cluster_flag=…` + `max_z_sell=…:…`).
+- **Buy + sell aggregate panels are INDEPENDENT branches.**
+- **The L&L 2001 §4 dilution footer attaches to the sell-side no-flag-cleared branch ONLY.**
+- **`inputsAvailableAggregate` is overloaded across BOTH directions (S95-10).**
+- **`computeSectorClusterRate` is called TWICE per sector per cycle** (BUY_CODE + SELL_CODE).
+- **Symmetric z-test fires on negative-z sell-side anomalies too.**
+- **The composite source files have `\0` literals in template strings** (`src/server/executive_departure.ts` line 105, `eight_k_classifier.ts` line 133, `form_4_insider.ts` line 163).
+- **The §1.4 three-branch order is load-bearing: LIVE → no-flag-cleared → cold-start** (both directions).
+- **`dayAsOf` uses end-of-day semantic** (`day + 'T23:59:59.999Z'`).
+- **Tie-break asymmetry on equal-|z| with opposite signs.**
+- `gics_sector_repository_helper.ts` is the byte-template owner for per-ticker + per-day-panel + per-ticker-timeline sector lookups.
+- `MIN_Z_BASELINE = 30` floor stays at 30 across all three composites per ADR-042 §6.
 - `stddevSamp` not `stddevPop` — Bessel correction.
-
 - Today's rate must be EXCLUDED from the baseline window per ADR-042 §4.
 
-(All earlier s89-s95 #1 watch-outs preserved unchanged.)
+(All earlier s89-s95 #2 watch-outs preserved unchanged.)
 
 ## Pre-loaded operational reminders
 
 ### Daily-keep-it-fresh
 
 ```text
-npm run daemon:daily                                    # all 7 Layer-0 + 8-K classifier (1k) + Form 4 (1l); aggregate-sector layer LIVE on XD/EK/F4 (buy-side); F4 sell-side LIVE end-to-end (composite + persistence + log + render).
+npm run daemon:daily                                    # all 7 Layer-0 + 8-K classifier (1k) + Form 4 (1l); aggregate-sector layer LIVE on XD/EK/F4 (buy-side); F4 sell-side LIVE end-to-end.
 npm run audit:positions
 npx tsx scripts/_paper_trading_review.ts
 npm run brief:morning                                   # sections #7-#15 LIVE; F4 §15 emits BOTH buy-side AND sell-side parallel panels.
+```
+
+### Gap #7 Form 4 (G2 buy-side + v2 sell-side both LIVE end-to-end; ingest UNBLOCKED s95 #3)
+
+```text
+npm run edgar:form4:ingest:dry
+npm run edgar:form4:ingest                              # UNBLOCKED s95 #3 — now resolves real XML URLs via index.json discovery
+npm run migrate:create-form-4-insider-snapshots
+npm run migrate:create-form-4-insider-snapshots:apply
+npm run migrate:add-max-z-form-4-insider-snapshots:apply
+npm run migrate:add-sell-cluster-form-4-insider-snapshots:apply  # NEW s95 #2 — sell-side persistence
+npm run daemon:daily                                              # emits [f4-aggregate] log line with both buy-side AND sell-side tokens
+npm run brief:morning                                             # section #15 emits BOTH buy-side AND sell-side parallel panels
 ```
 
 ### Gap #7+#8 v2 GICS activation — buy-side ARC CLOSED; F4 sell-side ARC CLOSED end-to-end
@@ -318,20 +292,12 @@ npm run gics:sector-map:ingest:dry                      # fetch + parse + valida
 npm run gics:sector-map:ingest                          # writes ~503 rows from Wikipedia
 
 # G2 max-aggregate-z persistence wiring (READY since s94 #8):
-npm run migrate:add-max-z-executive-departure-snapshots         # dry-run
-npm run migrate:add-max-z-executive-departure-snapshots:apply   # applies ALTER (+2 columns)
-npm run migrate:add-max-z-eight-k-classifier-snapshots          # dry-run
-npm run migrate:add-max-z-eight-k-classifier-snapshots:apply    # applies ALTER (+2 columns)
-npm run migrate:add-max-z-form-4-insider-snapshots              # dry-run
-npm run migrate:add-max-z-form-4-insider-snapshots:apply        # applies ALTER (+2 columns)
+npm run migrate:add-max-z-executive-departure-snapshots:apply
+npm run migrate:add-max-z-eight-k-classifier-snapshots:apply
+npm run migrate:add-max-z-form-4-insider-snapshots:apply
 
-# NEW from s95 #2 — F4 sell-cluster persistence (READY to apply):
-npm run migrate:add-sell-cluster-form-4-insider-snapshots       # dry-run
-npm run migrate:add-sell-cluster-form-4-insider-snapshots:apply # applies ALTER (+4 sell-side columns)
-
-# G2 aggregate-panel activation:
-# Steps 1-5 DONE end-to-end on XD/EK/F4 buy-side per s94 #6-#11.
-# F4 v2 sell-cluster: COMPOSITE + PERSISTENCE + DAEMON LOG + RENDER all LIVE per s95 #1-#2.
+# G3 sell-cluster persistence wiring (READY since s95 #2):
+npm run migrate:add-sell-cluster-form-4-insider-snapshots:apply
 ```
 
 ### Gap #9 etf-flow activation (FULLY READY)
@@ -380,48 +346,38 @@ npm run daemon:daily
 npm run brief:morning
 ```
 
-### Gap #7 Form 4 (G2 buy-side + v2 sell-side both LIVE end-to-end)
-
-```text
-npm run edgar:form4:ingest:dry
-npm run edgar:form4:ingest
-npm run migrate:create-form-4-insider-snapshots
-npm run migrate:create-form-4-insider-snapshots:apply
-npm run migrate:add-max-z-form-4-insider-snapshots:apply
-npm run migrate:add-sell-cluster-form-4-insider-snapshots:apply  # NEW s95 #2 — sell-side persistence
-npm run daemon:daily                                              # emits [f4-aggregate] log line with both buy-side AND sell-side tokens
-npm run brief:morning                                             # section #15 emits BOTH buy-side AND sell-side parallel panels
-```
-
 ### Tests + dev
 
 ```text
-npm test                                                                       # TS — this turn 2898 / 2801 pass / 2 fail / 95 skipped (2 fails pre-existing CH-unreachable)
-.venv/Scripts/python.exe -m pytest scripts/tests                               # Python — last full-run baseline 324 / 324
+npm test                                                                       # TS — last full-run at s95 #2 was 2898 / 2801 pass / 2 fail / 95 skipped
+.venv/Scripts/python.exe -m pytest scripts/tests                               # Python — 332 pass at s95 #3 (+8 net from T-F4I-DISCOVER-{1..8})
+.venv/Scripts/python.exe -m pytest scripts/tests/test_sec_edgar_form4_ingest.py # 47 pass (this turn baseline)
+.venv/Scripts/python.exe -m pytest scripts/tests/test_sec_edgar_8k_item_5_02_ingest.py scripts/tests/test_sec_edgar_8k_event_ingest.py  # 53 pass — confirms shared parser change is non-breaking
 npm run dev                                                                    # http://localhost:3000
-npm run check:help                                                             # FULLY GREEN at s95 #2 close
-npx tsx --test scripts/tests/form4InsiderRepository.test.ts                    # this turn — 141 pass / 0 fail / 6 CH-unreachable skips (G2-SELL-G3-F4-{1..4})
-npx tsx --test scripts/tests/operatorBrief.test.ts                             # G2-SELL-G3-F4-5 + composer tests green
-npx tsx --test scripts/tests/operatorBriefRender.test.ts                       # G2-SELL-G3-F4-{6..8} + all 17 fixtures updated
+npm run check:help                                                             # green at s95 #2 close
 npx tsc --noEmit                                                               # 13 baseline errors unchanged
 ```
 
 ## For the next session — priority order
 
-**Default on `continue`:** operator picks the next slice (F4 arc is fully
-closed). If operator just says "continue" with no other context, the
-recommended default is **Gap #7 v2 per-row recency** (S93-32 + S93-52
-co-bootstrap of EK + F4 snapshot DDLs) — that's the next code-only slice
-that builds incrementally without opening new methodology questions.
+**Default on `continue`:** the operator should re-run the runbook that hit the 404 storm last turn:
+
+```text
+npm run edgar:form4:ingest              # NOW WORKS — UNBLOCKED by s95 #3
+npm run daemon:daily
+npm run brief:morning
+```
+
+After validation that the F4 panels surface real data, the operator picks the next code slice from the candidate list. Recommended default if they just say "continue": **Gap #7 v2 per-row recency** (S93-32 + S93-52 co-bootstrap of EK + F4 snapshot DDLs).
 
 **Acceptance criteria** for whichever next slice ships:
 
 - ✓ `npm test` green at +N net new tests (per the slice's SPEC test count).
 - ✓ `npx tsc --noEmit` baseline-clean (13 pre-existing errors unchanged).
 - ✓ `npm run check:help` green.
+- ✓ `.venv/Scripts/python.exe -m pytest scripts/tests` baseline-clean (332 + N).
 
-**If operator reprioritizes:** any of these candidates can be the
-default-next:
+**If operator reprioritizes:** any of these candidates can be the default-next:
 
 - **Gap #7 v2 per-row recency** (S93-32 + S93-52 co-bootstrap of EK + F4 snapshot DDLs).
 - **ADR-041 implementation** (`yield_curve_inverted` regime category).
@@ -432,17 +388,17 @@ default-next:
 - **C-12 Phase B AlpacaAdapter** (operator-decision — paused indefinitely).
 - **Phase B campaigns** for the nine Layer-0 composites.
 
-**Operator-gated action items (carried):**
+**Operator-gated action items (carried + new):**
 
+- **NEW:** Re-run `npm run edgar:form4:ingest --apply` (UNBLOCKED s95 #3).
 - Apply `migrate:add-sell-cluster-form-4-insider-snapshots:apply` to surface s95 #2 sell-side persistence end-to-end on the real CH.
-- Push 37 commits to origin/main (HOLD).
+- Apply the three `migrate:add-max-z-…-snapshots:apply` ALTERs (carry from s94 #8).
+- Push 38 commits to origin/main (HOLD).
 - Drawdown framework §12 90d empirical retune — earliest 2026-08-29.
 
 **Calendar-gated:**
 
-- Vol-structure / sector-rotation / cross-asset / cycle-position /
-  short-interest / executive-departure / etf-flow / 8-K-classifier /
-  Form-4-insider Phase B campaigns.
+- Vol-structure / sector-rotation / cross-asset / cycle-position / short-interest / executive-departure / etf-flow / 8-K-classifier / Form-4-insider Phase B campaigns.
 - Form 4 CMP classifier v2 ADR — earliest ~2026-11-20.
 - Event-driven cadence v2 ADR — earliest ~2026-08-20.
 
@@ -455,57 +411,32 @@ default-next:
 
 ## Important framing for the next chat
 
-**The F4 v2 sell-cluster arc is FULLY CLOSED.** `Form4InsiderSnapshot`'s
-4 sell-side fields are persisted to CH (via the new ALTER), decoded on
-load, surfaced in the daemon log line via 2 new tail tokens, threaded
-through the brief composer, and rendered as a parallel "Sell-side
-cluster" §1.4 three-branch panel adjacent to the buy-side panel in
-section #15 of the morning brief.
+**s95 #3 was a HOTFIX, not a feature slice.** The fix is small (3 files, +318 / -2 LOC, 8 new tests) but it closed a real first-apply blocker that would have left every Form 4 ingest 100% empty. Run the ingest now (`npm run edgar:form4:ingest --apply`) before doing anything else with F4 — the brief renderer is already wired to consume populated `insider_trades`, so the moment the ingest succeeds the morning brief will show real buy/sell sector panels (where signal exists).
 
-**EK + XD remain buy-side-only by design.** The symmetric sell-side
-track is F4-specific in v1 because Lakonishok-Lee 2001 §4 only argues
-for the symmetric posture on raw insider trades. No equivalent canon
-argument exists for EK material events or XD executive departures — a
-v2 ADR could open that question with a canon citation, but until then
-the asymmetry is intentional + documented in the F4 "What could break
-this" tail.
+**The 8-K ingest was NEVER blocked by this bug.** 8-K hits in the EDGAR search response DO include `file_name`, so the parser's URL construction works for 8-K. Don't reinterpret the s95 #3 fix as touching the 8-K path — it doesn't.
 
-**The DDL migration is operator-gated on first apply.** Pre-apply, the
-in-memory composite snapshot emits the sell-side fields correctly
-end-to-end within a cycle (anomaly-push + same-cycle composer); the
-persisted snapshot's sell-side fields drop silently (CH ignores unknown
-column names) until the operator runs
-`npm run migrate:add-sell-cluster-form-4-insider-snapshots:apply`.
-After apply, cross-cycle stale-read consumers (the morning brief reading
-yesterday's snapshot) see real sell-side values too.
+**The discovery cache is positive-only and per-process.** A long-running daemon that re-invokes the ingest won't benefit from cross-run caching, but that's fine — daily ingest cadences are not perf-sensitive at the EDGAR rate ceiling.
 
-**The composite source files have `\0` literals (carried watch-out).**
-`src/server/executive_departure.ts` (line 105), `eight_k_classifier.ts`
-(line 133), `form_4_insider.ts` (line 163).
-
-**Parallel-tracks posture continues.** s95 #2 did NOT affect C-12 /
-paper-trading / real-money-flip arcs. Full `npm test` green at 2801
-pass (2 pre-existing CH-unreachable fails are NOT regressions; +8 net
-vs s95 #1 = exactly the 8 G2-SELL-G3-F4-{1..8} tests).
-
-**The chain through s95 #2:**
+**The chain through s95 #3:**
 
 ```text
 ALL S41-S94 WORK                                        ✓ as documented
 S95 #1: gap #7 v2 sell-cluster F4 composite contract    ✓ committed (b398b4e)
-        + 6 G2-SELL-F4-* tests
 S95 #2: gap #7 v2 sell-cluster F4 G3                    ✓ committed (d05eb39)
         — DDL + persistence + daemon log + brief render
-        + 8 G2-SELL-G3-F4-* tests
-S95 #2 HANDOFF rewrite (this commit)                    ✓ this commit
-  → DEFAULT NEXT: operator pick — F4 arc fully closed.
-                  Recommended if operator says "continue" without
-                  context: Gap #7 v2 per-row recency (S93-32 +
-                  S93-52 co-bootstrap of EK + F4 snapshot DDLs).
+S95 #3: form 4 ingest XML body URL discovery (HOTFIX)   ✓ committed (831b1b0)
+        — unblocks first-apply; 8 new T-F4I-DISCOVER-* tests
+S95 #3 HANDOFF rewrite (this commit)                    ✓ this commit
+  → DEFAULT NEXT: operator re-runs the runbook from last
+                  turn; F4 ingest is now unblocked.
+                  After F4 surfaces real data, operator
+                  picks the next code slice.
   → background: F4 emits four signals end-to-end now (buy-side
                 + sell-side per-ticker cluster flags; buy-side +
                 sell-side aggregate cluster flags). Buy-side has
                 been LIVE since s94 #11; sell-side composite landed
                 s95 #1; sell-side persistence + render landed s95 #2.
-                XD + EK arcs remain buy-side-only.
+                XML body URL discovery (the "first-apply" missing
+                piece) landed s95 #3. XD + EK arcs remain
+                buy-side-only.
 ```
