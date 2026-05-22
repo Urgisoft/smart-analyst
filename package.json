@@ -163,8 +163,9 @@
     "close:violations:apply": "tsx scripts/close_violating_positions.ts --apply",
     "ingest:sp500-history": "tsx scripts/ingest_sp500_history.ts",
     "ingest:sp500-history:dry": "tsx scripts/ingest_sp500_history.ts --dry-run",
-    "docs:build": "npm --prefix quartz run signalforge:build",
-    "docs:serve": "npm --prefix quartz run signalforge:serve",
+    "docs:build": "tsx scripts/generate_docs_dashboard.ts && npm --prefix quartz run signalforge:build",
+    "docs:serve": "tsx scripts/generate_docs_dashboard.ts && npm --prefix quartz run signalforge:serve",
+    "docs:dashboard": "tsx scripts/generate_docs_dashboard.ts",
     "docs:install": "npm --prefix quartz install",
     "dev:all": "concurrently -n app,docs -c blue,green \"npm run dev\" \"npm run docs:serve\""
   },

@@ -41,6 +41,12 @@ docs/phase1_breadth_restoration/*.csv
 docs/.quartz-site/
 quartz/.quartz-cache/
 
+# Auto-generated status dashboard (scripts/generate_docs_dashboard.ts).
+# Regenerated on every `npm run docs:build` from per-doc frontmatter; the
+# source of truth is each doc's own --- block, not this file. Committing
+# would create churn on every build + would drift unless hand-regenerated.
+docs/dashboard.md
+
 # Accidental files from botched npm/shell commands. Sources:
 #  - `npm run x > foo@0.0.0` captures the package name as a literal file
 #    (`react-example@0.0.0`); the `*@*.*` glob catches this pattern.
