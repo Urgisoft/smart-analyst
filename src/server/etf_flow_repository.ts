@@ -56,6 +56,8 @@ import {
   type EtfFlowInputs,
   type EtfFlowPerEtfInput,
   type EtfFlowPerEtfRow,
+  type EtfFlowPrimaryPoint,
+  type EtfFlowSecondaryPoint,
   type EtfFlowSnapshot,
 } from './etf_flow.js';
 
@@ -79,6 +81,12 @@ export interface EtfFlowRepositoryOptions {
   ch?: ClickHouseClient;
   sourceTable?: string;
   snapshotsTable?: string;
+  /** Gap #9 v3: optional override for the secondary-source table that the
+   *  issuer-CSV ingest (`scripts/etf_flow_issuer_csv_ingest.py`) writes into.
+   *  When the table does not exist in CH, the secondary reader returns `[]`
+   *  cleanly — the composite's cross-validation path stays dormant + v1
+   *  back-compat is preserved. */
+  secondaryTable?: string;
 }
 
 export interface EtfFlowDaemonResult {
@@ -124,11 +132,85 @@ export class EtfFlowRepository {
   private readonly ch: ClickHouseClient;
   readonly sourceTable: string;
   readonly snapshotsTable: string;
+  readonly secondaryTable: string;
 
   constructor(opts: EtfFlowRepositoryOptions = {}) {
     this.ch = opts.ch ?? getClickHouse();
     this.sourceTable = opts.sourceTable ?? 'quantlab.etf_shares_outstanding';
     this.snapshotsTable = opts.snapshotsTable ?? 'quantlab.etf_flow_snapshots';
+    this.secondaryTable = opts.secondaryTable ?? 'quantlab.etf_shares_outstanding_secondary';
+  }
+
+  /** Gap #9 v3: does the secondary source table exist in CH?
+   *  Returns false on any error (e.g. CH unreachable, permission denied) so
+   *  the secondary reader can fail-quiet — the cross-validation framework's
+   *  dormant-by-default posture (s95 #8) handles the "no comparison this
+   *  cycle" semantic transparently. */
+  async secondaryTableExists(): Promise<boolean> {
+    const [, table] = this.secondaryTable.split('.');
+    if (!table) return false;
+    try {
+      const r = await this.ch.query({
+        query:
+          `SELECT count() AS n FROM system.tables ` +
+          `WHERE database = 'quantlab' AND name = {tbl:String}`,
+        query_params: { tbl: table },
+        format: 'JSONEachRow',
+      });
+      const [{ n }] = await r.json<{ n: string | number }>();
+      return Number(n) > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Gap #9 v3: read the secondary-source (ticker, date, shares, close)
+   *  panel for cross-validation. Returns `[]` when:
+   *    1. `tickers` is empty (short-circuit, no CH query),
+   *    2. the secondary table does not exist in CH (probe gate),
+   *    3. the secondary table exists but has no rows in the read window.
+   *  Subquery-around-FINAL pattern matches `readSharesPanelForTickers`. */
+  async readSecondaryPanelForTickers(
+    asOf: Date,
+    tickers: readonly string[],
+    days: number = READ_WINDOW_CALENDAR_DAYS,
+  ): Promise<EtfFlowSecondaryPoint[]> {
+    if (tickers.length === 0) return [];
+    if (!(await this.secondaryTableExists())) return [];
+    const asOfStr = toIsoDate(asOf);
+    const startStr = toIsoDate(new Date(asOf.getTime() - days * 24 * 60 * 60 * 1000));
+    const q = await this.ch.query({
+      query: `
+        SELECT
+          ticker,
+          toString(date) AS date,
+          shares,
+          close
+        FROM (
+          SELECT ticker, date, shares, close
+          FROM ${this.secondaryTable} FINAL
+          WHERE date >= {start:Date}
+            AND date <= {asOf:Date}
+            AND ticker IN ({tickers:Array(String)})
+        )
+        ORDER BY ticker, date ASC
+      `,
+      query_params: {
+        start: startStr,
+        asOf: asOfStr,
+        tickers: [...tickers],
+      },
+      format: 'JSONEachRow',
+    });
+    const rows = await q.json<RawSharesRow>();
+    const out: EtfFlowSecondaryPoint[] = [];
+    for (const r of rows) {
+      const shares = toNum(r.shares);
+      const close = toNum(r.close);
+      if (shares == null || close == null) continue;
+      out.push({ ticker: r.ticker, date: r.date, shares, close });
+    }
+    return out;
   }
 
   /**
@@ -254,10 +336,15 @@ export class EtfFlowRepository {
     asOf: Date,
     tickers: readonly string[] = ETF_UNIVERSE,
   ): Promise<EtfFlowInputs> {
-    const [latestQueryAt, panelByTicker, maxDateByTicker] = await Promise.all([
+    const [latestQueryAt, panelByTicker, maxDateByTicker, secondaryPanel] = await Promise.all([
       this.readLatestYfinanceQueryAt(asOf),
       this.readSharesPanelForTickers(asOf, tickers),
       this.readMaxDateByTicker(asOf, tickers),
+      // Gap #9 v3: probe + read the secondary panel. Returns [] when the
+      // table is absent OR no rows fall in the window — keeps the
+      // cross-validation framework dormant + back-compat with v1/v2
+      // (pre-v3) deployments unchanged.
+      this.readSecondaryPanelForTickers(asOf, tickers),
     ]);
 
     const perEtf: EtfFlowPerEtfInput[] = tickers.map(ticker => {
@@ -269,7 +356,33 @@ export class EtfFlowRepository {
       return assemblePerEtfInput(ticker, rows, asOf, bdSinceShareUpdate);
     });
 
-    return { asOf, lastYfinanceQueryAt: latestQueryAt, perEtf };
+    const inputs: EtfFlowInputs = {
+      asOf,
+      lastYfinanceQueryAt: latestQueryAt,
+      perEtf,
+    };
+
+    // Wire the cross-validation framework IFF we have a non-empty secondary
+    // panel. Primary panel is reconstructed in-line from `panelByTicker` —
+    // no extra CH query needed; the comparator needs (ticker, date, shares,
+    // close) tuples and that's exactly what `readSharesPanelForTickers`
+    // already returns.
+    if (secondaryPanel.length > 0) {
+      const primaryPanel: EtfFlowPrimaryPoint[] = [];
+      for (const ticker of tickers) {
+        const rows = panelByTicker.get(ticker) ?? [];
+        for (const r of rows) {
+          const shares = toNum(r.shares);
+          const close = toNum(r.close);
+          if (shares == null || close == null) continue;
+          primaryPanel.push({ ticker, date: r.date, shares, close });
+        }
+      }
+      inputs.primaryPanel = primaryPanel;
+      inputs.secondaryPanel = secondaryPanel;
+    }
+
+    return inputs;
   }
 
   /** Persist one snapshot. Idempotent under ReplacingMergeTree(computed_at)
@@ -757,6 +870,20 @@ export async function runDaemonEtfFlowEvaluation(opts: {
  *     universe is the fixed F-UNIVERSE 21-ETF list, not a SPY-500
  *     reconstruction. The composite's aggregate slots (11 sector + 6 broad)
  *     are picked from F-UNIVERSE by `resolveEtfGroup` in src/server/etf_flow.ts.
+ *   - Gap #9 v3 secondary panel is OPTIONAL on the cycle read path: when
+ *     `secondaryTableExists()` returns false (fresh-clone / v2-era CH state)
+ *     OR the read window has zero secondary rows, `readInputsForCycle` omits
+ *     both `primaryPanel` + `secondaryPanel` from the returned inputs. The
+ *     evaluator's three-condition gate (secondaryPanel != null && length > 0
+ *     && primaryPanel != null) keeps the cross-validation framework dormant
+ *     until the v3 ingest has produced its first row. v1/v2 deployments see
+ *     byte-equal §13 brief output until a secondary populates.
+ *   - The probe-then-read pattern in readSecondaryPanelForTickers issues two
+ *     CH round-trips on each daemon cycle (system.tables count() + panel
+ *     select). Both are cheap (low-cardinality system table + ORDER BY-keyed
+ *     range scan); the once-per-day daemon cadence makes this negligible.
+ *     A perf-tight loop could memoize secondaryTableExists() but the
+ *     side-effect-laden caching adds bug surface — defer until needed.
  *   - The trailing-1y baseline slice is capped at BASELINE_TARGET_BUSINESS_DAYS
  *     (252). At steady state every ticker has ≥252 prints; in cold-start the
  *     baseline is shorter and the composite's MIN_Z_BASELINE = 30 floor

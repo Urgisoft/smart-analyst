@@ -407,6 +407,99 @@ describe('readMaxDateByTicker', () => {
   });
 });
 
+// ───── readSecondaryPanelForTickers (Gap #9 v3) ────────────────────
+
+describe('readSecondaryPanelForTickers', () => {
+  it('returns empty + skips CH when no tickers requested', async () => {
+    const { repo, fake } = makeRepo();
+    const out = await repo.readSecondaryPanelForTickers(DATE, []);
+    assert.deepEqual(out, []);
+    assert.equal(fake.queries.length, 0);
+  });
+
+  it('returns empty when secondary table absent (probe gate)', async () => {
+    const { repo, fake } = makeRepo();
+    fake.route(q => q.includes('system.tables'), [{ n: 0 }]);
+    fake.route(_ => true, []);
+    const out = await repo.readSecondaryPanelForTickers(DATE, ['SPY']);
+    assert.deepEqual(out, []);
+    // Probe ran exactly once; panel query NOT issued.
+    assert.equal(fake.queries.length, 1);
+    assert.match(fake.queries[0].query, /system\.tables/);
+  });
+
+  it('reads + parses secondary panel rows when table exists', async () => {
+    const { repo, fake } = makeRepo();
+    fake.route(q => q.includes('system.tables'), [{ n: 1 }]);
+    fake.route(q => q.includes('etf_shares_outstanding_secondary'), [
+      { ticker: 'SPY', date: '2026-05-18', shares: 1e9, close: 498 },
+      { ticker: 'SPY', date: '2026-05-19', shares: 1e9, close: 500 },
+    ]);
+    fake.route(_ => true, []);
+    const out = await repo.readSecondaryPanelForTickers(DATE, ['SPY']);
+    assert.equal(out.length, 2);
+    assert.equal(out[0].ticker, 'SPY');
+    assert.equal(out[0].date, '2026-05-18');
+    assert.equal(out[0].shares, 1e9);
+    assert.equal(out[0].close, 498);
+    assert.equal(out[1].date, '2026-05-19');
+  });
+
+  it('uses subquery-around-FINAL pattern + binds tickers + asOf', async () => {
+    const { repo, fake } = makeRepo();
+    fake.route(q => q.includes('system.tables'), [{ n: 1 }]);
+    fake.route(q => q.includes('etf_shares_outstanding_secondary'), []);
+    await repo.readSecondaryPanelForTickers(DATE, ['SPY', 'QQQ']);
+    const panelQ = fake.queries.find(q => q.query.includes('etf_shares_outstanding_secondary FINAL'));
+    assert.ok(panelQ, 'panel query not issued');
+    assert.match(panelQ.query, /FROM \(\s*SELECT[\s\S]+FROM \S+ FINAL[\s\S]+WHERE/);
+    assert.match(panelQ.query, /ticker IN \({tickers:Array\(String\)}\)/);
+    assert.equal(panelQ.query_params?.asOf, '2026-05-19');
+    assert.deepEqual(panelQ.query_params?.tickers, ['SPY', 'QQQ']);
+  });
+
+  it('drops rows with unparseable shares / close', async () => {
+    const { repo, fake } = makeRepo();
+    fake.route(q => q.includes('system.tables'), [{ n: 1 }]);
+    fake.route(q => q.includes('etf_shares_outstanding_secondary'), [
+      { ticker: 'SPY', date: '2026-05-19', shares: 'bogus', close: 500 },
+      { ticker: 'SPY', date: '2026-05-20', shares: 1e9, close: 'bogus' },
+      { ticker: 'SPY', date: '2026-05-21', shares: 1e9, close: 500 },
+    ]);
+    const out = await repo.readSecondaryPanelForTickers(DATE, ['SPY']);
+    assert.equal(out.length, 1);
+    assert.equal(out[0].date, '2026-05-21');
+  });
+
+  it('parses string-form numerics from CH JSONEachRow', async () => {
+    const { repo, fake } = makeRepo();
+    fake.route(q => q.includes('system.tables'), [{ n: 1 }]);
+    fake.route(q => q.includes('etf_shares_outstanding_secondary'), [
+      { ticker: 'SPY', date: '2026-05-19', shares: '1000000000', close: '500.5' },
+    ]);
+    const out = await repo.readSecondaryPanelForTickers(DATE, ['SPY']);
+    assert.equal(out.length, 1);
+    assert.equal(out[0].shares, 1_000_000_000);
+    assert.equal(out[0].close, 500.5);
+  });
+});
+
+// ───── secondaryTableExists (Gap #9 v3) ────────────────────────────
+
+describe('secondaryTableExists', () => {
+  it('returns true when CH reports count > 0', async () => {
+    const { repo, fake } = makeRepo();
+    fake.route(_ => true, [{ n: 1 }]);
+    assert.equal(await repo.secondaryTableExists(), true);
+  });
+
+  it('returns false when CH reports zero rows', async () => {
+    const { repo, fake } = makeRepo();
+    fake.route(_ => true, [{ n: 0 }]);
+    assert.equal(await repo.secondaryTableExists(), false);
+  });
+});
+
 // ───── readInputsForCycle ──────────────────────────────────────────
 
 describe('readInputsForCycle', () => {
@@ -414,7 +507,8 @@ describe('readInputsForCycle', () => {
     const { repo, fake } = makeRepo();
     fake.route(q => q.includes('max(ingested_at)'), [{ last: '2026-05-19 14:23:00' }]);
     fake.route(q => q.includes('max(date)'), [{ ticker: 'SPY', max_date: '2026-05-19' }]);
-    fake.route(_ => true, []);  // panel query
+    fake.route(q => q.includes('system.tables'), [{ n: 0 }]);  // secondary absent
+    fake.route(_ => true, []);  // primary panel query
 
     const inputs = await repo.readInputsForCycle(DATE);
     assert.ok(inputs.lastYfinanceQueryAt instanceof Date);
@@ -427,6 +521,7 @@ describe('readInputsForCycle', () => {
     const { repo, fake } = makeRepo();
     fake.route(q => q.includes('max(ingested_at)'), [{ last: null }]);
     fake.route(q => q.includes('max(date)'), []);
+    fake.route(q => q.includes('system.tables'), [{ n: 0 }]);
     fake.route(_ => true, []);
 
     const inputs = await repo.readInputsForCycle(DATE, ['SPY']);
@@ -445,11 +540,76 @@ describe('readInputsForCycle', () => {
     fake.route(q => q.includes('max(date)'), [
       { ticker: 'SPY', max_date: '2026-05-15' },  // Fri before Tue 2026-05-19
     ]);
+    fake.route(q => q.includes('system.tables'), [{ n: 0 }]);
     fake.route(_ => true, []);
 
     const inputs = await repo.readInputsForCycle(DATE, ['SPY']);
     // Fri 15 → Tue 19 excludes start: Mon 18, Tue 19 = 2bd
     assert.equal(inputs.perEtf[0].bdSinceShareUpdate, 2);
+  });
+
+  it('Gap #9 v3: omits primary + secondary panels when secondary table absent', async () => {
+    const { repo, fake } = makeRepo();
+    fake.route(q => q.includes('max(ingested_at)'), [{ last: null }]);
+    fake.route(q => q.includes('max(date)'), []);
+    fake.route(q => q.includes('system.tables'), [{ n: 0 }]);
+    fake.route(_ => true, []);
+    const inputs = await repo.readInputsForCycle(DATE, ['SPY']);
+    assert.equal(inputs.secondaryPanel, undefined);
+    assert.equal(inputs.primaryPanel, undefined);
+  });
+
+  it('Gap #9 v3: omits primary + secondary panels when secondary table exists but empty', async () => {
+    const { repo, fake } = makeRepo();
+    fake.route(q => q.includes('max(ingested_at)'), [{ last: null }]);
+    fake.route(q => q.includes('max(date)'), []);
+    fake.route(q => q.includes('system.tables'), [{ n: 1 }]);  // table present
+    fake.route(q => q.includes('etf_shares_outstanding_secondary'), []);  // zero rows
+    fake.route(_ => true, []);
+    const inputs = await repo.readInputsForCycle(DATE, ['SPY']);
+    // Table exists but no rows → both panels still omitted (cross-validation dormant).
+    assert.equal(inputs.secondaryPanel, undefined);
+    assert.equal(inputs.primaryPanel, undefined);
+  });
+
+  it('Gap #9 v3: wires primaryPanel + secondaryPanel when secondary table populated', async () => {
+    const { repo, fake } = makeRepo();
+    fake.route(q => q.includes('max(ingested_at)'), [{ last: null }]);
+    fake.route(q => q.includes('max(date)'), []);
+    fake.route(q => q.includes('system.tables'), [{ n: 1 }]);
+    fake.route(q => q.includes('etf_shares_outstanding_secondary'), [
+      { ticker: 'SPY', date: '2026-05-19', shares: 1_000_000_000, close: 500 },
+    ]);
+    fake.route(_ => true, [  // primary panel query (yfinance)
+      { ticker: 'SPY', date: '2026-05-19', shares: 1_001_000_000, close: 500 },
+    ]);
+    const inputs = await repo.readInputsForCycle(DATE, ['SPY']);
+    assert.equal(inputs.secondaryPanel?.length, 1);
+    assert.equal(inputs.primaryPanel?.length, 1);
+    assert.equal(inputs.secondaryPanel?.[0].ticker, 'SPY');
+    assert.equal(inputs.secondaryPanel?.[0].date, '2026-05-19');
+    assert.equal(inputs.secondaryPanel?.[0].shares, 1_000_000_000);
+    assert.equal(inputs.primaryPanel?.[0].shares, 1_001_000_000);
+  });
+
+  it('Gap #9 v3: primaryPanel is reconstructed from the same readSharesPanelForTickers data', async () => {
+    const { repo, fake } = makeRepo();
+    fake.route(q => q.includes('max(ingested_at)'), [{ last: null }]);
+    fake.route(q => q.includes('max(date)'), []);
+    fake.route(q => q.includes('system.tables'), [{ n: 1 }]);
+    fake.route(q => q.includes('etf_shares_outstanding_secondary'), [
+      { ticker: 'SPY', date: '2026-05-19', shares: 1e9, close: 500 },
+    ]);
+    fake.route(_ => true, [
+      { ticker: 'SPY', date: '2026-05-18', shares: 9.9e8, close: 498 },
+      { ticker: 'SPY', date: '2026-05-19', shares: 1e9, close: 500 },
+    ]);
+    const inputs = await repo.readInputsForCycle(DATE, ['SPY']);
+    // primaryPanel carries BOTH days from the primary CH read (no filtering
+    // to intersection — the comparator handles intersection internally).
+    assert.equal(inputs.primaryPanel?.length, 2);
+    assert.equal(inputs.primaryPanel?.[0].date, '2026-05-18');
+    assert.equal(inputs.primaryPanel?.[1].date, '2026-05-19');
   });
 });
 
