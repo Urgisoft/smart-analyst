@@ -162,7 +162,11 @@
     "close:violations": "tsx scripts/close_violating_positions.ts",
     "close:violations:apply": "tsx scripts/close_violating_positions.ts --apply",
     "ingest:sp500-history": "tsx scripts/ingest_sp500_history.ts",
-    "ingest:sp500-history:dry": "tsx scripts/ingest_sp500_history.ts --dry-run"
+    "ingest:sp500-history:dry": "tsx scripts/ingest_sp500_history.ts --dry-run",
+    "docs:build": "npm --prefix quartz run signalforge:build",
+    "docs:serve": "npm --prefix quartz run signalforge:serve",
+    "docs:install": "npm --prefix quartz install",
+    "dev:all": "concurrently -n app,docs -c blue,green \"npm run dev\" \"npm run docs:serve\""
   },
   "dependencies": {
     "@clickhouse/client": "^1.18.3",
@@ -187,6 +191,7 @@
     "@types/node": "^22.14.0",
     "autoprefixer": "^10.4.21",
     "cloudflared": "^0.7.1",
+    "concurrently": "^9.0.0",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",

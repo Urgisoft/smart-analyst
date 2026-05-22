@@ -35,6 +35,12 @@ alfred/
 # rewrite these on demand via `macro:refresh-constituents:apply` etc.
 docs/phase1_breadth_restoration/*.csv
 
+# Quartz v4 build output (regenerated on every `npm run docs:build` /
+# `npm run docs:serve`; vault Markdown files under docs/ are the single
+# source of truth — the rendered site is derived and not checked in).
+docs/.quartz-site/
+quartz/.quartz-cache/
+
 # Accidental files from botched npm/shell commands. Sources:
 #  - `npm run x > foo@0.0.0` captures the package name as a literal file
 #    (`react-example@0.0.0`); the `*@*.*` glob catches this pattern.
