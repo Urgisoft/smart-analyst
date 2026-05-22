@@ -51,6 +51,7 @@ import {
   ETF_UNIVERSE,
   evaluateEtfFlowComposite,
   FLOW_WINDOW_BD,
+  type EtfFlowCrossValidationSummary,
   type EtfFlowFlaggedEtf,
   type EtfFlowInputs,
   type EtfFlowPerEtfInput,
@@ -285,12 +286,17 @@ export class EtfFlowRepository {
       : null;
     const perEtfJson = JSON.stringify(snapshot.perEtfRows);
     const flaggedEtfsJson = JSON.stringify(snapshot.flaggedEtfs);
+    // Gap #9 v2: crossValidation summary persists IN the aggregate_json blob
+    // (S95-38 zero-CH-migration posture). Pre-v2 snapshots wrote this blob
+    // without the field; the reader defaults to null on a missing key, so
+    // round-trip is back-compat.
     const aggregateJson = JSON.stringify({
       sectorFlowDispersion: snapshot.sectorFlowDispersion,
       aggregateRiskOnFlow: snapshot.aggregateRiskOnFlow,
       aggregateFlowStressFlag: snapshot.aggregateFlowStressFlag,
       inputsAvailableAggregateSector: snapshot.inputsAvailableAggregateSector,
       inputsAvailableAggregateBroad: snapshot.inputsAvailableAggregateBroad,
+      crossValidation: snapshot.crossValidation,
     });
     await this.ch.insert({
       table: this.snapshotsTable,
@@ -365,6 +371,21 @@ export class EtfFlowRepository {
     } catch {
       flaggedEtfs = [];
     }
+    // Gap #9 v2: parse aggregate_json for the optional crossValidation field.
+    // Pre-v2 snapshots persisted the blob WITHOUT the field; missing-key OR
+    // malformed-blob ⇒ null (back-compat per S95-38 posture).
+    let crossValidation: EtfFlowCrossValidationSummary | null = null;
+    try {
+      const parsed = JSON.parse(r.aggregate_json);
+      if (
+        parsed != null && typeof parsed === 'object' &&
+        parsed.crossValidation != null
+      ) {
+        crossValidation = parsed.crossValidation as EtfFlowCrossValidationSummary;
+      }
+    } catch {
+      crossValidation = null;
+    }
     return {
       snapshotDate: new Date(Number(r.computed_at_ms)),
       lastYfinanceQueryAt: lastQueryAt,
@@ -380,6 +401,7 @@ export class EtfFlowRepository {
       inputsAvailableAggregateBroad: Number(r.inputs_available_aggregate_broad),
       inputsAvailablePerEtf: Number(r.inputs_available_per_etf),
       version: r.composite_version as typeof ETF_FLOW_COMPOSITE_VERSION,
+      crossValidation,
     };
   }
 }

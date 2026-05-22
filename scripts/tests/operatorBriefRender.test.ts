@@ -2410,6 +2410,98 @@ describe('renderBriefMarkdown — etf-flow panel', () => {
     }));
     assert.match(md, /Last evaluated: `2026-05-19T13:30:00\.123Z` · snapshot date: `2026-05-19`/);
   });
+
+  // ───── Gap #9 v2 — cross-validation anomalies sub-section ──────────────────
+  // T-OBR-EF-XV-1 — renders the "### Cross-validation anomalies" sub-section
+  // when crossValidation is present AND totalCompared > 0 AND at least one
+  // divergence row was emitted. Operator sees the table + summary line.
+  it('T-OBR-EF-XV-1 renders cross-validation sub-section + table when divergences exist', () => {
+    const md = renderBriefMarkdown(brief({
+      etfFlow: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastYfinanceQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastShareUpdate: 0,
+        sectorFlowDispersion: 1.0,
+        aggregateRiskOnFlow: 0.0,
+        aggregateFlowStressFlag: false,
+        flaggedEtfs: [],
+        inputsAvailableAggregateSector: 11,
+        inputsAvailableAggregateBroad: 6,
+        inputsAvailablePerEtf: 21,
+        compositeVersion: 'etf_flow_v1',
+        crossValidation: {
+          totalCompared: 4,
+          divergenceCount: 2,
+          maxAbsSharesPctDiff: 0.08,
+          maxAbsAumPctDiff: 0.08,
+          byTicker: {
+            QQQ: { compared: 0, diverged: 1, maxAbsSharesPctDiff: 0.08 },
+            SPY: { compared: 0, diverged: 1, maxAbsSharesPctDiff: 0.03 },
+          },
+          bySeverity: { info: 0, warn: 1, critical: 1 },
+          topDivergences: [
+            { ticker: 'QQQ', date: '2026-05-19',
+              primaryShares: 5e8, secondaryShares: 5.4e8,
+              sharesPctDiff: -0.08, primaryAum: 225e9, secondaryAum: 243e9,
+              aumPctDiff: -0.08, severity: 'critical' as const },
+            { ticker: 'SPY', date: '2026-05-18',
+              primaryShares: 1e9, secondaryShares: 1.03e9,
+              sharesPctDiff: -0.03, primaryAum: 5e11, secondaryAum: 5.15e11,
+              aumPctDiff: -0.03, severity: 'warn' as const },
+          ],
+          secondarySourceLabel: 'issuer-csv',
+        },
+      },
+    }));
+    assert.match(md, /### Cross-validation anomalies \(vs issuer-csv\)/);
+    assert.match(md, /\| Ticker \| Date \| Shares Δ% \| AUM Δ% \| Severity \|/);
+    assert.match(md, /\| QQQ \| 2026-05-19 \| -8\.00% \| -8\.00% \| critical \|/);
+    assert.match(md, /\| SPY \| 2026-05-18 \| -3\.00% \| -3\.00% \| warn \|/);
+    assert.match(md, /2\/4 pairs diverged \(1 critical · 1 warn · 0 info\)/);
+    assert.match(md, /max shares Δ 8\.00% · max AUM Δ 8\.00%/);
+  });
+
+  // T-OBR-EF-XV-2 — back-compat: omits the sub-section entirely when
+  // crossValidation is null (v1 default) OR totalCompared = 0. The "No
+  // ETFs flagged." block + universe-coverage footer continue to render.
+  it('T-OBR-EF-XV-2 omits cross-validation sub-section when crossValidation is null OR compared=0', () => {
+    const baseRow = {
+      evaluatedAt: '2026-05-19T13:30:00Z',
+      snapshotDate: '2026-05-19',
+      lastYfinanceQueryAt: '2026-05-19T13:25:00Z',
+      bdSinceLastShareUpdate: 0,
+      sectorFlowDispersion: 1.0,
+      aggregateRiskOnFlow: 0.0,
+      aggregateFlowStressFlag: false,
+      flaggedEtfs: [],
+      inputsAvailableAggregateSector: 11,
+      inputsAvailableAggregateBroad: 6,
+      inputsAvailablePerEtf: 21,
+      compositeVersion: 'etf_flow_v1',
+    };
+    // v1 default: crossValidation omitted entirely.
+    const v1 = renderBriefMarkdown(brief({ etfFlow: baseRow }));
+    assert.doesNotMatch(v1, /Cross-validation anomalies/);
+    // v2 with empty intersection (totalCompared=0): still omitted.
+    const v2Empty = renderBriefMarkdown(brief({
+      etfFlow: {
+        ...baseRow,
+        crossValidation: {
+          totalCompared: 0, divergenceCount: 0,
+          maxAbsSharesPctDiff: 0, maxAbsAumPctDiff: 0,
+          byTicker: {}, bySeverity: { info: 0, warn: 0, critical: 0 },
+          topDivergences: [], secondarySourceLabel: 'issuer-csv',
+        },
+      },
+    }));
+    assert.doesNotMatch(v2Empty, /Cross-validation anomalies/);
+    // Both paths still render the v1 footer + flagged-ETFs block.
+    assert.match(v1, /### Flagged ETFs/);
+    assert.match(v2Empty, /### Flagged ETFs/);
+    assert.match(v1, /Universe coverage: 21 ETFs/);
+    assert.match(v2Empty, /Universe coverage: 21 ETFs/);
+  });
 });
 
 // ───── 8-K classifier panel (SPEC docs/specs/event-driven-filings-processor.md §8.1, §9.5) ─────

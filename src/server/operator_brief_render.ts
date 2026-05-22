@@ -625,7 +625,46 @@ export interface BriefEtfFlowSection {
   inputsAvailablePerEtf: number;
   /** Composite version stamp ('etf_flow_v1' in v1). */
   compositeVersion: string;
+  /** Gap #9 v2 (optional): summary of secondary-source cross-validation.
+   *  Absent OR null when no `secondaryPanel` flowed through the evaluator
+   *  (v1 default), OR when the intersection size was zero. Renderer
+   *  dispatches on `crossValidation != null && totalCompared > 0`. */
+  crossValidation?: BriefEtfFlowCrossValidation | null;
 }
+
+/** Gap #9 v2: brief-side projection of the snapshot's `EtfFlowCrossValidationSummary`
+ *  (src/server/etf_flow_cross_validation.ts). The composer copies the
+ *  snapshot field through unchanged; the renderer reads only the operator-
+ *  facing fields (totalCompared, divergenceCount, maxAbs*, bySeverity,
+ *  topDivergences, secondarySourceLabel). */
+export interface BriefEtfFlowCrossValidation {
+  totalCompared: number;
+  divergenceCount: number;
+  maxAbsSharesPctDiff: number;
+  maxAbsAumPctDiff: number;
+  byTicker: Readonly<Record<string, {
+    compared: number;
+    diverged: number;
+    maxAbsSharesPctDiff: number;
+  }>>;
+  bySeverity: Readonly<Record<'info' | 'warn' | 'critical', number>>;
+  topDivergences: ReadonlyArray<{
+    ticker: string;
+    date: string;
+    primaryShares: number;
+    secondaryShares: number;
+    sharesPctDiff: number;
+    primaryAum: number;
+    secondaryAum: number;
+    aumPctDiff: number;
+    severity: 'info' | 'warn' | 'critical';
+  }>;
+  secondarySourceLabel: string;
+}
+
+/** Top-N cross-validation divergences shown inline (Gap #9 v2). Matches the
+ *  flagged-ETFs N=5 convention for visual parity. */
+export const ETF_FLOW_XV_TOP_N = 3;
 
 /** Top-N flagged ETFs shown in section #13 (SPEC §8: "N=5 default per panel"). */
 export const ETF_FLOW_FLAGGED_TOP_N = 5;
@@ -2073,6 +2112,43 @@ function renderEtfFlowSection(b: MorningBrief): string {
     }
   }
   lines.push(``);
+  // Gap #9 v2 — cross-validation anomalies sub-section. Renders ONLY when
+  // a secondary panel was provided AND at least one (ticker, date) pair
+  // was actually compared. v1 default (no secondary) AND v2 with empty
+  // intersection BOTH skip this block, preserving back-compat byte-equal
+  // output for v1 fixtures.
+  const xv = e.crossValidation;
+  if (xv != null && xv.totalCompared > 0) {
+    lines.push(`### Cross-validation anomalies (vs ${xv.secondarySourceLabel})`);
+    lines.push(``);
+    if (xv.divergenceCount === 0) {
+      lines.push(
+        `No divergences across ${xv.totalCompared} compared (ticker, date) pairs.`,
+      );
+    } else {
+      const shown = xv.topDivergences.slice(0, ETF_FLOW_XV_TOP_N);
+      lines.push(`| Ticker | Date | Shares Δ% | AUM Δ% | Severity |`);
+      lines.push(`|---|---|---|---|---|`);
+      for (const d of shown) {
+        const sharesStr =
+          `${d.sharesPctDiff >= 0 ? '+' : ''}${(d.sharesPctDiff * 100).toFixed(2)}%`;
+        const aumStr =
+          `${d.aumPctDiff >= 0 ? '+' : ''}${(d.aumPctDiff * 100).toFixed(2)}%`;
+        lines.push(
+          `| ${d.ticker} | ${d.date} | ${sharesStr} | ${aumStr} | ${d.severity} |`,
+        );
+      }
+      const sev = xv.bySeverity;
+      lines.push(``);
+      lines.push(
+        `_${xv.divergenceCount}/${xv.totalCompared} pairs diverged ` +
+        `(${sev.critical} critical · ${sev.warn} warn · ${sev.info} info) · ` +
+        `max shares Δ ${(xv.maxAbsSharesPctDiff * 100).toFixed(2)}% · ` +
+        `max AUM Δ ${(xv.maxAbsAumPctDiff * 100).toFixed(2)}%._`,
+      );
+    }
+    lines.push(``);
+  }
   lines.push(
     `_Universe coverage: ${e.inputsAvailablePerEtf} ETFs · ` +
     `${e.inputsAvailableAggregateSector}/11 sector · ` +

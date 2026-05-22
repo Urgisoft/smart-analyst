@@ -780,6 +780,12 @@ export function buildEtfFlowSection(
     inputsAvailableAggregateBroad: snapshot.inputsAvailableAggregateBroad,
     inputsAvailablePerEtf: snapshot.inputsAvailablePerEtf,
     compositeVersion: snapshot.version,
+    // Gap #9 v2: thread the cross-validation summary through. The snapshot
+    // field is shape-equivalent to BriefEtfFlowCrossValidation by construction
+    // (both extend EtfFlowCrossValidationSummary); a direct copy is safe.
+    // Default to null when the snapshot omits the field (pre-v2 snapshots OR
+    // v2 snapshots with no secondary panel).
+    crossValidation: snapshot.crossValidation ?? null,
   };
 }
 

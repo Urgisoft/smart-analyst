@@ -63,11 +63,30 @@
  *   cross_asset_signals.ts, and executive_departure.ts.
  */
 
+import {
+  compareEtfFlowPanels,
+  summarizeDivergences,
+  type EtfFlowCrossValidationSummary,
+  type EtfFlowPrimaryPoint,
+  type EtfFlowSecondaryPoint,
+} from './etf_flow_cross_validation.js';
+
+export type {
+  EtfFlowCrossValidationSummary,
+  EtfFlowPrimaryPoint,
+  EtfFlowSecondaryPoint,
+};
+
 /** Composite version. Bump on any change to thresholds, universe membership,
  *  window length, baseline construction, or flag-derivation logic. Stored
  *  alongside every snapshot for backtest reproducibility (F-10). */
 export const ETF_FLOW_COMPOSITE_VERSION = 'etf_flow_v1' as const;
 export type EtfFlowCompositeVersion = typeof ETF_FLOW_COMPOSITE_VERSION;
+
+/** Default operator-facing label for the secondary source when `EtfFlowInputs.
+ *  secondarySourceLabel` is not specified. Matches the most-likely first-
+ *  cut wiring (issuer-supplied CSVs — see Gap #9 v2 SPEC OQ resolution). */
+export const DEFAULT_SECONDARY_SOURCE_LABEL = 'issuer-csv';
 
 // ── SPEC §2 / §5-pinned constants (re-tuning bumps composite version) ──────
 
@@ -371,6 +390,22 @@ export interface EtfFlowInputs {
    *  never run. */
   lastYfinanceQueryAt: Date | null;
   perEtf: ReadonlyArray<EtfFlowPerEtfInput>;
+  /** Optional (Gap #9 v2): secondary-source (ticker, date) panel for cross-
+   *  validation. When non-empty AND a `primaryPanel` is also provided, the
+   *  evaluator runs `compareEtfFlowPanels` and stamps the summary onto
+   *  `snapshot.crossValidation`. When omitted OR empty, `crossValidation` is
+   *  null and v1 back-compat is preserved. */
+  secondaryPanel?: ReadonlyArray<EtfFlowSecondaryPoint>;
+  /** Optional primary-source (ticker, date) panel — same shape as the
+   *  secondary panel, BUT representing the yfinance reads that drove the
+   *  per-ETF window. Required IFF `secondaryPanel` is provided; the
+   *  comparator needs symmetric inputs. The repository (A4) assembles both
+   *  from `quantlab.etf_shares_outstanding` filtered by `source`. */
+  primaryPanel?: ReadonlyArray<EtfFlowPrimaryPoint>;
+  /** Optional operator-facing label for the secondary source (e.g.
+   *  `'issuer-csv'`, `'etfcom-scrape'`). Default `'issuer-csv'` when
+   *  `secondaryPanel` is provided without an explicit label. */
+  secondarySourceLabel?: string;
 }
 
 /** Output snapshot — mirrors SPEC §5.3 + CH column shape (see A3 migration). */
@@ -397,6 +432,14 @@ export interface EtfFlowSnapshot {
   inputsAvailableAggregateBroad: number;
   inputsAvailablePerEtf: number;
   version: EtfFlowCompositeVersion;
+
+  /** Gap #9 v2 (optional): cross-validation summary against a secondary
+   *  source. Absent (or null) when no `secondaryPanel` was provided OR when
+   *  the intersection size was zero. Repository round-trip persists this via
+   *  the existing `aggregate_json` blob (zero CH migration; mirrors S95-38
+   *  posture). Pre-v2 snapshots deserialize without the field; the renderer
+   *  + composer dispatch on `crossValidation != null && compared > 0`. */
+  crossValidation?: EtfFlowCrossValidationSummary | null;
 }
 
 // ── Composite orchestrator ─────────────────────────────────────────────────
@@ -504,6 +547,30 @@ export function evaluateEtfFlowComposite(inputs: EtfFlowInputs): EtfFlowSnapshot
     });
   }
 
+  // Gap #9 v2 cross-validation. Runs IFF both panels are provided AND the
+  // secondary panel has at least one row. Empty secondary OR missing primary
+  // ⇒ crossValidation = null (back-compat with v1 fixtures). The summary's
+  // `totalCompared` will report 0 when the intersection is empty even though
+  // both panels are non-empty — operator reads that as "no overlap to check."
+  let crossValidation: EtfFlowCrossValidationSummary | null = null;
+  if (
+    inputs.secondaryPanel != null &&
+    inputs.secondaryPanel.length > 0 &&
+    inputs.primaryPanel != null
+  ) {
+    const { divergences, totalCompared } = compareEtfFlowPanels(
+      inputs.primaryPanel,
+      inputs.secondaryPanel,
+    );
+    if (totalCompared > 0) {
+      crossValidation = summarizeDivergences(
+        divergences,
+        totalCompared,
+        inputs.secondarySourceLabel ?? DEFAULT_SECONDARY_SOURCE_LABEL,
+      );
+    }
+  }
+
   return {
     snapshotDate: inputs.asOf,
     lastYfinanceQueryAt: inputs.lastYfinanceQueryAt,
@@ -521,6 +588,8 @@ export function evaluateEtfFlowComposite(inputs: EtfFlowInputs): EtfFlowSnapshot
     inputsAvailableAggregateBroad,
     inputsAvailablePerEtf,
     version: ETF_FLOW_COMPOSITE_VERSION,
+
+    crossValidation,
   };
 }
 
@@ -551,4 +620,10 @@ export function evaluateEtfFlowComposite(inputs: EtfFlowInputs): EtfFlowSnapshot
  *     ETFs list deduplicates by ticker as a defensive belt-and-suspenders.
  *     A4 repository is expected to deliver one row per ticker; a soft-validate
  *     check could be added but would fight the pure-function discipline.
+ *   - crossValidation field is OPTIONAL on the snapshot (v2 / Gap #9 v2). When
+ *     `inputs.secondaryPanel` is provided, the evaluator runs
+ *     `compareEtfFlowPanels` + `summarizeDivergences` and stamps the summary
+ *     onto `snapshot.crossValidation`. When absent or empty, the field is
+ *     null and back-compat with pre-v2 fixtures is preserved. The renderer
+ *     dispatches on `crossValidation != null && compared > 0`.
  */
