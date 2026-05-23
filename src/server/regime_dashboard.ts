@@ -10,6 +10,16 @@
  *
  * SPEC: docs/specs/regime-dashboard-component3.md (§3).
  *
+ * Canonical-classifier policy: `phase1_v3` is the live source-of-truth across
+ * the brief composer, the `/#/regime` dashboard, every downstream composite,
+ * the live-trade router, and the ADR-044 health-check freshness probe — see
+ * `docs/specs/adr-046-phase1_v3-as-canonical-classifier.md` for the full
+ * architectural pin + v2 → v3 transition chronology. This module imports
+ * `CLASSIFIER_VERSION` from `./macro_regime.js` and MUST NOT hardcode the
+ * `'phase1_v3'` literal in any live read path (forensic docstring + archival
+ * back-references in the `ADR_037_BASELINE` + `BIAS_NOTE_PHASE1_V2` constants
+ * below are explicitly permitted per ADR-046 § watch-outs).
+ *
  * Design split:
  *   - Pure helpers (parseQuery, computeDaysInCurrentRegime, findPreviousRegime,
  *     buildFiveDayWindow, rollUpDistribution) — testable without ClickHouse.
