@@ -1,126 +1,125 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-05-22 (session 96 #7 — **Gap #9 v3.1 SSGA-SPDR adapter SHIPPED**: first slice of the v3.1 issuer-CSV automation arc. 1 commit `5640a46` / 4 files / +1,055 LOC / 17 new pytest sub-tests covering T-SSGA-1..13 + 4 helpers. **Origin/main pushed** at session start (73 commits ago) + 1 new commit since (`5640a46`). **Net 1 unpushed commit.** **NEXT default on `continue`:** operator-pick from the post-XD13 menu — see "Next stage" section. Recommended: Gap #9 v3.1 iShares adapter (sibling to SSGA, next-highest leverage) OR `etf:flow:ssga-spdr:fetch` first-run E2E smoke (operator action; 13 SPDR fetches).
+Last updated: 2026-05-22 (session 96 #8 — **Gap #9 v3.1 OQ-G9-3 wrapper SHIPPED**: `etf:flow:ssga-spdr:refresh` chains fetch → ingest with `--source-label ssga-spdr` plumbed through. 1 commit `46a8d0f` / 2 files / +2 LOC. **iShares ajax endpoints CONFIRMED WAF-gated** (audience-chooser HTML returned under `Content-Type: text/csv` regardless of cookies/headers); **Vanguard JSON API returns 302→error**. Both non-SSGA issuer adapters require either Playwright (new project dep) or operator-supplied session state — both are project-level decisions surfaced here for operator review. **Net 1 unpushed commit** on top of origin/main (`c0cda7c`). **NEXT default on `continue`:** operator-pick from the post-iShares-research menu — see "Next stage" section.
 
 ## What this slice delivered
 
-Implements the first half of the Gap #9 v3.1 arc: SSGA-SPDR navhist XLSX
-→ canonical-CSV adapter. Replaces the manual CSV drop for the 13 SPDR
-ETFs in the F-UNIVERSE (SPY + DIA + 11 sector XL*).
+Closes **OQ-G9-3** (the open question about unifying the SSGA fetch + ingest UX) with a single additive npm script. The two-step pattern remains as the testable foundation; the new `:refresh` script is purely convenience that plumbs the issuer source-label automatically.
 
-### One commit (s96 #7)
+### One commit (s96 #8)
 
-**`5640a46` — Gap #9 v3.1 SSGA-SPDR adapter — navhist XLSX -> canonical CSV + 17 tests.**
-4 files, +1,055 LOC:
+**`46a8d0f` — Gap #9 v3.1 OQ-G9-3 wrapper — etf:flow:ssga-spdr:refresh.**
+2 files, +2 LOC:
 
-- **new** `scripts/etf_flow_ssga_spdr_adapter.py` (+462 LOC).
-  Surface:
-  - `DEFAULT_TICKERS = ("SPY","DIA","XLK","XLF","XLE","XLV","XLY","XLP","XLU","XLI","XLB","XLRE","XLC")`
-    — 13 SSGA-managed SPDRs in the etf_flow_ingest.py F-UNIVERSE.
-  - `NAVHIST_URL_TEMPLATE` — points at SSGA's stable public XLSX path
-    `library-content/products/fund-data/etfs/us/navhist-us-en-{ticker_lower}.xlsx`.
-  - `EXPECTED_R4_HEADERS = ("Date","NAV","Shares Outstanding","Total Net Assets")`
-    — byte-equal anchor for schema validation per CLAUDE.md data-source
-    policy req #1.
-  - `ssga_navhist_url(ticker)` — URL builder; lowercases the ticker.
-  - `fetch_navhist_xlsx(ticker, *, opener=None)` — HTTP GET with a
-    real-browser User-Agent + 30s timeout; `opener` is the test seam.
-  - `NavHistRow` frozen dataclass — (ticker, date, nav,
-    shares_outstanding, total_net_assets).
-  - `parse_navhist_xlsx(body, expected_ticker) → (rows, errors)` —
-    stdlib zipfile + xml.etree parses sheet1.xml + sharedStrings.xml;
-    enforces R2.B ticker anchor + R4 column-header anchor; loud reject
-    on drift; per-row warn-and-continue on bad dates / non-positive
-    numerics. Catches `zipfile.BadZipFile` (HTML error pages from CDN
-    edges) + `ET.ParseError` (malformed XML).
-  - `truncate_to_lookback(rows, lookback_days, today=None)` — keeps
-    rows whose date ≥ today − lookback. `lookback_days <= 0` = pass-through.
-  - `write_canonical_csv(rows, output_path) → int` — sorted by
-    (ticker, date) ascending; auto-mkdir parent dir; emits exactly
-    the 4-column canonical schema the downstream
-    `etf_flow_issuer_csv_ingest.py` expects.
-  - `ingest_all(tickers, output_path, *, apply_mode, lookback_days,
-    today=None, fetcher=None) → summary` — orchestrator. Behavioral
-    contract: per-ticker failures (fetch OR parse) warn-and-continue;
-    ALL-tickers-fail returns `ok=False` AND does NOT overwrite the CSV
-    (preserves last-good per CLAUDE.md fallback discipline); partial
-    success writes the CSV with the successful tickers' union.
-  - `main(argv=None) → int` — argparse + dispatch. Exits 0 on partial
-    success (at least one ticker OK), 1 on all-fail.
+- **modified** `package.json` (+1 LOC). One new npm script:
+  - `etf:flow:ssga-spdr:refresh` — runs
+    `.venv\Scripts\python.exe scripts/etf_flow_ssga_spdr_adapter.py --apply`,
+    then on success runs
+    `.venv\Scripts\python.exe scripts/etf_flow_issuer_csv_ingest.py --source-label ssga-spdr --apply`.
+    `&&`-chain semantics: ingest is skipped on fetch failure (per the
+    SSGA adapter's exit-1-on-all-fail contract from S96-32; downstream
+    CH `ReplacingMergeTree(ingested_at)` preserves the last-good row
+    set even when today's ingest is skipped).
+- **modified** `scripts/help.ts` (+1 LOC). One new EXTRA_HELP entry
+  for the wrapper.
 
-- **new** `scripts/tests/test_etf_flow_ssga_spdr_adapter.py` (+319 LOC).
-  17 sub-tests (T-SSGA-1..13 + 4 helpers). Fixture builder
-  `_build_xlsx(ticker, headers, data_rows)` constructs XLSX bytes
-  in-memory via stdlib zipfile so the suite is hermetic — no on-disk
-  fixtures, no openpyxl dep. Tests cover:
-  - T-SSGA-1: URL builder lowercases ticker.
-  - T-SSGA-2: DEFAULT_TICKERS is exactly the 13-SPDR universe (anchor
-    against accidental drift).
-  - T-SSGA-3: happy-path parse → 3 NavHistRow.
-  - T-SSGA-4: R2.B ticker anchor mismatch → file rejected.
-  - T-SSGA-5: R4 header drift → file rejected.
-  - T-SSGA-6: non-positive NAV row skipped; others kept.
-  - T-SSGA-7: bad date string row skipped.
-  - T-SSGA-8: not-a-ZIP body rejected (HTML CDN edge case).
-  - T-SSGA-9 (+ helper): lookback truncation; zero = pass-through.
-  - T-SSGA-10 (+ helper): write_canonical_csv sorted-and-deterministic;
-    output is re-parseable by `etf_flow_issuer_csv_ingest.parse_csv_file`
-    (round-trip contract).
-  - T-SSGA-11: partial success writes CSV with successful tickers only.
-  - T-SSGA-12: all-fail does NOT overwrite a pre-seeded CSV.
-  - T-SSGA-13 (+ helper): main() returns 1 on all-fail / 0 on partial.
+### Why this slice (not the HANDOFF-recommended iShares adapter)
 
-- **modified** `package.json` (+2 LOC). Two npm scripts:
-  - `etf:flow:ssga-spdr:fetch` — `--apply`.
-  - `etf:flow:ssga-spdr:fetch:dry` — `--dry-run`.
+The previous HANDOFF (s96 #7) flagged iShares as the next-recommended
+slice on the v3.1 arc. Pre-implementation research uncovered two
+findings that change the v3.1 arc-shape for ALL non-SSGA issuers:
 
-- **modified** `scripts/help.ts` (+2 LOC). Two EXTRA_HELP entries for
-  check:help compliance.
+**Finding 1 — iShares ajax endpoints are WAF-gated.** Confirmed
+empirically against the documented endpoint:
 
-### What this slice does NOT ship
+```text
+GET https://www.ishares.com/us/products/239726/ishares-core-sp-500-etf/\
+    1467271812596.ajax?fileType=csv&fileName=IVV_performance&dataType=fund
+HTTP/1.1 200 OK
+Content-Type: text/csv;charset=UTF-8
+content-disposition: attachment; filename=IVV_performance.csv
+<body>: 10.4 MB of HTML (the audience-chooser page)
+```
 
-- **No live SSGA fetch run.** The adapter ships hermetic; the operator
-  runs `npm run etf:flow:ssga-spdr:fetch` to produce the first
-  ssga-spdr.csv. Out of scope for this slice (no destructive impact,
-  but a 13-fetch network burst that the operator may want to schedule
-  alongside the daemon cycle).
-- **No iShares adapter.** iShares is the second-largest issuer in the
-  F-UNIVERSE (IVV + IWM). Next-slice candidate.
-- **No Vanguard / Invesco adapters.** VOO + QQQ. Lower priority — only
-  2 tickers each.
-- **No HYG / JNK / TLT / GLD adapters.** Different issuers
-  (BlackRock/State Street/Invesco/State Street); requires per-issuer
-  research.
-- **No daemon hook.** The adapter is operator-cadence (manual `npm
-  run`); daemon integration is a v3.2 candidate.
-- **No automatic source_label propagation.** Operator must pass
-  `--source-label ssga-spdr` on the downstream `etf:flow:issuer-csv:ingest`
-  for the SSGA rows to be labelled correctly. The two scripts are
-  intentionally decoupled.
+The response headers correctly advertise CSV but the body is the
+audience-selection HTML page regardless of:
+- Real-browser User-Agent (Chrome/126 string),
+- `Accept: text/csv` + `Referer: <product page URL>`,
+- Cookies (`userType=individual`, `siteEntryPassthrough=true`,
+  `segment=individual`, etc.) — both pre-seeded and curl-managed jar.
+- `dataType` variants: `fund`, `fund.performance`, `fund.holdings`.
+
+The WAF gate is server-side body substitution; bypass requires either
+a real browser session (Playwright + click-through the audience modal
+to acquire signed session cookies) OR a different upstream entirely.
+
+**Finding 2 — Vanguard public JSON API returns 302→error.** The
+documented `api.vanguard.com/rs/gre/gra/.../auw-retail-listview-data.jsonp`
+endpoint returns:
+
+```text
+HTTP/1.0 302 Moved Temporarily
+Location: http://error.vanguard.com/telecom-bounce.html?Errcode=3004
+```
+
+Server is `BigIP` — Vanguard's WAF / load-balancer rejects requests
+without a session cookie or correct Origin. Same shape of problem as
+iShares: requires browser-emulated session OR alternate upstream.
+
+**Implication for the v3.1 arc.** The arc shape is now:
+- ✓ SSGA-SPDR (s96 #7) — static-XLSX endpoint, direct-HTTP works,
+  hermetic tests, stable URL pattern. **Pattern works for issuers
+  with static unauthenticated CDN.**
+- ☐ iShares (IVV + IWM) — needs Playwright OR alternate upstream.
+- ☐ Vanguard (VOO) — needs Playwright OR alternate upstream.
+- ☐ Invesco (QQQ) — untested but likely same WAF shape.
+- ☐ HYG/JNK/TLT/GLD — different issuers; per-issuer research needed.
+
+The v3.1 arc continuation is a **project-level decision** for the
+operator: do we add Playwright as a project dep (the data-source
+policy authorizes "public-source scraping via Playwright", and these
+pages ARE publicly reachable, but adding Playwright is hundreds of MB
+of browser binaries + a fundamentally new tool surface), OR do we look
+for alternative upstreams (FRED EFT data? An ETF.com per-fund daily
+shares CSV? yfinance is already the v1 primary, so we'd want a
+DIFFERENT secondary)?
+
+The s96 #8 slice picks the smallest defensible consolidation move
+(OQ-G9-3 wrapper) instead of locking in the Playwright decision
+unilaterally. Per CLAUDE.md autonomous-execution §"Canon-thin
+methodology forks", the three-criterion test:
+
+1. **Canon foundations** — data-source policy authorizes both direct
+   HTTP and Playwright. Equal.
+2. **Methodology rigor** — adding Playwright is a new project tool
+   surface (browser-version drift, headless flags, page-render
+   timing). The wrapper slice is pure composition over two
+   production-tested scripts. Wrapper wins.
+3. **Minimum free parameters** — Playwright introduces {browser,
+   headless, viewport, timeout, retry-on-render}. Wrapper introduces
+   zero new knobs. Wrapper wins.
+
+All three criteria favor the wrapper. Decision locked autonomously
+per protocol; full operator review here.
 
 ### Verification gates at commit time (all green)
 
 ```text
-.venv/Scripts/python.exe -m pytest scripts/tests   # 394 pass (was 377; +17 new)
+.venv/Scripts/python.exe -m pytest scripts/tests   # 394 pass (unchanged from s96 #7)
 npm test                                            # 3092 pass / 1 fail (pre-existing) / 33 skip
 npx tsc --noEmit                                    # 13 baseline errors unchanged
 npm run check:help                                  # green
 ```
 
-Pass-count diff +17 = exactly the new sub-tests in this slice. No
-regressions. The single npm-test failure is the carry-forward
-`gicsSectorRepositoryHelper SMP-6` infra-side EXPLAIN PLAN rejection.
+The single npm-test failure is the carry-forward `gicsSectorRepositoryHelper
+SMP-6` infra-side EXPLAIN PLAN rejection — unchanged from s96 #7.
 
 ### Push state
 
-- Session 96 #1..#6's 73-commit backlog was pushed to `origin/main` at
-  the start of this session (push `1390fd9..64adf52`).
-- This slice's commit `5640a46` is **1 commit ahead of origin/main**.
-- Push is operator-gated by default but the operator explicitly
-  authorized "also push the changes" at this session's start. The
-  initial 73-commit push has been performed. Whether the new commit
-  should also be pushed in this session is at operator discretion —
-  the session-start authorization could reasonably be read either way.
+- Session 96 #1..#7 commits all pushed to `origin/main` (most recent
+  `c0cda7c` — s96 #7 HANDOFF rewrite).
+- This slice's commit `46a8d0f` is **1 commit ahead of origin/main**.
+- Push is operator-gated.
 
 ## Where we are
 
@@ -143,134 +142,131 @@ regressions. The single npm-test failure is the carry-forward
 | Gap #9 v2 ETF.com/issuer-CSV cross-validation FRAMEWORK | ✓ s95 #8 |
 | Gap #9 v3 issuer-CSV live secondary panel ingest | ✓ s95 #9 (GAP #9 ARC FULLY CLOSED v1+v2+v3) |
 | Gap #7 v2 Schedule 13D/13G arc — A1..A5 | ✓ s96 #1-#6 (XD13 ARC FULLY CLOSED) |
-| **Gap #9 v3.1 SSGA-SPDR navhist adapter** | **✓ s96 #7 (`5640a46`) — FIRST issuer-specific adapter LIVE** |
-| Gap #9 v3.1 iShares adapter (IVV + IWM) | ☐ NEXT-recommended sibling slice |
-| Gap #9 v3.1 Vanguard adapter (VOO) | ☐ deferred (1 ticker, lower leverage) |
-| Gap #9 v3.1 Invesco adapter (QQQ) | ☐ deferred (1 ticker) |
+| Gap #9 v3.1 SSGA-SPDR navhist adapter | ✓ s96 #7 (`5640a46`) |
+| **Gap #9 v3.1 OQ-G9-3 SSGA-SPDR refresh wrapper** | **✓ s96 #8 (`46a8d0f`) — OQ-G9-3 CLOSED** |
+| **Gap #9 v3.1 iShares adapter (IVV + IWM)** | **⛔ blocked-on-Playwright-decision (operator)** |
+| **Gap #9 v3.1 Vanguard adapter (VOO)** | **⛔ blocked-on-Playwright-decision (operator)** |
+| Gap #9 v3.1 Invesco adapter (QQQ) | ☐ untested; likely same WAF shape |
+| OQ-G9-2 SSGA daemon hook | ☐ deferred (~50 LOC + 1-2 tests, operator cadence-sign-off) |
 | Gap #7 v2 CMP opportunistic-vs-routine classifier (per F4-1) | ☐ deferred (calendar-gated ≥6mo from F4-A1 first apply) |
 | Gap #7 v2 event-driven cadence promotion | ☐ deferred (Phase B-gated) |
 | C-12 Phase B (AlpacaAdapter) | ⏸ INDEFINITELY PAUSED |
 | Phase B campaigns for nine Layer-0 composites | ⏸ deferred — calendar OR backfill arc |
 | #5 capital-deployment-ramp ADR | ☐ operator self-assigned ~1 week; not blocking |
 | Drawdown framework §12 90d empirical retune | ☐ scheduled — earliest 2026-08-29 |
-| Push s96 #7 commit to origin/main | ☐ operator-gated (1 commit) |
+| Push s96 #8 commit to origin/main | ☐ operator-gated (1 commit) |
 
 ## Decisions locked in
 
-### Session 96 #7 (this slice)
+### Session 96 #8 (this slice)
 
-**S96-28. SSGA navhist (not holdings, not product-data) is the canonical
-source for `(ticker, date, shares, close)`.** Three SSGA endpoints
-were evaluated:
-- `holdings-daily-us-en-{ticker}.xlsx` → per-stock holdings, no
-  fund-level shares-outstanding or NAV. Wrong source.
-- `spdr-product-data-us-en.xlsx` → all-SPDR-funds single file with
-  shares + NAV but ONLY current day. Not viable for the cross-
-  validation lookback window.
-- `navhist-us-en-{ticker}.xlsx` → per-ETF, ~22 years of daily history,
-  clean 4-column table (Date | NAV | Shares Outstanding | Total Net
-  Assets). NAV → canonical `close`; Shares Outstanding → canonical
-  `shares`. WINNER.
-`Why:` The cross-validation panel needs historical lookback to seed
-the comparator; only navhist carries multi-year per-ETF history.
-Product-data is useful as a daily-refresh add-on (v3.2 candidate)
-but not a substitute.
-`How to apply:` Future SPDR adapter work that needs current-day
-snapshots across MANY tickers (e.g. a daily heartbeat) should
-revisit product-data. Future adapter work that needs HISTORY for a
-single ticker should follow the navhist pattern established here.
+**S96-33. iShares ajax endpoints are WAF-gated; direct-HTTP path
+blocked.** Confirmed empirically against
+`https://www.ishares.com/us/products/239726/ishares-core-sp-500-etf/1467271812596.ajax?fileType=csv&fileName=IVV_performance&dataType=fund`.
+Server returns 200 + `Content-Type: text/csv` + `content-disposition:
+attachment; filename=IVV_performance.csv` headers BUT body is the
+10.4 MB audience-chooser HTML page regardless of User-Agent / Referer /
+Cookies / Accept / dataType variant. Bypassing requires either a real
+browser session (Playwright + click-through audience modal to acquire
+signed session state) or an alternate upstream.
+`Why:` Documenting this finding here so the next session does not
+re-discover it. The empirical state of the iShares public ajax surface
+is stable enough to lock in — three-criterion testing of every dataType
++ cookie combination consistently returns the HTML chooser.
+`How to apply:` Future iShares-adapter slices MUST start from one of
+three branches: (a) Playwright-based adapter, (b) alternate upstream
+(holdings CSVs, FRED ETF data, etc.), or (c) operator-supplied
+session-cookie state with explicit acknowledgement that this is
+"adjacent to authenticated scraping" per data-source policy framing.
+Direct-HTTP is dead for iShares.
 
-**S96-29. Direct HTTP (urllib) over Playwright for SSGA — canon-thin
-methodology fork resolved per CLAUDE.md autonomous-execution.**
-Three-criterion test:
-1. Canon foundations — data-source policy equally authorizes direct
-   free APIs and Playwright public-source scraping.
-2. Methodology rigor — HTTP is deterministic + testable; no browser-
-   version drift, no headless-mode flags, no page-render timing.
-3. Free parameters — HTTP has zero tunable knobs vs Playwright's
-   {browser, viewport, timeout, retry-on-render, headless}.
-All three favor HTTP. The hundreds-of-MB browser-binary dep is also
-avoided.
-`Why:` The HANDOFF wording "Playwright adapter" was aspirational
-naming; the actual SSGA endpoint is a static XLSX at a stable URL.
-The lighter tool that gets the data is preferred per the spirit of
-the data-source policy.
-`How to apply:` Future issuer-adapter slices (iShares, Vanguard,
-Invesco) should follow the same "try direct HTTP first, fall back to
-Playwright only if the page requires JS rendering" pattern. The
-upstream URL pattern's stability is the key check.
+**S96-34. Vanguard public JSON API is BigIP-gated; direct-HTTP path
+blocked.** Confirmed empirically against
+`https://api.vanguard.com/rs/gre/gra/1.7.0/datasets/auw-retail-listview-data.jsonp?fund_id_filter=0968`.
+Server: `BigIP`. Returns 302 → `error.vanguard.com/telecom-bounce.html?Errcode=3004`.
+Same shape as the iShares finding: needs browser-emulated session
+state or alternate upstream.
+`Why:` Same as S96-33 — documenting the empirical state.
+`How to apply:` Future Vanguard-adapter slices need the same branch
+decision as iShares.
 
-**S96-30. Stdlib zipfile + xml.etree (NOT openpyxl) for XLSX parsing.**
-The navhist XLSX layout is fixed (R1 Fund Name, R2 Ticker Symbol,
-R4 column headers, R5+ data). A 60-LOC stdlib parser handles it.
-openpyxl would add a ~5MB pure-Python dep that bought nothing —
-we don't need its formula evaluator, style engine, or workbook-write
-APIs.
-`Why:` Minimal-deps preference + the parser is small enough to live
-inside the adapter file without becoming a maintenance burden.
-`How to apply:` If a future adapter needs richer XLSX features
-(merged cells, formulas, multi-sheet navigation), reconsider
-openpyxl then. For the simple-tabular case, stdlib wins.
+**S96-35. v3.1 arc continuation is a project-level decision.** Given
+S96-33 + S96-34, the question "do we add Playwright as a project dep
+to unblock iShares + Vanguard + Invesco?" is no longer a slice-level
+decision — it's a project-level decision. The CLAUDE.md data-source
+policy authorizes "Public-source scraping via Playwright" and iShares
+fund pages ARE publicly reachable (no login UI), but adding Playwright
+is:
+- Hundreds of MB of browser binaries pulled into the project tree.
+- A new tool surface (browser-version drift, headless flags, page-
+  render timing, retry-on-render).
+- A potential CI / dev-setup tax (Playwright install commands per
+  environment).
+The s96 #8 slice surfaces this decision instead of locking it in.
+`Why:` Per CLAUDE.md "Hard stops — surface to operator before
+proceeding" list, "vendor onboarding" is operator-gated; adding
+Playwright as a dep is adjacent to that list-item even though it's
+not a paid sub. The autonomous protocol explicitly says "anything
+affecting real-money execution path" is gated, and the v3.1 secondary
+panel feeds the cross-validation comparator that the operator's
+real-money flip gate watches — so the dep choice has real-money
+implications even if Playwright itself is just a tool.
+`How to apply:` Operator decides between branches A (Playwright dep)
+/ B (alternate upstreams) / C (operator-supplied session state) /
+D (defer the v3.1 arc for non-SSGA issuers; SSGA is the only one
+that gets automation for now). The next session reads the operator's
+pick from a HANDOFF update.
 
-**S96-31. Schema-anchor strategy: byte-equal on R2.B (ticker) + R4.A..D
-(column headers); per-row skip-with-warn on bad data.** The two
-file-level anchors are LOAD-BEARING — drift on either rejects the
-WHOLE file (per CLAUDE.md req #1 "loud parse failures"). Row-level
-failures (non-positive NAV, bad date) skip-with-warn so an SSGA
-back-revision affecting one row doesn't lose 22 years of history.
-`Why:` This is the standard discipline the issuer-csv consumer
-already enforces (REQUIRED_COLUMNS in `etf_flow_issuer_csv_ingest.py`).
-Two-level granularity matches the failure modes — schema drift is
-a "stop everything" event; one bad row is a "log + carry on" event.
-`How to apply:` Future issuer adapters MUST replicate this two-level
-discipline. Anchors should be byte-equal (not regex-match) to catch
-even cosmetic upstream changes.
+**S96-36. OQ-G9-3 wrapper closes the open question with a single
+additive npm script (not a refactor of the two-step pattern).** The
+HANDOFF (s96 #7) framed OQ-G9-3 as "should the issuer adapter and the
+issuer-csv ingester unify into a single command" — locked here as
+"add a wrapper; DON'T fold the two scripts together." The two-step
+pattern remains as the testable foundation; the wrapper is purely
+convenience that plumbs the correct `--source-label ssga-spdr` so
+the operator can't silently produce mis-labelled rows.
+`Why:` The two-step pattern has independent testability value (the
+adapter can be tested without CH; the ingester can re-process old
+CSVs without re-fetching). Folding them would lose that. The wrapper
+is the strictly-additive resolution.
+`How to apply:` Future issuer-adapter slices (whichever branch S96-35
+resolves to) should follow this same pattern — ship adapter + ingest
+as two scripts, then add a `:refresh` wrapper that chains them with
+the correct `--source-label` plumbed through. Default wrapper-name
+convention: `etf:flow:<issuer>:refresh`.
 
-**S96-32. All-tickers-fail preserves last-good CSV; partial success
-overwrites.** When the adapter cannot fetch OR parse ANY ticker, it
-exits 1 WITHOUT touching the existing `ssga-spdr.csv`. The downstream
-`etf_flow_issuer_csv_ingest.py` re-reads the prior CSV; the CH
-table's `ReplacingMergeTree(ingested_at)` preserves the last-good
-ingested_at for those rows.
-`Why:` Avoids silently emptying the secondary panel when SSGA's CDN
-has a global outage. Matches CLAUDE.md fallback-to-cached-last-good
-discipline (req #3).
-`How to apply:` T-SSGA-12 anchors this contract. Future issuer
-adapters MUST replicate. Partial-failure CSVs ARE written (T-SSGA-11)
-because the downstream ingest's per-row idempotency already handles
-"ticker X present today, absent tomorrow" cleanly.
-
-**Carry-overs (still in force):** S96-1..S96-27 (all s96 #1-#6
+**Carry-overs (still in force):** S96-1..S96-32 (all s96 #1-#7
 decisions); S95-1..S95-50; S94-1..S94-33; S93-1..S93-54; all prior
 s73-s92 lock-ins.
 
 ## Open questions
 
-### Newly opened (s96 #7)
+### Newly opened (s96 #8)
 
-**OQ-G9-2 (NEW).** What's the right cadence for SSGA navhist fetch?
-SSGA updates `navhist` daily (after market close). The adapter ships
-operator-cadence (manual `npm run`); the obvious next move is to
-chain it into `daemon:daily` so the cross-validation panel stays
-warm without operator intervention. The trade-off is a 13-fetch
-network burst (~3 MB) on every daemon cycle — minor cost, but worth
-operator sign-off before wiring. Recommendation: chain after the
-existing `etf:flow:ingest` (yfinance primary) so both panels refresh
-in the same cycle. Defer to operator.
+**OQ-G9-4 (NEW, PROJECT-LEVEL).** v3.1 arc continuation strategy for
+non-SSGA issuers. Four branches, all defensible:
+- **Branch A — add Playwright** as a project dep; build the iShares
+  + Vanguard + Invesco adapters as browser-driven. Cost: setup tax,
+  ~hundreds of MB of binaries, new tool surface. Benefit: unlocks all
+  WAF-gated issuers under one consistent pattern.
+- **Branch B — alternate upstreams.** iShares holdings CSVs are
+  served at different URLs and MAY be more permissive; FRED has some
+  ETF AUM series; ETF.com publishes a per-fund daily snapshot that
+  may include shares-outstanding. Cost: per-issuer research; some
+  upstreams may not exist. Benefit: stays in direct-HTTP land
+  (deterministic + lighter).
+- **Branch C — operator-supplied session state.** Operator logs in
+  via browser once, copies session cookies, drops them into a config
+  file the adapters read. Cost: feels "adjacent to authenticated
+  scraping" per data-source policy; manual re-up per cookie expiry.
+  Benefit: minimal new tool surface.
+- **Branch D — defer.** SSGA covers 13/21 of the F-UNIVERSE (62%);
+  the cross-validation panel is already populated for those. Defer
+  the remaining 8 tickers until v3.2 or a real need surfaces.
+  Cost: incomplete coverage of v3.1 arc. Benefit: zero new work; no
+  project-level dep decision.
 
-**OQ-G9-3 (NEW).** Should the issuer adapter and the issuer-csv
-ingester unify into a single command (`npm run etf:flow:ssga-spdr`)?
-Currently the operator runs two commands:
-  1. `npm run etf:flow:ssga-spdr:fetch` (writes CSV)
-  2. `etf_flow_issuer_csv_ingest.py --source-label ssga-spdr --apply`
-     (reads CSV, writes CH)
-The two-step pattern preserves clean separation (fetch can be tested
-without CH; ingest can re-process old CSVs without re-fetching) but
-the operator UX is suboptimal. Recommendation: add a wrapper npm
-script that chains both with `--source-label` plumbed through.
-Defer to operator preference — both patterns have merit.
-
-### CARRIED (unchanged from s96 #6)
+### CARRIED (unchanged from s96 #7)
 
 - **OQ-XD13-1.** Phase B independence-test threshold for form-type-only
   signal. Estimated gate: ~6-8 weeks of `schedule_13d_g_filings`
@@ -281,7 +277,16 @@ Defer to operator preference — both patterns have merit.
 - **OQ-XD13-3.** Sector-only vs cap-tier-overlay aggregate slicing.
   UNCHANGED.
 - **OQ-G9-1.** Issuer-specific schema mappers. SSGA mapper SHIPPED
-  this slice; iShares + Vanguard + Invesco still open.
+  s96 #7; iShares + Vanguard + Invesco BLOCKED on OQ-G9-4.
+- **OQ-G9-2.** SSGA daemon-cadence hook. ~50 LOC + 1-2 tests;
+  operator sign-off on the 13-fetch-per-day burst. Independent of
+  OQ-G9-4 — could ship in either direction.
+
+### CLOSED (s96 #8)
+
+- **OQ-G9-3 → CLOSED.** Resolved by adding the additive wrapper
+  (`etf:flow:ssga-spdr:refresh`) rather than folding the two scripts.
+  Two-step pattern remains; wrapper is convenience layer.
 
 ### CARRIED (long-running)
 
@@ -294,8 +299,7 @@ Defer to operator preference — both patterns have merit.
 - Sharadar SF1 subscription — blocked (paid).
 - Compounding-live-equity backtest semantic (ADR-class).
 - 78,399 zero-trade sentinels in `bt_runs_regime` (deferred).
-- Push commits to origin/main — operator-gated (1 unpushed; 73-commit
-  backlog PUSHED at s96 #7 session start).
+- Push commits to origin/main — operator-gated (1 unpushed).
 - First-apply-run EDGAR Item-filter OR-clause behavior — XML-body
   half closed s95 #3; Item-filter half still open.
 - Cold-start cascade timing for EK + F4 + XD13 arcs (~6-8 weeks of
@@ -307,72 +311,70 @@ Defer to operator preference — both patterns have merit.
 
 ### Default on `continue` — operator-pickable
 
-No single dominant next slice. Operator-pick from this menu
-(recommended order):
+OQ-G9-4 is the bottleneck. **Recommended primary action: operator
+picks a branch (A/B/C/D) in OQ-G9-4.** Until that's decided, the
+non-SSGA v3.1 work cannot proceed.
 
-1. **Gap #9 v3.1 iShares adapter** (sibling slice). IVV + IWM are the
-   two iShares ETFs in the F-UNIVERSE. iShares publishes a daily CSV
-   per-fund (different file format from SSGA's XLSX; more native to
-   their workflow). Estimated ~250-300 LOC + ~15 sub-tests. Pattern
-   from this SSGA slice (S96-31 + S96-32 disciplines) applies
-   directly. **Highest leverage** remaining among the v3.1 issuer
-   adapters.
+Operator-pickable from this menu (recommended order):
 
-2. **First-run E2E smoke of `etf:flow:ssga-spdr:fetch`** (operator
-   action). Run the new adapter against live SSGA. Expected output:
-   13 ticker fetches → `data/etf_flow_issuer_csv/ssga-spdr.csv` with
-   ~13 × 365 = ~4,745 rows (default lookback). Then:
-   `etf_flow_issuer_csv_ingest.py --source-label ssga-spdr --apply`.
-   Operator action because it's a real-network burst + a one-time
-   validation of the parser against the live SSGA file shape (vs the
-   hermetic test fixtures).
+1. **OPERATOR DECISION: OQ-G9-4 branch pick.** Without this, the
+   v3.1 arc can't proceed for iShares/Vanguard/Invesco. Lowest-cost
+   options: pick D (defer) to free the next session for non-v3.1
+   work, OR pick B (alternate upstreams) to start per-issuer research.
 
-3. **Vanguard adapter (VOO)** — 1 ticker; smaller scope (~150 LOC).
-   Vanguard publishes shares-outstanding via their fund-data API
-   (JSON, not XLSX). Different parser entirely.
+2. **OQ-G9-2 SSGA daemon hook** (independent of OQ-G9-4). Wire
+   `etf:flow:ssga-spdr:refresh` (NEW s96 #8) or `:fetch` into
+   `daemon:daily` so the SSGA panel stays warm without operator
+   intervention. ~30-50 LOC + 1-2 tests. Operator-sign-off needed
+   on the 13-fetch-per-day burst (~3 MB/day).
 
-4. **Invesco adapter (QQQ)** — 1 ticker; similar scope to Vanguard.
+3. **First-run E2E smoke of `etf:flow:ssga-spdr:refresh`** (operator
+   action). Run the new wrapper against live SSGA. Validates:
+   (a) the SSGA adapter against the current live navhist file shape
+   (vs the hermetic test fixtures from s96 #7),
+   (b) the `--source-label ssga-spdr` plumbing,
+   (c) the CH ingest end-to-end.
 
-5. **Phase B-gated** (no code possible today):
+4. **Phase B-gated** (no code possible today):
    - Gap #7 v2 event-driven cadence promotion.
    - Phase B campaigns for the nine Layer-0 composites.
    - Schedule 13D/G Phase B independence test (earliest ~2026-07-20).
 
-6. **Calendar-gated**:
+5. **Calendar-gated**:
    - Form 4 CMP opportunistic-vs-routine classifier v2 ADR (earliest
      ~2026-11-20).
    - Event-driven cadence v2 ADR (earliest ~2026-08-20).
    - Drawdown framework §12 90d empirical retune (earliest 2026-08-29).
 
-7. **C-12 Phase B AlpacaAdapter** (operator-decision; paused
+6. **C-12 Phase B AlpacaAdapter** (operator-decision; paused
    indefinitely).
 
-8. **Quartz docs site extensions** — live dashboard watcher, teach-
+7. **Quartz docs site extensions** — live dashboard watcher, teach-
    doc frontmatter rollout, promote ADR-040 status, etc.
 
-9. **Renderer docstring refresh** — `operator_brief_render.ts` has
+8. **Renderer docstring refresh** — `operator_brief_render.ts` has
    small stale comments for the EK section (s95 #7 carry).
-
-10. **OQ-G9-2 / OQ-G9-3 follow-ups** — daemon hook for SSGA fetch
-    (~50 LOC + 1-2 tests) + unified wrapper npm script (~5 LOC). Tiny
-    slices, suitable as warm-up before bigger work.
 
 ### Operator-gated action items
 
-**NEW from s96 #7:**
+**NEW from s96 #8:**
 
-- (new) Run `npm run etf:flow:ssga-spdr:fetch:dry` for a parse-and-
-  count smoke before the first live run. Validates the parser against
-  the current SSGA file shape (the hermetic tests don't exercise the
-  byte-equal anchors against real SSGA bytes).
-- (new) Run `npm run etf:flow:ssga-spdr:fetch` to populate the first
-  `data/etf_flow_issuer_csv/ssga-spdr.csv`.
-- (new) Run `.venv/Scripts/python.exe scripts/etf_flow_issuer_csv_ingest.py
-  --source-label ssga-spdr --apply` to ingest SSGA rows into
-  `quantlab.etf_shares_outstanding_secondary` with the correct source
-  label.
-- (new, optional) Decide on OQ-G9-2 (daemon cadence) + OQ-G9-3
-  (wrapper npm script). Both are tiny follow-up slices.
+- (new, IMPORTANT) Decide OQ-G9-4 branch (A/B/C/D). Without this,
+  half the v3.1 arc is parked.
+- (new, recommended) Run `npm run etf:flow:ssga-spdr:refresh`
+  end-to-end smoke. This is the natural first-run of the new wrapper.
+  Expected: 13 SPDR fetches (~3 MB total) → ssga-spdr.csv → CH
+  insert with `source='ssga-spdr'`. Validates SSGA byte-equal anchors
+  against live file shape + the wrapper's argv plumbing.
+
+**CARRIED from s96 #7:**
+
+- (carried) Run `npm run etf:flow:ssga-spdr:fetch:dry` for a parse-
+  and-count smoke before the first live run. Validates the parser
+  against the current SSGA file shape (the hermetic tests don't
+  exercise the byte-equal anchors against real SSGA bytes). Note:
+  partially obviated by the s96 #8 `:refresh` wrapper, which does the
+  full real run.
 
 **CARRIED (unchanged from s96 #6):**
 
@@ -382,110 +384,87 @@ No single dominant next slice. Operator-pick from this menu
    `migrate:add-sell-cluster-form-4-insider-snapshots:apply`,
    `migrate:add-max-z-{executive-departure,eight-k-classifier,form-4-insider}-snapshots:apply` (×3),
    `migrate:create-etf-shares-outstanding-secondary:apply`).
-- (carried) Create `data/etf_flow_issuer_csv/` (will be auto-created
-  by the SSGA adapter on first apply-run, but operator may want to
-  pre-create + add to a backup rotation).
+- (carried) Create `data/etf_flow_issuer_csv/` (auto-created by the
+  SSGA adapter on first apply-run).
 - (carried) Push 1 unpushed commit to origin/main (operator
-  discretion; auth at session start was for the 73-commit backlog +
-  this slice's commit ambiguously).
+  discretion).
 - (carried) Drawdown framework §12 90d empirical retune — earliest
   2026-08-29.
 
 ## Files / code state
 
-### NEW + modified this slice (s96 #7 — 1 commit)
+### NEW + modified this slice (s96 #8 — 1 commit)
 
 | Path | LOC | Notes |
 | --- | --- | --- |
-| `scripts/etf_flow_ssga_spdr_adapter.py` | +462 | NEW Python adapter. Constants + URL builder + HTTP fetcher + XLSX parser (stdlib zipfile + xml.etree) + canonical-CSV writer + orchestrator + argparse main(). |
-| `scripts/tests/test_etf_flow_ssga_spdr_adapter.py` | +319 | NEW test file. 17 sub-tests (T-SSGA-1..13 + 4 helpers). Hermetic XLSX fixtures built in-memory via zipfile. |
-| `package.json` | +2 | NEW npm scripts `etf:flow:ssga-spdr:fetch` + `:dry`. |
-| `scripts/help.ts` | +2 | NEW EXTRA_HELP entries for check:help compliance. |
+| `package.json` | +1 | One new npm script `etf:flow:ssga-spdr:refresh` chaining the s96 #7 SSGA fetch into the issuer-csv ingest with `--source-label ssga-spdr` plumbed through. `&&`-chain (ingest skipped on fetch failure). |
+| `scripts/help.ts` | +1 | One new EXTRA_HELP entry for `etf:flow:ssga-spdr:refresh`. |
 
 ### CH state (no apply this slice — operator-gated)
 
-All s96 #6 carry-overs unchanged. No new migrations from this slice.
+All s96 #6-#7 carry-overs unchanged. No new migrations from this slice.
 
-### Tests (new this slice)
+### Tests (no new tests this slice)
 
-- `scripts/tests/test_etf_flow_ssga_spdr_adapter.py`: +17 active
-  sub-tests.
-- Full pytest at commit time: 394 passed (was 377; +17 new).
+The wrapper is a pure npm-script composition over two production-
+tested scripts (s96 #7 SSGA adapter + s95 #9 issuer-csv ingester).
+No new code paths to test. Both upstream test suites remain green:
+
+- `scripts/tests/test_etf_flow_ssga_spdr_adapter.py`: 17 sub-tests.
+- `scripts/tests/test_etf_flow_issuer_csv_ingest.py`: (carry-over).
+- Full pytest at commit time: 394 passed (unchanged from s96 #7).
 - Full npm test at commit time: 3092 passed / 1 fail (pre-existing
   CH-side EXPLAIN PLAN gate on `gicsSectorRepositoryHelper`, NOT a
   regression) / 33 skipped (unchanged).
 - `npx tsc --noEmit` baseline: 13 errors unchanged.
-- `npm run check:help`: green.
+- `npm run check:help`: green (new EXTRA_HELP entry matches new
+  package.json script).
 
 ## Watch-outs
 
-### NEW from this turn (s96 #7)
+### NEW from this turn (s96 #8)
 
-- **SSGA URL drift.** If SSGA renames `navhist-us-en-{ticker}.xlsx`,
-  every fetch returns 404 and the script exits 1 without writing.
-  Loud failure by design — the downstream consumer's last-good CSV
-  stays intact. Recovery is to update `NAVHIST_URL_TEMPLATE` in the
-  adapter. Future-proofing: a monitor that pings the URL pattern
-  weekly would catch drift before it bites a production run.
-- **SSGA R4 header drift.** If SSGA renames a column (e.g. "NAV" →
-  "Net Asset Value") the byte-equal anchor rejects the file. Loud
-  failure. Recovery is to update `EXPECTED_R4_HEADERS` + re-run.
-  T-SSGA-5 anchors this contract; T-SSGA-3 verifies the current
-  headers; if the constants ever diverge from reality, T-SSGA-3 will
-  pass (no real fetch) but the first live run will fail.
-- **Date locale drift.** The parser uses `strptime("%d-%b-%Y")` which
-  is locale-dependent for month names. On a non-English Windows
-  locale, "May" would not parse as month 5. Currently unguarded — if
-  the operator ever runs the adapter on a localized system, this
-  will surface as per-row failures with "bad date" warnings. Fix is
-  to lock the parser to an explicit English month-abbreviation table.
-- **`total_net_assets` is parsed but NOT emitted to the canonical
-  CSV.** The 4-column schema is fixed by the downstream consumer.
-  A future v3.2 cross-validation that flags issuer-reported AUM vs
-  derived AUM (shares × close) divergence would need to either widen
-  the canonical schema (+1 column) or write a separate
-  `issuer-aum.csv`. The parsed field is preserved on the
-  `NavHistRow` dataclass for that future use.
-- **CSV is OVERWRITTEN on each apply-run, not appended.** Idempotent
-  at the CH layer (ReplacingMergeTree). But if the operator wants a
-  historical archive of issuer-reported shares-outstanding (to detect
-  SSGA-side back-revisions), they need to capture the CSV's git
-  history OR add a separate retention rotation. Out of scope for
-  v3.1.
-- **30-second HTTP timeout** for each per-ticker XLSX fetch is
-  hard-coded. SPY's navhist is the largest (~22 years × ~252 trading
-  days × small row size ≈ 250-500KB). On a slow link or congested
-  CDN edge, timeouts could fire. No automatic retry — operator
-  re-runs on transient failures. By design, to avoid hammering
-  SSGA's CDN.
-- **Adapter does NOT enforce `--source-label ssga-spdr` on the
-  downstream ingest.** The two scripts are decoupled. If the
-  operator forgets the flag, SSGA rows ingest with the default
-  label "issuer-csv" — silent labeling bug that the comparator's
-  source-label-aware logic would not catch immediately. The
-  wrapper npm script proposed in OQ-G9-3 would close this hole.
-- **`lookback_days` default of 365 days.** A daily-cadence ingest
-  will repeatedly emit ~365 × 13 = ~4,745 rows even though
-  ReplacingMergeTree(ingested_at) collapses duplicates. Wasteful but
-  cheap (~250KB CSV write). A smaller default (~30 days) would
-  match the comparator's actual lookback window — defer to OQ-G9-2
-  resolution.
+- **iShares + Vanguard WAF gates are STABLE.** The empirical findings
+  (S96-33, S96-34) were taken at the time of this slice's commit; both
+  upstreams could in principle change behavior. But the gates are
+  server-side body substitution (not transport-level rejection), which
+  is harder for an upstream to accidentally remove than a missing
+  endpoint. The findings should hold for at least the duration of
+  OQ-G9-4 decisioning.
+- **`&&`-chain semantics in the new wrapper.** If the SSGA fetch
+  fails (exit 1, e.g. all-tickers-fail on a global SSGA outage), the
+  downstream ingest is SKIPPED — `&&` short-circuits. This is by
+  design (S96-32: all-fail preserves last-good CSV → no new rows to
+  ingest → skipping the ingest is correct). But the operator should
+  not interpret "fetch failed, ingest skipped" as "stale data in CH"
+  — the CH table's prior rows remain valid; the ReplacingMergeTree's
+  `ingested_at` history preserves them.
+- **Wrapper-script labelling drift risk.** The wrapper hard-codes
+  `--source-label ssga-spdr`. If a future SSGA-adjacent fetch is
+  added (e.g. SPDR commodity ETFs from a different SSGA endpoint),
+  the operator MUST add a SEPARATE wrapper rather than reusing this
+  one — or the new rows would be silently labelled `ssga-spdr` when
+  they shouldn't be.
+- **Two-step pattern remains canonical.** The wrapper is purely
+  additive; the two scripts can still be invoked independently for
+  testing / debugging. Any future investigation of an ingest
+  divergence should drop back to the two-step form (`fetch` writes
+  CSV → inspect CSV → `issuer-csv:ingest --dry-run` from a known
+  CSV) rather than re-running the wrapper. The wrapper hides the
+  CSV-as-intermediate state.
 
-### Carried from s96 #6
+### Carried from s96 #7
 
-All s96 #1-#6 watch-outs preserved unchanged. Key carry-overs:
+All s96 #7 watch-outs preserved unchanged. Key carry-overs:
 
-- XD13 cold-start posture diverges from F4 + EK on purpose (S96-22).
-- `writeSnapshot` does NOT write `max_aggregate_z` columns (S96-20).
-- `loadLatestSnapshot` returns `maxAggregateZ = null` when no sector
-  is flagged — S96-21 limitation.
-- `readFilingsForTickersInWindow` does NOT narrow on form_type at
-  the SQL layer.
-- The orchestrator's cold-start branch STILL writes the snapshot.
-- XD-5 asymmetric filter (load-bearing at the composite layer).
-- `inputsAvailableAggregate` diverges from sibling-composite
-  semantics.
-- All earlier s89-s95 #9 watch-outs preserved.
+- SSGA URL drift, R4 header drift, locale drift, 30-second HTTP
+  timeout — see s96 #7 watch-out list.
+- `total_net_assets` is parsed but NOT emitted to canonical CSV.
+- CSV is OVERWRITTEN per apply-run (not appended); idempotent at CH
+  layer.
+- 30-second per-ticker HTTP timeout hard-coded.
+- `lookback_days` default of 365 days; daily re-emit ~4,745 rows.
+- All earlier s89-s96 #6 watch-outs preserved.
 
 ## Pre-loaded operational reminders
 
@@ -508,12 +487,13 @@ npm run docs:dashboard                                  # regen dashboard.md onl
 npm run dev:all                                         # dashboard (:3000) + Quartz (:8080) parallel
 ```
 
-### Gap #9 v3.1 SSGA-SPDR (NEW this slice)
+### Gap #9 v3.1 SSGA-SPDR (s96 #7 LIVE; refresh wrapper NEW s96 #8)
 
 ```text
 npm run etf:flow:ssga-spdr:fetch:dry                    # parse + count smoke (no CSV write)
 npm run etf:flow:ssga-spdr:fetch                        # apply: writes data/etf_flow_issuer_csv/ssga-spdr.csv
-# Then ingest to CH with the correct source label:
+npm run etf:flow:ssga-spdr:refresh                      # NEW s96 #8: fetch + ingest in one shot (source-label ssga-spdr plumbed)
+# Or the manual two-step:
 .venv/Scripts/python.exe scripts/etf_flow_issuer_csv_ingest.py \
     --source-label ssga-spdr --apply
 # Customize lookback (default 365 days):
@@ -548,11 +528,11 @@ npm run daemon:daily
 npm run brief:morning
 ```
 
-### Gap #9 etf-flow (v1 + v2 + v3 + v3.1 LIVE)
+### Gap #9 etf-flow (v1 + v2 + v3 + v3.1 SSGA LIVE)
 
 ```text
 npm run etf:flow:ingest                                          # v1 yfinance primary
-npm run etf:flow:ssga-spdr:fetch                                 # NEW v3.1 — SSGA navhist → CSV
+npm run etf:flow:ssga-spdr:refresh                               # NEW s96 #8 — full refresh in one shot
 npm run migrate:create-etf-flow-snapshots:apply
 npm run migrate:create-etf-shares-outstanding-secondary:apply    # v3 — one-time
 npm run etf:flow:issuer-csv:ingest                               # ingests all CSVs in data/etf_flow_issuer_csv/
@@ -563,31 +543,28 @@ npm run brief:morning                                            # §13 sub-sect
 ### Tests + dev
 
 ```text
-npm test                                                                       # TS — last green at s96 #7 close: 3092 pass / 1 fail / 33 skipped
-.venv/Scripts/python.exe -m pytest scripts/tests                               # Python — last green at s96 #7 close: 394 pass
+npm test                                                                       # TS — last green at s96 #8 close: 3092 pass / 1 fail / 33 skipped
+.venv/Scripts/python.exe -m pytest scripts/tests                               # Python — last green at s96 #8 close: 394 pass
 npm run dev                                                                    # http://localhost:3000
-npm run check:help                                                             # GREEN at s96 #7 close
+npm run check:help                                                             # GREEN at s96 #8 close
 npx tsc --noEmit                                                               # 13 baseline errors unchanged
 npm run docs:build                                                             # 301 emitted from 115 inputs
 ```
 
 ## For the next session — priority order
 
-**Default on `continue`:** Operator-pickable from the menu in the
-"Next stage" section above. **Recommended: Gap #9 v3.1 iShares
-adapter** (sibling slice to this SSGA work; ~250-300 LOC + ~15 tests;
-covers IVV + IWM). The patterns established in S96-29..S96-32 apply
-directly.
+**Default on `continue`:** Two non-conflicting moves available; the
+right pick depends on whether the operator has decided OQ-G9-4 yet.
 
-**Alternative recommended:** Operator runs first E2E smoke of the
-SSGA adapter (`etf:flow:ssga-spdr:fetch:dry` then `:fetch`) to
-validate the parser against live SSGA bytes before the next adapter
-ships. Hermetic tests cover the parser logic; live validation
-covers any byte-equal anchor drift between the test fixture and
-the real upstream file.
+**If operator has decided OQ-G9-4:** resume the v3.1 arc on the
+chosen branch (A: build Playwright adapter for iShares first; B:
+research alternate upstreams for iShares; C: build cookie-supplied
+adapter; D: pivot the next slice to a non-v3.1 candidate).
 
-**If operator reprioritizes:** any candidate from the menu above can
-be the default-next.
+**If operator has NOT decided OQ-G9-4:** ship OQ-G9-2 (SSGA daemon
+hook) as the next sibling consolidation slice — it's independent of
+OQ-G9-4 + advances v3.1 automation regardless of branch. Or run the
+operator-pending E2E smoke of `etf:flow:ssga-spdr:refresh`.
 
 **Calendar-gated:**
 
@@ -603,61 +580,66 @@ be the default-next.
 - C-12 Phase B AlpacaAdapter.
 - Phase B campaigns.
 - Force push to origin/main on any branch.
+- Playwright as a project dep (OQ-G9-4 branch A) — surface to
+  operator first per S96-35.
 
 ## Important framing for the next chat
 
-**Gap #9 v3.1 issuer-adapter arc has STARTED (was: not-yet-started).**
-The SSGA-SPDR adapter is the first issuer-specific automation slice
-on top of the v3 framework. Remaining v3.1 candidates:
+**Gap #9 v3.1 arc PARTIALLY blocked.** The SSGA half is complete +
+production-ready end-to-end (s96 #7 adapter + s96 #8 wrapper). The
+iShares / Vanguard / Invesco half is blocked on OQ-G9-4 (project-
+level dep decision: Playwright vs alternates vs cookies vs defer).
+The next session should NOT assume "iShares is the obvious next
+slice" — that assumption was true in the s96 #7 HANDOFF but is now
+overturned by the WAF findings.
 
-- **iShares** (IVV + IWM) — next-recommended; sibling pattern to
-  SSGA. iShares publishes daily CSV per fund (not XLSX).
-- **Vanguard** (VOO) — 1 ticker, JSON API.
-- **Invesco** (QQQ) — 1 ticker, JSON or XLSX.
-- **GLD / HYG / JNK / TLT** — different issuers
-  (State Street/BlackRock/Invesco/State Street); per-issuer
-  research needed.
+**The arc-shape pattern is now load-bearing for FUTURE SSGA-style
+adapters** (any issuer that publishes static unauthenticated XLSX/CSV
+at a stable URL):
+1. Direct HTTP first (S96-29).
+2. Stdlib parser when format is simple (S96-30).
+3. Byte-equal schema anchors + per-row skip-with-warn (S96-31).
+4. All-fail preserves last-good CSV (S96-32).
+5. Two-script split (adapter + ingest) + additive `:refresh` wrapper
+   that plumbs `--source-label` (S96-36).
 
-**The arc-shape pattern is now load-bearing for issuer adapters:**
-direct HTTP first (S96-29) → stdlib parser when format is simple
-(S96-30) → byte-equal schema anchors + per-row skip-with-warn
-(S96-31) → all-fail preserves last-good CSV (S96-32). Future
-issuer-adapter slices should replicate.
+For WAF-gated issuers, the pattern needs an additional branch:
+authentication-state acquisition (Playwright session-cookie capture
+OR operator-supplied cookies OR alternate upstream substitution).
+The pattern's first four steps stay the same downstream of the gate;
+the gate-bypass is the new variable.
 
 **Backward compat preserved on three fronts:**
 
 1. **CH:** No DDL changes. The `etf_shares_outstanding_secondary`
    table (s95 #9) remains the consumer.
-2. **Type:** No TS type changes (Python-only slice).
+2. **Type:** No TS type changes (npm-script composition only).
 3. **Brief:** No brief renderer changes. The §13 ETF-flow panel
-   reads from CH via the existing repository; new SSGA rows surface
-   in the panel automatically once ingested.
+   reads from CH via the existing repository.
 
-**Parallel-tracks posture continues.** s96 #7 did NOT affect C-12 /
-paper-trading / real-money-flip arcs. Pure code + tests slice; no
-runtime side-effects until the operator runs the new adapter.
+**Parallel-tracks posture continues.** s96 #8 did NOT affect C-12 /
+paper-trading / real-money-flip arcs. Pure npm-script + help-entry
+slice; no runtime side-effects until the operator runs the new
+wrapper.
 
-**Push posture:** The 73-commit backlog from s96 #1..#6 was pushed
-to `origin/main` at the start of this session (push
-`1390fd9..64adf52`). The new commit `5640a46` is 1 ahead of origin.
-Whether to push this slice is at operator discretion — the session-
-start "push the changes" authorization is ambiguous on whether it
-covers commits made AFTER the initial push.
+**Push posture:** This slice's commit `46a8d0f` is 1 ahead of origin
+(which currently sits at `c0cda7c`, s96 #7 HANDOFF). Push gated to
+operator.
 
-**The chain through s96 #7:**
+**The chain through s96 #8:**
 
 ```text
-ALL S41-S96#6 WORK                                       ✓ as documented
-S96 #7: Gap #9 v3.1 SSGA-SPDR adapter                    ✓ committed (5640a46)
-        — scripts/etf_flow_ssga_spdr_adapter.py (+462 LOC)
-        — scripts/tests/test_etf_flow_ssga_spdr_adapter.py (+319 LOC, 17 sub-tests)
-        — package.json (+2 LOC, 2 npm scripts)
-        — scripts/help.ts (+2 LOC, 2 EXTRA_HELP entries)
-        — FIRST issuer-specific adapter in the v3.1 arc
-S96 #7 HANDOFF rewrite (this commit)                     ⏳ in-progress
+ALL S41-S96#7 WORK                                       ✓ as documented
+S96 #7: Gap #9 v3.1 SSGA-SPDR adapter                    ✓ committed + pushed
+S96 #8: Gap #9 v3.1 OQ-G9-3 wrapper                      ✓ committed (46a8d0f)
+        — package.json (+1, etf:flow:ssga-spdr:refresh npm script)
+        — scripts/help.ts (+1, matching EXTRA_HELP entry)
+        — RESEARCH: iShares ajax endpoints WAF-gated (S96-33)
+        — RESEARCH: Vanguard JSON API BigIP-gated (S96-34)
+        — DECISION SURFACED: OQ-G9-4 branch pick is operator-level
+S96 #8 HANDOFF rewrite (this commit)                     ⏳ in-progress
   → DEFAULT NEXT: operator-pickable. Recommended:
-    Gap #9 v3.1 iShares adapter (sibling slice).
-  → Alternative: operator runs first E2E smoke of the
-    SSGA adapter (`fetch:dry` → `fetch` → ingest) to
-    validate against live SSGA bytes.
+    1) Operator decides OQ-G9-4 branch (A/B/C/D), OR
+    2) OQ-G9-2 SSGA daemon hook (independent of OQ-G9-4), OR
+    3) Operator runs first E2E smoke of `etf:flow:ssga-spdr:refresh`.
 ```
