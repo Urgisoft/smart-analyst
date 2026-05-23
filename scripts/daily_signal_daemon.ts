@@ -160,6 +160,7 @@ import {
 } from '../src/server/schedule_13d_g_repository.js';
 import { runFredFetch } from '../src/server/daemon_fred_fetch.js';
 import { runSsgaSpdrRefresh } from '../src/server/daemon_etf_flow_ssga_spdr_refresh.js';
+import { runEtfFlowV1PrimaryRefresh } from '../src/server/daemon_etf_flow_v1_primary_refresh.js';
 import {
   runFinraShortInterestFetch,
   shouldRunFinraTodayUtc,
@@ -1415,6 +1416,51 @@ async function main() {
       anomalies.push({
         severity: 'warning',
         message: `SSGA-SPDR refresh failed: ${r.error}`,
+      });
+    }
+  }
+
+  // 1jb. ETF v1 yfinance primary panel refresh — GAP-4 daemon-cadence
+  //      promotion (sibling of 1ja SSGA-SPDR secondary). Runs
+  //      `scripts/etf_flow_ingest.py --apply` so the v1 primary panel
+  //      (`quantlab.etf_shares_outstanding`) refreshes on the same
+  //      daemon cycle that consumes it via step 1j. Fires BETWEEN
+  //      step 1ja (secondary refresh) + step 1j (etf-flow snapshot
+  //      write) so today's snapshot reads today's PRIMARY AND today's
+  //      SECONDARY — restores cross-validation symmetry at the
+  //      comparator's read boundary, not just at the freshness panel.
+  //
+  //      The v1 yfinance primary was operator-cadence per s92 design
+  //      while the v3.1 secondary was promoted in s96 #9 (step 1ja).
+  //      The resulting asymmetry produced a comparator pathology over
+  //      time — divergence dominated by primary staleness, not real
+  //      issuer-vs-Yahoo data-quality delta. GAP-4 closes the
+  //      asymmetry. Per CLAUDE.md data-source policy yfinance is
+  //      pre-authorized; per ADR-044 the standing-health mandate
+  //      requires every source to have either an autonomous trigger
+  //      OR an explicit `OPERATOR_REFRESH_REQUIRED` label — promotion
+  //      eliminates the latter on `etf_shares_outstanding`.
+  //
+  //      Gated by NO_MACRO || NO_FETCH || DRY_RUN — same posture as
+  //      1ja (etf-flow is in the macro-adjacent block). Non-fatal:
+  //      failure surfaces as a warning anomaly with the
+  //      operator-catchup command. The composite step downstream
+  //      (step 1j) tolerates a missed cycle — ReplacingMergeTree
+  //      preserves the last-good (ticker, date) row set even when
+  //      today's ingest is skipped. See
+  //      `src/server/daemon_etf_flow_v1_primary_refresh.ts` module
+  //      header for the full rationale + three-criterion analysis.
+  if (NO_MACRO || NO_FETCH || DRY_RUN) {
+    console.log(`[etf-flow-v1-primary-refresh] skipped (${NO_MACRO ? '--no-macro' : NO_FETCH ? '--no-fetch' : '--dry-run'})`);
+  } else {
+    const r = runEtfFlowV1PrimaryRefresh(DRY_RUN);
+    if (r.ok) {
+      console.log(`[etf-flow-v1-primary-refresh] OK | ${r.seconds.toFixed(1)}s`);
+    } else {
+      console.warn(`[etf-flow-v1-primary-refresh] failed (non-fatal): ${r.error}`);
+      anomalies.push({
+        severity: 'warning',
+        message: `ETF v1 primary refresh failed: ${r.error}. Run \`npm run etf:flow:ingest\` for catchup.`,
       });
     }
   }

@@ -330,6 +330,46 @@ describe('HEALTH_SOURCES', () => {
     assert.equal(finra!.timestampCol, 'settlement_date', 'short_interest uses settlement_date Date column');
     assert.equal(finra!.timestampType, 'date', 'settlement_date is Date-typed');
   });
+
+  // Convention pin (s96 #15 Cycle 2 GAP-4 — Infra worker).
+  // The v1 yfinance primary ETF panel (`etf_shares_outstanding`) was
+  // operator-cadence pre-Cycle 2 while the v3.1 SSGA-SPDR secondary
+  // (`etf_shares_outstanding_secondary`) refreshed daemon-cadence via
+  // step 1ja (s96 #9). The asymmetry produced a comparator pathology
+  // over time — divergence dominated by primary staleness, not real
+  // issuer-vs-Yahoo data-quality delta. GAP-4 promotes the v1 primary
+  // to daemon-cadence via step 1jb (between 1ja secondary refresh +
+  // 1j etf-flow snapshot write). The HEALTH_SOURCES entry must
+  // therefore (a) exist, (b) flag autonomous=true (the entire point
+  // of the promotion), and (c) use the daily cadence with Date-typed
+  // timestamp (the v1 ingest's panel column is `date`, a Date column,
+  // which inherits the per-timestampType wider window from F1). A
+  // future refactor flipping autonomous back to false would silently
+  // re-introduce the operator-memory dependence ADR-044 closes AND
+  // re-open the comparator-divergence pathology.
+  it('ETF v1 yfinance primary etf_shares_outstanding is daemon-cadence (GAP-4)', () => {
+    const v1Primary = HEALTH_SOURCES.find(s => s.name === 'etf_shares_outstanding');
+    assert.ok(v1Primary, 'etf_shares_outstanding entry must exist in HEALTH_SOURCES after GAP-4');
+    assert.equal(v1Primary!.autonomous, true, 'etf_shares_outstanding must be autonomous=true (daemon step 1jb)');
+    assert.equal(v1Primary!.cadence, 'daily', 'etf_shares_outstanding must use daily cadence (yfinance EOD refresh)');
+    assert.equal(v1Primary!.timestampCol, 'date', 'etf_shares_outstanding uses date Date column');
+    assert.equal(v1Primary!.timestampType, 'date', 'date is Date-typed (inherits wider F1 daily+Date thresholds)');
+  });
+
+  // Convention pin (s96 #15 Cycle 2 GAP-4 — Infra worker; cross-symmetry).
+  // After GAP-4 promotion the v1 primary + v3.1 secondary BOTH refresh
+  // daemon-cadence. Cross-validation symmetry requires their HEALTH_SOURCES
+  // shape to match — both daily + Date-typed + autonomous + same
+  // operator-fallback shape. A future drift on either side would reopen
+  // the asymmetry the slice closes.
+  it('ETF v1 primary + v3.1 secondary share the daemon-cadence shape (GAP-4 symmetry)', () => {
+    const primary = HEALTH_SOURCES.find(s => s.name === 'etf_shares_outstanding');
+    const secondary = HEALTH_SOURCES.find(s => s.name === 'etf_shares_outstanding_secondary');
+    assert.ok(primary && secondary, 'both etf_shares_outstanding{,_secondary} must exist after GAP-4');
+    assert.equal(primary!.autonomous, secondary!.autonomous, 'autonomous flags must match (both true after GAP-4)');
+    assert.equal(primary!.cadence, secondary!.cadence, 'cadences must match (both daily)');
+    assert.equal(primary!.timestampType, secondary!.timestampType, 'timestamp types must match (both Date)');
+  });
 });
 
 describe('HEALTH_MIGRATIONS', () => {

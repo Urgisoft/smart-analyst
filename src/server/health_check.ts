@@ -334,11 +334,11 @@ export const HEALTH_SOURCES: ReadonlyArray<HealthSourceConfig> = [
     name: 'etf_shares_outstanding',
     label: 'ETF v1 yfinance primary',
     cadence: 'daily',
-    autonomous: false,
+    autonomous: true,
     timestampCol: 'date',
     timestampType: 'date',
     operatorAction: 'npm run etf:flow:ingest',
-    why: 'GAP-4 — operator-cadence (s92 design); secondary now daemon-auto, primary lags.',
+    why: 'GAP-4 — daemon step 1jb (s96 #15 Cycle 2); refreshes alongside SSGA secondary so the cross-validation comparator reads same-day primary + secondary.',
   },
   // ── FINRA raw source (autonomous via Mondays-only daemon step 1h-pre) ────
   {
