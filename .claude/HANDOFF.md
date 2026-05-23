@@ -1,6 +1,6 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-05-23 (session 96 #9 — **Gap #9 v3.1 OQ-G9-2 daemon hook SHIPPED**: SSGA-SPDR adapter + ingest chain wired into `daemon:daily` as step 1ja, BEFORE step 1j etf-flow composite, so today's snapshot reads today's SSGA rows. 1 commit `043694d` / 3 files / +326 LOC / 10 new sub-tests. **Net 3 unpushed commits** on top of origin/main (`c0cda7c`). OQ-G9-2 now CLOSED end-to-end; SSGA half of v3.1 arc complete + production-grade. iShares + Vanguard half remains BLOCKED on OQ-G9-4 (operator-level Playwright dep decision; recorded s96 #8 — S96-33/34/35). **NEXT default on `continue`:** operator-pick — recommend either OQ-G9-4 decision OR first-run E2E smoke of `etf:flow:ssga-spdr:refresh` OR `daemon:daily` end-to-end smoke to validate the new step 1ja against live SSGA bytes.
+Last updated: 2026-05-23 (session 96 #10 — **Quartz `/dashboard` 404 FIXED** + **operator surfaced UI gap**: the s96 #7-#9 v3.1 work is backend-only (no React dashboard changes); a real UI slice for the §13 cross-validation panel is offered but not yet scoped. Quartz fix: 1-line vendor patch in `quartz/quartz/util/glob.ts` (`gitignore: true` → `false`) + `**/*.log` added to `quartz.config.ts` ignorePatterns. 1 commit `ef53155` / 2 files / +15/-1 LOC. **Net 5 unpushed commits** on top of origin/main (`c0cda7c`). Previously: s96 #9 (`043694d` + `85f9e55`) wired SSGA refresh into `daemon:daily` step 1ja and closed OQ-G9-2; SSGA half of v3.1 arc remains production-grade end-to-end. iShares + Vanguard half remains BLOCKED on OQ-G9-4. **NEXT default on `continue`:** operator-pick — either OQ-G9-4 decision OR scope a real UI slice for the v3.1 cross-validation panel on the React dashboard at :3000.
 
 ## What this slice delivered
 
@@ -105,7 +105,8 @@ SMP-6` infra-side EXPLAIN PLAN rejection — unchanged since pre-s96.
 - Session 96 #1..#7 commits pushed to `origin/main` (most recent
   `c0cda7c` — s96 #7 HANDOFF rewrite).
 - s96 #8 wrapper (`46a8d0f`) + s96 #8 HANDOFF (`483e1b1`) + s96 #9
-  daemon hook (`043694d`) = **3 unpushed commits** on top.
+  daemon hook (`043694d`) + s96 #9 HANDOFF (`85f9e55`) + s96 #10
+  Quartz fix (`ef53155`) = **5 unpushed commits** on top.
 - Push is operator-gated.
 
 ## Where we are
@@ -145,7 +146,54 @@ SMP-6` infra-side EXPLAIN PLAN rejection — unchanged since pre-s96.
 
 ## Decisions locked in
 
-### Session 96 #9 (this slice)
+### Session 96 #10 (Quartz fix)
+
+**S96-41. Vendored Quartz patched in `quartz/quartz/util/glob.ts` —
+`gitignore: false` (was `true` upstream).** Upstream Quartz passes
+`gitignore: true` to globby, which silently drops files matched by
+`.gitignore` from the input scan. `docs/dashboard.md` is gitignored
+(auto-generated; not committed per S95-6 design); upstream Quartz
+therefore refused to ingest it; `/dashboard` 404'd. The project's
+`ignorePatterns` config in `quartz.config.ts` already enumerates the
+deliberate exclusions; honoring gitignore on top was a foot-gun.
+`Why:` This is a permanent vendor-fork divergence from upstream. Any
+future `git pull` from `jackyzha0/quartz` MUST preserve the patch
+(or the bug re-surfaces silently).
+`How to apply:` Document at the top of the upgrade procedure: "After
+syncing upstream Quartz, re-apply the `gitignore: false` patch in
+`quartz/quartz/util/glob.ts` + verify the `**/*.log` line in
+`quartz.config.ts` ignorePatterns is still present."
+
+**S96-42. `**/*.log` added to `quartz.config.ts` ignorePatterns.**
+After flipping `gitignore: false` (S96-41), ~60 gitignored `.log`
+files under `docs/experiments/` (per-experiment build logs from the
+ADR-041 arc) entered Quartz's scan and were copied as static assets
+into the site. Small files (~3 KB each), harmless individually,
+noise in aggregate. The new ignorePatterns entry restores the
+no-leak state.
+`Why:` Same vendor-fork awareness as S96-41 — preserve through
+upstream syncs.
+`How to apply:` Future docs/experiments/ artifact patterns (e.g.
+`.csv`, `.parquet`, raw fixtures) should be added to ignorePatterns
+proactively rather than left to gitignore.
+
+**S96-43. The s96 #7-#9 v3.1 work is BACKEND-ONLY; the React
+dashboard at :3000 is untouched.** The cross-validation comparator's
+output is currently surfaced via two channels: (1) CLI morning brief
+§13 (`npm run brief:morning`), and (2) the auto-refreshed
+`quantlab.etf_shares_outstanding_secondary` table. There is NO
+React panel reading `EtfFlowRepository` on the live dashboard. A
+real UI slice would be a new follow-up — operator-scoped (~200-300
+LOC across React component + server route + tests).
+`Why:` The user noted this gap explicitly in the s96 #10 session
+turn. Surfacing here so it doesn't get lost.
+`How to apply:` If operator wants the v3.1 cross-validation visible
+on :3000, scope as the next slice. Pattern: React panel in
+`src/components/etfFlow/` + express route in `src/server/`
+mirroring the existing per-composite React/server pair (e.g.
+[src/components/regime/](src/components/regime/) + [src/server/regime_dashboard.ts](src/server/regime_dashboard.ts)).
+
+### Session 96 #9
 
 **S96-37. Step 1ja fires BEFORE step 1j (same-day-refresh →
 same-day-read semantic).** The etf-flow composite (step 1j) reads
@@ -369,7 +417,23 @@ on first apply-run.
 
 ## Watch-outs
 
-### NEW from this turn (s96 #9)
+### NEW from this turn (s96 #10)
+
+- **Vendored Quartz fork divergence (S96-41 + S96-42).** Two patches
+  live in `quartz/` that DO NOT exist upstream:
+  - `quartz/quartz/util/glob.ts`: `gitignore: false`.
+  - `quartz/quartz.config.ts` ignorePatterns: `**/*.log` entry.
+  Any future `git pull` from upstream `jackyzha0/quartz` MUST
+  preserve both. There is no automated check for this; the only
+  symptom of regression is `/dashboard` 404 + .log file leak in
+  the rendered site. Recovery is to re-apply both patches.
+- **No React UI for the v3.1 cross-validation panel (S96-43).**
+  Surfaced explicitly by the operator in the s96 #10 turn. The
+  panel exists in CH (`etf_shares_outstanding_secondary`) + in the
+  CLI morning brief (§13), but not in the React dashboard. A v3.2
+  candidate slice.
+
+### NEW from earlier (s96 #9)
 
 - **Daemon wall-clock budget impact.** Step 1ja adds ~30-90s in
   steady state (13 SPDR fetches × ~3-5s each + CSV write + CH
