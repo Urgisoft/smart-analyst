@@ -1,6 +1,6 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-05-23 (session 96 #10 — **Quartz `/dashboard` 404 FIXED** + **operator surfaced UI gap**: the s96 #7-#9 v3.1 work is backend-only (no React dashboard changes); a real UI slice for the §13 cross-validation panel is offered but not yet scoped. Quartz fix: 1-line vendor patch in `quartz/quartz/util/glob.ts` (`gitignore: true` → `false`) + `**/*.log` added to `quartz.config.ts` ignorePatterns. 1 commit `ef53155` / 2 files / +15/-1 LOC. **Net 5 unpushed commits** on top of origin/main (`c0cda7c`). Previously: s96 #9 (`043694d` + `85f9e55`) wired SSGA refresh into `daemon:daily` step 1ja and closed OQ-G9-2; SSGA half of v3.1 arc remains production-grade end-to-end. iShares + Vanguard half remains BLOCKED on OQ-G9-4. **NEXT default on `continue`:** operator-pick — either OQ-G9-4 decision OR scope a real UI slice for the v3.1 cross-validation panel on the React dashboard at :3000.
+Last updated: 2026-05-23 (session 96 #11 — **Gap #9 v3.1 UI SHIPPED**: new `/#/etf-flow` route on the React dashboard at :3000 + new `GET /api/etf-flow/cross-validation` route. Closes the operator-validation gap from s96 #7-#9. Methodology rule saved: every slice ships a UI surface (memory `feedback-ui-validation-each-slice`). 1 commit `43f1ca2` / 5 files / +598 LOC. **Browser validation pending** — port 3000 held by prior dev server PID 130732; operator restarting to verify panel renders. **Net 7 unpushed commits** on top of origin/main (`c0cda7c`). Previously: s96 #10 Quartz fix (`ef53155` + `3dbce24`), s96 #9 daemon hook (`043694d` + `85f9e55`), s96 #8 wrapper (`46a8d0f` + `483e1b1`). **NEXT default on `continue`:** operator-pick — either OQ-G9-4 decision OR Phase B-gated work OR a new arc.
 
 ## What this slice delivered
 
@@ -145,6 +145,39 @@ SMP-6` infra-side EXPLAIN PLAN rejection — unchanged since pre-s96.
 | Push s96 #8 + s96 #9 commits to origin/main | ☐ operator-gated (3 commits) |
 
 ## Decisions locked in
+
+### Session 96 #11 (UI slice + methodology rule)
+
+**S96-44. Every slice must ship a UI validation surface (memory rule
+locked).** The s96 #7-#9 backend-only sequence is exactly what this
+rule was created to prevent. The s96 #11 slice closes that gap with
+`/#/etf-flow` (cross-validation panel) + `GET /api/etf-flow/cross-
+validation`. Memory: `feedback-ui-validation-each-slice` saved so the
+rule persists into future sessions.
+`Why:` Operator delegates in autonomous mode; "validatable surface"
+is the contract that makes delegation work. Backend-only slices
+hide work behind tool-knowledge (which CH table, which CLI command);
+that's an unstable contract.
+`How to apply:` When scoping a slice, the UI surface is part of
+scope. If the UI is large enough that bundling explodes the slice,
+ship the backend + an immediate UI follow-up in the same session
+— but NEVER let backend slices accumulate uncovered. The s96 #7-#9
++ s96 #11 sequence is the negative-then-corrected pattern that
+locks this rule.
+
+**S96-45. UI panel pattern: per-composite `<Composite>App.tsx` +
+`src/server/<composite>_dashboard.ts` pair, lazy-loaded via
+main.tsx hash router, header link in App.tsx.** s96 #11 followed
+the existing pattern (regime / cyclePosition / cluster / paper-
+trading / metaLabeling all use this). The cross-validation panel
+is the sixth instance.
+`Why:` Consistency reduces operator cognitive load (same shell,
+same refresh button, same back arrow) + makes the next per-
+composite UI slice mechanical to scope.
+`How to apply:` Any future Layer-0 composite UI slice mirrors
+this. Pattern: lazy import in main.tsx → hash route → empty-state
+panel for "data not yet populated" → summary/table panels. Color
+accent per composite (regime amber, cycle cyan, etf-flow fuchsia).
 
 ### Session 96 #10 (Quartz fix)
 
