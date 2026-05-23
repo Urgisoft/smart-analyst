@@ -141,6 +141,8 @@
     "migrate:create-cusip-ticker-map:apply": "tsx scripts/migrate_create_cusip_ticker_map.ts --apply",
     "migrate:create-health-quarantine": "tsx scripts/migrate_create_health_quarantine.ts",
     "migrate:create-health-quarantine:apply": "tsx scripts/migrate_create_health_quarantine.ts --apply",
+    "migrate:create-health-quarantine-alerts-sent": "tsx scripts/migrate_create_health_quarantine_alerts_sent.ts",
+    "migrate:create-health-quarantine-alerts-sent:apply": "tsx scripts/migrate_create_health_quarantine_alerts_sent.ts --apply",
     "system-health:check": "tsx scripts/system_health_check.ts",
     "gics:sector-map:ingest": ".venv\\Scripts\\python.exe scripts/sp500_gics_sector_ingest.py --apply",
     "gics:sector-map:ingest:dry": ".venv\\Scripts\\python.exe scripts/sp500_gics_sector_ingest.py --dry-run",

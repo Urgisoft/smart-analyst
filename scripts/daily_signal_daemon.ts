@@ -160,6 +160,7 @@ import {
 } from '../src/server/schedule_13d_g_repository.js';
 import { runFredFetch } from '../src/server/daemon_fred_fetch.js';
 import { runHealthCheckStep0a } from '../src/server/daemon_health_check_step.js';
+import { sendQuarantineAlerts } from '../src/server/health_quarantine_alerter.js';
 import { runSsgaSpdrRefresh } from '../src/server/daemon_etf_flow_ssga_spdr_refresh.js';
 import { runEtfFlowV1PrimaryRefresh } from '../src/server/daemon_etf_flow_v1_primary_refresh.js';
 import {
@@ -1046,6 +1047,60 @@ async function main() {
       anomalies.push({
         severity: 'info',
         message: `Health step 0a runner threw (non-fatal): ${(e as Error).message}`,
+      });
+    }
+  }
+
+  // 0b. ADR-044 Phase 2 v1 Telegram quarantine alerter (Cycle 3 Worker C).
+  //     Dispatches one Telegram message per NEW Tier-2 quarantine row, with
+  //     per-id dedupe via the `health_quarantine_alerts_sent` sidecar so
+  //     each row alerts exactly once. Tier-1 auto-fixes do NOT alert here
+  //     (they roll up in the brief §0 daily digest — Worker B).
+  //
+  //     Why step 0b sits AFTER 0a and BEFORE the FRED step:
+  //     0a populates the quarantine summary; 0b acts on it before the
+  //     fetch/classify pipeline starts producing potentially-anomalous data
+  //     this cycle. Bundling 0b with the existing end-of-cycle Telegram
+  //     report would lose per-row formatting (each quarantine row gets its
+  //     own dedicated HTML message). Placement preserves operator-friendly
+  //     "what was wrong going in" semantics that mirrors step 0a.
+  //
+  //     Gated by NO_FETCH || DRY_RUN || NO_TELEGRAM — DRY_RUN gates the
+  //     alerter because it has Telegram side-effects (every dry-run should
+  //     never fire a real operator-facing message); NO_TELEGRAM matches the
+  //     existing argv-gate semantics used by the end-of-cycle report; and
+  //     NO_FETCH matches step 0a's posture for "don't run network probes
+  //     this cycle." The alerter NEVER halts the daemon — its own
+  //     try/catch envelope returns structured anomalies on any failure
+  //     (defense in depth against runner-contract drift, mirroring step 0a).
+  if (NO_FETCH || DRY_RUN || NO_TELEGRAM) {
+    const reason = NO_FETCH
+      ? '--no-fetch'
+      : DRY_RUN
+        ? '--dry-run'
+        : '--no-telegram';
+    console.log(`[step 0b] quarantine-alerts: skipped (${reason})`);
+  } else {
+    const t0b = Date.now();
+    try {
+      const alertResult = await sendQuarantineAlerts({
+        telegram: new SignalForgeTelegram(),
+        ch,
+      });
+      const probeMs = Date.now() - t0b;
+      console.log(
+        `[step 0b] quarantine-alerts: sent=${alertResult.sentCount}, ` +
+        `skipped=${alertResult.skippedCount}, errors=${alertResult.errorCount} [${probeMs}ms]`,
+      );
+      for (const a of alertResult.anomalies) anomalies.push(a);
+    } catch (e) {
+      // Defense-in-depth: `sendQuarantineAlerts` is documented never-throw,
+      // but a future refactor regression would otherwise crash the daemon.
+      // Catch + push an info anomaly so downstream steps proceed.
+      console.warn(`[step 0b] runner threw (non-fatal): ${(e as Error).message}`);
+      anomalies.push({
+        severity: 'info',
+        message: `Quarantine alerter runner threw (non-fatal): ${(e as Error).message}`,
       });
     }
   }

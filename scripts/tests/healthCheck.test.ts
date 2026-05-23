@@ -483,3 +483,116 @@ describe('HEALTH_SOURCES + HEALTH_MIGRATIONS — health_quarantine (ADR-044 Phas
     );
   });
 });
+
+// ───── ADR-044 Phase 2 v1 health_quarantine_alerts_sent (Cycle 3 Worker C) ──
+//
+// The alerts-sent sidecar is registered alongside the quarantine table so the
+// freshness panel surfaces both Phase 2 v1 surfaces uniformly. The convention
+// pin keeps the "every migration target is a source" invariant intact for the
+// new entry.
+
+describe('HEALTH_SOURCES + HEALTH_MIGRATIONS — health_quarantine_alerts_sent (Cycle 3 Worker C)', () => {
+  it('HEALTH_SOURCES has the health_quarantine_alerts_sent entry (cadence=one-shot, autonomous=true)', () => {
+    const entry = HEALTH_SOURCES.find(s => s.name === 'health_quarantine_alerts_sent');
+    assert.ok(entry, 'HEALTH_SOURCES missing health_quarantine_alerts_sent after Worker C');
+    assert.equal(entry!.cadence, 'one-shot', 'sidecar never goes stale; cadence must be one-shot');
+    assert.equal(entry!.autonomous, true, 'sidecar is migration-managed; not operator-cadence');
+    assert.equal(entry!.timestampCol, 'sent_at', 'sent_at is the ReplacingMergeTree version');
+    assert.equal(entry!.timestampType, 'datetime', 'sent_at is DateTime');
+    assert.equal(
+      entry!.operatorAction,
+      'npm run migrate:create-health-quarantine-alerts-sent:apply',
+      'operatorAction must reference the new migration command',
+    );
+  });
+
+  it('HEALTH_MIGRATIONS has the health_quarantine_alerts_sent entry pointing at the new apply command', () => {
+    const mig = HEALTH_MIGRATIONS.find(m => m.targetTable === 'health_quarantine_alerts_sent');
+    assert.ok(mig, 'HEALTH_MIGRATIONS missing health_quarantine_alerts_sent after Worker C');
+    assert.equal(
+      mig!.applyCommand,
+      'npm run migrate:create-health-quarantine-alerts-sent:apply',
+      'applyCommand drift would defeat the freshness↔migration correlation',
+    );
+    assert.match(mig!.label, /ADR-044/, 'label should reference ADR-044');
+  });
+
+  it('health_quarantine_alerts_sent satisfies the convention pin: targetTable matches a HEALTH_SOURCES entry', () => {
+    const sourceNames = new Set(HEALTH_SOURCES.map(s => s.name));
+    const mig = HEALTH_MIGRATIONS.find(m => m.targetTable === 'health_quarantine_alerts_sent');
+    assert.ok(mig);
+    assert.ok(
+      sourceNames.has(mig!.targetTable),
+      'health_quarantine_alerts_sent migration target must be a HEALTH_SOURCES entry',
+    );
+  });
+});
+
+// ───── ADR-044 Phase 2 v1 daemon step 0b wiring pin (Cycle 3 slice 3) ──────
+//
+// Mirrors the step-0a wiring pin above. The daemon orchestrator MUST import
+// `sendQuarantineAlerts` from the alerter helper module, INVOKE it, and emit
+// the canonical `[step 0b] quarantine-alerts:` heartbeat token. Step 0b MUST
+// sit between step 0a's end and step 1's start (the dependency-DAG anchor
+// per the orchestrator's Cycle 3 spec). A future refactor that drops the
+// import, the call, the heartbeat, OR the ordering would re-introduce the
+// missing-operator-alert hole ADR-044 §infrastructure-4 closes.
+
+describe('daily_signal_daemon.ts — step 0b quarantine-alerter wiring (ADR-044 Phase 2 v1)', () => {
+  it('imports sendQuarantineAlerts from health_quarantine_alerter.js', async () => {
+    const fs = await import('node:fs/promises');
+    const url = new URL('../daily_signal_daemon.ts', import.meta.url);
+    const src = await fs.readFile(url, 'utf8');
+    assert.match(
+      src,
+      /import\s*{\s*sendQuarantineAlerts\s*}\s*from\s*['"]\.\.\/src\/server\/health_quarantine_alerter\.js['"]/,
+      'daily_signal_daemon.ts must import sendQuarantineAlerts from the alerter module',
+    );
+    assert.match(
+      src,
+      /sendQuarantineAlerts\s*\(/,
+      'daily_signal_daemon.ts must INVOKE sendQuarantineAlerts (not just import it)',
+    );
+    assert.match(
+      src,
+      /\[step 0b\] quarantine-alerts:/,
+      'daily_signal_daemon.ts must emit the [step 0b] quarantine-alerts: heartbeat token',
+    );
+  });
+
+  it('step 0b is positioned between step 0a and step 1 (dependency-DAG ordering)', async () => {
+    const fs = await import('node:fs/promises');
+    const url = new URL('../daily_signal_daemon.ts', import.meta.url);
+    const src = await fs.readFile(url, 'utf8');
+    const idxStep0aHeartbeat = src.indexOf('[step 0a] health:');
+    const idxStep0bHeartbeat = src.indexOf('[step 0b] quarantine-alerts:');
+    const idxStep1Comment = src.indexOf('// 1. Fetch step');
+    assert.ok(idxStep0aHeartbeat > 0, '[step 0a] heartbeat not found');
+    assert.ok(idxStep0bHeartbeat > 0, '[step 0b] heartbeat not found');
+    assert.ok(idxStep1Comment > 0, '// 1. Fetch step comment not found');
+    assert.ok(
+      idxStep0aHeartbeat < idxStep0bHeartbeat,
+      'step 0b must come AFTER step 0a in the daemon source',
+    );
+    assert.ok(
+      idxStep0bHeartbeat < idxStep1Comment,
+      'step 0b must come BEFORE step 1 in the daemon source',
+    );
+  });
+
+  it('step 0b is gated by NO_FETCH || DRY_RUN || NO_TELEGRAM (Telegram side-effect protection)', async () => {
+    const fs = await import('node:fs/promises');
+    const url = new URL('../daily_signal_daemon.ts', import.meta.url);
+    const src = await fs.readFile(url, 'utf8');
+    // The gate guard must mention all three flags so the dry-run smoke test
+    // CANNOT accidentally fire a real Telegram alert at the operator.
+    const step0bBlock = src.slice(
+      src.indexOf('// 0b. ADR-044 Phase 2 v1 Telegram'),
+      src.indexOf('// 1. Fetch step'),
+    );
+    assert.ok(step0bBlock.length > 0, 'step 0b block not located');
+    assert.match(step0bBlock, /NO_FETCH/, 'step 0b must reference NO_FETCH');
+    assert.match(step0bBlock, /DRY_RUN/, 'step 0b must reference DRY_RUN');
+    assert.match(step0bBlock, /NO_TELEGRAM/, 'step 0b must reference NO_TELEGRAM');
+  });
+});

@@ -387,6 +387,20 @@ export const HEALTH_SOURCES: ReadonlyArray<HealthSourceConfig> = [
     operatorAction: 'npm run migrate:create-health-quarantine:apply',
     why: 'Phase 2 v1 quarantine + auto-fix log. Cadence=one-shot — never goes stale; row count surfaces in UI.',
   },
+  // Cycle 3 Worker C — sidecar for the Telegram alerter's per-id dedupe.
+  // Never goes stale by design (one-shot); each row is a permanent dispatch
+  // record. Surfacing here keeps the freshness panel + migration panel
+  // symmetric with the rest of the Phase 2 v1 surface area.
+  {
+    name: 'health_quarantine_alerts_sent',
+    label: 'Health quarantine alerts-sent sidecar (ADR-044 Phase 2 v1)',
+    cadence: 'one-shot',
+    autonomous: true,
+    timestampCol: 'sent_at',
+    timestampType: 'datetime',
+    operatorAction: 'npm run migrate:create-health-quarantine-alerts-sent:apply',
+    why: 'Phase 2 v1 sidecar — tracks per-id Telegram alert dispatch for dedupe. Never goes stale.',
+  },
 ];
 
 /** Migration metadata used to detect "applied" vs "pending" state. */
@@ -505,6 +519,11 @@ export const HEALTH_MIGRATIONS: ReadonlyArray<HealthMigrationConfig> = [
     applyCommand: 'npm run migrate:create-health-quarantine:apply',
     targetTable: 'health_quarantine',
     label: 'ADR-044 Phase 2 quarantine + auto-fix log (Cycle 3 Worker A)',
+  },
+  {
+    applyCommand: 'npm run migrate:create-health-quarantine-alerts-sent:apply',
+    targetTable: 'health_quarantine_alerts_sent',
+    label: 'ADR-044 Phase 2 Telegram alerter sidecar (Cycle 3 Worker C)',
   },
 ];
 
