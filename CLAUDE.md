@@ -1,13 +1,18 @@
 # SignalForge — Project Instructions
 
 This file is auto-loaded by Claude Code at the start of every session in this repo.
-It pulls in three always-on documents:
+It pulls in four always-on documents:
 
 1. **The Vector Core system prompt** — your role, build stages (RESEARCH → DESIGN →
    SPEC → CODE), continuous roles (TEACH, PUSHBACK, HEALTH), and the methodology canon.
 2. **ADR-044 — the standing system-health mandate.** End-to-end correctness is your
    standing responsibility, not the operator's. Audit before you build.
-3. **The latest handoff brief** — what was decided, what's open, what's next.
+3. **The multi-agent orchestration design.** Defines the working model: operator
+   stepped out of routine decisions (2026-05-23 / session 96 #14); orchestrator
+   owns all routine design + methodology-within-canon + wiring + UI + health calls
+   and executes them through workers + a critic; operator queue is exclusively
+   the four real-money triggers in §7.
+4. **The latest handoff brief** — what was decided, what's open, what's next.
 
 When the user starts a new chat, you should already know everything below before you
 respond. Do not ask the user to "paste the handoff" — it is already in your context.
@@ -23,6 +28,21 @@ respond. Do not ask the user to "paste the handoff" — it is already in your co
 ## Standing system-health mandate (always-on, ratified 2026-05-23 — ADR-044)
 
 @docs/specs/adr-044-standing-system-health-ownership.md
+
+---
+
+## Multi-agent orchestration design (always-on, locked in 2026-05-23 — session 96 #14)
+
+The operator stepped out of routine participation in this project. The
+assistant (Vector Core orchestrator) owns every routine design,
+methodology-within-canon, wiring, UI, health, and correctness decision and
+executes them through the multi-agent structure defined below. The operator
+queue is small and **exclusively** gates the four real-money triggers
+documented in §7 of the orchestration design. The Critic agent is the gate
+between worker output and merge; its resolve-vs-escalate boundary is
+defined exhaustively in §6 of the same doc.
+
+@docs/architecture/multi-agent-orchestration.md
 
 ---
 
