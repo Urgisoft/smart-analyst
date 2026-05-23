@@ -369,6 +369,24 @@ export const HEALTH_SOURCES: ReadonlyArray<HealthSourceConfig> = [
     operatorAction: 'npm run migrate:create-cusip-ticker-map:apply',
     why: 'GAP-18 — populated lazily by the FINRA short-interest ingest via SEC EDGAR submissions API. One-shot cadence: Infinity thresholds — row count surfaces in the UI without freshness noise.',
   },
+  // ── ADR-044 Phase 2 v1 quarantine + auto-fix log (cadence='one-shot') ────
+  // Cycle 3 Worker A: surfaces the quarantine table on the freshness panel
+  // for parity with cusip_ticker_map — table is metadata, never stale, row
+  // count is the operator-facing signal. The dedicated QuarantinePanel +
+  // AutoFixLogPanel on /#/health break out the row contents; this entry is
+  // the freshness-panel anchor that pairs with HEALTH_MIGRATIONS below so
+  // the existing convention pin ("every HEALTH_MIGRATIONS target must be a
+  // HEALTH_SOURCES entry") holds for the new migration.
+  {
+    name: 'health_quarantine',
+    label: 'Health quarantine queue (ADR-044 Phase 2)',
+    cadence: 'one-shot',
+    autonomous: true,
+    timestampCol: 'version',
+    timestampType: 'datetime',
+    operatorAction: 'npm run migrate:create-health-quarantine:apply',
+    why: 'Phase 2 v1 quarantine + auto-fix log. Cadence=one-shot — never goes stale; row count surfaces in UI.',
+  },
 ];
 
 /** Migration metadata used to detect "applied" vs "pending" state. */
@@ -482,6 +500,11 @@ export const HEALTH_MIGRATIONS: ReadonlyArray<HealthMigrationConfig> = [
     applyCommand: 'npm run migrate:create-cusip-ticker-map:apply',
     targetTable: 'cusip_ticker_map',
     label: 'CUSIP↔ticker lookup cache (GAP-18; promoted from ad-hoc create in finra_short_interest_ingest.py)',
+  },
+  {
+    applyCommand: 'npm run migrate:create-health-quarantine:apply',
+    targetTable: 'health_quarantine',
+    label: 'ADR-044 Phase 2 quarantine + auto-fix log (Cycle 3 Worker A)',
   },
 ];
 

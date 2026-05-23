@@ -395,3 +395,54 @@ describe('HEALTH_MIGRATIONS', () => {
     }
   });
 });
+
+// ───── ADR-044 Phase 2 v1 health_quarantine entries (Cycle 3 Worker A) ─────
+//
+// The quarantine table is registered in both HEALTH_SOURCES (so it
+// appears on the freshness panel with cadence='one-shot') AND
+// HEALTH_MIGRATIONS (so the operator sees `migrate:create-health-
+// quarantine:apply` in the pending-migrations panel until applied).
+// A future refactor that drops either side would silently break the
+// "every migration target is a source" convention.
+
+describe('HEALTH_SOURCES + HEALTH_MIGRATIONS — health_quarantine (ADR-044 Phase 2 v1)', () => {
+  it('HEALTH_SOURCES has the health_quarantine entry (cadence=one-shot, autonomous=true)', () => {
+    const entry = HEALTH_SOURCES.find(s => s.name === 'health_quarantine');
+    assert.ok(entry, 'HEALTH_SOURCES missing health_quarantine after Phase 2 v1');
+    assert.equal(entry!.cadence, 'one-shot', 'quarantine table never goes stale; cadence must be one-shot');
+    assert.equal(entry!.autonomous, true, 'quarantine table is migration-managed; not operator-cadence');
+    assert.equal(entry!.timestampCol, 'version', 'version is the ReplacingMergeTree version column');
+    assert.equal(entry!.timestampType, 'datetime', 'version is DateTime');
+    assert.equal(
+      entry!.operatorAction,
+      'npm run migrate:create-health-quarantine:apply',
+      'operatorAction must reference the new migration command',
+    );
+  });
+
+  it('HEALTH_MIGRATIONS has the health_quarantine entry pointing at the new apply command', () => {
+    const mig = HEALTH_MIGRATIONS.find(m => m.targetTable === 'health_quarantine');
+    assert.ok(mig, 'HEALTH_MIGRATIONS missing health_quarantine after Phase 2 v1');
+    assert.equal(
+      mig!.applyCommand,
+      'npm run migrate:create-health-quarantine:apply',
+      'applyCommand drift would defeat the freshness↔migration correlation',
+    );
+    // The label should reference ADR-044 + the Cycle ownership so the
+    // operator sees provenance in the migration panel.
+    assert.match(mig!.label, /ADR-044/, 'label should reference ADR-044');
+  });
+
+  it('health_quarantine satisfies the convention pin: targetTable matches a HEALTH_SOURCES entry', () => {
+    // Reuses the same invariant as the global "every targetTable is a
+    // source" check above, but pinned specifically for the new entry so a
+    // future move of one side leaves a loud failure.
+    const sourceNames = new Set(HEALTH_SOURCES.map(s => s.name));
+    const mig = HEALTH_MIGRATIONS.find(m => m.targetTable === 'health_quarantine');
+    assert.ok(mig);
+    assert.ok(
+      sourceNames.has(mig!.targetTable),
+      'health_quarantine migration target must be a HEALTH_SOURCES entry',
+    );
+  });
+});

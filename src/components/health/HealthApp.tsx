@@ -31,6 +31,9 @@ import type {
   HealthMigrationProbe,
   HealthStatus,
   HealthCadence,
+  QuarantineRow,
+  QuarantineSummary,
+  QuarantineStatus,
 } from '../../server/health_dashboard.js';
 
 interface State {
@@ -123,9 +126,11 @@ export default function HealthApp() {
           <div className="flex flex-col gap-6">
             <SpecBanner />
             <SummaryBanner data={state.data} />
+            <QuarantinePanel data={state.data.quarantine} />
+            <AutoFixLogPanel data={state.data.quarantine} />
             <FreshnessPanel sources={state.data.sources} />
             <MigrationsPanel migrations={state.data.migrations} />
-            <Phase2Footer />
+            <Phase3Footer />
           </div>
         )}
       </main>
@@ -137,13 +142,13 @@ function SpecBanner() {
   return (
     <div className="border border-emerald-500/30 bg-emerald-500/5 rounded p-3 flex items-start gap-3">
       <div className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-300 whitespace-nowrap pt-0.5">
-        ADR-044 · phase 1
+        ADR-044 · phase 2 v1
       </div>
       <div className="text-[11px] font-mono text-emerald-100/80 leading-relaxed">
-        Read-only health surface. Per-source freshness vs expected cadence,
-        plus operator-pending migrations. <span className="text-emerald-300 font-bold">
-        Phase 2</span> adds the quarantine queue + Telegram alerts + auto-fix
-        log once this read-only foundation is browser-validated. SPEC:{' '}
+        Standing system-health surface. Phase 1 freshness + migrations PLUS the
+        Phase 2 v1 <span className="text-emerald-300 font-bold">quarantine queue</span> + auto-fix log.
+        Phase 2 v2 (next cycle) adds plausibility-band probes + per-route HTTP ping;
+        Workers B + C ship the brief §0 daily digest, daemon step 0a, and Telegram alerts. SPEC:{' '}
         <code className="text-emerald-300">docs/specs/adr-044-standing-system-health-ownership.md</code>{' '}
         · audit:{' '}
         <code className="text-emerald-300">docs/audits/system-reconciliation-2026-05.md</code>.
@@ -342,33 +347,289 @@ function MigrationsPanel({ migrations }: { migrations: ReadonlyArray<HealthMigra
   );
 }
 
-function Phase2Footer() {
+// ── Phase 2 v1 panels (Cycle 3 Worker A) ───────────────────────────────────
+
+/**
+ * Render the Tier-2 quarantine queue. Three states:
+ *   - null   → table not yet migrated; show emerald init banner.
+ *   - empty  → table exists but no Tier-2 rows; show empty state.
+ *   - rows   → render pending (red), warning (amber), resolved (collapsed).
+ *
+ * Full `explanation` is shown for pending + warning rows because truncation
+ * hides exactly the context operators need at the moment of triage
+ * (canon-thin fork resolved per the minimum-free-parameters criterion:
+ * truncation requires a length knob; full text requires nothing).
+ */
+function QuarantinePanel({ data }: { data: QuarantineSummary | null }) {
+  if (data === null) {
+    return (
+      <div className="border border-emerald-500/40 bg-emerald-500/5 rounded-xl p-4">
+        <div className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-300 mb-2">
+          Quarantine queue · not initialized
+        </div>
+        <div className="text-[11px] font-mono text-emerald-100/80">
+          Phase 2 v1 quarantine table is absent. Run{' '}
+          <code className="text-emerald-300">npm run migrate:create-health-quarantine:apply</code>{' '}
+          to initialize. The migration ships the Q-5 CBOE pin row (ADR-045){' '}
+          on first apply.
+        </div>
+      </div>
+    );
+  }
+
+  const pendingRows = data.recentTier2Rows.filter(r => r.status === 'pending');
+  const warningRows = data.recentTier2Rows.filter(r => r.status === 'accepted-as-warning');
+  const resolvedRows = data.recentTier2Rows.filter(
+    r => r.status === 'approved' || r.status === 'corrected',
+  );
+  const totalPending = data.tier2PendingCount;
+  const totalWarning = data.tier2AcceptedAsWarningCount;
+  const totalResolved = data.tier2ResolvedCount;
+  const isEmpty = totalPending === 0 && totalWarning === 0 && totalResolved === 0;
+
+  return (
+    <div className="border border-[#1a1a1a] rounded-xl bg-[#0a0a0a] p-4">
+      <div className="flex items-baseline justify-between mb-3">
+        <div className="text-[9px] font-black uppercase tracking-[0.2em] text-zinc-400">
+          Quarantine queue · {totalPending} pending · {totalWarning} warning · {totalResolved} resolved
+        </div>
+        <div className="text-[9px] font-mono text-zinc-500">
+          ADR-044 Phase 2 v1 · Tier-2 rows · pending-first
+        </div>
+      </div>
+
+      {isEmpty && (
+        <div className="text-[11px] font-mono text-emerald-400/80">
+          No Tier-2 quarantine rows. Health surface is clean.
+        </div>
+      )}
+
+      {pendingRows.length > 0 && (
+        <div className="flex flex-col gap-2 mb-3">
+          <div className="text-[10px] font-mono uppercase tracking-[0.2em] text-red-300 mb-1">
+            Pending — operator review required ({totalPending})
+          </div>
+          {pendingRows.map(row => (
+            <div key={row.id}>
+              <QuarantineRowCard row={row} tone="red" />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {warningRows.length > 0 && (
+        <div className="flex flex-col gap-2 mb-3">
+          <div className="text-[10px] font-mono uppercase tracking-[0.2em] text-amber-300 mb-1">
+            Accepted as warning — informational ({totalWarning})
+          </div>
+          {warningRows.map(row => (
+            <details key={row.id} className="group">
+              <summary className="cursor-pointer text-[10px] font-mono text-amber-200/80 hover:text-amber-100 list-none">
+                <span className="inline-block mr-2 text-amber-400/60">▶</span>
+                <span className="text-amber-100 font-bold">{row.sourceLabel}</span>{' '}
+                <span className="text-zinc-500">·</span>{' '}
+                {row.category}{' '}
+                <span className="text-zinc-500">·</span>{' '}
+                {row.adrRef || '(no ADR)'}
+              </summary>
+              <div className="mt-2">
+                <QuarantineRowCard row={row} tone="amber" />
+              </div>
+            </details>
+          ))}
+        </div>
+      )}
+
+      {totalResolved > 0 && (
+        <details className="mt-2 text-[10px] font-mono text-zinc-500">
+          <summary className="cursor-pointer hover:text-zinc-300 uppercase tracking-[0.2em]">
+            resolved ({totalResolved})
+          </summary>
+          <div className="mt-2 flex flex-col gap-2">
+            {resolvedRows.map(row => (
+              <div key={row.id}>
+                <QuarantineRowCard row={row} tone="zinc" />
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
+type QuarantineRowTone = 'red' | 'amber' | 'zinc';
+
+interface QuarantineRowCardProps {
+  row: QuarantineRow;
+  tone: QuarantineRowTone;
+}
+
+function QuarantineRowCard({ row, tone }: QuarantineRowCardProps) {
+  const toneClass: Record<QuarantineRowTone, string> = {
+    red: 'border-red-500/40 bg-red-500/5',
+    amber: 'border-amber-500/40 bg-amber-500/5',
+    zinc: 'border-zinc-500/40 bg-zinc-500/5 opacity-80',
+  };
+  const labelClass: Record<QuarantineRowTone, string> = {
+    red: 'text-red-100',
+    amber: 'text-amber-100',
+    zinc: 'text-zinc-300',
+  };
+  const dimClass: Record<QuarantineRowTone, string> = {
+    red: 'text-red-200/70',
+    amber: 'text-amber-200/70',
+    zinc: 'text-zinc-400',
+  };
+  return (
+    <div className={`border ${toneClass[tone]} rounded p-3`}>
+      <div className="flex items-baseline justify-between mb-1 gap-3 flex-wrap">
+        <div className={`text-[11px] font-mono ${labelClass[tone]} font-bold`}>
+          {row.sourceLabel}{' '}
+          <span className="text-zinc-500 font-normal">·</span>{' '}
+          <span className="font-normal">{row.category}</span>
+        </div>
+        <div className={`text-[9px] font-mono ${dimClass[tone]} flex gap-2 items-center`}>
+          <StatusPill status={row.status} />
+          <span>severity={row.severity}</span>
+          <span>{row.adrRef || 'no-ADR'}</span>
+          <span>{row.cycleRef || 'no-cycle'}</span>
+        </div>
+      </div>
+      <div className={`text-[9px] font-mono ${dimClass[tone]} mb-1`}>
+        detected {formatRelative(row.detectedAt)} ({row.detectedAt}){' '}
+        <span className="text-zinc-500">·</span> source quantlab.{row.sourceTable}
+      </div>
+      <div className="text-[10px] font-mono text-zinc-300 leading-relaxed mb-1">
+        <span className="text-zinc-500 uppercase tracking-[0.15em] text-[8px]">value</span>{' '}
+        {row.offendingValue}
+      </div>
+      {row.expectedRange && (
+        <div className="text-[10px] font-mono text-zinc-300 leading-relaxed mb-1">
+          <span className="text-zinc-500 uppercase tracking-[0.15em] text-[8px]">expected</span>{' '}
+          {row.expectedRange}
+        </div>
+      )}
+      <div className="text-[10px] font-mono text-zinc-200 leading-relaxed mb-2">
+        <span className="text-zinc-500 uppercase tracking-[0.15em] text-[8px]">explanation</span>{' '}
+        {row.explanation}
+      </div>
+      {row.operatorAction && (
+        <div className="text-[10px] font-mono text-zinc-100 leading-relaxed">
+          <span className="text-zinc-500 uppercase tracking-[0.15em] text-[8px]">operator action</span>{' '}
+          {row.operatorAction}
+        </div>
+      )}
+      {row.resolutionNote && (
+        <div className="text-[10px] font-mono text-emerald-200/70 leading-relaxed mt-1">
+          <span className="text-zinc-500 uppercase tracking-[0.15em] text-[8px]">resolution</span>{' '}
+          {row.resolutionNote}
+          {row.resolvedBy && (
+            <span className="text-zinc-500"> (by {row.resolvedBy})</span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StatusPill({ status }: { status: QuarantineStatus }) {
+  const map: Record<QuarantineStatus, { bg: string; border: string; text: string }> = {
+    pending: { bg: 'bg-red-500/10', border: 'border-red-500/40', text: 'text-red-300' },
+    'accepted-as-warning': { bg: 'bg-amber-500/10', border: 'border-amber-500/40', text: 'text-amber-300' },
+    approved: { bg: 'bg-emerald-500/10', border: 'border-emerald-500/40', text: 'text-emerald-300' },
+    corrected: { bg: 'bg-emerald-500/10', border: 'border-emerald-500/40', text: 'text-emerald-300' },
+    'auto-fixed': { bg: 'bg-zinc-500/10', border: 'border-zinc-500/40', text: 'text-zinc-300' },
+  };
+  const cls = map[status];
+  return (
+    <span className={`inline-block px-1.5 py-0.5 rounded border text-[8px] font-bold uppercase tracking-[0.15em] ${cls.bg} ${cls.border} ${cls.text}`}>
+      {status}
+    </span>
+  );
+}
+
+/**
+ * Render the Tier-1 auto-fix log for the last 24h. Brief rows (no full
+ * explanation by default — that's the QuarantinePanel's job). Empty state
+ * is the common case in v1 because nothing auto-inserts yet; Phase 2 v2
+ * probes are what start populating this.
+ */
+function AutoFixLogPanel({ data }: { data: QuarantineSummary | null }) {
+  if (data === null) return null; // table absent — banner is in QuarantinePanel
+  const rows = data.recentTier1AutofixRows;
+  return (
+    <div className="border border-[#1a1a1a] rounded-xl bg-[#0a0a0a] p-4">
+      <div className="flex items-baseline justify-between mb-3">
+        <div className="text-[9px] font-black uppercase tracking-[0.2em] text-zinc-400">
+          Auto-fix log · last 24h · {data.tier1AutofixLast24hCount} rows
+        </div>
+        <div className="text-[9px] font-mono text-zinc-500">
+          ADR-044 Tier-1 mechanical fixes (no operator gate)
+        </div>
+      </div>
+      {rows.length === 0 ? (
+        <div className="text-[11px] font-mono text-emerald-400/80">
+          No Tier-1 auto-fixes in last 24h.
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {rows.map(row => (
+            <div
+              key={row.id}
+              className="border border-zinc-500/30 bg-zinc-500/5 rounded p-2"
+            >
+              <div className="flex items-baseline justify-between gap-3 flex-wrap mb-1">
+                <div className="text-[10px] font-mono text-zinc-200 font-bold">
+                  {row.sourceLabel}{' '}
+                  <span className="text-zinc-500 font-normal">·</span>{' '}
+                  <span className="font-normal">{row.category}</span>
+                </div>
+                <div className="text-[9px] font-mono text-zinc-500">
+                  {formatRelative(row.detectedAt)} · source quantlab.{row.sourceTable}
+                </div>
+              </div>
+              <div className="text-[10px] font-mono text-zinc-300 leading-relaxed">
+                {row.explanation}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Phase3Footer() {
   return (
     <div className="border border-[#1a1a1a] rounded-xl bg-[#0a0a0a] p-4 opacity-60">
       <div className="text-[9px] font-black uppercase tracking-[0.2em] text-zinc-500 mb-2">
-        Phase 2 (next slice, post-browser-validation)
+        Phase 2 v2 (deferred)
       </div>
       <ul className="text-[10px] font-mono text-zinc-500 leading-relaxed space-y-1">
         <li>
-          • <span className="text-zinc-400">Quarantine queue</span> —
-          Tier-2 correctness anomalies persist to <code>quantlab.health_quarantine</code>;
-          operator resolves (approved / corrected / accepted-as-warning).
+          • <span className="text-zinc-400">Plausibility-band probes</span> —
+          per-composite sigma-bounded checks (937T% return class) that
+          auto-insert Tier-2 quarantine rows when outputs exit expected
+          ranges (ADR-044 §infrastructure-1).
         </li>
         <li>
-          • <span className="text-zinc-400">Auto-fix log</span> — rolling
-          24h log of Tier-1 mechanical fixes applied without operator gate.
+          • <span className="text-zinc-400">Per-UI-route ping</span> —
+          200-status probe of every Express route; non-200 auto-inserts
+          a Tier-1 row + (Phase 2 v2) attempts the table-exists guard.
         </li>
         <li>
-          • <span className="text-zinc-400">Telegram alerts</span> — one
-          alert per Tier-2 quarantine event; Tier-1 fixes roll up in the
-          morning brief §0 daily digest.
-        </li>
-        <li>
-          • <span className="text-zinc-400">Daemon step 0a</span> —
-          auto-run health check at start of <code>daemon:daily</code>;
-          surface critical findings in the brief.
+          • <span className="text-zinc-400">Auto-insert logic</span> on
+          probe anomaly so the log + queue populate without manual
+          ingestion.
         </li>
       </ul>
+      <div className="mt-3 text-[10px] font-mono text-zinc-500 leading-relaxed">
+        Cycle 3 Workers <span className="text-zinc-400">B + C</span> complete
+        the Phase 2 v1 operator-facing surface: brief §0 daily digest, daemon
+        step 0a (auto-run health check), Telegram alerts on Tier-2 quarantine
+        events.
+      </div>
     </div>
   );
 }
