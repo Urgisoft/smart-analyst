@@ -200,9 +200,86 @@ export interface BriefStageSection {
   killCriteriaSource?: 'history' | 'rolling-asof-shortcut';
 }
 
+/**
+ * ADR-044 Phase 2 v1 — brief §0 daily-digest section.
+ *
+ * Rendered at the TOP of the brief (between header and §1 macro regime)
+ * so the operator sees system-health state FIRST — per ADR-044 §workflow-
+ * change. Three sub-blocks:
+ *   - freshness: roll-up of `runHealthCheck()` summary + worst-source
+ *     highlight.
+ *   - quarantine: Tier-2 + auto-fix summary from `loadQuarantineSummary()`.
+ *     `null` when the `health_quarantine` table is absent (pre-migration
+ *     state — Worker A's binding contract for graceful-degrade).
+ *   - autofix: Tier-1 auto-fix activity in the last 24h. Same null-on-
+ *     absent semantics as `quarantine`.
+ *
+ * The renderer SKIPS §0 entirely (zero bytes added) when all three blocks
+ * would render clean: no non-fresh source AND no Tier-2 row AND no Tier-1
+ * autofix in the last 24h. Byte-equal-stdout protection — pre-§0 brief
+ * fixtures keep their stdout for the all-clean path.
+ */
+export interface BriefHealthDigestFreshnessBlock {
+  /** From runHealthCheck() summary. */
+  fresh: number;
+  stale: number;
+  veryStale: number;
+  missing: number;
+  neverPopulated: number;
+  /** Top non-fresh source for the inline highlight; null when all-green
+   *  (stale + veryStale + missing + neverPopulated === 0). Sorted by
+   *  status-severity then label so the rendered worst-source is
+   *  deterministic across runs. */
+  worstSource: {
+    label: string;
+    status: 'stale' | 'very-stale' | 'missing-table' | 'never-populated' | 'unknown-cadence';
+    operatorAction: string;
+  } | null;
+}
+
+export interface BriefHealthDigestQuarantineBlock {
+  tier2PendingCount: number;
+  tier2WarningCount: number;
+  tier2ResolvedCount: number;
+  /** First (most-recent pending if any, else most-recent warning, else
+   *  most-recent resolved); null when the queue is empty. */
+  topRow: {
+    sourceLabel: string;
+    severity: 'info' | 'warning' | 'critical';
+    category: string;
+    adrRef: string;
+    cycleRef: string;
+  } | null;
+}
+
+export interface BriefHealthDigestAutofixBlock {
+  /** Tier-1 auto-fix rows detected in the last 24h. ADR-044 §workflow-
+   *  change: surface a positive heartbeat when 0. */
+  last24hCount: number;
+}
+
+export interface BriefHealthDigestSection {
+  /** ISO 8601 from `runHealthCheck()` (Phase 1 generation time). */
+  generatedAt: string;
+  freshness: BriefHealthDigestFreshnessBlock;
+  /** null = quarantine table absent (graceful-degrade pre-migration). */
+  quarantine: BriefHealthDigestQuarantineBlock | null;
+  /** null = quarantine table absent (autofix log lives in the same
+   *  table, so absence implies no log either). */
+  autofix: BriefHealthDigestAutofixBlock | null;
+}
+
 export interface MorningBrief {
   generatedAt: string;
   classifierVersion: string;
+  /**
+   * ADR-044 Phase 2 v1 — system health digest. Rendered as §0 at the TOP
+   * of the brief (between header and §1 macro regime) when ANY block has
+   * something to surface; SKIPPED entirely (zero bytes added) otherwise.
+   * `null` when the composer chose to skip the digest fetch (e.g. CH
+   * unreachable for the freshness probe).
+   */
+  healthDigest: BriefHealthDigestSection | null;
   regime: BriefRegimeSection;
   killCriteria: KillCriterionVerdict[];
   daemon: BriefDaemonSection;
@@ -1030,6 +1107,17 @@ export function renderBriefMarkdown(brief: MorningBrief): string {
   const parts: string[] = [];
   parts.push(renderHeader(brief));
   parts.push('');
+  // ADR-044 Phase 2 v1 — §0 system health digest, rendered FIRST so the
+  // operator sees system state before macro regime. Composer is responsible
+  // for setting healthDigest=null on the all-clean path (byte-equal
+  // preservation); the renderer additionally checks per-block "all clean"
+  // here as a defense-in-depth measure (worstSource null AND quarantine
+  // empty-or-null AND autofix.last24hCount===0).
+  const sectionZero = renderHealthDigestSection(brief);
+  if (sectionZero !== '') {
+    parts.push(sectionZero);
+    parts.push('');
+  }
   parts.push(renderRegimeSection(brief));
   parts.push('');
   parts.push(renderKillCriteriaSection(brief));
@@ -1071,6 +1159,105 @@ function renderHeader(b: MorningBrief): string {
     ``,
     `Classifier: \`${b.classifierVersion}\``,
   ].join('\n');
+}
+
+/**
+ * ADR-044 Phase 2 v1 — §0 system health digest renderer.
+ *
+ * Returns the rendered markdown when there's something to surface, OR an
+ * empty string when §0 should be skipped entirely (byte-equal-stdout
+ * preservation for the all-clean path). The renderer never emits a
+ * "system green" summary line in the skip path — the operator can read
+ * fresh status on /#/health if they want it.
+ *
+ * Skip conditions (ALL must hold):
+ *   - `healthDigest === null` (composer skipped the fetch), OR
+ *   - freshness.worstSource === null AND quarantine is empty-or-null
+ *     AND autofix.last24hCount === 0.
+ *
+ * Markdown shape (PIN — operatorBriefRender.test.ts cases pin every
+ * branch):
+ *
+ *   ## §0 System health digest · <generatedAt>
+ *
+ *   ### Freshness
+ *   fresh=N · stale=N · very-stale=N · missing=N · empty=N
+ *   worst: <label> (<status>) → <operatorAction>      (when worstSource)
+ *
+ *   ### Quarantine                                     (when block non-null)
+ *   Tier-2 pending=N · warning=N · resolved=N
+ *   top: <sourceLabel> (<severity>) — <category> · <adrRef> · <cycleRef>
+ *
+ *   ### Auto-fix (last 24h)                            (when block non-null)
+ *   N Tier-1 fixes applied
+ *   No Tier-1 fixes in last 24h.                       (when N === 0)
+ *
+ *   ---
+ *
+ * The `---` divider before §1 is emitted ONLY when §0 surfaces (preserves
+ * byte-equal when §0 is skipped).
+ */
+function renderHealthDigestSection(b: MorningBrief): string {
+  const d = b.healthDigest;
+  if (d === null) return '';
+
+  const f = d.freshness;
+  const q = d.quarantine;
+  const a = d.autofix;
+
+  // All-clean check — every block would render empty/heartbeat-only. We
+  // skip in that case to preserve byte-equal-stdout on existing brief
+  // fixtures + on the daily-quiet path.
+  const quarantineClean =
+    q === null ||
+    (q.tier2PendingCount === 0 && q.tier2WarningCount === 0 && q.tier2ResolvedCount === 0);
+  const autofixClean = a === null || a.last24hCount === 0;
+  if (f.worstSource === null && quarantineClean && autofixClean) {
+    return '';
+  }
+
+  const lines: string[] = [];
+  lines.push(`## §0 System health digest · ${d.generatedAt}`);
+  lines.push(``);
+  lines.push(`### Freshness`);
+  lines.push(
+    `fresh=${f.fresh} · stale=${f.stale} · very-stale=${f.veryStale} · ` +
+    `missing=${f.missing} · empty=${f.neverPopulated}`,
+  );
+  if (f.worstSource !== null) {
+    lines.push(
+      `worst: ${f.worstSource.label} (${f.worstSource.status}) → ${f.worstSource.operatorAction}`,
+    );
+  }
+
+  if (q !== null) {
+    lines.push(``);
+    lines.push(`### Quarantine`);
+    lines.push(
+      `Tier-2 pending=${q.tier2PendingCount} · warning=${q.tier2WarningCount} · ` +
+      `resolved=${q.tier2ResolvedCount}`,
+    );
+    if (q.topRow !== null) {
+      lines.push(
+        `top: ${q.topRow.sourceLabel} (${q.topRow.severity}) — ${q.topRow.category} · ` +
+        `${q.topRow.adrRef} · ${q.topRow.cycleRef}`,
+      );
+    }
+  }
+
+  if (a !== null) {
+    lines.push(``);
+    lines.push(`### Auto-fix (last 24h)`);
+    if (a.last24hCount === 0) {
+      lines.push(`No Tier-1 fixes in last 24h.`);
+    } else {
+      lines.push(`${a.last24hCount} Tier-1 fixes applied`);
+    }
+  }
+
+  lines.push(``);
+  lines.push(`---`);
+  return lines.join('\n');
 }
 
 function renderRegimeSection(b: MorningBrief): string {

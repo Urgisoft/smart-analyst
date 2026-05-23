@@ -405,6 +405,43 @@ describe('HEALTH_MIGRATIONS', () => {
 // A future refactor that drops either side would silently break the
 // "every migration target is a source" convention.
 
+// ───── ADR-044 Phase 2 v1 daemon step 0a wiring pin (Cycle 3 slice 2) ──────
+//
+// Convention pin: the daemon orchestrator MUST import
+// `runHealthCheckStep0a` from `daemon_health_check_step.js`. Without this
+// pin, a future refactor that removes the import (e.g. silently disabling
+// auto-health-check while leaving the helper module in place) would
+// re-introduce the operator-memory dependence ADR-044 §workflow-change
+// closes. The convention pin mirrors the GAP-1/GAP-2/GAP-4 pins above.
+
+describe('daily_signal_daemon.ts — step 0a auto-health-check wiring (ADR-044 Phase 2 v1)', () => {
+  it('imports runHealthCheckStep0a from daemon_health_check_step.js', async () => {
+    const fs = await import('node:fs/promises');
+    const url = new URL('../daily_signal_daemon.ts', import.meta.url);
+    const src = await fs.readFile(url, 'utf8');
+    assert.match(
+      src,
+      /import\s*{\s*runHealthCheckStep0a\s*}\s*from\s*['"]\.\.\/src\/server\/daemon_health_check_step\.js['"]/,
+      'daily_signal_daemon.ts must import runHealthCheckStep0a from the helper module',
+    );
+    // Sanity: the import must be wired into an actual call site, not a
+    // dangling import. Grep for the function invocation.
+    assert.match(
+      src,
+      /runHealthCheckStep0a\s*\(/,
+      'daily_signal_daemon.ts must INVOKE runHealthCheckStep0a (not just import it)',
+    );
+    // The step must log the canonical heartbeat token so external grep
+    // (operator scripts; brief-render byte-equal expectation) can latch
+    // onto it consistently.
+    assert.match(
+      src,
+      /\[step 0a\] health:/,
+      'daily_signal_daemon.ts must emit the [step 0a] health: heartbeat token',
+    );
+  });
+});
+
 describe('HEALTH_SOURCES + HEALTH_MIGRATIONS — health_quarantine (ADR-044 Phase 2 v1)', () => {
   it('HEALTH_SOURCES has the health_quarantine entry (cadence=one-shot, autonomous=true)', () => {
     const entry = HEALTH_SOURCES.find(s => s.name === 'health_quarantine');

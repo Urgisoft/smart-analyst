@@ -21,6 +21,10 @@ function brief(overrides?: Partial<MorningBrief>): MorningBrief {
   return {
     generatedAt: '2026-05-10T14:30:00Z',
     classifierVersion: 'phase1_v3',
+    // ADR-044 Phase 2 v1 §0 default: null → renderer skips §0 entirely.
+    // Tests that want to exercise the §0 surface override via the
+    // `overrides.healthDigest` field.
+    healthDigest: null,
     regime: {
       today: {
         trade_date: '2026-05-10',
@@ -4517,6 +4521,210 @@ describe('renderBriefMarkdown — Schedule 13D/13G activist-stake panel', () => 
     }));
     assert.match(md, /- ABCD — SC 13D 7d ago/);
     assert.doesNotMatch(md, /- ABCD \[/);
+  });
+});
+
+// ───── ADR-044 Phase 2 v1 — brief §0 system health digest renderer ─────────
+//
+// PIN the markdown shape AND the byte-equal-stdout preservation contract
+// (§0 must be ENTIRELY OMITTED on the all-clean path so pre-§0 fixtures
+// keep their stdout). Tests cover:
+//   - All-clean → §0 not rendered (byte-equal preservation).
+//   - healthDigest=null → §0 not rendered.
+//   - Worst-source surfaced when one or more sources are non-fresh.
+//   - Quarantine block surfaced with the top-row line when Tier-2 pending.
+//   - Quarantine block null (pre-migration) but freshness non-fresh →
+//     freshness-only §0.
+//   - Auto-fix block: count > 0 → "N Tier-1 fixes applied"; count === 0 →
+//     "No Tier-1 fixes in last 24h."
+//   - Section ordering: §0 appears BEFORE §1 macro regime.
+//   - Divider `---` emitted ONLY when §0 surfaces.
+
+describe('renderBriefMarkdown — §0 system health digest (ADR-044 Phase 2 v1)', () => {
+  it('does not render §0 when healthDigest=null (byte-equal preservation)', () => {
+    const md = renderBriefMarkdown(brief({ healthDigest: null }));
+    assert.doesNotMatch(md, /§0 System health digest/);
+    assert.doesNotMatch(md, /### Freshness/);
+    // First post-header section must still be §1 macro regime.
+    assert.match(md, /## 1\. Macro regime/);
+  });
+
+  it('does not render §0 on the all-clean path (every block clean)', () => {
+    const md = renderBriefMarkdown(brief({
+      healthDigest: {
+        generatedAt: '2026-05-23T12:00:00.000Z',
+        freshness: {
+          fresh: 18, stale: 0, veryStale: 0, missing: 0, neverPopulated: 0,
+          worstSource: null,
+        },
+        quarantine: {
+          tier2PendingCount: 0, tier2WarningCount: 0, tier2ResolvedCount: 0,
+          topRow: null,
+        },
+        autofix: { last24hCount: 0 },
+      },
+    }));
+    assert.doesNotMatch(
+      md,
+      /§0 System health digest/,
+      'all-clean path must NOT render §0 (preserves byte-equal-stdout on pre-§0 fixtures)',
+    );
+    // Critical: no rogue divider before §1.
+    assert.doesNotMatch(md, /\n---\n[\s\S]*## 1\. Macro regime/);
+  });
+
+  it('renders the worst-source highlight when one source is non-fresh', () => {
+    const md = renderBriefMarkdown(brief({
+      healthDigest: {
+        generatedAt: '2026-05-23T12:00:00.000Z',
+        freshness: {
+          fresh: 17, stale: 1, veryStale: 0, missing: 0, neverPopulated: 0,
+          worstSource: {
+            label: 'FRED macro indicators',
+            status: 'stale',
+            operatorAction: 'npm run daemon:daily',
+          },
+        },
+        quarantine: {
+          tier2PendingCount: 0, tier2WarningCount: 0, tier2ResolvedCount: 0,
+          topRow: null,
+        },
+        autofix: { last24hCount: 0 },
+      },
+    }));
+    assert.match(md, /## §0 System health digest · 2026-05-23T12:00:00\.000Z/);
+    assert.match(md, /### Freshness/);
+    assert.match(md, /fresh=17 · stale=1 · very-stale=0 · missing=0 · empty=0/);
+    assert.match(md, /worst: FRED macro indicators \(stale\) → npm run daemon:daily/);
+  });
+
+  it('renders the quarantine block with the top-row when Tier-2 pending', () => {
+    const md = renderBriefMarkdown(brief({
+      healthDigest: {
+        generatedAt: '2026-05-23T12:00:00.000Z',
+        freshness: {
+          fresh: 18, stale: 0, veryStale: 0, missing: 0, neverPopulated: 0,
+          worstSource: null,
+        },
+        quarantine: {
+          tier2PendingCount: 1,
+          tier2WarningCount: 0,
+          tier2ResolvedCount: 0,
+          topRow: {
+            sourceLabel: 'CBOE put/call ratio',
+            severity: 'warning',
+            category: 'corrupted-input',
+            adrRef: 'ADR-045',
+            cycleRef: 's96 #15 Cycle 1',
+          },
+        },
+        autofix: { last24hCount: 0 },
+      },
+    }));
+    assert.match(md, /### Quarantine/);
+    assert.match(md, /Tier-2 pending=1 · warning=0 · resolved=0/);
+    assert.match(
+      md,
+      /top: CBOE put\/call ratio \(warning\) — corrupted-input · ADR-045 · s96 #15 Cycle 1/,
+    );
+    // Auto-fix block surfaces with the 0-fixes line because §0 fires for
+    // the quarantine block.
+    assert.match(md, /### Auto-fix \(last 24h\)/);
+    assert.match(md, /No Tier-1 fixes in last 24h\./);
+  });
+
+  it('renders without quarantine block when quarantine=null (pre-migration)', () => {
+    const md = renderBriefMarkdown(brief({
+      healthDigest: {
+        generatedAt: '2026-05-23T12:00:00.000Z',
+        freshness: {
+          fresh: 16, stale: 2, veryStale: 0, missing: 0, neverPopulated: 0,
+          worstSource: {
+            label: 'CBOE put/call ratio',
+            status: 'very-stale',
+            operatorAction: 'npm run cboe:ingest',
+          },
+        },
+        quarantine: null,
+        autofix: null,
+      },
+    }));
+    assert.match(md, /### Freshness/);
+    assert.match(md, /worst: CBOE put\/call ratio \(very-stale\)/);
+    // Quarantine + autofix blocks absent because both are null.
+    assert.doesNotMatch(md, /### Quarantine/);
+    assert.doesNotMatch(md, /### Auto-fix/);
+  });
+
+  it('renders "N Tier-1 fixes applied" when autofix.last24hCount > 0', () => {
+    const md = renderBriefMarkdown(brief({
+      healthDigest: {
+        generatedAt: '2026-05-23T12:00:00.000Z',
+        freshness: {
+          fresh: 18, stale: 0, veryStale: 0, missing: 0, neverPopulated: 0,
+          worstSource: null,
+        },
+        quarantine: {
+          tier2PendingCount: 0, tier2WarningCount: 0, tier2ResolvedCount: 0,
+          topRow: null,
+        },
+        autofix: { last24hCount: 4 },
+      },
+    }));
+    // §0 surfaces because autofix is non-zero.
+    assert.match(md, /### Auto-fix \(last 24h\)/);
+    assert.match(md, /4 Tier-1 fixes applied/);
+    assert.doesNotMatch(md, /No Tier-1 fixes in last 24h/);
+  });
+
+  it('renders §0 BEFORE §1 macro regime + emits the --- divider', () => {
+    const md = renderBriefMarkdown(brief({
+      healthDigest: {
+        generatedAt: '2026-05-23T12:00:00.000Z',
+        freshness: {
+          fresh: 17, stale: 1, veryStale: 0, missing: 0, neverPopulated: 0,
+          worstSource: {
+            label: 'FRED macro indicators',
+            status: 'stale',
+            operatorAction: 'npm run daemon:daily',
+          },
+        },
+        quarantine: null,
+        autofix: null,
+      },
+    }));
+    const idxSection0 = md.indexOf('## §0 System health digest');
+    const idxSection1 = md.indexOf('## 1. Macro regime');
+    assert.ok(idxSection0 >= 0, '§0 must render');
+    assert.ok(idxSection1 > idxSection0, '§0 must precede §1');
+    // Divider between §0 and §1 (sole purpose: visually separate the
+    // operator-facing health block from the trading sections).
+    const between = md.slice(idxSection0, idxSection1);
+    assert.match(between, /\n---\n/, '--- divider expected between §0 and §1');
+  });
+
+  it('all-clean digest does NOT emit the --- divider (byte-equal preservation)', () => {
+    const md = renderBriefMarkdown(brief({
+      healthDigest: {
+        generatedAt: '2026-05-23T12:00:00.000Z',
+        freshness: {
+          fresh: 18, stale: 0, veryStale: 0, missing: 0, neverPopulated: 0,
+          worstSource: null,
+        },
+        quarantine: {
+          tier2PendingCount: 0, tier2WarningCount: 0, tier2ResolvedCount: 0,
+          topRow: null,
+        },
+        autofix: { last24hCount: 0 },
+      },
+    }));
+    // The brief should not contain any --- divider above §1 macro regime.
+    // (The brief renders multiple `---` patterns inside CSCV / other panels
+    // far below §1; we check only the prefix above §1.)
+    const idxSection1 = md.indexOf('## 1. Macro regime');
+    assert.ok(idxSection1 > 0);
+    const prefix = md.slice(0, idxSection1);
+    assert.doesNotMatch(prefix, /\n---\n/, 'no divider above §1 on the all-clean path');
   });
 });
 

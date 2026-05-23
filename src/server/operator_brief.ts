@@ -99,6 +99,17 @@ import {
 import type { Schedule13DGSnapshot } from './schedule_13d_g.js';
 import { DEPLOYMENT_STAGES } from './capital_deployment_config.js';
 import {
+  runHealthCheck,
+  type HealthCheckResponse,
+  type HealthSourceProbe,
+  type HealthStatus,
+} from './health_check.js';
+import {
+  loadQuarantineSummary,
+  quarantineTableExists,
+  type QuarantineSummary,
+} from './health_quarantine.js';
+import {
   computePerCellCapital,
   resolveCellWeightsForRun,
   type ResolveCellWeightsResult,
@@ -119,6 +130,10 @@ import type {
   BriefForm4InsiderSection,
   BriefEtfFlowSection,
   BriefExecutiveDepartureSection,
+  BriefHealthDigestAutofixBlock,
+  BriefHealthDigestFreshnessBlock,
+  BriefHealthDigestQuarantineBlock,
+  BriefHealthDigestSection,
   BriefSchedule13DGSection,
   BriefSectorRotationSection,
   BriefShortInterestSection,
@@ -338,6 +353,15 @@ export interface BriefDeps {
     cellKeys: readonly string[];
     cellCapitalUsdProxy: number;
   }) => Promise<ResolveCellWeightsResult>;
+  /**
+   * ADR-044 Phase 2 v1 — system-health digest fetcher. Defaults to a wrapper
+   * around `runHealthCheck()` + `loadQuarantineSummary()` with graceful-
+   * degrade (returns `null` if BOTH the Phase 1 probe and the quarantine
+   * probe fail; partial state survives one failure). Tests inject a stub.
+   * Returning `null` skips §0 entirely in the renderer (zero bytes added —
+   * byte-equal-stdout preservation for existing brief fixtures).
+   */
+  fetchHealthDigest?: () => Promise<BriefHealthDigestSection | null>;
   /** Override the clock for tests. */
   now?: () => Date;
 }
@@ -388,9 +412,11 @@ export async function composeMorningBrief(deps?: Partial<BriefDeps>): Promise<Mo
     deps?.killCriteriaDailyTablePresent ?? (() => killCriteriaDailyTableExists());
   const fetchCellWeightsForBrief =
     deps?.fetchCellWeightsForBrief ?? defaultFetchCellWeightsForBrief;
+  const fetchHealthDigest =
+    deps?.fetchHealthDigest ?? defaultFetchHealthDigest;
   const now = deps?.now ?? (() => new Date());
 
-  const [regime, paper, lastRun, allowlists, closedTrades, latestDrawdown, latestDrawdownPerStrategy, latestStage, killCritDailyPresent, latestCyclePosition, latestVolStructure, latestSectorRotation, latestCrossAsset, latestShortInterest, latestExecutiveDeparture, latestEtfFlow, latestEightKClassifier, latestForm4Insider, latestSchedule13DG] = await Promise.all([
+  const [regime, paper, lastRun, allowlists, closedTrades, latestDrawdown, latestDrawdownPerStrategy, latestStage, killCritDailyPresent, latestCyclePosition, latestVolStructure, latestSectorRotation, latestCrossAsset, latestShortInterest, latestExecutiveDeparture, latestEtfFlow, latestEightKClassifier, latestForm4Insider, latestSchedule13DG, healthDigest] = await Promise.all([
     fetchRegime({ asOf: null, lookbackDays: LOOKBACK_DAYS_DEFAULT }),
     fetchPaper({ runHistoryLimit: 14 }),
     fetchDaemon(),
@@ -410,6 +436,7 @@ export async function composeMorningBrief(deps?: Partial<BriefDeps>): Promise<Mo
     fetchLatestEightKClassifier(),
     fetchLatestForm4Insider(),
     fetchLatestSchedule13DG(),
+    fetchHealthDigest(),
   ]);
 
   if (!regime.biasNote || !regime.biasNote.body) {
@@ -466,6 +493,7 @@ export async function composeMorningBrief(deps?: Partial<BriefDeps>): Promise<Mo
   return {
     generatedAt: now().toISOString().slice(0, 19) + 'Z',
     classifierVersion: regime.classifierVersion ?? CLASSIFIER_VERSION,
+    healthDigest,
     regime: {
       today: regime.today,
       daysInCurrentRegime: regime.daysInCurrentRegime,
@@ -1494,6 +1522,138 @@ export function buildStageSection(
     cellWeightsByCell: opts?.cellWeights?.weights,
     cellWeightsDegraded: opts?.cellWeights?.degraded,
   };
+}
+
+// ── ADR-044 Phase 2 v1 — brief §0 health digest composer + helpers ─────────
+
+/**
+ * Worst-status priority for the freshness block's `worstSource` highlight.
+ * Lower number = more urgent. Drives the deterministic top-pick selection
+ * in `buildHealthDigestSection` so the rendered worst-source line is
+ * stable across runs.
+ */
+const HEALTH_STATUS_PRIORITY: Record<HealthStatus, number> = {
+  'missing-table': 0,
+  'very-stale': 1,
+  'never-populated': 2,
+  'stale': 3,
+  'unknown-cadence': 4,
+  'fresh': 5,
+};
+
+/**
+ * Pure helper — pick the worst (most urgent) non-fresh source from a
+ * Phase 1 freshness probe. Returns null when every source is fresh.
+ *
+ * Sort: (status-priority asc, label asc). The label tiebreak makes the
+ * choice deterministic when multiple sources share the worst status —
+ * important for byte-equal-stdout testing.
+ */
+function pickWorstSource(
+  sources: ReadonlyArray<HealthSourceProbe>,
+): BriefHealthDigestFreshnessBlock['worstSource'] {
+  const nonFresh = sources.filter(s => s.status !== 'fresh');
+  if (nonFresh.length === 0) return null;
+  const sorted = [...nonFresh].sort((a, b) => {
+    const pa = HEALTH_STATUS_PRIORITY[a.status];
+    const pb = HEALTH_STATUS_PRIORITY[b.status];
+    if (pa !== pb) return pa - pb;
+    return a.label.localeCompare(b.label);
+  });
+  const top = sorted[0];
+  // 'fresh' is filtered out above; the renderer's union type excludes
+  // it. Defensive narrowing for the type system.
+  if (top.status === 'fresh') return null;
+  return {
+    label: top.label,
+    status: top.status,
+    operatorAction: top.operatorAction,
+  };
+}
+
+/**
+ * Pure helper — assemble the BriefHealthDigestSection from a Phase 1
+ * response + an optional quarantine summary. Exported for tests.
+ *
+ * Argument semantics:
+ *   - phase1 = null: caller could not run the Phase 1 probe. The whole
+ *     digest is null (callers map this to "skip §0 in renderer"). We do
+ *     NOT synthesize a partial digest from quarantine-only data — the
+ *     freshness block is the anchor + would be empty/lying.
+ *   - quarantine = null: Phase 2 v1 quarantine table is absent (pre-
+ *     migration state). The freshness block survives + the quarantine +
+ *     autofix blocks are both null (renderer skips them).
+ *   - both present: full §0 surface.
+ */
+export function buildHealthDigestSection(
+  phase1: HealthCheckResponse | null,
+  quarantine: QuarantineSummary | null,
+): BriefHealthDigestSection | null {
+  if (phase1 === null) return null;
+  const freshness: BriefHealthDigestFreshnessBlock = {
+    fresh: phase1.summary.fresh,
+    stale: phase1.summary.stale,
+    veryStale: phase1.summary.veryStale,
+    missing: phase1.summary.missing,
+    neverPopulated: phase1.summary.neverPopulated,
+    worstSource: pickWorstSource(phase1.sources),
+  };
+  let quarantineBlock: BriefHealthDigestQuarantineBlock | null = null;
+  let autofixBlock: BriefHealthDigestAutofixBlock | null = null;
+  if (quarantine !== null) {
+    // Choose the topRow per the §0 markdown contract: most-recent pending
+    // → most-recent warning → most-recent resolved. recentTier2Rows is
+    // already sorted in that priority order by computeQuarantineSummary.
+    const top = quarantine.recentTier2Rows[0];
+    quarantineBlock = {
+      tier2PendingCount: quarantine.tier2PendingCount,
+      tier2WarningCount: quarantine.tier2AcceptedAsWarningCount,
+      tier2ResolvedCount: quarantine.tier2ResolvedCount,
+      topRow: top !== undefined ? {
+        sourceLabel: top.sourceLabel,
+        severity: top.severity,
+        category: top.category,
+        adrRef: top.adrRef,
+        cycleRef: top.cycleRef,
+      } : null,
+    };
+    autofixBlock = { last24hCount: quarantine.tier1AutofixLast24hCount };
+  }
+  return {
+    generatedAt: phase1.generatedAt,
+    freshness,
+    quarantine: quarantineBlock,
+    autofix: autofixBlock,
+  };
+}
+
+/**
+ * Default impure fetcher for the brief §0 health digest. Calls Phase 1
+ * `runHealthCheck()` then probes for the quarantine table; gracefully
+ * degrades on any CH failure (returns null → renderer skips §0). Tests
+ * inject a stub via `BriefDeps.fetchHealthDigest`.
+ */
+async function defaultFetchHealthDigest(): Promise<BriefHealthDigestSection | null> {
+  let phase1: HealthCheckResponse | null = null;
+  try {
+    phase1 = await runHealthCheck();
+  } catch {
+    // Phase 1 is the anchor — if it fails, §0 is meaningless. Return null
+    // so the renderer skips the section. The operator can still run
+    // `npm run health:check` for direct diagnostics.
+    return null;
+  }
+  let quarantine: QuarantineSummary | null = null;
+  try {
+    if (await quarantineTableExists()) {
+      quarantine = await loadQuarantineSummary();
+    }
+  } catch {
+    // Quarantine table read failure is non-fatal for §0 — the freshness
+    // block survives. Leave quarantine null.
+    quarantine = null;
+  }
+  return buildHealthDigestSection(phase1, quarantine);
 }
 
 /**

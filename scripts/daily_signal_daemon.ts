@@ -159,6 +159,7 @@ import {
   runDaemonSchedule13DGEvaluation,
 } from '../src/server/schedule_13d_g_repository.js';
 import { runFredFetch } from '../src/server/daemon_fred_fetch.js';
+import { runHealthCheckStep0a } from '../src/server/daemon_health_check_step.js';
 import { runSsgaSpdrRefresh } from '../src/server/daemon_etf_flow_ssga_spdr_refresh.js';
 import { runEtfFlowV1PrimaryRefresh } from '../src/server/daemon_etf_flow_v1_primary_refresh.js';
 import {
@@ -997,6 +998,57 @@ async function main() {
   // read yesterday's row on a fresh-morning run, tagging every NEW ENTRY with
   // a stale or empty regime. The lookup happens AFTER 1c, just before the
   // per-cell loop (search for `todaysRegime`).
+
+  // 0a. ADR-044 Phase 2 v1 auto-health-check step. Runs FIRST in the cycle
+  //     (before step 1 yfinance fetch) so the §0 digest reads pre-cycle
+  //     state — the operator sees "what was stale going in" rather than
+  //     "what's stale now after the daemon's own writes." See ADR-044
+  //     §workflow-change + the three-criterion analysis in
+  //     `src/server/daemon_health_check_step.ts` module header.
+  //
+  //     Gated by NO_FETCH only — DRY_RUN does NOT skip. Step 0a is a
+  //     read-only probe (CH SELECTs against system.tables + per-source
+  //     count/max queries + an optional quarantine FINAL read); it has no
+  //     side effects regardless of DRY_RUN state. Skipping under DRY_RUN
+  //     would defeat the value of the smoke-run (operator-facing heartbeat
+  //     line is precisely what dry-runs are for). NO_FETCH does skip
+  //     because the operator's intent there is "don't run network probes
+  //     this cycle" — the Phase 1 check issues many CH SELECTs and is
+  //     behaviorally a network operation even though it doesn't touch
+  //     external sources. The step itself NEVER halts the daemon — the
+  //     runner's try/catch envelope guarantees clean return with a
+  //     probeOk=false + 'error' anomaly on probe failure (defense in
+  //     depth against runner-contract drift).
+  if (NO_FETCH) {
+    console.log(`[step 0a] health: skipped (--no-fetch)`);
+  } else {
+    const t0a = Date.now();
+    try {
+      const step0a = await runHealthCheckStep0a({ ch });
+      const probeMs = Date.now() - t0a;
+      // One-line heartbeat — pinned format for downstream test grep.
+      const s = step0a.phase1?.summary;
+      const fresh = s?.fresh ?? 0;
+      const stale = s?.stale ?? 0;
+      const missing = s?.missing ?? 0;
+      const tier2Pending = step0a.quarantine?.tier2PendingCount ?? 0;
+      const autofix24h = step0a.quarantine?.tier1AutofixLast24hCount ?? 0;
+      console.log(
+        `[step 0a] health: fresh=${fresh}, stale=${stale}, missing=${missing}, ` +
+        `Tier-2-pending=${tier2Pending}, autofix-24h=${autofix24h} [${probeMs}ms]`,
+      );
+      for (const a of step0a.anomalies) anomalies.push(a);
+    } catch (e) {
+      // Defense-in-depth: `runHealthCheckStep0a` is documented never-throw,
+      // but a future refactor regression would otherwise crash the daemon.
+      // Catch + push an info anomaly so downstream steps proceed.
+      console.warn(`[step 0a] runner threw (non-fatal): ${(e as Error).message}`);
+      anomalies.push({
+        severity: 'info',
+        message: `Health step 0a runner threw (non-fatal): ${(e as Error).message}`,
+      });
+    }
+  }
 
   // 1. Fetch step (incremental yfinance pull).
   let fetchSummary: FetchSummary = { bars_fetched: 0, bars_expected: 0, rows_inserted: 0, failed_tickers: [], latest_per_ticker: {}, dry_run: DRY_RUN, seconds: 0 };
