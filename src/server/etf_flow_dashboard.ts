@@ -31,6 +31,7 @@
  */
 import {
   EtfFlowRepository,
+  etfSharesOutstandingTableExists,
 } from './etf_flow_repository.js';
 import { ETF_UNIVERSE } from './etf_flow.js';
 import {
@@ -60,11 +61,15 @@ export interface EtfFlowCrossValidationStateResponse {
   /** Counts surfaced even when `hasData=false` for operator triage:
    *  - primaryRows: rows in the v1 yfinance panel in the window.
    *  - secondaryRows: rows in the v3.1 issuer-CSV panel in the window.
+   *  - primaryTableExists: false if `migrate:create-etf-flow-snapshots`
+   *    has never been applied OR `npm run etf:flow:ingest` has never run
+   *    (the v1 primary table is created by either path — s92 design).
    *  - secondaryTableExists: false if the operator hasn't applied the
    *    `migrate:create-etf-shares-outstanding-secondary` yet.  */
   counts: {
     primaryRows: number;
     secondaryRows: number;
+    primaryTableExists: boolean;
     secondaryTableExists: boolean;
   };
 }
@@ -78,6 +83,7 @@ export function buildEtfFlowCrossValidationState(opts: {
   tickers: ReadonlyArray<string>;
   primary: ReadonlyArray<EtfFlowPrimaryPoint>;
   secondary: ReadonlyArray<EtfFlowSecondaryPoint>;
+  primaryTableExists: boolean;
   secondaryTableExists: boolean;
   secondarySourceLabel?: string;
 }): EtfFlowCrossValidationStateResponse {
@@ -93,6 +99,7 @@ export function buildEtfFlowCrossValidationState(opts: {
       counts: {
         primaryRows: opts.primary.length,
         secondaryRows: opts.secondary.length,
+        primaryTableExists: opts.primaryTableExists,
         secondaryTableExists: opts.secondaryTableExists,
       },
     };
@@ -115,6 +122,7 @@ export function buildEtfFlowCrossValidationState(opts: {
     counts: {
       primaryRows: opts.primary.length,
       secondaryRows: opts.secondary.length,
+      primaryTableExists: opts.primaryTableExists,
       secondaryTableExists: opts.secondaryTableExists,
     },
   };
@@ -130,10 +138,19 @@ export async function fetchEtfFlowCrossValidationState(opts: {
   const lookbackDays = opts.lookbackDays ?? 90;
   const tickers = ETF_UNIVERSE;
   const ch = getClickHouse();
+  // GAP-11 (s96 #12): probe BOTH tables before reading. Without the primary
+  // guard, a fresh clone that never ran the v1 migration crashes the route
+  // with an unguarded CH error (the s96 #11 screenshot bug). Mirrors the
+  // secondary guard pattern already in place. Both probes run in parallel.
+  const [primaryTableExists, secondaryTableExists] = await Promise.all([
+    etfSharesOutstandingTableExists(ch),
+    new EtfFlowRepository({ ch }).secondaryTableExists(),
+  ]);
   const repo = new EtfFlowRepository({ ch });
-  const secondaryTableExists = await repo.secondaryTableExists();
   const [panelByTicker, secondaryPanel] = await Promise.all([
-    repo.readSharesPanelForTickers(asOf, tickers, lookbackDays),
+    primaryTableExists
+      ? repo.readSharesPanelForTickers(asOf, tickers, lookbackDays)
+      : Promise.resolve(new Map() as Map<string, Array<{ date: string; shares: number; close: number }>>),
     secondaryTableExists
       ? repo.readSecondaryPanelForTickers(asOf, tickers, lookbackDays)
       : Promise.resolve([] as EtfFlowSecondaryPoint[]),
@@ -153,6 +170,7 @@ export async function fetchEtfFlowCrossValidationState(opts: {
     tickers,
     primary,
     secondary: secondaryPanel,
+    primaryTableExists,
     secondaryTableExists,
   });
 }

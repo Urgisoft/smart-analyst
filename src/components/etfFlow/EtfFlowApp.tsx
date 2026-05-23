@@ -22,7 +22,7 @@
  *   3. `hasData=false` AND secondary table present but empty → "run the
  *      SSGA refresh" empty-state with operator commands.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import type {
   EtfFlowCrossValidationStateResponse,
 } from '../../server/etf_flow_dashboard.js';
@@ -316,63 +316,106 @@ function SeverityBadge({ severity }: { severity: EtfFlowDivergenceSeverity }) {
 
 function EmptyState({ data }: { data: EtfFlowCrossValidationStateResponse }) {
   const { counts } = data;
-  const tableAbsent = !counts.secondaryTableExists;
-  return (
-    <div className="border border-amber-500/30 bg-amber-500/5 rounded p-6">
-      <div className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-300 mb-2">
-        {tableAbsent ? 'Secondary table not yet migrated' : 'Awaiting first SSGA refresh'}
-      </div>
-      <div className="text-[11px] font-mono text-amber-100/80 leading-relaxed mb-3">
-        {tableAbsent ? (
-          <>
-            <code className="text-amber-200">quantlab.etf_shares_outstanding_secondary</code> does not
-            exist in ClickHouse. Apply the migration first, then refresh the SSGA panel.
-          </>
-        ) : (
-          <>
-            Both panels need rows for cross-validation. Primary panel has{' '}
-            <span className="text-amber-300 font-bold">{counts.primaryRows.toLocaleString()}</span> rows;
-            secondary panel has{' '}
-            <span className="text-amber-300 font-bold">{counts.secondaryRows.toLocaleString()}</span> rows
-            in the last {data.lookbackDays}d window. Run the v3.1 SSGA refresh to populate.
-          </>
-        )}
-      </div>
-      <pre className="text-[10px] font-mono text-amber-200 bg-black/40 border border-amber-500/20 rounded p-3 leading-snug overflow-x-auto">
-{tableAbsent
-  ? `# 1. Apply the secondary-table migration (idempotent):
+  // GAP-11 (s96 #12): primary-table-missing branch added. Without it, a fresh
+  // clone that never ran the v1 migration crashed the route (the screenshot
+  // bug). Order matters: primary-missing takes precedence — without primary
+  // there's no cross-validation at all, secondary-state is irrelevant until
+  // primary exists.
+  const primaryAbsent = !counts.primaryTableExists;
+  const secondaryAbsent = !counts.secondaryTableExists;
+  let title: string;
+  let body: ReactNode;
+  let commands: string;
+  if (primaryAbsent) {
+    title = 'Primary table not yet migrated';
+    body = (
+      <>
+        <code className="text-amber-200">quantlab.etf_shares_outstanding</code> does not exist in
+        ClickHouse. The s92 migration creates it; alternatively the v1 ingest creates it on first
+        apply-run. Run either path, then refresh.
+      </>
+    );
+    commands = `# Option A — apply the s92 migration (creates BOTH the primary table
+# AND quantlab.etf_flow_snapshots in one shot, idempotent):
+npm run migrate:create-etf-flow-snapshots
+npm run migrate:create-etf-flow-snapshots:apply
+
+# Option B — let the ingest create the table on first apply:
+npm run etf:flow:ingest
+
+# Then bootstrap the secondary panel if not already done:
+npm run migrate:create-etf-shares-outstanding-secondary:apply
+npm run etf:flow:ssga-spdr:refresh`;
+  } else if (secondaryAbsent) {
+    title = 'Secondary table not yet migrated';
+    body = (
+      <>
+        <code className="text-amber-200">quantlab.etf_shares_outstanding_secondary</code> does not
+        exist in ClickHouse. Apply the migration first, then refresh the SSGA panel.
+      </>
+    );
+    commands = `# 1. Apply the secondary-table migration (idempotent):
 npm run migrate:create-etf-shares-outstanding-secondary
 npm run migrate:create-etf-shares-outstanding-secondary:apply
 
 # 2. Populate the SSGA panel + ingest to CH:
-npm run etf:flow:ssga-spdr:refresh`
-  : `# Populate the SSGA panel + ingest to CH:
+npm run etf:flow:ssga-spdr:refresh`;
+  } else {
+    title = 'Awaiting first SSGA refresh';
+    body = (
+      <>
+        Both panels need rows for cross-validation. Primary panel has{' '}
+        <span className="text-amber-300 font-bold">{counts.primaryRows.toLocaleString()}</span> rows;
+        secondary panel has{' '}
+        <span className="text-amber-300 font-bold">{counts.secondaryRows.toLocaleString()}</span> rows
+        in the last {data.lookbackDays}d window. Run the v3.1 SSGA refresh to populate.
+      </>
+    );
+    commands = `# Populate the SSGA panel + ingest to CH:
 npm run etf:flow:ssga-spdr:refresh
 
 # Or wait for the next daemon:daily cycle — step 1ja
 # auto-refreshes the panel (s96 #9):
-npm run daemon:daily`}
+npm run daemon:daily`;
+  }
+  return (
+    <div className="border border-amber-500/30 bg-amber-500/5 rounded p-6">
+      <div className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-300 mb-2">
+        {title}
+      </div>
+      <div className="text-[11px] font-mono text-amber-100/80 leading-relaxed mb-3">
+        {body}
+      </div>
+      <pre className="text-[10px] font-mono text-amber-200 bg-black/40 border border-amber-500/20 rounded p-3 leading-snug overflow-x-auto">
+{commands}
       </pre>
       <div className="text-[10px] font-mono text-zinc-500 mt-3">
         SPEC: <code className="text-fuchsia-300">docs/specs/etf-flow-monitoring.md §11 OQ3</code> ·
-        v3.1 arc: s96 #7 (adapter) → s96 #8 (wrapper) → s96 #9 (daemon hook) → s96 #11 (this panel).
+        v3.1 arc: s96 #7 (adapter) → s96 #8 (wrapper) → s96 #9 (daemon hook) → s96 #11 (this panel) →
+        s96 #12 (primary guard + /#/health surface).
       </div>
     </div>
   );
 }
 
 // ── Formatting helpers ──────────────────────────────────────────────────────
+// GAP-12 (s96 #12): all formatters guard non-finite inputs explicitly so a
+// null/undefined CH column renders as `—` instead of `NaN%` / `Infinity` /
+// `1.23e+47`. Mirrors the App.tsx fmtPF pattern.
 
 function formatPct(n: number): string {
+  if (!Number.isFinite(n)) return '—';
   return `${(n * 100).toFixed(2)}%`;
 }
 
 function formatSignedPct(n: number): string {
+  if (!Number.isFinite(n)) return '—';
   const sign = n >= 0 ? '+' : '';
   return `${sign}${(n * 100).toFixed(2)}%`;
 }
 
 function formatShares(n: number): string {
+  if (!Number.isFinite(n)) return '—';
   if (Math.abs(n) >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
   if (Math.abs(n) >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
   if (Math.abs(n) >= 1e3) return `${(n / 1e3).toFixed(2)}K`;

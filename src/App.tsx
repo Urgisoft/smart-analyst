@@ -1354,6 +1354,13 @@ export default function App() {
             >
               ETF flow →
             </a>
+            <a
+              href="#/health"
+              className="text-[9px] font-black text-emerald-400/80 hover:text-emerald-300 uppercase tracking-[0.2em] border border-emerald-400/30 hover:border-emerald-400 rounded-lg px-3 py-1.5 transition-colors"
+              title="System health monitor (ADR-044 · per-source freshness + operator-pending migrations · the standing-health-mandate UI surface)"
+            >
+              Health →
+            </a>
             <div className="flex flex-col items-end">
               <span className="text-[9px] font-black text-[#444] uppercase tracking-widest leading-none mb-1">System_Status</span>
               <span className="text-[10px] font-mono font-bold tracking-tighter text-emerald-400 leading-none uppercase">

@@ -77,6 +77,7 @@ import {
   CyclePositionDashboardError,
 } from "./src/server/cycle_position_dashboard.js";
 import { fetchEtfFlowCrossValidationState } from "./src/server/etf_flow_dashboard.js";
+import { fetchHealthState } from "./src/server/health_dashboard.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -649,6 +650,28 @@ async function startServer() {
       }
       console.error('cycle-position state error', e);
       return res.status(503).json({ error: 'clickhouse_unavailable', detail: (e as Error).message });
+    }
+  });
+
+  // Powers /#/health — ADR-044 Phase 1 standing system-health surface (s96 #12).
+  // Read-only view of every load-bearing CH source's freshness vs expected
+  // cadence + every operator-pending migration's applied/pending state.
+  // Always returns 200 + a structured payload; per-source CH failures
+  // degrade to `missing-table` (the dashboard renders an honest empty state)
+  // instead of propagating as an opaque HTTP error.
+  app.get("/api/health/state", async (_req, res) => {
+    try {
+      const response = await fetchHealthState();
+      return res.json(response);
+    } catch (e) {
+      // runHealthCheck shouldn't throw (degrades per-source), but if a
+      // catastrophic CH client misconfiguration breaks the probe loop,
+      // surface it as a 503 the dashboard can render.
+      console.error('health state error', e);
+      return res.status(503).json({
+        error: 'health_check_unavailable',
+        detail: (e as Error).message,
+      });
     }
   });
 

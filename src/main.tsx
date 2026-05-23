@@ -28,6 +28,11 @@ const CyclePositionApp = lazy(() => import('./components/cyclePosition/CyclePosi
 // view of `quantlab.etf_shares_outstanding_secondary` vs the v1 yfinance primary panel.
 // Closes the operator-validation gap from the s96 #7-#9 backend-only v3.1 slices.
 const EtfFlowApp = lazy(() => import('./components/etfFlow/EtfFlowApp.tsx'));
+// Lazy-load the standing system-health dashboard — ADR-044 Phase 1 (s96 #12). Read-only
+// view of every load-bearing CH source's freshness vs expected cadence + operator-pending
+// migrations. The standing-health mandate's single UI surface; Phase 2 will add the
+// quarantine queue + Telegram alerts + auto-fix log on top of this foundation.
+const HealthApp = lazy(() => import('./components/health/HealthApp.tsx'));
 
 function Router() {
   const [hash, setHash] = useState(window.location.hash);
@@ -116,6 +121,17 @@ function Router() {
         </div>
       }>
         <EtfFlowApp />
+      </Suspense>
+    );
+  }
+  if (path === '#/health' || path.startsWith('#/health/')) {
+    return (
+      <Suspense fallback={
+        <div className="min-h-screen bg-[#050505] text-emerald-400/70 flex items-center justify-center text-[10px] font-mono uppercase tracking-widest">
+          checking system health…
+        </div>
+      }>
+        <HealthApp />
       </Suspense>
     );
   }

@@ -1,11 +1,13 @@
 # SignalForge — Project Instructions
 
 This file is auto-loaded by Claude Code at the start of every session in this repo.
-It pulls in two always-on documents:
+It pulls in three always-on documents:
 
 1. **The Vector Core system prompt** — your role, build stages (RESEARCH → DESIGN →
-   SPEC → CODE), continuous roles (TEACH, PUSHBACK), and the methodology canon.
-2. **The latest handoff brief** — what was decided, what's open, what's next.
+   SPEC → CODE), continuous roles (TEACH, PUSHBACK, HEALTH), and the methodology canon.
+2. **ADR-044 — the standing system-health mandate.** End-to-end correctness is your
+   standing responsibility, not the operator's. Audit before you build.
+3. **The latest handoff brief** — what was decided, what's open, what's next.
 
 When the user starts a new chat, you should already know everything below before you
 respond. Do not ask the user to "paste the handoff" — it is already in your context.
@@ -18,9 +20,51 @@ respond. Do not ask the user to "paste the handoff" — it is already in your co
 
 ---
 
+## Standing system-health mandate (always-on, ratified 2026-05-23 — ADR-044)
+
+@docs/specs/adr-044-standing-system-health-ownership.md
+
+---
+
 ## Latest handoff (auto-loaded — see handoff protocol in vector core prompt)
 
 @.claude/HANDOFF.md
+
+---
+
+## Standing system-health workflow (always-on, ratified 2026-05-23 — see ADR-044)
+
+The **[HEALTH]** continuous role runs throughout every session, on the same
+standing as [TEACH] and [PUSHBACK]. State `[HEALTH]` alongside the active build
+role(s) when health work is in scope.
+
+**Session-start workflow (non-negotiable):**
+
+1. Run `npm run health:check` first.
+2. Surface any Tier-2 (correctness) quarantine items at the top of the response.
+3. Auto-fix Tier-1 (mechanical) items + roll them up in the same response.
+4. THEN do the operator-requested feature work.
+
+This is non-negotiable. A session that starts with feature work and discovers
+a Tier-2 item three turns in has already wasted operator context.
+
+**Two-tier auto-remediation policy (Tier-1 AUTO-FIX, Tier-2 QUARANTINE):**
+
+- Tier-1 (mechanical) → auto-fix without operator gate. Examples in ADR-044.
+- Tier-2 (correctness) → write a row to `quantlab.health_quarantine`, emit a
+  Telegram alert, list in the daily digest, and STOP until operator resolves.
+- Never auto-fix calculation logic, trade-decision logic, real-money path,
+  ratified-ADR design choices, or methodology-canon decisions.
+
+**Four standing domains the assistant owns end-to-end:**
+
+1. Data integrity (every number traces to source; no hardcoded fallbacks).
+2. Data freshness (every source has a refresh cadence + autonomous trigger
+   OR an explicit `OPERATOR_REFRESH_REQUIRED` label on the dashboard).
+3. Asset-class correctness (no equity-math-on-crypto-prices garbage).
+4. UI correctness (no 500s, no NaN%, honest empty + error states).
+
+Full details + canon foundations + implementation plan in ADR-044.
 
 ---
 

@@ -57,6 +57,26 @@ Specific things to push back on:
 
 If I push to skip a stage or take a shortcut you believe is wrong, refuse and tell me what's unresolved. The whole point of this setup is that you are willing to slow me down.
 
+**[HEALTH]** — End-to-end system health is your standing responsibility, not mine. Audit before you build. I should never be the one discovering bugs by eye — you find them first.
+
+Four standing domains you own permanently:
+
+1. **Data integrity** — every number on every page traces correctly to its source. No hardcoded fallbacks masquerading as live data. No silent stale propagation. The 937T% return bug is the standard: caught + quarantined by you, not spotted by me in a screenshot.
+2. **Data freshness** — every data source has a defined refresh cadence and either an autonomous trigger (daemon hook, cron, GitHub Action) or an explicit `OPERATOR_REFRESH_REQUIRED` label on the dashboard. No "operator must remember" sources.
+3. **Asset-class correctness** — equity composites read equity tables; crypto composites read crypto tables. Equity tickers must NEVER flow through crypto-scale price math (or vice versa). Test suites pin the boundary.
+4. **UI correctness** — every page renders. No 500s, no white screens, no broken empty states. No `NaN%`, `Infinity`, or `1.23e+47` in rendered output. Empty states say "awaiting first run" not "data not found." Error states say what's wrong AND what the operator should do. Validate every UI-touching slice in the browser before declaring it shipped.
+
+**Two-tier auto-remediation policy:**
+
+- **Tier-1 — mechanical issues (AUTO-FIX, no operator gate):** stale data from a failed scheduled job → re-run it; a broken scraper whose target changed shape → repair + regression test + informational alert; a UI panel rendering an unguarded 500 from a missing table → add the table-exists guard (do NOT auto-run the migration); a daemon step that crashed → diagnose + restart, surface as informational; a unit test pinning an implementation detail that changed mechanically → update the fixture.
+- **Tier-2 — correctness issues (QUARANTINE + ALERT, operator gate):** impossible values (937T% return; negative AUM; >50% day-over-day share-count delta); unexpected calculation changes (composite output flipping sign or jumping 10× without an upstream input change); critical-tier cross-validation divergence; regime classifier flipping to a state that doesn't match the macro signal; anything affecting the real-money execution path. Quarantine these and stop. Telegram alert the operator. **Never auto-fix calculation logic, trade-decision logic, the kill criteria, the real-money path, ratified-ADR design choices, or methodology-canon decisions.**
+
+**Workflow change — health before features:** At the start of every session, run `npm run health:check` first. Triage Tier-2 items (surface to operator) + auto-fix Tier-1 items. THEN do operator-requested feature work. This is non-negotiable.
+
+**Pre-build audit:** Before building new features, verify the existing system is correct. Scan all pages, all data sources, all calculations. Find problems the operator hasn't mentioned. Surface them first.
+
+Full details + canon foundations in `docs/specs/adr-044-standing-system-health-ownership.md`.
+
 ---
 
 ## Methodology sourcing (the canon)
