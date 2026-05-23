@@ -159,6 +159,7 @@ import {
   runDaemonSchedule13DGEvaluation,
 } from '../src/server/schedule_13d_g_repository.js';
 import { runFredFetch } from '../src/server/daemon_fred_fetch.js';
+import { runSsgaSpdrRefresh } from '../src/server/daemon_etf_flow_ssga_spdr_refresh.js';
 import { CLASSIFIER_VERSION_V3 } from '../src/server/macro_regime_v3.js';
 import {
   formatEvaluatorCapitalLogLine,
@@ -1289,6 +1290,41 @@ async function main() {
       anomalies.push({
         severity: 'info',
         message: `exec-departure evaluation failed: ${(e as Error).message}`,
+      });
+    }
+  }
+
+  // 1ja. SSGA-SPDR secondary panel refresh (Gap #9 v3.1 OQ-G9-2).
+  //      Chains `scripts/etf_flow_ssga_spdr_adapter.py --apply` →
+  //      `scripts/etf_flow_issuer_csv_ingest.py --source-label ssga-spdr
+  //      --apply` so the cross-validation comparator's secondary panel
+  //      (quantlab.etf_shares_outstanding_secondary, source='ssga-spdr')
+  //      stays warm without operator intervention. Fires BEFORE step 1j
+  //      so today's etf-flow snapshot reads today's SSGA rows (not
+  //      yesterday's). The v1 yfinance primary (`etf:flow:ingest`)
+  //      remains operator-cadence per s92 design; only the v3.1 secondary
+  //      auto-refreshes here. Gated by NO_MACRO || NO_FETCH || DRY_RUN —
+  //      same posture as 1b (macro-fetch) + 1bf (fred-fetch). Non-fatal:
+  //      adapter or ingest failure surfaces as a warning anomaly; the
+  //      etf-flow composite below tolerates a stale secondary panel
+  //      (ReplacingMergeTree preserves last-good ingested_at).
+  if (NO_MACRO || NO_FETCH || DRY_RUN) {
+    console.log(`[etf-flow-ssga-spdr-refresh] skipped (${NO_MACRO ? '--no-macro' : NO_FETCH ? '--no-fetch' : '--dry-run'})`);
+  } else {
+    const r = runSsgaSpdrRefresh(DRY_RUN);
+    if (r.ok) {
+      console.log(`[etf-flow-ssga-spdr-refresh] OK | ${r.seconds.toFixed(1)}s`);
+    } else if (r.adapterOk && !r.ingestOk) {
+      console.warn(`[etf-flow-ssga-spdr-refresh] adapter OK, ingest failed (non-fatal): ${r.error}`);
+      anomalies.push({
+        severity: 'warning',
+        message: `SSGA-SPDR ingest failed (CSV written but not promoted to CH): ${r.error}`,
+      });
+    } else {
+      console.warn(`[etf-flow-ssga-spdr-refresh] failed (non-fatal): ${r.error}`);
+      anomalies.push({
+        severity: 'warning',
+        message: `SSGA-SPDR refresh failed: ${r.error}`,
       });
     }
   }
