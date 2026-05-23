@@ -332,6 +332,24 @@ export const HEALTH_SOURCES: ReadonlyArray<HealthSourceConfig> = [
     operatorAction: 'npm run etf:flow:ingest',
     why: 'GAP-4 — operator-cadence (s92 design); secondary now daemon-auto, primary lags.',
   },
+  // ── FINRA raw source (autonomous via Mondays-only daemon step 1h-pre) ────
+  {
+    name: 'short_interest',
+    label: 'FINRA short interest (raw)',
+    cadence: 'bi-weekly',
+    // GAP-2 promotion (s96 #15 Cycle 2): daemon step 1h-pre runs Mondays.
+    // FINRA publishes biweekly per Rule 4560 (settlements on the 15th + last
+    // business day of each month, published ~8 business days after). The
+    // raw source feeds the composite at step 1h. Pre-GAP-2 this was
+    // autonomous=false; post-GAP-2 the daemon Monday gate keeps the table
+    // warm without operator intervention. Manual fallback retained for
+    // initial backfill + recovery from extended host downtime.
+    autonomous: true,
+    timestampCol: 'settlement_date',
+    timestampType: 'date',
+    operatorAction: 'npm run finra:short-interest:ingest',
+    why: 'GAP-2 daemon-cadence promotion — Mondays-only fetch (FINRA Rule 4560 publication calendar); manual fallback retained for backfill.',
+  },
   // ── Lookup caches (cadence='one-shot' — never goes stale) ─────────────────
   {
     name: 'cusip_ticker_map',

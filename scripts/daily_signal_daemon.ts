@@ -160,6 +160,10 @@ import {
 } from '../src/server/schedule_13d_g_repository.js';
 import { runFredFetch } from '../src/server/daemon_fred_fetch.js';
 import { runSsgaSpdrRefresh } from '../src/server/daemon_etf_flow_ssga_spdr_refresh.js';
+import {
+  runFinraShortInterestFetch,
+  shouldRunFinraTodayUtc,
+} from '../src/server/daemon_finra_short_interest_fetch.js';
 import { CLASSIFIER_VERSION_V3 } from '../src/server/macro_regime_v3.js';
 import {
   formatEvaluatorCapitalLogLine,
@@ -1210,6 +1214,41 @@ async function main() {
       anomalies.push({
         severity: 'info',
         message: `cross-asset evaluation failed: ${(e as Error).message}`,
+      });
+    }
+  }
+
+  // 1h-pre. FINRA short-interest fetch (Mondays-only) — GAP-2 daemon-cadence promotion.
+  //         Runs `scripts/finra_short_interest_ingest.py --apply` so today's
+  //         step 1h composite reads today's FINRA settlement when one is
+  //         newly-published (FINRA's publication calendar surfaces new files
+  //         on Mondays following the 8-business-day publication window after
+  //         the 15th / month-end settlement dates per Rule 4560). Gated by
+  //         NO_FETCH || DRY_RUN || (not Monday) — same posture as 1ja
+  //         (SSGA refresh). Non-fatal: failure surfaces as a warning anomaly;
+  //         the short-interest composite (step 1h, below) tolerates a missed
+  //         Monday because `quantlab.short_interest` is ReplacingMergeTree-
+  //         tracked and the composite reads through FINAL on the most-recent
+  //         settlement row.
+  //
+  //         Why Mondays-only vs daily: see
+  //         `src/server/daemon_finra_short_interest_fetch.ts` module header
+  //         (three-criterion analysis per CLAUDE.md autonomous-execution).
+  //         Day-of-week gate is in `shouldRunFinraTodayUtc` (pure helper,
+  //         unit-tested in `scripts/tests/daemonFinraShortInterestFetch.test.ts`).
+  if (NO_FETCH || DRY_RUN) {
+    console.log(`[finra-short-interest-fetch] skipped (${NO_FETCH ? '--no-fetch' : '--dry-run'})`);
+  } else if (!shouldRunFinraTodayUtc(new Date(t0))) {
+    console.log('[finra-short-interest-fetch] skipped (not Monday UTC — FINRA publishes Mondays)');
+  } else {
+    const r = runFinraShortInterestFetch(DRY_RUN);
+    if (r.ok) {
+      console.log(`[finra-short-interest-fetch] OK | ${r.seconds.toFixed(1)}s`);
+    } else {
+      console.warn(`[finra-short-interest-fetch] failed (non-fatal): ${r.error}`);
+      anomalies.push({
+        severity: 'warning',
+        message: `FINRA short-interest fetch failed: ${r.error}`,
       });
     }
   }

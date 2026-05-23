@@ -295,6 +295,25 @@ describe('HEALTH_SOURCES', () => {
       assert.equal(s.timestampType, 'date', `${s.name}: observation_date is Date-typed`);
     }
   });
+
+  // Convention pin (s96 #15 Cycle 2 GAP-2 — Infra worker).
+  // FINRA raw source `short_interest` was promoted from operator-cadence
+  // to daemon-cadence via Mondays-only step 1h-pre in
+  // `scripts/daily_signal_daemon.ts`. The HEALTH_SOURCES entry must
+  // therefore (a) exist, (b) flag autonomous=true (the entire point of
+  // the promotion), and (c) use the bi-weekly cadence (FINRA Rule 4560
+  // publishes biweekly; existing CADENCE_THRESHOLDS_HOURS bi-weekly
+  // entry has FINRA-shaped 18d fresh / 30d stale). A future refactor
+  // flipping autonomous back to false would silently re-introduce the
+  // operator-memory dependence ADR-044 closes.
+  it('FINRA short_interest raw source is daemon-cadence with bi-weekly thresholds (GAP-2)', () => {
+    const finra = HEALTH_SOURCES.find(s => s.name === 'short_interest');
+    assert.ok(finra, 'short_interest entry must exist in HEALTH_SOURCES after GAP-2');
+    assert.equal(finra!.autonomous, true, 'short_interest must be autonomous=true (daemon step 1h-pre)');
+    assert.equal(finra!.cadence, 'bi-weekly', 'short_interest must use bi-weekly cadence (FINRA Rule 4560)');
+    assert.equal(finra!.timestampCol, 'settlement_date', 'short_interest uses settlement_date Date column');
+    assert.equal(finra!.timestampType, 'date', 'settlement_date is Date-typed');
+  });
 });
 
 describe('HEALTH_MIGRATIONS', () => {

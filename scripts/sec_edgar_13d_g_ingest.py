@@ -178,7 +178,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--resolve-filer-names",
         action="store_true",
-        help="Per XD-12: when set, resolve filer CIK → name via submissions API "
+        help="Per XD-12: when set, resolve filer CIK -> name via submissions API "
              "and populate `filer_name`. Default OFF — adds N+1 submissions-API "
              "calls per ingest cycle. v2 ADR (XD-2) will lift this to a "
              "dedicated reputation table.",
@@ -561,14 +561,14 @@ def main() -> int:
         try:
             return resolve_cik_to_ticker(cik, user_agent=args.user_agent, cache=issuer_cache)
         except (urllib.error.HTTPError, urllib.error.URLError) as e:
-            print(f"[edgar-13d-g] WARN issuer CIK→ticker resolve failed for {cik}: {e}", file=sys.stderr)
+            print(f"[edgar-13d-g] WARN issuer CIK->ticker resolve failed for {cik}: {e}", file=sys.stderr)
             return {"cik": cik10(cik), "ticker": "", "former_tickers": [], "company_name": ""}
 
     def _filer_name_for(filer_cik: str) -> dict:
         try:
             return resolve_filer_cik_to_name(filer_cik, user_agent=args.user_agent, cache=filer_name_cache)
         except (urllib.error.HTTPError, urllib.error.URLError) as e:
-            print(f"[edgar-13d-g] WARN filer CIK→name resolve failed for {filer_cik}: {e}", file=sys.stderr)
+            print(f"[edgar-13d-g] WARN filer CIK->name resolve failed for {filer_cik}: {e}", file=sys.stderr)
             return {"filer_cik": cik10(filer_cik), "name": ""}
 
     filer_resolver = _filer_name_for if args.resolve_filer_names else None
@@ -584,7 +584,7 @@ def main() -> int:
     issuers_written = write_cik_ticker_map(client, issuer_cache.values())
     print(
         f"[edgar-13d-g] OK | wrote {written} rows to quantlab.schedule_13d_g_filings "
-        f"| cached {issuers_written} issuer CIK→ticker entries"
+        f"| cached {issuers_written} issuer CIK->ticker entries"
         + (f" | resolved {len(filer_name_cache)} filer names" if args.resolve_filer_names else "")
     )
     return 0
