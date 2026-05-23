@@ -890,14 +890,14 @@ def main() -> int:
         try:
             return resolve_cik_to_ticker(cik, user_agent=args.user_agent, cache=issuer_cache)
         except (urllib.error.HTTPError, urllib.error.URLError) as e:
-            print(f"[edgar-form4] WARN issuer CIK→ticker resolve failed for {cik}: {e}", file=sys.stderr)
+            print(f"[edgar-form4] WARN issuer CIK->ticker resolve failed for {cik}: {e}", file=sys.stderr)
             return {"cik": cik10(cik), "ticker": "", "former_tickers": [], "company_name": ""}
 
     def _name_for(person_cik: str) -> dict:
         try:
             return resolve_person_cik_to_name(person_cik, user_agent=args.user_agent, cache=insider_cache)
         except (urllib.error.HTTPError, urllib.error.URLError) as e:
-            print(f"[edgar-form4] WARN person CIK→name resolve failed for {person_cik}: {e}", file=sys.stderr)
+            print(f"[edgar-form4] WARN person CIK->name resolve failed for {person_cik}: {e}", file=sys.stderr)
             return {"person_cik": cik10(person_cik), "name": ""}
 
     rows, insider_entries = build_insider_trade_rows(
@@ -912,10 +912,12 @@ def main() -> int:
     written = write_insider_trades(client, rows)
     insiders_written = write_insider_ciks(client, insider_entries)
     issuers_written = write_cik_ticker_map(client, issuer_cache.values())
+    # ASCII-only output: cp1252 Windows consoles cannot encode U+2192 ("→").
+    # Use "->" instead so re-runs return exit 0 cleanly across all platforms.
     print(
         f"[edgar-form4] OK | wrote {written} rows to quantlab.insider_trades "
         f"| cached {insiders_written} insider CIK entries "
-        f"| cached {issuers_written} issuer CIK→ticker entries"
+        f"| cached {issuers_written} issuer CIK->ticker entries"
     )
     return 0
 
