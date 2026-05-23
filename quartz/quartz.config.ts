@@ -24,6 +24,12 @@ const config: QuartzConfig = {
       "phase2_procedure_artifacts",
       "phase2_rv5d_diagnostic",
       "phase1_breadth_restoration",
+      // SignalForge (s96 #10) — block per-experiment build logs from being
+      // copied into the site as static assets. Required after we flipped
+      // util/glob.ts to `gitignore: false` (so dashboard.md ingests), which
+      // also un-hid the gitignored experiment .log files. ~60 small files;
+      // harmless individually, noise in aggregate.
+      "**/*.log",
     ],
     defaultDateType: "modified",
     theme: {
