@@ -60,6 +60,8 @@
     "etf:flow:ingest:dry": ".venv\\Scripts\\python.exe scripts/etf_flow_ingest.py --dry-run",
     "etf:flow:issuer-csv:ingest": ".venv\\Scripts\\python.exe scripts/etf_flow_issuer_csv_ingest.py --apply",
     "etf:flow:issuer-csv:ingest:dry": ".venv\\Scripts\\python.exe scripts/etf_flow_issuer_csv_ingest.py --dry-run",
+    "etf:flow:ssga-spdr:fetch": ".venv\\Scripts\\python.exe scripts/etf_flow_ssga_spdr_adapter.py --apply",
+    "etf:flow:ssga-spdr:fetch:dry": ".venv\\Scripts\\python.exe scripts/etf_flow_ssga_spdr_adapter.py --dry-run",
     "macro:emit-fixtures": "tsx scripts/_emit_macro_regime_fixtures.ts",
     "macro:phase2:procedure": "tsx scripts/_phase2_realized_stress_procedure.ts",
     "macro:phase2:procedure:dry": "tsx scripts/_phase2_realized_stress_procedure.ts --dry-run",
