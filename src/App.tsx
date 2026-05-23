@@ -1347,6 +1347,13 @@ export default function App() {
             >
               Cycle position →
             </a>
+            <a
+              href="#/etf-flow"
+              className="text-[9px] font-black text-fuchsia-400/80 hover:text-fuchsia-300 uppercase tracking-[0.2em] border border-fuchsia-400/30 hover:border-fuchsia-400 rounded-lg px-3 py-1.5 transition-colors"
+              title="ETF-flow cross-validation (Gap #9 v3.1 · yfinance primary vs SSGA secondary · per-ticker shares-outstanding divergence + severity ladder)"
+            >
+              ETF flow →
+            </a>
             <div className="flex flex-col items-end">
               <span className="text-[9px] font-black text-[#444] uppercase tracking-widest leading-none mb-1">System_Status</span>
               <span className="text-[10px] font-mono font-bold tracking-tighter text-emerald-400 leading-none uppercase">

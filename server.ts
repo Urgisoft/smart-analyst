@@ -76,6 +76,7 @@ import {
   fetchCyclePositionState,
   CyclePositionDashboardError,
 } from "./src/server/cycle_position_dashboard.js";
+import { fetchEtfFlowCrossValidationState } from "./src/server/etf_flow_dashboard.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -610,6 +611,30 @@ async function startServer() {
   // panels. Returns hasData=false (not 503) when no snapshot exists yet so the
   // dashboard can render a friendly "awaiting first daemon cycle" state.
   // SPEC: docs/specs/market-cycle-position.md §3 (component diagram).
+  // ETF-flow cross-validation dashboard route (s96 #11) — read-only view
+  // of `EtfFlowRepository`'s primary (v1 yfinance) + secondary (v3.1
+  // issuer-CSV) panel comparison. Closes the methodology gap surfaced in
+  // s96 #11: the s96 #7-#9 v3.1 work shipped without an operator-visible
+  // browser surface. Returns hasData=false (not 503) when the secondary
+  // panel is empty so the UI can render an "awaiting first SSGA refresh"
+  // empty-state with operator instructions.
+  app.get("/api/etf-flow/cross-validation", async (req, res) => {
+    const raw = req.query.lookbackDays;
+    const parsed = typeof raw === 'string' ? Number.parseInt(raw, 10) : 90;
+    const lookbackDays =
+      Number.isFinite(parsed) && parsed > 0 && parsed <= 1825 ? parsed : 90;
+    try {
+      const response = await fetchEtfFlowCrossValidationState({ lookbackDays });
+      return res.json(response);
+    } catch (e) {
+      console.error('etf-flow cross-validation state error', e);
+      return res.status(503).json({
+        error: 'clickhouse_unavailable',
+        detail: (e as Error).message,
+      });
+    }
+  });
+
   app.get("/api/cycle-position", async (req, res) => {
     const parsed = parseCyclePositionQuery({ lookbackDays: req.query.lookbackDays });
     if (isCyclePositionQueryFailure(parsed)) {

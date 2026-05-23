@@ -24,6 +24,10 @@ const RegimeApp = lazy(() => import('./components/regime/RegimeApp.tsx'));
 // Read-only view of `quantlab.cycle_position_snapshots`. INFORMATIONAL only in v1
 // (Option A); does NOT fire a regime category. SPEC: docs/specs/market-cycle-position.md.
 const CyclePositionApp = lazy(() => import('./components/cyclePosition/CyclePositionApp.tsx'));
+// Lazy-load the ETF-flow cross-validation dashboard — Gap #9 v3.1 (s96 #11). Read-only
+// view of `quantlab.etf_shares_outstanding_secondary` vs the v1 yfinance primary panel.
+// Closes the operator-validation gap from the s96 #7-#9 backend-only v3.1 slices.
+const EtfFlowApp = lazy(() => import('./components/etfFlow/EtfFlowApp.tsx'));
 
 function Router() {
   const [hash, setHash] = useState(window.location.hash);
@@ -101,6 +105,17 @@ function Router() {
         </div>
       }>
         <CyclePositionApp />
+      </Suspense>
+    );
+  }
+  if (path === '#/etf-flow' || path.startsWith('#/etf-flow/')) {
+    return (
+      <Suspense fallback={
+        <div className="min-h-screen bg-[#050505] text-fuchsia-400/70 flex items-center justify-center text-[10px] font-mono uppercase tracking-widest">
+          loading etf-flow cross-validation…
+        </div>
+      }>
+        <EtfFlowApp />
       </Suspense>
     );
   }

@@ -1,0 +1,386 @@
+/**
+ * ETF-flow cross-validation dashboard — Gap #9 v3.1 UI surface (s96 #11).
+ *
+ * Mounted by main.tsx when location.hash matches "#/etf-flow". Surfaces
+ * per-ticker shares-outstanding divergence between the v1 yfinance
+ * primary panel (`quantlab.etf_shares_outstanding`) and the v3.1
+ * issuer-CSV secondary panel (`quantlab.etf_shares_outstanding_secondary`,
+ * populated by the SSGA adapter from s96 #7-#9).
+ *
+ * Closes the operator-validation gap that accumulated across s96 #7-#9
+ * — until now the cross-validation comparator's output was only visible
+ * in the CLI morning brief §13. This panel is the browser surface so
+ * the operator can validate every future v3.1 issuer-adapter slice
+ * without tailing brief output.
+ *
+ * Self-fetches /api/etf-flow/cross-validation on mount + via the refresh
+ * button. Renders three modes:
+ *   1. `hasData=true`  → summary banner + per-ticker table + top-N
+ *      divergence list.
+ *   2. `hasData=false` AND secondary table absent → "run the migration"
+ *      empty-state with operator commands.
+ *   3. `hasData=false` AND secondary table present but empty → "run the
+ *      SSGA refresh" empty-state with operator commands.
+ */
+import { useCallback, useEffect, useState } from 'react';
+import type {
+  EtfFlowCrossValidationStateResponse,
+} from '../../server/etf_flow_dashboard.js';
+import type {
+  EtfFlowDivergence,
+  EtfFlowDivergenceSeverity,
+} from '../../server/etf_flow_cross_validation.js';
+
+interface State {
+  data: EtfFlowCrossValidationStateResponse | null;
+  loading: boolean;
+  error: string | null;
+  lookbackDays: number;
+}
+
+const LOOKBACK_OPTIONS: number[] = [30, 90, 365, 730];
+const DEFAULT_LOOKBACK = 90;
+
+export default function EtfFlowApp() {
+  const [state, setState] = useState<State>({
+    data: null,
+    loading: true,
+    error: null,
+    lookbackDays: DEFAULT_LOOKBACK,
+  });
+
+  const refresh = useCallback(async (lookbackDays: number) => {
+    setState(s => ({ ...s, loading: true, error: null, lookbackDays }));
+    try {
+      const r = await fetch(`/api/etf-flow/cross-validation?lookbackDays=${lookbackDays}`);
+      if (!r.ok) {
+        let detail = `HTTP ${r.status}`;
+        try {
+          const body = await r.json();
+          if (body && typeof body === 'object' && 'detail' in body) {
+            detail = `${body.error}: ${body.detail}`;
+          }
+        } catch { /* fall through */ }
+        throw new Error(detail);
+      }
+      const data = await r.json() as EtfFlowCrossValidationStateResponse;
+      setState({ data, loading: false, error: null, lookbackDays });
+    } catch (e) {
+      setState(s => ({ ...s, loading: false, error: (e as Error).message }));
+    }
+  }, []);
+
+  useEffect(() => { refresh(DEFAULT_LOOKBACK); }, [refresh]);
+
+  return (
+    <div className="min-h-screen bg-[#050505] text-white">
+      <header className="h-16 border-b border-[#1a1a1a] flex items-center justify-between px-8 bg-black sticky top-0 z-10">
+        <div className="flex items-center gap-3">
+          <div className="w-2 h-2 rounded-full bg-fuchsia-400 animate-pulse shadow-[0_0_10px_rgba(232,121,249,0.5)]" />
+          <h2 className="text-xs font-black uppercase tracking-[0.3em] text-white italic">
+            VECTOR_ETFFLOW · Cross-validation (v1 yfinance vs v3.1 SSGA)
+          </h2>
+          {state.data?.hasData && state.data.summary && (
+            <span className="text-[10px] font-mono text-zinc-500 ml-2">
+              source: {state.data.summary.secondarySourceLabel} ·{' '}
+              {state.data.summary.totalCompared.toLocaleString()} pairs ·{' '}
+              {state.data.summary.divergenceCount} divergences
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1 text-[10px] font-mono">
+            <span className="text-zinc-500 uppercase tracking-[0.15em]">window</span>
+            {LOOKBACK_OPTIONS.map(opt => (
+              <button
+                key={opt}
+                onClick={() => refresh(opt)}
+                disabled={state.loading}
+                className={`px-2 py-0.5 rounded border transition-colors ${
+                  state.lookbackDays === opt
+                    ? 'border-fuchsia-400/60 text-fuchsia-200 bg-fuchsia-400/10'
+                    : 'border-zinc-800 text-zinc-500 hover:text-zinc-300 hover:border-zinc-700'
+                } disabled:opacity-40 disabled:cursor-not-allowed`}
+              >
+                {opt}d
+              </button>
+            ))}
+          </div>
+          <a
+            href="/"
+            className="text-[10px] font-mono uppercase tracking-[0.2em] text-zinc-500 hover:text-white transition-colors"
+          >
+            ← back
+          </a>
+          <button
+            onClick={() => refresh(state.lookbackDays)}
+            disabled={state.loading}
+            className="text-[10px] font-mono uppercase tracking-[0.2em] text-fuchsia-300 hover:text-fuchsia-100 border border-fuchsia-400/30 hover:border-fuchsia-400/60 rounded px-3 py-1 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {state.loading ? 'loading…' : 'refresh'}
+          </button>
+        </div>
+      </header>
+
+      <main className="p-6 max-w-[1600px] mx-auto">
+        <SpecBanner />
+        {state.error && (
+          <div className="border border-red-500/40 bg-red-500/10 rounded p-4 mb-4">
+            <div className="text-[9px] font-black uppercase tracking-[0.2em] text-red-300 mb-1">
+              Failed to load etf-flow cross-validation state
+            </div>
+            <div className="text-[11px] font-mono text-red-200/80">{state.error}</div>
+          </div>
+        )}
+
+        {state.loading && !state.data && (
+          <div className="text-[11px] font-mono text-zinc-500">loading etf-flow cross-validation…</div>
+        )}
+
+        {state.data && !state.data.hasData && (
+          <EmptyState data={state.data} />
+        )}
+
+        {state.data && state.data.hasData && state.data.summary && (
+          <Dashboard data={state.data} />
+        )}
+      </main>
+    </div>
+  );
+}
+
+function SpecBanner() {
+  return (
+    <div className="border border-fuchsia-500/30 bg-fuchsia-500/5 rounded p-3 mb-4 flex items-start gap-3">
+      <div className="text-[10px] font-black uppercase tracking-[0.2em] text-fuchsia-300 whitespace-nowrap pt-0.5">
+        Gap #9 v3.1
+      </div>
+      <div className="text-[11px] font-mono text-fuchsia-100/80 leading-relaxed">
+        Compares the <span className="text-fuchsia-300 font-bold">yfinance primary</span>{' '}
+        (<code className="text-fuchsia-300">etf_shares_outstanding</code>) against the{' '}
+        <span className="text-fuchsia-300 font-bold">issuer-CSV secondary</span>{' '}
+        (<code className="text-fuchsia-300">etf_shares_outstanding_secondary</code>, populated
+        by the SSGA adapter from s96 #7-#9). Severity ladder: <span className="text-zinc-400">info</span>{' '}
+        &lt;2% · <span className="text-amber-300">warn</span> 2-5% ·{' '}
+        <span className="text-red-300">critical</span> ≥5%. SPEC:{' '}
+        <code className="text-fuchsia-300">docs/specs/etf-flow-monitoring.md §11 OQ3</code>.
+      </div>
+    </div>
+  );
+}
+
+function Dashboard({ data }: { data: EtfFlowCrossValidationStateResponse }) {
+  if (!data.summary) return null;
+  const { summary } = data;
+  return (
+    <div className="grid grid-cols-1 gap-4">
+      <SummaryPanel data={data} />
+      <TopDivergencesPanel divergences={summary.topDivergences} />
+      <PerTickerPanel byTicker={summary.byTicker} />
+    </div>
+  );
+}
+
+function SummaryPanel({ data }: { data: EtfFlowCrossValidationStateResponse }) {
+  if (!data.summary) return null;
+  const { summary, counts } = data;
+  const tiles: Array<{ label: string; value: string; color: string }> = [
+    { label: 'Pairs compared', value: summary.totalCompared.toLocaleString(), color: 'text-fuchsia-300' },
+    { label: 'Divergences', value: summary.divergenceCount.toLocaleString(), color: 'text-fuchsia-300' },
+    { label: 'Critical', value: String(summary.bySeverity.critical), color: 'text-red-300' },
+    { label: 'Warn', value: String(summary.bySeverity.warn), color: 'text-amber-300' },
+    { label: 'Info', value: String(summary.bySeverity.info), color: 'text-zinc-300' },
+    { label: 'Max |Δshares|', value: formatPct(summary.maxAbsSharesPctDiff), color: 'text-fuchsia-300' },
+    { label: 'Max |ΔAUM|', value: formatPct(summary.maxAbsAumPctDiff), color: 'text-fuchsia-300' },
+    { label: 'Primary rows', value: counts.primaryRows.toLocaleString(), color: 'text-zinc-400' },
+    { label: 'Secondary rows', value: counts.secondaryRows.toLocaleString(), color: 'text-zinc-400' },
+  ];
+  return (
+    <div className="border border-[#1a1a1a] rounded-xl bg-[#0a0a0a] p-4">
+      <div className="text-[9px] font-black uppercase tracking-[0.2em] text-zinc-400 mb-3">
+        Summary · as of {data.asOf} · {data.lookbackDays}d lookback
+      </div>
+      <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-9 gap-3">
+        {tiles.map(t => (
+          <div key={t.label} className="border border-[#1a1a1a] rounded bg-black/40 p-2">
+            <div className="text-[8px] font-mono uppercase tracking-[0.15em] text-zinc-500 mb-1">
+              {t.label}
+            </div>
+            <div className={`text-sm font-mono font-bold ${t.color}`}>{t.value}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TopDivergencesPanel({ divergences }: { divergences: ReadonlyArray<EtfFlowDivergence> }) {
+  return (
+    <div className="border border-[#1a1a1a] rounded-xl bg-[#0a0a0a] p-4">
+      <div className="text-[9px] font-black uppercase tracking-[0.2em] text-zinc-400 mb-3">
+        Top divergences (worst-first)
+      </div>
+      {divergences.length === 0 ? (
+        <div className="text-[11px] font-mono text-emerald-400/80">
+          No divergences above entry threshold (0.5%). The primary and secondary panels agree.
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-[10px] font-mono">
+            <thead>
+              <tr className="text-zinc-500 border-b border-[#1a1a1a]">
+                <th className="text-left py-1 px-2 uppercase tracking-[0.15em]">Ticker</th>
+                <th className="text-left py-1 px-2 uppercase tracking-[0.15em]">Date</th>
+                <th className="text-right py-1 px-2 uppercase tracking-[0.15em]">Primary shares</th>
+                <th className="text-right py-1 px-2 uppercase tracking-[0.15em]">Secondary shares</th>
+                <th className="text-right py-1 px-2 uppercase tracking-[0.15em]">Δshares</th>
+                <th className="text-right py-1 px-2 uppercase tracking-[0.15em]">ΔAUM</th>
+                <th className="text-center py-1 px-2 uppercase tracking-[0.15em]">Severity</th>
+              </tr>
+            </thead>
+            <tbody>
+              {divergences.map((d, i) => (
+                <tr key={`${d.ticker}-${d.date}-${i}`} className="border-b border-[#0f0f0f] hover:bg-white/5">
+                  <td className="py-1 px-2 text-white font-bold">{d.ticker}</td>
+                  <td className="py-1 px-2 text-zinc-400">{d.date}</td>
+                  <td className="py-1 px-2 text-right text-zinc-300">{formatShares(d.primaryShares)}</td>
+                  <td className="py-1 px-2 text-right text-zinc-300">{formatShares(d.secondaryShares)}</td>
+                  <td className={`py-1 px-2 text-right font-bold ${signedColor(d.sharesPctDiff)}`}>
+                    {formatSignedPct(d.sharesPctDiff)}
+                  </td>
+                  <td className={`py-1 px-2 text-right font-bold ${signedColor(d.aumPctDiff)}`}>
+                    {formatSignedPct(d.aumPctDiff)}
+                  </td>
+                  <td className="py-1 px-2 text-center">
+                    <SeverityBadge severity={d.severity} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PerTickerPanel({
+  byTicker,
+}: {
+  byTicker: Readonly<Record<string, { compared: number; diverged: number; maxAbsSharesPctDiff: number }>>;
+}) {
+  const entries = Object.entries(byTicker).sort((a, b) => b[1].maxAbsSharesPctDiff - a[1].maxAbsSharesPctDiff);
+  return (
+    <div className="border border-[#1a1a1a] rounded-xl bg-[#0a0a0a] p-4">
+      <div className="text-[9px] font-black uppercase tracking-[0.2em] text-zinc-400 mb-3">
+        Per-ticker divergence counts ({entries.length} ticker{entries.length === 1 ? '' : 's'} with divergences)
+      </div>
+      {entries.length === 0 ? (
+        <div className="text-[11px] font-mono text-emerald-400/80">
+          Every ticker matched. Primary and secondary panels agree across the entire window.
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2">
+          {entries.map(([ticker, stats]) => (
+            <div key={ticker} className="border border-[#1a1a1a] rounded bg-black/40 p-2">
+              <div className="flex items-baseline justify-between mb-1">
+                <span className="text-xs font-bold text-white">{ticker}</span>
+                <span className="text-[9px] font-mono text-zinc-500">
+                  {stats.diverged}× div
+                </span>
+              </div>
+              <div className="text-[10px] font-mono text-fuchsia-300">
+                max |Δshares| {formatPct(stats.maxAbsSharesPctDiff)}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SeverityBadge({ severity }: { severity: EtfFlowDivergenceSeverity }) {
+  const map: Record<EtfFlowDivergenceSeverity, { bg: string; border: string; text: string }> = {
+    info: { bg: 'bg-zinc-500/10', border: 'border-zinc-500/40', text: 'text-zinc-300' },
+    warn: { bg: 'bg-amber-500/10', border: 'border-amber-500/40', text: 'text-amber-300' },
+    critical: { bg: 'bg-red-500/10', border: 'border-red-500/40', text: 'text-red-300' },
+  };
+  const cls = map[severity];
+  return (
+    <span className={`inline-block px-2 py-0.5 rounded border text-[9px] font-bold uppercase tracking-[0.15em] ${cls.bg} ${cls.border} ${cls.text}`}>
+      {severity}
+    </span>
+  );
+}
+
+function EmptyState({ data }: { data: EtfFlowCrossValidationStateResponse }) {
+  const { counts } = data;
+  const tableAbsent = !counts.secondaryTableExists;
+  return (
+    <div className="border border-amber-500/30 bg-amber-500/5 rounded p-6">
+      <div className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-300 mb-2">
+        {tableAbsent ? 'Secondary table not yet migrated' : 'Awaiting first SSGA refresh'}
+      </div>
+      <div className="text-[11px] font-mono text-amber-100/80 leading-relaxed mb-3">
+        {tableAbsent ? (
+          <>
+            <code className="text-amber-200">quantlab.etf_shares_outstanding_secondary</code> does not
+            exist in ClickHouse. Apply the migration first, then refresh the SSGA panel.
+          </>
+        ) : (
+          <>
+            Both panels need rows for cross-validation. Primary panel has{' '}
+            <span className="text-amber-300 font-bold">{counts.primaryRows.toLocaleString()}</span> rows;
+            secondary panel has{' '}
+            <span className="text-amber-300 font-bold">{counts.secondaryRows.toLocaleString()}</span> rows
+            in the last {data.lookbackDays}d window. Run the v3.1 SSGA refresh to populate.
+          </>
+        )}
+      </div>
+      <pre className="text-[10px] font-mono text-amber-200 bg-black/40 border border-amber-500/20 rounded p-3 leading-snug overflow-x-auto">
+{tableAbsent
+  ? `# 1. Apply the secondary-table migration (idempotent):
+npm run migrate:create-etf-shares-outstanding-secondary
+npm run migrate:create-etf-shares-outstanding-secondary:apply
+
+# 2. Populate the SSGA panel + ingest to CH:
+npm run etf:flow:ssga-spdr:refresh`
+  : `# Populate the SSGA panel + ingest to CH:
+npm run etf:flow:ssga-spdr:refresh
+
+# Or wait for the next daemon:daily cycle — step 1ja
+# auto-refreshes the panel (s96 #9):
+npm run daemon:daily`}
+      </pre>
+      <div className="text-[10px] font-mono text-zinc-500 mt-3">
+        SPEC: <code className="text-fuchsia-300">docs/specs/etf-flow-monitoring.md §11 OQ3</code> ·
+        v3.1 arc: s96 #7 (adapter) → s96 #8 (wrapper) → s96 #9 (daemon hook) → s96 #11 (this panel).
+      </div>
+    </div>
+  );
+}
+
+// ── Formatting helpers ──────────────────────────────────────────────────────
+
+function formatPct(n: number): string {
+  return `${(n * 100).toFixed(2)}%`;
+}
+
+function formatSignedPct(n: number): string {
+  const sign = n >= 0 ? '+' : '';
+  return `${sign}${(n * 100).toFixed(2)}%`;
+}
+
+function formatShares(n: number): string {
+  if (Math.abs(n) >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
+  if (Math.abs(n) >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
+  if (Math.abs(n) >= 1e3) return `${(n / 1e3).toFixed(2)}K`;
+  return n.toFixed(0);
+}
+
+function signedColor(pct: number): string {
+  if (Math.abs(pct) >= 0.05) return pct > 0 ? 'text-red-300' : 'text-red-300';
+  if (Math.abs(pct) >= 0.02) return 'text-amber-300';
+  return 'text-zinc-300';
+}
