@@ -236,7 +236,18 @@ describe('HEALTH_SOURCES', () => {
     assert.equal(uniq.size, names.length, 'duplicate table names in HEALTH_SOURCES');
   });
 
-  it('SEC EDGAR sources are all tagged autonomous=false (the reconciliation §3.1 GAP-1 fingerprint)', () => {
+  // Convention pin (s96 #15 Cycle 2 GAP-1 — Infra worker).
+  // The four SEC EDGAR raw sources (executive_departures, eight_k_events,
+  // insider_trades, schedule_13d_g_filings) were operator-cadence pre-Cycle 2;
+  // GAP-1 promoted them to daemon-cadence via -pre steps 1i-pre/1k-pre/
+  // 1l-pre/1m-pre in `scripts/daily_signal_daemon.ts`. The HEALTH_SOURCES
+  // entries must therefore (a) exist, (b) flag autonomous=true (the entire
+  // point of the promotion), and (c) preserve the event-driven cadence
+  // (filings arrive asynchronously; the cadence-relative staleness window
+  // remains 7d fresh / 14d stale per CADENCE_THRESHOLDS_HOURS). A future
+  // refactor flipping autonomous back to false would silently re-introduce
+  // the operator-memory dependence ADR-044 closes.
+  it('SEC EDGAR sources are all tagged autonomous=true (GAP-1 daemon-cadence promotion s96 #15 Cycle 2)', () => {
     const edgar = HEALTH_SOURCES.filter(s =>
       ['eight_k_events', 'executive_departures', 'insider_trades', 'schedule_13d_g_filings'].includes(s.name),
     );
@@ -244,8 +255,13 @@ describe('HEALTH_SOURCES', () => {
     for (const s of edgar) {
       assert.equal(
         s.autonomous,
-        false,
-        `${s.name} should be autonomous=false (operator-cadence) per GAP-1`,
+        true,
+        `${s.name} should be autonomous=true (daemon -pre step) per GAP-1`,
+      );
+      assert.equal(
+        s.cadence,
+        'event-driven',
+        `${s.name} should preserve event-driven cadence (filings arrive asynchronously)`,
       );
     }
   });

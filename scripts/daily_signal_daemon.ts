@@ -164,6 +164,13 @@ import {
   runFinraShortInterestFetch,
   shouldRunFinraTodayUtc,
 } from '../src/server/daemon_finra_short_interest_fetch.js';
+import {
+  EDGAR_PAGE_CAP,
+  runEdgarItem502Refresh,
+  runEdgar8kEventRefresh,
+  runEdgarForm4Refresh,
+  runEdgar13DGRefresh,
+} from '../src/server/daemon_edgar_ingests.js';
 import { CLASSIFIER_VERSION_V3 } from '../src/server/macro_regime_v3.js';
 import {
   formatEvaluatorCapitalLogLine,
@@ -1292,6 +1299,50 @@ async function main() {
     }
   }
 
+  // 1i-pre. SEC EDGAR 8-K Item 5.02 ingest (exec departures) —
+  //         GAP-1 daemon-cadence promotion.
+  //         Runs `scripts/sec_edgar_8k_item_5_02_ingest.py --apply` on a
+  //         2-day rolling window so today's step 1i exec-departure
+  //         composite reads recently-filed 8-K Item 5.02 rows.
+  //         Gated by NO_FETCH || DRY_RUN — same posture as 1bf (FRED) +
+  //         1h-pre (FINRA). NOT gated on NO_MACRO: EDGAR is fundamental
+  //         equity-event data, not a macro indicator. Non-fatal: failure
+  //         surfaces as a warning anomaly; the composite (step 1i, below)
+  //         tolerates a missed cycle because `executive_departures` is
+  //         ReplacingMergeTree-tracked and the composite reads through
+  //         FINAL on the most-recent ingest.
+  //
+  //         100-hit EDGAR page cap (s96 #15 Cycle 1 / Worker B finding;
+  //         confirmed in s96 #15 Cycle 2 slice 2 dry-runs): full-text
+  //         search returns at most 100 filings per response. When the
+  //         2-day window exceeds this, `runEdgarItem502Refresh` returns
+  //         `capHit: true` and the daemon emits a warning anomaly with
+  //         the operator-catchup command. The composite step downstream
+  //         tolerates partial daily coverage; the warning is purely
+  //         informational. See `src/server/daemon_edgar_ingests.ts`
+  //         module header for the three-criterion test (Path A vs B vs C).
+  if (NO_FETCH || DRY_RUN) {
+    console.log(`[edgar-exec-departure-fetch] skipped (${NO_FETCH ? '--no-fetch' : '--dry-run'})`);
+  } else {
+    const r = runEdgarItem502Refresh(DRY_RUN, new Date(t0));
+    if (r.ok && !r.capHit) {
+      console.log(`[edgar-exec-departure-fetch] OK | ${r.seconds.toFixed(1)}s${r.hitCount !== null ? ` | ${r.hitCount} filings` : ''}`);
+    } else if (r.ok && r.capHit) {
+      const msg =
+        `EDGAR exec-departure ingest hit the ${EDGAR_PAGE_CAP}-filing page cap ` +
+        `(${r.hitCount ?? '?'} returned); some filings in the 2-day window may ` +
+        `be missing. Run \`npm run edgar:exec-departure:ingest\` for catchup.`;
+      console.warn(`[edgar-exec-departure-fetch] WARN ${msg}`);
+      anomalies.push({ severity: 'warning', message: msg });
+    } else {
+      console.warn(`[edgar-exec-departure-fetch] failed (non-fatal): ${r.error}`);
+      anomalies.push({
+        severity: 'warning',
+        message: `EDGAR exec-departure fetch failed: ${r.error}. Run \`npm run edgar:exec-departure:ingest\` for catchup.`,
+      });
+    }
+  }
+
   // 1i. Executive-departure evaluation (informational Layer-0 input).
   //     SPEC: docs/specs/executive-departure-signal.md §3 component diagram +
   //     §7 daemon hook position — runs AFTER short-interest (step 1h);
@@ -1415,6 +1466,34 @@ async function main() {
     }
   }
 
+  // 1k-pre. SEC EDGAR 8-K broader-event ingest — GAP-1 daemon-cadence
+  //         promotion (sibling of 1i-pre / 1l-pre / 1m-pre). Same posture
+  //         as 1i-pre: 2-day rolling window, NO_FETCH/DRY_RUN gates only,
+  //         100-hit cap surfaces as warning anomaly. See
+  //         `src/server/daemon_edgar_ingests.ts` module header for the
+  //         shared design rationale.
+  if (NO_FETCH || DRY_RUN) {
+    console.log(`[edgar-8k-event-fetch] skipped (${NO_FETCH ? '--no-fetch' : '--dry-run'})`);
+  } else {
+    const r = runEdgar8kEventRefresh(DRY_RUN, new Date(t0));
+    if (r.ok && !r.capHit) {
+      console.log(`[edgar-8k-event-fetch] OK | ${r.seconds.toFixed(1)}s${r.hitCount !== null ? ` | ${r.hitCount} filings` : ''}`);
+    } else if (r.ok && r.capHit) {
+      const msg =
+        `EDGAR 8-K event ingest hit the ${EDGAR_PAGE_CAP}-filing page cap ` +
+        `(${r.hitCount ?? '?'} returned); some filings in the 2-day window may ` +
+        `be missing. Run \`npm run edgar:8k-event:ingest\` for catchup.`;
+      console.warn(`[edgar-8k-event-fetch] WARN ${msg}`);
+      anomalies.push({ severity: 'warning', message: msg });
+    } else {
+      console.warn(`[edgar-8k-event-fetch] failed (non-fatal): ${r.error}`);
+      anomalies.push({
+        severity: 'warning',
+        message: `EDGAR 8-K event fetch failed: ${r.error}. Run \`npm run edgar:8k-event:ingest\` for catchup.`,
+      });
+    }
+  }
+
   // 1k. 8-K classifier evaluation (informational Layer-0 input).
   //     SPEC: docs/specs/event-driven-filings-processor.md §3 component
   //     diagram + §7 daemon hook position — runs AFTER etf-flow (step 1j);
@@ -1465,6 +1544,38 @@ async function main() {
       anomalies.push({
         severity: 'info',
         message: `eight-k evaluation failed: ${(e as Error).message}`,
+      });
+    }
+  }
+
+  // 1l-pre. SEC EDGAR Form 4 insider ingest — GAP-1 daemon-cadence
+  //         promotion (sibling of 1i-pre / 1k-pre / 1m-pre). Same posture
+  //         as 1i-pre. Form 4 volume is ~100-300 filings per US trading
+  //         day, so the 100-hit cap is hit MOST days under the 2-day
+  //         window — the catchup-command nudge is expected to fire
+  //         routinely until a future Data-Ingest cycle adds `from=`
+  //         pagination to `_sec_edgar_helpers.py` (Path B per the
+  //         module header's three-criterion analysis — out of envelope
+  //         for this Infra slice). See
+  //         `src/server/daemon_edgar_ingests.ts` module header.
+  if (NO_FETCH || DRY_RUN) {
+    console.log(`[edgar-form4-fetch] skipped (${NO_FETCH ? '--no-fetch' : '--dry-run'})`);
+  } else {
+    const r = runEdgarForm4Refresh(DRY_RUN, new Date(t0));
+    if (r.ok && !r.capHit) {
+      console.log(`[edgar-form4-fetch] OK | ${r.seconds.toFixed(1)}s${r.hitCount !== null ? ` | ${r.hitCount} filings` : ''}`);
+    } else if (r.ok && r.capHit) {
+      const msg =
+        `EDGAR Form 4 ingest hit the ${EDGAR_PAGE_CAP}-filing page cap ` +
+        `(${r.hitCount ?? '?'} returned); some filings in the 2-day window may ` +
+        `be missing. Run \`npm run edgar:form4:ingest\` for catchup.`;
+      console.warn(`[edgar-form4-fetch] WARN ${msg}`);
+      anomalies.push({ severity: 'warning', message: msg });
+    } else {
+      console.warn(`[edgar-form4-fetch] failed (non-fatal): ${r.error}`);
+      anomalies.push({
+        severity: 'warning',
+        message: `EDGAR Form 4 fetch failed: ${r.error}. Run \`npm run edgar:form4:ingest\` for catchup.`,
       });
     }
   }
@@ -1521,6 +1632,35 @@ async function main() {
       anomalies.push({
         severity: 'info',
         message: `form-4 evaluation failed: ${(e as Error).message}`,
+      });
+    }
+  }
+
+  // 1m-pre. SEC EDGAR Schedule 13D/G ingest — GAP-1 daemon-cadence
+  //         promotion (sibling of 1i-pre / 1k-pre / 1l-pre). Same posture
+  //         as 1i-pre. 13D/G volume is the LOWEST of the four EDGAR
+  //         ingests (~5-15 filings/day across SC 13D + SC 13D/A + SC 13G
+  //         + SC 13G/A combined), so the 100-hit cap is essentially
+  //         never hit under the 2-day window. See
+  //         `src/server/daemon_edgar_ingests.ts` module header.
+  if (NO_FETCH || DRY_RUN) {
+    console.log(`[edgar-13d-g-fetch] skipped (${NO_FETCH ? '--no-fetch' : '--dry-run'})`);
+  } else {
+    const r = runEdgar13DGRefresh(DRY_RUN, new Date(t0));
+    if (r.ok && !r.capHit) {
+      console.log(`[edgar-13d-g-fetch] OK | ${r.seconds.toFixed(1)}s${r.hitCount !== null ? ` | ${r.hitCount} filings` : ''}`);
+    } else if (r.ok && r.capHit) {
+      const msg =
+        `EDGAR Schedule 13D/G ingest hit the ${EDGAR_PAGE_CAP}-filing page cap ` +
+        `(${r.hitCount ?? '?'} returned); some filings in the 2-day window may ` +
+        `be missing. Run \`npm run edgar:13d-g:ingest\` for catchup.`;
+      console.warn(`[edgar-13d-g-fetch] WARN ${msg}`);
+      anomalies.push({ severity: 'warning', message: msg });
+    } else {
+      console.warn(`[edgar-13d-g-fetch] failed (non-fatal): ${r.error}`);
+      anomalies.push({
+        severity: 'warning',
+        message: `EDGAR Schedule 13D/G fetch failed: ${r.error}. Run \`npm run edgar:13d-g:ingest\` for catchup.`,
       });
     }
   }

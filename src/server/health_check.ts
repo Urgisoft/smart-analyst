@@ -271,47 +271,55 @@ export const HEALTH_SOURCES: ReadonlyArray<HealthSourceConfig> = [
     operatorAction: 'npm run daemon:daily',
     why: 'Daemon per-cell loop — daily snapshot of intended positions.',
   },
-  // ── Operator-cadence (autonomous=false) — the standing-health gap ─────────
+  // ── SEC EDGAR raw sources (autonomous via daemon steps 1i-pre/1k-pre/
+  //    1l-pre/1m-pre — GAP-1 promotion s96 #15 Cycle 2). Manual catchup
+  //    retained via the corresponding npm scripts for backfill, for any
+  //    day where the 100-hit EDGAR full-text-search page cap fires
+  //    (`capHit` warning anomaly in the daemon log), and for recovery
+  //    from extended host downtime. See
+  //    `src/server/daemon_edgar_ingests.ts` for the daemon-side design
+  //    + the three-criterion test (Path A vs B vs C).
   {
     name: 'eight_k_events',
     label: '8-K events (SEC EDGAR)',
     cadence: 'event-driven',
-    autonomous: false,
+    autonomous: true,
     timestampCol: 'accepted_at',
     timestampType: 'datetime',
     operatorAction: 'npm run edgar:8k-event:ingest',
-    why: 'GAP-1 — operator-cadence; daemon step 1k evaluates stale data silently.',
+    why: 'GAP-1 daemon-cadence promotion — step 1k-pre runs the EDGAR 8-K event ingest on a 2-day rolling window. Manual catchup if the page-cap warning fires or for backfill.',
   },
   {
     name: 'executive_departures',
     label: '8-K Item 5.02 (exec departures)',
     cadence: 'event-driven',
-    autonomous: false,
+    autonomous: true,
     timestampCol: 'accepted_at',
     timestampType: 'datetime',
     operatorAction: 'npm run edgar:exec-departure:ingest',
-    why: 'GAP-1 — operator-cadence; daemon step 1i evaluates stale data silently.',
+    why: 'GAP-1 daemon-cadence promotion — step 1i-pre runs the EDGAR Item 5.02 ingest on a 2-day rolling window. Manual catchup if the page-cap warning fires or for backfill.',
   },
   {
     name: 'insider_trades',
     label: 'Form 4 insider trades',
     cadence: 'event-driven',
-    autonomous: false,
+    autonomous: true,
     timestampCol: 'accepted_at',
     timestampType: 'datetime',
     operatorAction: 'npm run edgar:form4:ingest',
-    why: 'GAP-1 — operator-cadence; daemon step 1l evaluates stale data silently.',
+    why: 'GAP-1 daemon-cadence promotion — step 1l-pre runs the EDGAR Form 4 ingest on a 2-day rolling window. Form 4 volume routinely hits the 100-filing EDGAR cap; manual catchup expected most days until `from=` pagination lands.',
   },
   {
     name: 'schedule_13d_g_filings',
     label: 'Schedule 13D/G filings',
     cadence: 'event-driven',
-    autonomous: false,
+    autonomous: true,
     timestampCol: 'accepted_at',
     timestampType: 'datetime',
     operatorAction: 'npm run edgar:13d-g:ingest',
-    why: 'GAP-1 — operator-cadence; daemon step 1m evaluates stale data silently.',
+    why: 'GAP-1 daemon-cadence promotion — step 1m-pre runs the EDGAR 13D/G ingest on a 2-day rolling window. Lowest-volume of the four EDGAR ingests; cap-hit rare. Manual catchup for backfill.',
   },
+  // ── Operator-cadence (autonomous=false) — remaining standing-health gap ───
   {
     name: 'macro_indicators_cboe',
     label: 'CBOE put/call ratio',
