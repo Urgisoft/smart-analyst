@@ -1,124 +1,111 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-05-22 (session 96 #8 — **Gap #9 v3.1 OQ-G9-3 wrapper SHIPPED**: `etf:flow:ssga-spdr:refresh` chains fetch → ingest with `--source-label ssga-spdr` plumbed through. 1 commit `46a8d0f` / 2 files / +2 LOC. **iShares ajax endpoints CONFIRMED WAF-gated** (audience-chooser HTML returned under `Content-Type: text/csv` regardless of cookies/headers); **Vanguard JSON API returns 302→error**. Both non-SSGA issuer adapters require either Playwright (new project dep) or operator-supplied session state — both are project-level decisions surfaced here for operator review. **Net 1 unpushed commit** on top of origin/main (`c0cda7c`). **NEXT default on `continue`:** operator-pick from the post-iShares-research menu — see "Next stage" section.
+Last updated: 2026-05-23 (session 96 #9 — **Gap #9 v3.1 OQ-G9-2 daemon hook SHIPPED**: SSGA-SPDR adapter + ingest chain wired into `daemon:daily` as step 1ja, BEFORE step 1j etf-flow composite, so today's snapshot reads today's SSGA rows. 1 commit `043694d` / 3 files / +326 LOC / 10 new sub-tests. **Net 3 unpushed commits** on top of origin/main (`c0cda7c`). OQ-G9-2 now CLOSED end-to-end; SSGA half of v3.1 arc complete + production-grade. iShares + Vanguard half remains BLOCKED on OQ-G9-4 (operator-level Playwright dep decision; recorded s96 #8 — S96-33/34/35). **NEXT default on `continue`:** operator-pick — recommend either OQ-G9-4 decision OR first-run E2E smoke of `etf:flow:ssga-spdr:refresh` OR `daemon:daily` end-to-end smoke to validate the new step 1ja against live SSGA bytes.
 
 ## What this slice delivered
 
-Closes **OQ-G9-3** (the open question about unifying the SSGA fetch + ingest UX) with a single additive npm script. The two-step pattern remains as the testable foundation; the new `:refresh` script is purely convenience that plumbs the issuer source-label automatically.
+Closes **OQ-G9-2** (the SSGA daemon-cadence open question carried from s96 #7) by wiring the s96 #7 adapter + s96 #8 wrapper logic into `daily_signal_daemon.ts` as a new step 1ja. The SSGA secondary panel now auto-refreshes on every daemon cycle; the operator no longer needs to remember `npm run etf:flow:ssga-spdr:refresh` ahead of `daemon:daily`.
 
-### One commit (s96 #8)
+### One commit (s96 #9)
 
-**`46a8d0f` — Gap #9 v3.1 OQ-G9-3 wrapper — etf:flow:ssga-spdr:refresh.**
-2 files, +2 LOC:
+**`043694d` — Gap #9 v3.1 OQ-G9-2 daemon hook — SSGA-SPDR refresh wired into daemon:daily.**
+3 files, +326 LOC:
 
-- **modified** `package.json` (+1 LOC). One new npm script:
-  - `etf:flow:ssga-spdr:refresh` — runs
-    `.venv\Scripts\python.exe scripts/etf_flow_ssga_spdr_adapter.py --apply`,
-    then on success runs
-    `.venv\Scripts\python.exe scripts/etf_flow_issuer_csv_ingest.py --source-label ssga-spdr --apply`.
-    `&&`-chain semantics: ingest is skipped on fetch failure (per the
-    SSGA adapter's exit-1-on-all-fail contract from S96-32; downstream
-    CH `ReplacingMergeTree(ingested_at)` preserves the last-good row
-    set even when today's ingest is skipped).
-- **modified** `scripts/help.ts` (+1 LOC). One new EXTRA_HELP entry
-  for the wrapper.
+- **new** `src/server/daemon_etf_flow_ssga_spdr_refresh.ts` (+131 LOC).
+  Surface:
+  - `buildSsgaSpdrAdapterArgs(dryRun) → { args, timeoutMs }` — pure
+    arg-builder for the SSGA adapter spawn (10-min timeout, `--apply`
+    or `--dry-run` forwarded based on caller).
+  - `buildIssuerCsvIngestArgs(dryRun) → { args, timeoutMs }` — pure
+    arg-builder for the issuer-csv ingest spawn with `--source-label
+    ssga-spdr` plumbed (LOAD-BEARING per S96-36; without it ingested
+    rows tag as the default `issuer-csv` label and the comparator's
+    source-label-aware panel mis-classifies them).
+  - `runSsgaSpdrRefresh(dryRun) → SsgaSpdrRefreshResult` — chains
+    both spawns; on adapter failure skips ingest (mirrors the s96 #8
+    `:refresh` wrapper's `&&`-semantics); returns per-step status
+    (`adapterOk` / `ingestOk` / `error?`) for the orchestrator's
+    anomaly classification.
 
-### Why this slice (not the HANDOFF-recommended iShares adapter)
+- **modified** `scripts/daily_signal_daemon.ts` (+37 LOC).
+  - +1 LOC: import `runSsgaSpdrRefresh` from
+    `src/server/daemon_etf_flow_ssga_spdr_refresh.js`.
+  - +36 LOC: new step 1ja between 1i (exec-departure) and 1j
+    (etf-flow composite). Gated by `NO_MACRO || NO_FETCH || DRY_RUN`
+    — same posture as step 1b (macro-fetch) + 1bf (fred-fetch).
+    Three log/anomaly branches:
+    - Full-success → `[etf-flow-ssga-spdr-refresh] OK | <Ns>`.
+    - Adapter-ok-ingest-failed → warn + anomaly "CSV written but not
+      promoted to CH" (operator-actionable signal).
+    - Full-failure → warn + anomaly "SSGA-SPDR refresh failed: ...".
 
-The previous HANDOFF (s96 #7) flagged iShares as the next-recommended
-slice on the v3.1 arc. Pre-implementation research uncovered two
-findings that change the v3.1 arc-shape for ALL non-SSGA issuers:
+- **new** `scripts/tests/daemonEtfFlowSsgaSpdrRefresh.test.ts`
+  (+158 LOC). 10 sub-tests under 3 `describe` blocks:
+  - `buildSsgaSpdrAdapterArgs` × 4: `--apply` mode / `--dry-run` mode
+    / never-both / no-override-flags.
+  - `buildIssuerCsvIngestArgs` × 4: `--apply` / `--dry-run` /
+    `--source-label-always-set` (regression anchor for S96-36's
+    load-bearing flag) / no-input-dir-override.
+  - Arg-builder contracts × 2: dryRun-forwarding-consistent /
+    combined-timeout-under-15min-ceiling.
 
-**Finding 1 — iShares ajax endpoints are WAF-gated.** Confirmed
-empirically against the documented endpoint:
+### Why step 1ja fires BEFORE step 1j
 
-```text
-GET https://www.ishares.com/us/products/239726/ishares-core-sp-500-etf/\
-    1467271812596.ajax?fileType=csv&fileName=IVV_performance&dataType=fund
-HTTP/1.1 200 OK
-Content-Type: text/csv;charset=UTF-8
-content-disposition: attachment; filename=IVV_performance.csv
-<body>: 10.4 MB of HTML (the audience-chooser page)
-```
+The etf-flow composite (step 1j) reads the cross-validation panel
+(`quantlab.etf_shares_outstanding_secondary`) when assembling today's
+snapshot. Putting the SSGA refresh AFTER 1j would make today's snapshot
+read yesterday's SSGA rows — a one-day lag that would consistently show
+up as a small comparator divergence even when no real upstream drift
+occurred. Step 1ja's position locks in the "same-day refresh, same-day
+read" semantic.
 
-The response headers correctly advertise CSV but the body is the
-audience-selection HTML page regardless of:
-- Real-browser User-Agent (Chrome/126 string),
-- `Accept: text/csv` + `Referer: <product page URL>`,
-- Cookies (`userType=individual`, `siteEntryPassthrough=true`,
-  `segment=individual`, etc.) — both pre-seeded and curl-managed jar.
-- `dataType` variants: `fund`, `fund.performance`, `fund.holdings`.
+### Why NO_FETCH gates step 1ja (in addition to NO_MACRO + DRY_RUN)
 
-The WAF gate is server-side body substitution; bypass requires either
-a real browser session (Playwright + click-through the audience modal
-to acquire signed session cookies) OR a different upstream entirely.
+The macro-fetch (1b) + fred-fetch (1bf) precedents gate on `NO_FETCH ||
+NO_MACRO` — same operational intent ("don't hit the network"). The
+SSGA refresh is structurally identical (13 HTTP fetches per run); same
+gate applies. `DRY_RUN` is included for symmetry — the daemon's dry-run
+mode is side-effect-free end-to-end + can be exercised without network.
 
-**Finding 2 — Vanguard public JSON API returns 302→error.** The
-documented `api.vanguard.com/rs/gre/gra/.../auw-retail-listview-data.jsonp`
-endpoint returns:
+### What this slice does NOT ship
 
-```text
-HTTP/1.0 302 Moved Temporarily
-Location: http://error.vanguard.com/telecom-bounce.html?Errcode=3004
-```
-
-Server is `BigIP` — Vanguard's WAF / load-balancer rejects requests
-without a session cookie or correct Origin. Same shape of problem as
-iShares: requires browser-emulated session OR alternate upstream.
-
-**Implication for the v3.1 arc.** The arc shape is now:
-- ✓ SSGA-SPDR (s96 #7) — static-XLSX endpoint, direct-HTTP works,
-  hermetic tests, stable URL pattern. **Pattern works for issuers
-  with static unauthenticated CDN.**
-- ☐ iShares (IVV + IWM) — needs Playwright OR alternate upstream.
-- ☐ Vanguard (VOO) — needs Playwright OR alternate upstream.
-- ☐ Invesco (QQQ) — untested but likely same WAF shape.
-- ☐ HYG/JNK/TLT/GLD — different issuers; per-issuer research needed.
-
-The v3.1 arc continuation is a **project-level decision** for the
-operator: do we add Playwright as a project dep (the data-source
-policy authorizes "public-source scraping via Playwright", and these
-pages ARE publicly reachable, but adding Playwright is hundreds of MB
-of browser binaries + a fundamentally new tool surface), OR do we look
-for alternative upstreams (FRED EFT data? An ETF.com per-fund daily
-shares CSV? yfinance is already the v1 primary, so we'd want a
-DIFFERENT secondary)?
-
-The s96 #8 slice picks the smallest defensible consolidation move
-(OQ-G9-3 wrapper) instead of locking in the Playwright decision
-unilaterally. Per CLAUDE.md autonomous-execution §"Canon-thin
-methodology forks", the three-criterion test:
-
-1. **Canon foundations** — data-source policy authorizes both direct
-   HTTP and Playwright. Equal.
-2. **Methodology rigor** — adding Playwright is a new project tool
-   surface (browser-version drift, headless flags, page-render
-   timing). The wrapper slice is pure composition over two
-   production-tested scripts. Wrapper wins.
-3. **Minimum free parameters** — Playwright introduces {browser,
-   headless, viewport, timeout, retry-on-render}. Wrapper introduces
-   zero new knobs. Wrapper wins.
-
-All three criteria favor the wrapper. Decision locked autonomously
-per protocol; full operator review here.
+- **No CSV file pre-existence check.** The adapter auto-mkdir's
+  `data/etf_flow_issuer_csv/` on first apply-run + the ingester
+  tolerates an empty dir. No need for a pre-check at the daemon
+  orchestration layer.
+- **No CH table pre-existence check.** The
+  `etf_shares_outstanding_secondary` table is auto-created by the
+  ingester's `ensure_etf_shares_outstanding_secondary_table()` (s95
+  #9 contract). Migrations are still tracked separately for the
+  primary table — see operator-gated action items.
+- **No backfill of yfinance primary's auto-refresh.** Step 1j still
+  reads `quantlab.etf_shares_outstanding` (v1 primary) which remains
+  operator-cadence per s92 design. Only the v3.1 secondary
+  auto-refreshes. The asymmetry is intentional — see s96 #9 OQ-G9-2
+  scope analysis.
+- **No daemon-side adapter customization.** Step 1ja uses adapter
+  defaults (13-SPDR universe, 365d lookback, default output dir).
+  The test `no-override-flags` is a regression anchor.
 
 ### Verification gates at commit time (all green)
 
 ```text
-.venv/Scripts/python.exe -m pytest scripts/tests   # 394 pass (unchanged from s96 #7)
-npm test                                            # 3092 pass / 1 fail (pre-existing) / 33 skip
+.venv/Scripts/python.exe -m pytest scripts/tests   # 394 pass (unchanged from s96 #8)
+npm test                                            # 3102 pass / 1 fail (pre-existing) / 33 skip
+                                                    #   = s96 #8 baseline (3092) + 10 new sub-tests
 npx tsc --noEmit                                    # 13 baseline errors unchanged
 npm run check:help                                  # green
 ```
 
 The single npm-test failure is the carry-forward `gicsSectorRepositoryHelper
-SMP-6` infra-side EXPLAIN PLAN rejection — unchanged from s96 #7.
+SMP-6` infra-side EXPLAIN PLAN rejection — unchanged since pre-s96.
 
 ### Push state
 
-- Session 96 #1..#7 commits all pushed to `origin/main` (most recent
+- Session 96 #1..#7 commits pushed to `origin/main` (most recent
   `c0cda7c` — s96 #7 HANDOFF rewrite).
-- This slice's commit `46a8d0f` is **1 commit ahead of origin/main**.
+- s96 #8 wrapper (`46a8d0f`) + s96 #8 HANDOFF (`483e1b1`) + s96 #9
+  daemon hook (`043694d`) = **3 unpushed commits** on top.
 - Push is operator-gated.
 
 ## Where we are
@@ -143,197 +130,159 @@ SMP-6` infra-side EXPLAIN PLAN rejection — unchanged from s96 #7.
 | Gap #9 v3 issuer-CSV live secondary panel ingest | ✓ s95 #9 (GAP #9 ARC FULLY CLOSED v1+v2+v3) |
 | Gap #7 v2 Schedule 13D/13G arc — A1..A5 | ✓ s96 #1-#6 (XD13 ARC FULLY CLOSED) |
 | Gap #9 v3.1 SSGA-SPDR navhist adapter | ✓ s96 #7 (`5640a46`) |
-| **Gap #9 v3.1 OQ-G9-3 SSGA-SPDR refresh wrapper** | **✓ s96 #8 (`46a8d0f`) — OQ-G9-3 CLOSED** |
-| **Gap #9 v3.1 iShares adapter (IVV + IWM)** | **⛔ blocked-on-Playwright-decision (operator)** |
-| **Gap #9 v3.1 Vanguard adapter (VOO)** | **⛔ blocked-on-Playwright-decision (operator)** |
+| Gap #9 v3.1 OQ-G9-3 SSGA-SPDR refresh wrapper | ✓ s96 #8 (`46a8d0f`) — OQ-G9-3 CLOSED |
+| **Gap #9 v3.1 OQ-G9-2 SSGA-SPDR daemon hook** | **✓ s96 #9 (`043694d`) — OQ-G9-2 CLOSED; SSGA half of v3.1 arc PRODUCTION-GRADE end-to-end** |
+| Gap #9 v3.1 iShares adapter (IVV + IWM) | ⛔ blocked-on-Playwright-decision (operator OQ-G9-4) |
+| Gap #9 v3.1 Vanguard adapter (VOO) | ⛔ blocked-on-Playwright-decision (operator OQ-G9-4) |
 | Gap #9 v3.1 Invesco adapter (QQQ) | ☐ untested; likely same WAF shape |
-| OQ-G9-2 SSGA daemon hook | ☐ deferred (~50 LOC + 1-2 tests, operator cadence-sign-off) |
 | Gap #7 v2 CMP opportunistic-vs-routine classifier (per F4-1) | ☐ deferred (calendar-gated ≥6mo from F4-A1 first apply) |
 | Gap #7 v2 event-driven cadence promotion | ☐ deferred (Phase B-gated) |
 | C-12 Phase B (AlpacaAdapter) | ⏸ INDEFINITELY PAUSED |
 | Phase B campaigns for nine Layer-0 composites | ⏸ deferred — calendar OR backfill arc |
 | #5 capital-deployment-ramp ADR | ☐ operator self-assigned ~1 week; not blocking |
 | Drawdown framework §12 90d empirical retune | ☐ scheduled — earliest 2026-08-29 |
-| Push s96 #8 commit to origin/main | ☐ operator-gated (1 commit) |
+| Push s96 #8 + s96 #9 commits to origin/main | ☐ operator-gated (3 commits) |
 
 ## Decisions locked in
 
-### Session 96 #8 (this slice)
+### Session 96 #9 (this slice)
 
-**S96-33. iShares ajax endpoints are WAF-gated; direct-HTTP path
-blocked.** Confirmed empirically against
-`https://www.ishares.com/us/products/239726/ishares-core-sp-500-etf/1467271812596.ajax?fileType=csv&fileName=IVV_performance&dataType=fund`.
-Server returns 200 + `Content-Type: text/csv` + `content-disposition:
-attachment; filename=IVV_performance.csv` headers BUT body is the
-10.4 MB audience-chooser HTML page regardless of User-Agent / Referer /
-Cookies / Accept / dataType variant. Bypassing requires either a real
-browser session (Playwright + click-through audience modal to acquire
-signed session state) or an alternate upstream.
-`Why:` Documenting this finding here so the next session does not
-re-discover it. The empirical state of the iShares public ajax surface
-is stable enough to lock in — three-criterion testing of every dataType
-+ cookie combination consistently returns the HTML chooser.
-`How to apply:` Future iShares-adapter slices MUST start from one of
-three branches: (a) Playwright-based adapter, (b) alternate upstream
-(holdings CSVs, FRED ETF data, etc.), or (c) operator-supplied
-session-cookie state with explicit acknowledgement that this is
-"adjacent to authenticated scraping" per data-source policy framing.
-Direct-HTTP is dead for iShares.
+**S96-37. Step 1ja fires BEFORE step 1j (same-day-refresh →
+same-day-read semantic).** The etf-flow composite (step 1j) reads
+the secondary panel when assembling today's snapshot. Refreshing
+AFTER would make today's snapshot read yesterday's SSGA rows — a
+one-day lag that would manifest as a persistent small comparator
+divergence even with no real upstream drift.
+`Why:` Cross-validation panel correctness depends on read-after-
+write within the same daemon cycle. The "after exec-departure,
+before etf-flow" position locks in the right ordering.
+`How to apply:` Future per-issuer daemon-hook slices (iShares,
+Vanguard, Invesco — whenever OQ-G9-4 resolves) MUST fire in the
+same window (after 1i, before 1j) for the same reason. Adding
+ALL issuer-adapter refreshes to a single chained step 1ja_*
+would be even cleaner — viable v3.2 refactor target.
 
-**S96-34. Vanguard public JSON API is BigIP-gated; direct-HTTP path
-blocked.** Confirmed empirically against
-`https://api.vanguard.com/rs/gre/gra/1.7.0/datasets/auw-retail-listview-data.jsonp?fund_id_filter=0968`.
-Server: `BigIP`. Returns 302 → `error.vanguard.com/telecom-bounce.html?Errcode=3004`.
-Same shape as the iShares finding: needs browser-emulated session
-state or alternate upstream.
-`Why:` Same as S96-33 — documenting the empirical state.
-`How to apply:` Future Vanguard-adapter slices need the same branch
-decision as iShares.
+**S96-38. NO_FETCH gates step 1ja (in addition to NO_MACRO + DRY_RUN).**
+The 1b macro-fetch + 1bf fred-fetch precedents gate on `NO_FETCH ||
+NO_MACRO`. SSGA refresh is structurally identical (13 HTTP fetches
+per cycle); same gate applies. `DRY_RUN` is included for symmetry
+so the daemon's dry-run mode stays side-effect-free end-to-end +
+can be exercised offline (network unavailable).
+`Why:` `--no-fetch` is the operator's "use cached data, don't hit
+the network" flag; running the SSGA refresh under it would violate
+the contract.
+`How to apply:` Any future daemon-hook that does HTTP fetches MUST
+gate on `NO_MACRO || NO_FETCH || DRY_RUN`. The mnemonic is "fetch
+flags gate fetches."
 
-**S96-35. v3.1 arc continuation is a project-level decision.** Given
-S96-33 + S96-34, the question "do we add Playwright as a project dep
-to unblock iShares + Vanguard + Invesco?" is no longer a slice-level
-decision — it's a project-level decision. The CLAUDE.md data-source
-policy authorizes "Public-source scraping via Playwright" and iShares
-fund pages ARE publicly reachable (no login UI), but adding Playwright
-is:
-- Hundreds of MB of browser binaries pulled into the project tree.
-- A new tool surface (browser-version drift, headless flags, page-
-  render timing, retry-on-render).
-- A potential CI / dev-setup tax (Playwright install commands per
-  environment).
-The s96 #8 slice surfaces this decision instead of locking it in.
-`Why:` Per CLAUDE.md "Hard stops — surface to operator before
-proceeding" list, "vendor onboarding" is operator-gated; adding
-Playwright as a dep is adjacent to that list-item even though it's
-not a paid sub. The autonomous protocol explicitly says "anything
-affecting real-money execution path" is gated, and the v3.1 secondary
-panel feeds the cross-validation comparator that the operator's
-real-money flip gate watches — so the dep choice has real-money
-implications even if Playwright itself is just a tool.
-`How to apply:` Operator decides between branches A (Playwright dep)
-/ B (alternate upstreams) / C (operator-supplied session state) /
-D (defer the v3.1 arc for non-SSGA issuers; SSGA is the only one
-that gets automation for now). The next session reads the operator's
-pick from a HANDOFF update.
+**S96-39. Per-step success classification (adapter-ok-ingest-failed
+distinct from full-failure).** The `runSsgaSpdrRefresh` orchestrator
+returns `{ adapterOk, ingestOk, error? }` so the daemon can surface
+distinct anomalies:
+- Adapter OK, ingest failed → "CSV written but not promoted to CH"
+  → operator-actionable (re-run `etf:flow:issuer-csv:ingest
+  --source-label ssga-spdr --apply` after fixing CH issue).
+- Adapter failed → "SSGA refresh failed" → ingest is correctly
+  skipped (the `&&`-chain semantic from S96-32).
+`Why:` A "fetch ok, write to CH dies" failure mode is real (CH
+unreachable mid-cycle) and operator-actionable in a different way
+than "SSGA unreachable." Conflating them would hide the actionable
+signal in the noise.
+`How to apply:` Future multi-step daemon hooks should follow the
+same pattern — per-step status, not just `{ ok, error }`.
 
-**S96-36. OQ-G9-3 wrapper closes the open question with a single
-additive npm script (not a refactor of the two-step pattern).** The
-HANDOFF (s96 #7) framed OQ-G9-3 as "should the issuer adapter and the
-issuer-csv ingester unify into a single command" — locked here as
-"add a wrapper; DON'T fold the two scripts together." The two-step
-pattern remains as the testable foundation; the wrapper is purely
-convenience that plumbs the correct `--source-label ssga-spdr` so
-the operator can't silently produce mis-labelled rows.
-`Why:` The two-step pattern has independent testability value (the
-adapter can be tested without CH; the ingester can re-process old
-CSVs without re-fetching). Folding them would lose that. The wrapper
-is the strictly-additive resolution.
-`How to apply:` Future issuer-adapter slices (whichever branch S96-35
-resolves to) should follow this same pattern — ship adapter + ingest
-as two scripts, then add a `:refresh` wrapper that chains them with
-the correct `--source-label` plumbed through. Default wrapper-name
-convention: `etf:flow:<issuer>:refresh`.
+**S96-40. `--source-label ssga-spdr` is LOAD-BEARING — regression
+test pins it.** The `buildIssuerCsvIngestArgs` helper hard-codes
+the flag; the test suite (`--source-label-always-set`) pins it as
+a regression anchor. Without the flag, ingested rows tag with the
+default `issuer-csv` label and the comparator's source-label-aware
+panel mis-classifies them. The cost of regression is silent: the
+panel would still populate, just under the wrong source-label tag
+— a debugging nightmare without a loud failure mode at ingest time.
+`Why:` Future refactors that re-organize the spawn helpers should
+NOT consolidate this flag into a default — keeping it explicit at
+the helper level makes the regression test possible.
+`How to apply:` Same pattern for future issuer-adapter daemon
+hooks: hard-code `--source-label <issuer>` + pin with a regression
+test.
 
-**Carry-overs (still in force):** S96-1..S96-32 (all s96 #1-#7
+**Carry-overs (still in force):** S96-1..S96-36 (all s96 #1-#8
 decisions); S95-1..S95-50; S94-1..S94-33; S93-1..S93-54; all prior
 s73-s92 lock-ins.
 
 ## Open questions
 
-### Newly opened (s96 #8)
+### CLOSED (s96 #9)
 
-**OQ-G9-4 (NEW, PROJECT-LEVEL).** v3.1 arc continuation strategy for
-non-SSGA issuers. Four branches, all defensible:
-- **Branch A — add Playwright** as a project dep; build the iShares
-  + Vanguard + Invesco adapters as browser-driven. Cost: setup tax,
-  ~hundreds of MB of binaries, new tool surface. Benefit: unlocks all
-  WAF-gated issuers under one consistent pattern.
-- **Branch B — alternate upstreams.** iShares holdings CSVs are
-  served at different URLs and MAY be more permissive; FRED has some
-  ETF AUM series; ETF.com publishes a per-fund daily snapshot that
-  may include shares-outstanding. Cost: per-issuer research; some
-  upstreams may not exist. Benefit: stays in direct-HTTP land
-  (deterministic + lighter).
-- **Branch C — operator-supplied session state.** Operator logs in
-  via browser once, copies session cookies, drops them into a config
-  file the adapters read. Cost: feels "adjacent to authenticated
-  scraping" per data-source policy; manual re-up per cookie expiry.
-  Benefit: minimal new tool surface.
-- **Branch D — defer.** SSGA covers 13/21 of the F-UNIVERSE (62%);
-  the cross-validation panel is already populated for those. Defer
-  the remaining 8 tickers until v3.2 or a real need surfaces.
-  Cost: incomplete coverage of v3.1 arc. Benefit: zero new work; no
-  project-level dep decision.
+- **OQ-G9-2 → CLOSED.** Resolved by adding step 1ja to
+  `daily_signal_daemon.ts`. SSGA refresh now auto-fires on every
+  daemon cycle, gated by `NO_MACRO || NO_FETCH || DRY_RUN`.
 
-### CARRIED (unchanged from s96 #7)
+### CARRIED (unchanged from s96 #8)
 
-- **OQ-XD13-1.** Phase B independence-test threshold for form-type-only
-  signal. Estimated gate: ~6-8 weeks of `schedule_13d_g_filings`
-  ingest history after XD13-A1 (LIVE s96 #2) + a backfill arc to
-  populate historical baseline. Calendar clock started s96 #2.
-- **OQ-XD13-2.** v2 filer-reputation table sourcing: hand-maintained
-  vs auto-learned. UNCHANGED.
+**OQ-G9-4 (PROJECT-LEVEL, blocking iShares + Vanguard + Invesco
+work).** v3.1 arc continuation strategy for non-SSGA issuers. Four
+branches — A (Playwright dep) / B (alternate upstreams) / C
+(operator-supplied cookies) / D (defer). See s96 #8 HANDOFF for
+the full per-branch trade-off analysis.
+
+### CARRIED (unchanged from s96 #7-#8)
+
+- **OQ-XD13-1.** Phase B independence-test threshold for form-type-
+  only signal. Calendar clock started s96 #2.
+- **OQ-XD13-2.** v2 filer-reputation table sourcing.
 - **OQ-XD13-3.** Sector-only vs cap-tier-overlay aggregate slicing.
-  UNCHANGED.
-- **OQ-G9-1.** Issuer-specific schema mappers. SSGA mapper SHIPPED
-  s96 #7; iShares + Vanguard + Invesco BLOCKED on OQ-G9-4.
-- **OQ-G9-2.** SSGA daemon-cadence hook. ~50 LOC + 1-2 tests;
-  operator sign-off on the 13-fetch-per-day burst. Independent of
-  OQ-G9-4 — could ship in either direction.
-
-### CLOSED (s96 #8)
-
-- **OQ-G9-3 → CLOSED.** Resolved by adding the additive wrapper
-  (`etf:flow:ssga-spdr:refresh`) rather than folding the two scripts.
-  Two-step pattern remains; wrapper is convenience layer.
+- **OQ-G9-1.** Issuer-specific schema mappers. SSGA SHIPPED s96 #7;
+  iShares + Vanguard + Invesco BLOCKED on OQ-G9-4.
 
 ### CARRIED (long-running)
 
 - C-12 Phase B Alpaca onboarding — paused indefinitely.
 - CBOE DataShop subscription — blocked under data-source policy.
-- #5 capital-deployment-ramp ADR — operator self-assigned ~1 week;
-  not blocking.
+- #5 capital-deployment-ramp ADR — operator self-assigned ~1 week.
 - Schema-migration bootstrap-only.
 - ML meta-labeling (ADR-027, deferred ≥4 weeks).
 - Sharadar SF1 subscription — blocked (paid).
-- Compounding-live-equity backtest semantic (ADR-class).
+- Compounding-live-equity backtest semantic.
 - 78,399 zero-trade sentinels in `bt_runs_regime` (deferred).
-- Push commits to origin/main — operator-gated (1 unpushed).
+- Push commits to origin/main — operator-gated (3 unpushed).
 - First-apply-run EDGAR Item-filter OR-clause behavior — XML-body
   half closed s95 #3; Item-filter half still open.
-- Cold-start cascade timing for EK + F4 + XD13 arcs (~6-8 weeks of
-  EDGAR ingest history before Phase B validation has signal).
-- OQ-G2-2 — EDGAR-amendment forensic tooling default (LOW priority,
-  deferred).
+- Cold-start cascade timing for EK + F4 + XD13 arcs.
+- OQ-G2-2 — EDGAR-amendment forensic tooling default.
 
 ## Next stage
 
 ### Default on `continue` — operator-pickable
 
-OQ-G9-4 is the bottleneck. **Recommended primary action: operator
-picks a branch (A/B/C/D) in OQ-G9-4.** Until that's decided, the
-non-SSGA v3.1 work cannot proceed.
+The SSGA half of v3.1 is now fully closed (adapter + wrapper + daemon
+hook). OQ-G9-4 remains the blocker on the iShares/Vanguard/Invesco
+half. **Recommended primary action: operator picks a branch
+(A/B/C/D) in OQ-G9-4, OR runs the first-apply E2E smoke of the new
+daemon step 1ja.**
 
 Operator-pickable from this menu (recommended order):
 
 1. **OPERATOR DECISION: OQ-G9-4 branch pick.** Without this, the
-   v3.1 arc can't proceed for iShares/Vanguard/Invesco. Lowest-cost
-   options: pick D (defer) to free the next session for non-v3.1
-   work, OR pick B (alternate upstreams) to start per-issuer research.
+   non-SSGA half of v3.1 stays parked. Lowest-cost options: D
+   (defer) to free the next session for non-v3.1 work, OR B
+   (alternate upstreams) to start per-issuer research.
 
-2. **OQ-G9-2 SSGA daemon hook** (independent of OQ-G9-4). Wire
-   `etf:flow:ssga-spdr:refresh` (NEW s96 #8) or `:fetch` into
-   `daemon:daily` so the SSGA panel stays warm without operator
-   intervention. ~30-50 LOC + 1-2 tests. Operator-sign-off needed
-   on the 13-fetch-per-day burst (~3 MB/day).
+2. **First-run E2E smoke of `daemon:daily` with new step 1ja.**
+   Operator runs `npm run daemon:daily` (or `:dry`). Expected
+   output includes a new `[etf-flow-ssga-spdr-refresh] OK |
+   <seconds>s` log line between the exec-departure step and the
+   etf-flow step. Validates:
+   - Adapter against current live SSGA byte shape.
+   - Step 1ja's spawn pathway + arg plumbing.
+   - The `--source-label ssga-spdr` flag's effect on CH rows.
+   - Step 1j (etf-flow composite) reading the freshly-written
+     secondary panel within the same cycle.
 
-3. **First-run E2E smoke of `etf:flow:ssga-spdr:refresh`** (operator
-   action). Run the new wrapper against live SSGA. Validates:
-   (a) the SSGA adapter against the current live navhist file shape
-   (vs the hermetic test fixtures from s96 #7),
-   (b) the `--source-label ssga-spdr` plumbing,
-   (c) the CH ingest end-to-end.
+3. **First-run E2E smoke of `etf:flow:ssga-spdr:refresh`**
+   (operator action). The s96 #8 standalone wrapper — already
+   covered by step 1ja's daemon-spawn but useful as a one-off
+   diagnostic without the rest of daemon:daily.
 
 4. **Phase B-gated** (no code possible today):
    - Gap #7 v2 event-driven cadence promotion.
@@ -357,24 +306,23 @@ Operator-pickable from this menu (recommended order):
 
 ### Operator-gated action items
 
-**NEW from s96 #8:**
+**NEW from s96 #9:**
 
-- (new, IMPORTANT) Decide OQ-G9-4 branch (A/B/C/D). Without this,
-  half the v3.1 arc is parked.
-- (new, recommended) Run `npm run etf:flow:ssga-spdr:refresh`
-  end-to-end smoke. This is the natural first-run of the new wrapper.
-  Expected: 13 SPDR fetches (~3 MB total) → ssga-spdr.csv → CH
-  insert with `source='ssga-spdr'`. Validates SSGA byte-equal anchors
-  against live file shape + the wrapper's argv plumbing.
+- (new, recommended) Run `npm run daemon:daily` end-to-end smoke.
+  First daemon cycle that exercises step 1ja against live SSGA.
+  Validates the full chain from URL builder → XLSX parse → canonical
+  CSV write → CH ingest under the source-label tag, with the
+  etf-flow composite reading the freshly-written rows downstream.
+- (new, optional) Audit anomaly list after first daemon:daily run
+  — if `[etf-flow-ssga-spdr-refresh] failed (non-fatal)` surfaces,
+  triage immediately (URL drift / R4 header drift / CH unreachable).
 
-**CARRIED from s96 #7:**
+**CARRIED from s96 #8 (still pending):**
 
-- (carried) Run `npm run etf:flow:ssga-spdr:fetch:dry` for a parse-
-  and-count smoke before the first live run. Validates the parser
-  against the current SSGA file shape (the hermetic tests don't
-  exercise the byte-equal anchors against real SSGA bytes). Note:
-  partially obviated by the s96 #8 `:refresh` wrapper, which does the
-  full real run.
+- Decide OQ-G9-4 branch (A/B/C/D).
+- (Partially obviated by s96 #9) Run `etf:flow:ssga-spdr:refresh`
+  end-to-end smoke — now covered by daemon:daily's step 1ja, but
+  the standalone wrapper is still useful for one-off diagnostics.
 
 **CARRIED (unchanged from s96 #6):**
 
@@ -384,74 +332,89 @@ Operator-pickable from this menu (recommended order):
    `migrate:add-sell-cluster-form-4-insider-snapshots:apply`,
    `migrate:add-max-z-{executive-departure,eight-k-classifier,form-4-insider}-snapshots:apply` (×3),
    `migrate:create-etf-shares-outstanding-secondary:apply`).
-- (carried) Create `data/etf_flow_issuer_csv/` (auto-created by the
-  SSGA adapter on first apply-run).
-- (carried) Push 1 unpushed commit to origin/main (operator
-  discretion).
+- (carried) Push 3 unpushed commits to origin/main.
 - (carried) Drawdown framework §12 90d empirical retune — earliest
   2026-08-29.
 
 ## Files / code state
 
-### NEW + modified this slice (s96 #8 — 1 commit)
+### NEW + modified this slice (s96 #9 — 1 commit)
 
 | Path | LOC | Notes |
 | --- | --- | --- |
-| `package.json` | +1 | One new npm script `etf:flow:ssga-spdr:refresh` chaining the s96 #7 SSGA fetch into the issuer-csv ingest with `--source-label ssga-spdr` plumbed through. `&&`-chain (ingest skipped on fetch failure). |
-| `scripts/help.ts` | +1 | One new EXTRA_HELP entry for `etf:flow:ssga-spdr:refresh`. |
+| `src/server/daemon_etf_flow_ssga_spdr_refresh.ts` | +131 NEW | Orchestrator module. Two pure arg-builders (`buildSsgaSpdrAdapterArgs`, `buildIssuerCsvIngestArgs`) + one spawn driver (`runSsgaSpdrRefresh`) returning per-step status. Mirrors `daemon_fred_fetch.ts` posture. |
+| `scripts/daily_signal_daemon.ts` | +37 | +1 LOC import. +36 LOC step 1ja block — fires between 1i (exec-departure) and 1j (etf-flow). Three log/anomaly branches: full-success / adapter-ok-ingest-failed / full-failure. |
+| `scripts/tests/daemonEtfFlowSsgaSpdrRefresh.test.ts` | +158 NEW | 10 sub-tests in 3 describe blocks. Pins `--apply` / `--dry-run` forwarding, `--source-label ssga-spdr` (load-bearing), no-override-flags, dryRun cross-step consistency, combined-timeout ceiling. |
 
 ### CH state (no apply this slice — operator-gated)
 
-All s96 #6-#7 carry-overs unchanged. No new migrations from this slice.
+All s96 #6-#8 carry-overs unchanged. No new migrations from this
+slice. The daemon's step 1ja DOES auto-create the
+`etf_shares_outstanding_secondary` table via the ingester's
+`ensure_etf_shares_outstanding_secondary_table()` (s95 #9 contract)
+on first apply-run.
 
-### Tests (no new tests this slice)
+### Tests (s96 #9)
 
-The wrapper is a pure npm-script composition over two production-
-tested scripts (s96 #7 SSGA adapter + s95 #9 issuer-csv ingester).
-No new code paths to test. Both upstream test suites remain green:
-
-- `scripts/tests/test_etf_flow_ssga_spdr_adapter.py`: 17 sub-tests.
-- `scripts/tests/test_etf_flow_issuer_csv_ingest.py`: (carry-over).
-- Full pytest at commit time: 394 passed (unchanged from s96 #7).
-- Full npm test at commit time: 3092 passed / 1 fail (pre-existing
-  CH-side EXPLAIN PLAN gate on `gicsSectorRepositoryHelper`, NOT a
-  regression) / 33 skipped (unchanged).
+- `scripts/tests/daemonEtfFlowSsgaSpdrRefresh.test.ts`: 10 new
+  sub-tests.
+- Full npm test at commit time: 3102 passed / 1 fail (pre-existing
+  CH-side EXPLAIN PLAN gate on `gicsSectorRepositoryHelper`, NOT
+  a regression) / 33 skipped.
+- Diff vs s96 #8 baseline: +10 pass (matches new sub-tests exactly)
+  + 3 new describe-block suites (783 → 786).
+- pytest: 394 passed (unchanged — pure TypeScript slice).
 - `npx tsc --noEmit` baseline: 13 errors unchanged.
-- `npm run check:help`: green (new EXTRA_HELP entry matches new
-  package.json script).
+- `npm run check:help`: green (no new npm scripts).
 
 ## Watch-outs
 
-### NEW from this turn (s96 #8)
+### NEW from this turn (s96 #9)
 
-- **iShares + Vanguard WAF gates are STABLE.** The empirical findings
-  (S96-33, S96-34) were taken at the time of this slice's commit; both
-  upstreams could in principle change behavior. But the gates are
-  server-side body substitution (not transport-level rejection), which
-  is harder for an upstream to accidentally remove than a missing
-  endpoint. The findings should hold for at least the duration of
-  OQ-G9-4 decisioning.
-- **`&&`-chain semantics in the new wrapper.** If the SSGA fetch
-  fails (exit 1, e.g. all-tickers-fail on a global SSGA outage), the
-  downstream ingest is SKIPPED — `&&` short-circuits. This is by
-  design (S96-32: all-fail preserves last-good CSV → no new rows to
-  ingest → skipping the ingest is correct). But the operator should
-  not interpret "fetch failed, ingest skipped" as "stale data in CH"
-  — the CH table's prior rows remain valid; the ReplacingMergeTree's
-  `ingested_at` history preserves them.
-- **Wrapper-script labelling drift risk.** The wrapper hard-codes
-  `--source-label ssga-spdr`. If a future SSGA-adjacent fetch is
-  added (e.g. SPDR commodity ETFs from a different SSGA endpoint),
-  the operator MUST add a SEPARATE wrapper rather than reusing this
-  one — or the new rows would be silently labelled `ssga-spdr` when
-  they shouldn't be.
-- **Two-step pattern remains canonical.** The wrapper is purely
-  additive; the two scripts can still be invoked independently for
-  testing / debugging. Any future investigation of an ingest
-  divergence should drop back to the two-step form (`fetch` writes
-  CSV → inspect CSV → `issuer-csv:ingest --dry-run` from a known
-  CSV) rather than re-running the wrapper. The wrapper hides the
-  CSV-as-intermediate state.
+- **Daemon wall-clock budget impact.** Step 1ja adds ~30-90s in
+  steady state (13 SPDR fetches × ~3-5s each + CSV write + CH
+  insert) on every daemon cycle. Within tolerance (the macro-fetch
+  full backfill is ~3-5 min when triggered); but the daemon's
+  per-run wall-clock envelope is incrementally tighter now. Future
+  daemon-step additions should re-evaluate.
+- **Adapter timeout (10 min) vs daemon timeout interactions.** If
+  SSGA's CDN goes very slow + every per-ticker fetch hits its 30s
+  ceiling (worst case ~6.5 min), the adapter's overall 10-min
+  budget kicks in next. The daemon orchestrator's anomaly handler
+  surfaces the timeout cleanly (warn + anomaly + skip ingest);
+  step 1j (etf-flow composite) still runs against last-good rows.
+- **Step 1ja absence is silent under NO_FETCH/NO_MACRO.** When the
+  operator runs `daemon:daily:no-fetch` (a common debugging path),
+  step 1ja logs `[etf-flow-ssga-spdr-refresh] skipped (--no-fetch)`
+  but does NOT push an anomaly. This matches 1b/1bf precedent —
+  intentional skip is not an anomaly — but it does mean repeated
+  `--no-fetch` runs degrade the secondary panel's freshness silently.
+  Operator should not run `--no-fetch` for more than a few cycles
+  in steady-state production.
+- **`runSsgaSpdrRefresh` is NOT exercised by unit tests.** Only the
+  pure arg-builders are unit-tested. The spawn driver is end-to-end-
+  tested by `npm run daemon:daily`. Same posture as `runFredFetch`
+  / `runMacroFetch` (precedent). The first-apply E2E smoke covers
+  the spawn path.
+- **No retry on transient failure.** A flaky network blip OR an
+  SSGA CDN edge hiccup that completes in <1s will surface as a
+  daemon anomaly even though a retry would succeed. By design —
+  the daemon's "warn + continue" posture matches the rest of the
+  Layer-0 composites; retry logic would add complexity for marginal
+  gain. If transient failures become frequent in production,
+  consider adding a retry-once budget inside the adapter's main()
+  (NOT the daemon orchestrator).
+
+### Carried from s96 #8
+
+All s96 #8 watch-outs preserved unchanged. Key carry-overs:
+
+- iShares + Vanguard WAF gates STABLE (S96-33 / S96-34).
+- `&&`-chain semantics on operator-cadence `:refresh` wrapper.
+- Wrapper-script labelling drift risk (the daemon hook hard-codes
+  `--source-label ssga-spdr` per S96-40; SAME risk applies but
+  is now pinned via regression test).
+- Two-step pattern remains canonical for diagnostics.
 
 ### Carried from s96 #7
 
@@ -462,7 +425,6 @@ All s96 #7 watch-outs preserved unchanged. Key carry-overs:
 - `total_net_assets` is parsed but NOT emitted to canonical CSV.
 - CSV is OVERWRITTEN per apply-run (not appended); idempotent at CH
   layer.
-- 30-second per-ticker HTTP timeout hard-coded.
 - `lookback_days` default of 365 days; daily re-emit ~4,745 rows.
 - All earlier s89-s96 #6 watch-outs preserved.
 
@@ -471,7 +433,7 @@ All s96 #7 watch-outs preserved unchanged. Key carry-overs:
 ### Daily-keep-it-fresh
 
 ```text
-npm run daemon:daily                                    # all Layer-0 composites including XD13 step 1m (LIVE s96 #5)
+npm run daemon:daily                                    # all Layer-0 composites + NEW step 1ja SSGA refresh (LIVE s96 #9)
 npm run audit:positions
 npx tsx scripts/_paper_trading_review.ts
 npm run brief:morning                                   # renders §16 (XD13-A5 LIVE s96 #6)
@@ -487,16 +449,20 @@ npm run docs:dashboard                                  # regen dashboard.md onl
 npm run dev:all                                         # dashboard (:3000) + Quartz (:8080) parallel
 ```
 
-### Gap #9 v3.1 SSGA-SPDR (s96 #7 LIVE; refresh wrapper NEW s96 #8)
+### Gap #9 v3.1 SSGA-SPDR (s96 #7 adapter + s96 #8 wrapper + s96 #9 daemon hook ALL LIVE)
 
 ```text
+# Operator-cadence (manual one-off):
 npm run etf:flow:ssga-spdr:fetch:dry                    # parse + count smoke (no CSV write)
-npm run etf:flow:ssga-spdr:fetch                        # apply: writes data/etf_flow_issuer_csv/ssga-spdr.csv
-npm run etf:flow:ssga-spdr:refresh                      # NEW s96 #8: fetch + ingest in one shot (source-label ssga-spdr plumbed)
-# Or the manual two-step:
-.venv/Scripts/python.exe scripts/etf_flow_issuer_csv_ingest.py \
-    --source-label ssga-spdr --apply
-# Customize lookback (default 365 days):
+npm run etf:flow:ssga-spdr:fetch                        # writes data/etf_flow_issuer_csv/ssga-spdr.csv
+npm run etf:flow:ssga-spdr:refresh                      # fetch + ingest in one shot (source-label ssga-spdr plumbed)
+
+# Daemon-cadence (auto on every daemon:daily cycle, step 1ja LIVE s96 #9):
+npm run daemon:daily                                    # includes [etf-flow-ssga-spdr-refresh] between exec-departure + etf-flow
+npm run daemon:daily:no-fetch                           # skips step 1ja (and 1b/1bf) — operator debugging path
+npm run daemon:daily:dry                                # skips step 1ja under --dry-run
+
+# Customize lookback (manual operator-cadence only; daemon uses defaults):
 .venv/Scripts/python.exe scripts/etf_flow_ssga_spdr_adapter.py \
     --tickers SPY,XLK --lookback-days 90 --apply
 ```
@@ -528,43 +494,47 @@ npm run daemon:daily
 npm run brief:morning
 ```
 
-### Gap #9 etf-flow (v1 + v2 + v3 + v3.1 SSGA LIVE)
+### Gap #9 etf-flow (v1 + v2 + v3 + v3.1 SSGA LIVE end-to-end)
 
 ```text
-npm run etf:flow:ingest                                          # v1 yfinance primary
-npm run etf:flow:ssga-spdr:refresh                               # NEW s96 #8 — full refresh in one shot
+npm run etf:flow:ingest                                          # v1 yfinance primary (operator-cadence)
+# v3.1 SSGA: operator-cadence OR daemon-cadence (both work, both idempotent)
+npm run etf:flow:ssga-spdr:refresh                               # s96 #8 — operator one-shot
+npm run daemon:daily                                             # s96 #9 — daemon-cadence step 1ja
 npm run migrate:create-etf-flow-snapshots:apply
 npm run migrate:create-etf-shares-outstanding-secondary:apply    # v3 — one-time
-npm run etf:flow:issuer-csv:ingest                               # ingests all CSVs in data/etf_flow_issuer_csv/
-npm run daemon:daily
+npm run etf:flow:issuer-csv:ingest                               # operator can still ingest other issuers' CSVs
 npm run brief:morning                                            # §13 sub-section
 ```
 
 ### Tests + dev
 
 ```text
-npm test                                                                       # TS — last green at s96 #8 close: 3092 pass / 1 fail / 33 skipped
-.venv/Scripts/python.exe -m pytest scripts/tests                               # Python — last green at s96 #8 close: 394 pass
+npm test                                                                       # TS — last green at s96 #9 close: 3102 pass / 1 fail / 33 skipped
+.venv/Scripts/python.exe -m pytest scripts/tests                               # Python — last green at s96 #9 close: 394 pass
 npm run dev                                                                    # http://localhost:3000
-npm run check:help                                                             # GREEN at s96 #8 close
+npm run check:help                                                             # GREEN at s96 #9 close
 npx tsc --noEmit                                                               # 13 baseline errors unchanged
 npm run docs:build                                                             # 301 emitted from 115 inputs
 ```
 
 ## For the next session — priority order
 
-**Default on `continue`:** Two non-conflicting moves available; the
-right pick depends on whether the operator has decided OQ-G9-4 yet.
+**Default on `continue`:** Operator-pickable from the post-s96 #9
+menu. Two non-conflicting moves available; the right pick depends
+on whether the operator has decided OQ-G9-4 yet.
 
 **If operator has decided OQ-G9-4:** resume the v3.1 arc on the
 chosen branch (A: build Playwright adapter for iShares first; B:
-research alternate upstreams for iShares; C: build cookie-supplied
-adapter; D: pivot the next slice to a non-v3.1 candidate).
+research alternate upstreams; C: build cookie-supplied adapter;
+D: pivot the next slice to a non-v3.1 candidate).
 
-**If operator has NOT decided OQ-G9-4:** ship OQ-G9-2 (SSGA daemon
-hook) as the next sibling consolidation slice — it's independent of
-OQ-G9-4 + advances v3.1 automation regardless of branch. Or run the
-operator-pending E2E smoke of `etf:flow:ssga-spdr:refresh`.
+**If operator has NOT decided OQ-G9-4:** OQ-G9-2 is now closed
+(this slice) — no remaining OQ-G9-4-independent OQ-G9-* work in
+queue. Next sibling consolidation candidates would have to be in
+other gap arcs (e.g. renderer docstring refresh, Quartz docs site
+extensions). OR run the operator E2E smoke of daemon:daily with the
+new step 1ja.
 
 **Calendar-gated:**
 
@@ -585,61 +555,98 @@ operator-pending E2E smoke of `etf:flow:ssga-spdr:refresh`.
 
 ## Important framing for the next chat
 
-**Gap #9 v3.1 arc PARTIALLY blocked.** The SSGA half is complete +
-production-ready end-to-end (s96 #7 adapter + s96 #8 wrapper). The
-iShares / Vanguard / Invesco half is blocked on OQ-G9-4 (project-
-level dep decision: Playwright vs alternates vs cookies vs defer).
-The next session should NOT assume "iShares is the obvious next
-slice" — that assumption was true in the s96 #7 HANDOFF but is now
-overturned by the WAF findings.
+**SSGA half of Gap #9 v3.1 arc is NOW PRODUCTION-GRADE end-to-end.**
+The s96 #7 adapter + s96 #8 operator-wrapper + s96 #9 daemon hook
+form a complete chain:
+
+```text
+   ┌─ HTTP fetch (SSGA navhist XLSX)
+   │
+   │     scripts/etf_flow_ssga_spdr_adapter.py (s96 #7)
+   │     → data/etf_flow_issuer_csv/ssga-spdr.csv
+   │
+   ▼
+   ┌─ Ingest (canonical CSV → CH)
+   │
+   │     scripts/etf_flow_issuer_csv_ingest.py
+   │       --source-label ssga-spdr --apply (s95 #9)
+   │     → quantlab.etf_shares_outstanding_secondary
+   │
+   ▼
+   ┌─ Composite read (CH → snapshot)
+   │
+   │     daemon step 1j (s92):
+   │     EtfFlowRepository → quantlab.etf_flow_snapshots
+   │
+   ▼
+   ┌─ Brief render (snapshot → operator)
+         §13 cross-validation sub-section (s95 #8)
+
+
+Drivers (any of three):
+   1) Operator manual:    npm run etf:flow:ssga-spdr:refresh (s96 #8)
+   2) Daemon-cadence auto: npm run daemon:daily, step 1ja        (s96 #9 ← LIVE)
+   3) Operator two-step:   :fetch + issuer-csv:ingest separately (canonical
+                                                                  for debugging)
+```
+
+**iShares / Vanguard / Invesco half remains blocked on OQ-G9-4.**
+The s96 #8 finding (WAF gates) stands. The next session should NOT
+assume "iShares is the obvious next slice" — that assumption was
+overturned by S96-33 / S96-34 / S96-35.
 
 **The arc-shape pattern is now load-bearing for FUTURE SSGA-style
-adapters** (any issuer that publishes static unauthenticated XLSX/CSV
-at a stable URL):
+adapters** (full v3.1 lifecycle):
 1. Direct HTTP first (S96-29).
 2. Stdlib parser when format is simple (S96-30).
 3. Byte-equal schema anchors + per-row skip-with-warn (S96-31).
 4. All-fail preserves last-good CSV (S96-32).
-5. Two-script split (adapter + ingest) + additive `:refresh` wrapper
-   that plumbs `--source-label` (S96-36).
+5. Two-script split (adapter + ingest) + additive `:refresh`
+   wrapper that plumbs `--source-label` (S96-36).
+6. Daemon hook step BEFORE the composite read step (S96-37).
+7. Network-fetch flag gating (NO_MACRO || NO_FETCH || DRY_RUN) (S96-38).
+8. Per-step status classification in the orchestrator (S96-39).
+9. `--source-label` regression test pin (S96-40).
 
-For WAF-gated issuers, the pattern needs an additional branch:
-authentication-state acquisition (Playwright session-cookie capture
-OR operator-supplied cookies OR alternate upstream substitution).
-The pattern's first four steps stay the same downstream of the gate;
-the gate-bypass is the new variable.
+For WAF-gated issuers, the pattern still needs branch decision
+on authentication-state acquisition (OQ-G9-4).
 
 **Backward compat preserved on three fronts:**
 
 1. **CH:** No DDL changes. The `etf_shares_outstanding_secondary`
-   table (s95 #9) remains the consumer.
-2. **Type:** No TS type changes (npm-script composition only).
+   table (s95 #9) remains the consumer. Daemon auto-creates on
+   first run if absent.
+2. **Type:** Pure additive — new module + new step block. No
+   existing types modified.
 3. **Brief:** No brief renderer changes. The §13 ETF-flow panel
-   reads from CH via the existing repository.
+   reads from CH via the existing repository; freshly-refreshed
+   SSGA rows surface in the panel automatically.
 
-**Parallel-tracks posture continues.** s96 #8 did NOT affect C-12 /
-paper-trading / real-money-flip arcs. Pure npm-script + help-entry
-slice; no runtime side-effects until the operator runs the new
-wrapper.
+**Parallel-tracks posture continues.** s96 #9 did NOT affect C-12 /
+paper-trading / real-money-flip arcs. Pure daemon orchestration
+addition; only side-effect is the new auto-refresh on each
+`daemon:daily` cycle.
 
-**Push posture:** This slice's commit `46a8d0f` is 1 ahead of origin
-(which currently sits at `c0cda7c`, s96 #7 HANDOFF). Push gated to
-operator.
+**Push posture:** 3 unpushed commits on top of `c0cda7c`:
+- `46a8d0f` — s96 #8 OQ-G9-3 wrapper.
+- `483e1b1` — s96 #8 HANDOFF rewrite.
+- `043694d` — s96 #9 OQ-G9-2 daemon hook.
 
-**The chain through s96 #8:**
+Plus this commit (s96 #9 HANDOFF rewrite) once written. All
+operator-gated.
+
+**The chain through s96 #9:**
 
 ```text
-ALL S41-S96#7 WORK                                       ✓ as documented
-S96 #7: Gap #9 v3.1 SSGA-SPDR adapter                    ✓ committed + pushed
-S96 #8: Gap #9 v3.1 OQ-G9-3 wrapper                      ✓ committed (46a8d0f)
-        — package.json (+1, etf:flow:ssga-spdr:refresh npm script)
-        — scripts/help.ts (+1, matching EXTRA_HELP entry)
-        — RESEARCH: iShares ajax endpoints WAF-gated (S96-33)
-        — RESEARCH: Vanguard JSON API BigIP-gated (S96-34)
-        — DECISION SURFACED: OQ-G9-4 branch pick is operator-level
-S96 #8 HANDOFF rewrite (this commit)                     ⏳ in-progress
+ALL S41-S96#8 WORK                                       ✓ as documented
+S96 #9: Gap #9 v3.1 OQ-G9-2 daemon hook                  ✓ committed (043694d)
+        — src/server/daemon_etf_flow_ssga_spdr_refresh.ts (+131 NEW)
+        — scripts/daily_signal_daemon.ts (+37, new step 1ja)
+        — scripts/tests/daemonEtfFlowSsgaSpdrRefresh.test.ts (+158 NEW, 10 sub-tests)
+        — SSGA half of v3.1 arc PRODUCTION-GRADE end-to-end
+        — OQ-G9-2 CLOSED
+S96 #9 HANDOFF rewrite (this commit)                     ⏳ in-progress
   → DEFAULT NEXT: operator-pickable. Recommended:
     1) Operator decides OQ-G9-4 branch (A/B/C/D), OR
-    2) OQ-G9-2 SSGA daemon hook (independent of OQ-G9-4), OR
-    3) Operator runs first E2E smoke of `etf:flow:ssga-spdr:refresh`.
+    2) Operator runs first daemon:daily E2E smoke against live SSGA.
 ```
