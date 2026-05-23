@@ -31,6 +31,7 @@ import {
   CADENCE_THRESHOLDS_HOURS,
   classifyStatus,
   summarize,
+  thresholdsFor,
   type HealthMigrationProbe,
   type HealthSourceProbe,
 } from '../../src/server/health_check.js';
@@ -54,8 +55,11 @@ describe('classifyStatus', () => {
     assert.equal(classifyStatus('daily', 1, Number.POSITIVE_INFINITY, true), 'unknown-cadence');
   });
 
-  it('classifies daily cadence at the SPEC thresholds', () => {
-    // daily fresh < 30h, stale 30-72h, very-stale >72h
+  it('classifies daily cadence at the SPEC thresholds (DateTime default)', () => {
+    // daily + datetime: fresh < 30h, stale 30-72h, very-stale >72h.
+    // The 5th `timestampType` arg defaults to 'datetime' for back-compat
+    // with the s96 #12 call sites; daily+date uses a wider window
+    // (see "daily + date uses 48h/96h" test below + thresholdsFor docs).
     assert.equal(classifyStatus('daily', 100, 0, true), 'fresh');
     assert.equal(classifyStatus('daily', 100, 29, true), 'fresh');
     assert.equal(classifyStatus('daily', 100, 30, true), 'fresh', 'boundary inclusive on fresh');
@@ -63,6 +67,59 @@ describe('classifyStatus', () => {
     assert.equal(classifyStatus('daily', 100, 71, true), 'stale');
     assert.equal(classifyStatus('daily', 100, 72, true), 'stale', 'boundary inclusive on stale');
     assert.equal(classifyStatus('daily', 100, 73, true), 'very-stale');
+  });
+
+  // Convention pin (s96 #14 Cycle 1 F1 — health worker).
+  // The daily-Date split fixes the 2026-05-23 noise event where 8 daily
+  // composites flagged stale at 43.4h because Date columns collapse to
+  // midnight (yesterday's EOD snapshot reads as ~42h old at next-day open
+  // even though it was written on time). The 48h fresh / 96h stale window
+  // gives Date-typed daily sources one full extra day before flipping.
+  // If this test fails, do not silently widen the window — the operator
+  // queue / brief §0 calibration depends on this split.
+  it('daily + date uses 48h fresh threshold; daily + datetime uses 30h', () => {
+    // 36h old is BEYOND the datetime 30h fresh window → stale.
+    assert.equal(
+      classifyStatus('daily', 1, 36, true, 'datetime'),
+      'stale',
+      'datetime: 36h > 30h fresh threshold = stale',
+    );
+    // Same 36h is WITHIN the date 48h fresh window → fresh.
+    assert.equal(
+      classifyStatus('daily', 1, 36, true, 'date'),
+      'fresh',
+      'date: 36h <= 48h fresh threshold = fresh (EOD snapshot one day old)',
+    );
+    // Boundary checks on the daily+date window.
+    assert.equal(classifyStatus('daily', 1, 48, true, 'date'), 'fresh', 'daily+date fresh boundary inclusive');
+    assert.equal(classifyStatus('daily', 1, 48.1, true, 'date'), 'stale');
+    assert.equal(classifyStatus('daily', 1, 96, true, 'date'), 'stale', 'daily+date stale boundary inclusive');
+    assert.equal(classifyStatus('daily', 1, 96.1, true, 'date'), 'very-stale');
+    // 43.4h — the exact 2026-05-23 noise value — must now be fresh.
+    assert.equal(
+      classifyStatus('daily', 1, 43.4, true, 'date'),
+      'fresh',
+      '43.4h (the 2026-05-23 noise value) must be fresh under daily+date',
+    );
+  });
+
+  // Pin the helper directly so refactors that move logic into thresholdsFor
+  // can't drift from the documented split.
+  it('thresholdsFor returns the correct pair per cadence + timestampType', () => {
+    assert.deepEqual(thresholdsFor('daily', 'datetime'), { fresh: 30, stale: 72 });
+    assert.deepEqual(thresholdsFor('daily', 'date'), { fresh: 48, stale: 96 });
+    // Non-daily cadences ignore timestampType (the daily-Date split is
+    // specific to the EOD-snapshot collision with sub-day expectations).
+    assert.deepEqual(
+      thresholdsFor('event-driven', 'date'),
+      CADENCE_THRESHOLDS_HOURS['event-driven'],
+    );
+    assert.deepEqual(
+      thresholdsFor('event-driven', 'datetime'),
+      CADENCE_THRESHOLDS_HOURS['event-driven'],
+    );
+    assert.deepEqual(thresholdsFor('bi-weekly', 'date'), CADENCE_THRESHOLDS_HOURS['bi-weekly']);
+    assert.deepEqual(thresholdsFor('continuous', 'datetime'), CADENCE_THRESHOLDS_HOURS['continuous']);
   });
 
   it('classifies event-driven cadence with a longer grace window', () => {

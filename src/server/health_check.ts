@@ -105,9 +105,16 @@ export interface HealthSourceConfig {
  *   - `strategies`, `strategy_scores`, `strategy_scores_by_cluster` — seeded
  *     + operator-cadence; freshness is operator-driven.
  *   - `meta_train_trades`, `meta_models` — ADR-017 deferred; dormant.
- *   - `cik_ticker_map`, `cusip_ticker_map`, `gics_sector_map`,
- *     `sp500_history`, `sp500_constituents`, `token_metadata` — lookup
- *     tables; freshness measured by their producer ingests instead.
+ *   - `cik_ticker_map`, `gics_sector_map`, `sp500_history`,
+ *     `sp500_constituents`, `token_metadata` — lookup tables; freshness
+ *     measured by their producer ingests instead.
+ *   - NOTE: `cusip_ticker_map` was previously excluded under the same
+ *     "lookup tables" rationale; GAP-18 promoted it to a dedicated
+ *     migration (`scripts/migrate_create_cusip_ticker_map.ts`) and the
+ *     healthCheck convention test pins every HEALTH_MIGRATIONS target
+ *     to a HEALTH_SOURCES entry. The table is registered below as
+ *     cadence='one-shot' (Infinity thresholds — never goes stale; row
+ *     count surfaces in the UI without freshness noise).
  *   - `token_features_weekly`, `token_cluster_membership`,
  *     `cluster_diagnostics_weekly` — weekly cadence; operator-cadence;
  *     dormant in current rotation.
@@ -325,6 +332,17 @@ export const HEALTH_SOURCES: ReadonlyArray<HealthSourceConfig> = [
     operatorAction: 'npm run etf:flow:ingest',
     why: 'GAP-4 — operator-cadence (s92 design); secondary now daemon-auto, primary lags.',
   },
+  // ── Lookup caches (cadence='one-shot' — never goes stale) ─────────────────
+  {
+    name: 'cusip_ticker_map',
+    label: 'CUSIP↔ticker lookup cache',
+    cadence: 'one-shot',
+    autonomous: true,
+    timestampCol: 'resolved_at',
+    timestampType: 'datetime',
+    operatorAction: 'npm run migrate:create-cusip-ticker-map:apply',
+    why: 'GAP-18 — populated lazily by the FINRA short-interest ingest via SEC EDGAR submissions API. One-shot cadence: Infinity thresholds — row count surfaces in the UI without freshness noise.',
+  },
 ];
 
 /** Migration metadata used to detect "applied" vs "pending" state. */
@@ -434,6 +452,11 @@ export const HEALTH_MIGRATIONS: ReadonlyArray<HealthMigrationConfig> = [
     targetTable: 'short_interest_snapshots',
     label: 'Short interest snapshots',
   },
+  {
+    applyCommand: 'npm run migrate:create-cusip-ticker-map:apply',
+    targetTable: 'cusip_ticker_map',
+    label: 'CUSIP↔ticker lookup cache (GAP-18; promoted from ad-hoc create in finra_short_interest_ingest.py)',
+  },
 ];
 
 // ── Public response types ───────────────────────────────────────────────────
@@ -500,10 +523,15 @@ export interface HealthCheckResponse {
  * readable; not in-sample-tuned. The fresh/stale boundary is roughly
  * "expected refresh window + grace"; very-stale is "the schedule has
  * definitely been missed once."
+ *
+ * These are the BASELINE thresholds; the `daily` cadence is further split
+ * by `timestampType` via `thresholdsFor` — see that helper for the rationale.
  */
 export const CADENCE_THRESHOLDS_HOURS: Record<HealthCadence, { fresh: number; stale: number }> = {
   // 30h covers a missed midnight cycle (next-morning re-run still fresh);
   // 72h means 3+ days without a write — definitely missed.
+  // NOTE: this is the DateTime-typed default for `daily`. Date-typed daily
+  // sources use the wider window in `thresholdsFor` below.
   daily: { fresh: 30, stale: 72 },
   // FINRA releases bi-weekly; 18 days = ~1 release missed; 30 days = 2+.
   'bi-weekly': { fresh: 18 * 24, stale: 30 * 24 },
@@ -520,18 +548,63 @@ export const CADENCE_THRESHOLDS_HOURS: Record<HealthCadence, { fresh: number; st
   'one-shot': { fresh: Infinity, stale: Infinity },
 };
 
+/**
+ * Per-timestampType override for the `daily` cadence specifically.
+ *
+ * Why this exists (s96 #14 / Cycle 1 F1 — health worker):
+ *   Date-typed columns (e.g. `snapshot_date` on composite tables, FRED
+ *   `observation_date`, `trade_date` on `macro_regimes`) collapse to
+ *   midnight on read. A row written today at 18:00 with `snapshot_date =
+ *   today` reads as ~18h old; a row written yesterday at 18:00 with
+ *   `snapshot_date = yesterday` reads as ~42h old immediately at next-day
+ *   open even though it's the EOD snapshot on time. With the 30h fresh
+ *   threshold, all daily+Date sources flip to `stale` for most of the day
+ *   following an on-time write — 8 composites flagged stale at 43.4h on
+ *   2026-05-23 when they had landed correctly the prior evening.
+ *
+ *   The split:
+ *     - daily + datetime: keep 30h fresh / 72h stale. DateTime columns
+ *       carry full clock resolution, so the 30h window already covers
+ *       "missed midnight cycle with morning re-run."
+ *     - daily + date: 48h fresh / 96h stale. Date columns are whole-day
+ *       granularity, so ~2 days = normal "one-day-late observation" for
+ *       an EOD snapshot, not a missed cycle.
+ *
+ *   Other cadences (bi-weekly, event-driven, monthly, quarterly,
+ *   continuous, one-shot) keep their existing thresholds regardless of
+ *   timestampType — the EOD-snapshot collision is specific to the daily
+ *   cadence's sub-day staleness expectation.
+ */
+const DAILY_DATE_THRESHOLDS = { fresh: 48, stale: 96 };
+
+/**
+ * Resolve the (fresh, stale) threshold pair for a cadence + timestampType
+ * combination. Pure; testable; the single source of truth for the
+ * daily-Date split documented at `DAILY_DATE_THRESHOLDS`.
+ */
+export function thresholdsFor(
+  cadence: HealthCadence,
+  timestampType: 'date' | 'datetime',
+): { fresh: number; stale: number } {
+  if (cadence === 'daily' && timestampType === 'date') {
+    return DAILY_DATE_THRESHOLDS;
+  }
+  return CADENCE_THRESHOLDS_HOURS[cadence];
+}
+
 export function classifyStatus(
   cadence: HealthCadence,
   rowCount: number,
   lastUpdateAgeHours: number,
   tableExists: boolean,
+  timestampType: 'date' | 'datetime' = 'datetime',
 ): HealthStatus {
   if (!tableExists) return 'missing-table';
   if (rowCount === 0) return 'never-populated';
   if (!Number.isFinite(lastUpdateAgeHours) || lastUpdateAgeHours < 0) {
     return 'unknown-cadence';
   }
-  const { fresh, stale } = CADENCE_THRESHOLDS_HOURS[cadence];
+  const { fresh, stale } = thresholdsFor(cadence, timestampType);
   if (lastUpdateAgeHours <= fresh) return 'fresh';
   if (lastUpdateAgeHours <= stale) return 'stale';
   return 'very-stale';
@@ -723,7 +796,7 @@ async function probeSource(
   }
   const lastDate = new Date(lastTsSec * 1000);
   const ageHours = (now.getTime() - lastDate.getTime()) / (1000 * 60 * 60);
-  const status = classifyStatus(source.cadence, rowCount, ageHours, true);
+  const status = classifyStatus(source.cadence, rowCount, ageHours, true, source.timestampType);
   return {
     name: source.name,
     label: source.label,

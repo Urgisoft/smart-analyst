@@ -65,7 +65,7 @@ import type { SectorRotationSnapshot } from './sector_rotation.js';
 import {
   CrossAssetSignalsRepository,
   crossAssetSnapshotsTableExists,
-} from './cross_asset_signals_repository.js';
+} from './cross_asset_snapshots_repository.js';
 import type { CrossAssetSignalsSnapshot } from './cross_asset_signals.js';
 import {
   ShortInterestRepository,

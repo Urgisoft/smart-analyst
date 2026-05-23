@@ -1,5 +1,5 @@
 /**
- * Tests for src/server/cross_asset_signals_repository.ts.
+ * Tests for src/server/cross_asset_snapshots_repository.ts.
  *
  * SPEC: docs/specs/cross-asset-signals.md §7 (test plan).
  */
@@ -15,7 +15,7 @@ import {
   computeTrailingReturn,
   computeCopperGoldRatioChange,
   RETURN_WINDOW_TRADING_DAYS,
-} from '../../src/server/cross_asset_signals_repository.js';
+} from '../../src/server/cross_asset_snapshots_repository.js';
 import type { CrossAssetSignalsSnapshot } from '../../src/server/cross_asset_signals.js';
 import { assertCHGrammar } from './_chGrammarCheck.js';
 

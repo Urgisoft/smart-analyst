@@ -6,7 +6,7 @@
  *       §5 (composite formulas), §6 (snapshot schema), §7 (daemon hook),
  *       §10 Phase A4 (this unit).
  *
- * Responsibility split (mirrors cross_asset_signals_repository / sector_rotation_repository):
+ * Responsibility split (mirrors cross_asset_snapshots_repository / sector_rotation_repository):
  *   - Pure composite logic lives in src/server/short_interest.ts.
  *   - This repository is the I/O boundary: pulls the latest FINRA rows,
  *     the t-6 biweekly row, the per-ticker shares_short baseline, the
@@ -675,7 +675,7 @@ export function sampleStddev(xs: readonly number[]): number {
 }
 
 /** Module-level probe: does the snapshots table exist?
- *  Mirrors the absent-table-safe gate from cross_asset_signals_repository. */
+ *  Mirrors the absent-table-safe gate from cross_asset_snapshots_repository. */
 export async function shortInterestSnapshotsTableExists(
   ch: ClickHouseClient = getClickHouse(),
 ): Promise<boolean> {

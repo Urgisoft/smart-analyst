@@ -124,7 +124,7 @@ import {
   CrossAssetSignalsRepository,
   crossAssetSnapshotsTableExists,
   runDaemonCrossAssetEvaluation,
-} from '../src/server/cross_asset_signals_repository.js';
+} from '../src/server/cross_asset_snapshots_repository.js';
 import {
   ShortInterestRepository,
   shortInterestSnapshotsTableExists,

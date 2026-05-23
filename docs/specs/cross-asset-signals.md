@@ -73,7 +73,7 @@ slice_id: gap-cross-asset
                           quantlab.candles
                                 │
                                 ▼
- ┌─ src/server/cross_asset_signals_repository.ts ──────────────────────┐
+ ┌─ src/server/cross_asset_snapshots_repository.ts ──────────────────────┐
  │  readLatestSeriesValuesAsOf (FRED, subquery-around-FINAL)           │
  │  readSeries20dChange (FRED, computes Δ from N-day-lookback value)   │
  │  readLatestCloses (candles, subquery-around-FINAL)                  │
@@ -121,7 +121,7 @@ slice_id: gap-cross-asset
 | **A1** | Extend [`scripts/fred_ingest.py`](../../scripts/fred_ingest.py) DEFAULT_SERIES with `DTWEXBGS`, `DFII10`, `DFII5`. Extend [`scripts/macro_regime_ingest.py`](../../scripts/macro_regime_ingest.py) YF_TICKERS with `GLD`, `COPX`, `USO`, `DBC`, `JPY=X`, `EURUSD=X`. | SPEC'd here |
 | **A2** | [`src/server/cross_asset_signals.ts`](../../src/server/cross_asset_signals.ts) — pure composite. Unit tests cover measurements + 5 flags + regime-flag priority order + inputsPresent bitmask + composite-version pin. | SPEC'd here |
 | **A3** | [`scripts/migrate_create_cross_asset_snapshots.ts`](../../scripts/migrate_create_cross_asset_snapshots.ts) + DDL byte-pin test + EXPECTED_COLUMNS pin + EXPLAIN-PLAN grammar tests. | SPEC'd here |
-| **A4** | [`src/server/cross_asset_signals_repository.ts`](../../src/server/cross_asset_signals_repository.ts) — repository + `runDaemonCrossAssetEvaluation` orchestration helper. Daemon step 1g wired into [`scripts/daily_signal_daemon.ts`](../../scripts/daily_signal_daemon.ts). | SPEC'd here |
+| **A4** | [`src/server/cross_asset_snapshots_repository.ts`](../../src/server/cross_asset_snapshots_repository.ts) — repository + `runDaemonCrossAssetEvaluation` orchestration helper. Daemon step 1g wired into [`scripts/daily_signal_daemon.ts`](../../scripts/daily_signal_daemon.ts). | SPEC'd here |
 | **A5** | Morning brief section #10 — `BriefCrossAssetSection` interface, `renderCrossAssetSection` function, `buildCrossAssetSection` builder, `fetchLatestCrossAssetFromCH` default fetcher, injection into `composeMorningBrief`. | SPEC'd here |
 | **B (deferred)** | Independence test (correlation matrix vs `cycle_v1` / `vol_struct_v1` / `sector_rot_v1` / `phase1_v3` categories) + historical backfill + retune. | NOT in this beat |
 | **C (deferred)** | Promotion to `phase1_v3` category. Gates on Phase B verdict + new SPEC. | NOT in this beat |
