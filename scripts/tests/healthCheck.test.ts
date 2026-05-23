@@ -200,6 +200,44 @@ describe('HEALTH_SOURCES', () => {
       assert.equal(s.autonomous, true, `${s.name} should be autonomous=true (daemon step)`);
     }
   });
+
+  // Pins the live CH schema conventions validated 2026-05-23 after the s96 #12
+  // initial config used wrong column names (asof_date / filing_date / date)
+  // that don't exist in any real table. Without this test, a future slice could
+  // add a new snapshot with a different convention and silently degrade to
+  // `unknown-cadence` on the panel without anyone noticing.
+  it('every *_snapshots table uses snapshot_date Date column (s89-s96 convention)', () => {
+    const snapshots = HEALTH_SOURCES.filter(s => s.name.endsWith('_snapshots'));
+    for (const s of snapshots) {
+      assert.equal(
+        s.timestampCol,
+        'snapshot_date',
+        `${s.name}: composite snapshots must use snapshot_date (live CH schema)`,
+      );
+      assert.equal(s.timestampType, 'date', `${s.name}: snapshot_date is Date-typed`);
+    }
+  });
+
+  it('SEC EDGAR source tables use accepted_at DateTime column (filing-receipt timestamp)', () => {
+    const edgar = HEALTH_SOURCES.filter(s =>
+      ['eight_k_events', 'executive_departures', 'insider_trades', 'schedule_13d_g_filings'].includes(
+        s.name,
+      ),
+    );
+    for (const s of edgar) {
+      assert.equal(s.timestampCol, 'accepted_at', `${s.name}: EDGAR sources use accepted_at`);
+      assert.equal(s.timestampType, 'datetime', `${s.name}: accepted_at is DateTime-typed`);
+    }
+  });
+
+  it('macro_indicators_* tables use observation_date Date column', () => {
+    const macro = HEALTH_SOURCES.filter(s => s.name.startsWith('macro_indicators_'));
+    assert.ok(macro.length >= 2, 'expect macro_indicators_fred + macro_indicators_cboe');
+    for (const s of macro) {
+      assert.equal(s.timestampCol, 'observation_date', `${s.name}: use observation_date`);
+      assert.equal(s.timestampType, 'date', `${s.name}: observation_date is Date-typed`);
+    }
+  });
 });
 
 describe('HEALTH_MIGRATIONS', () => {
