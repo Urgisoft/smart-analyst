@@ -1,17 +1,20 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-05-23 (session 96 #15 — **Cycle 1 of multi-agent
-orchestration executed**. 4 parallel workers spawned + critic-verdict
-applied per worker: Workers B/C/D AUTO-APPROVED + merged; Worker A
-(F2 CBOE backfill) **ESCALATED** to operator queue as Q-5 because
-free-source data exhausted — methodology amendment OR paid CBOE
-DataShop subscription required. ADR-045 written documenting the
-corrupted-input window 2019-10-05 → 2026-05-23 + the four
-methodology options. **Net 16 unpushed commits** on top of
-`origin/main` (`c0cda7c`). **NEXT default on `continue`:** Cycle 2
-per orchestration §8.2 — sequential daemon promotions GAP-1/2/4 +
-GAP-7(a) tableExists guards on the newly-created Cycle 1 tables.
-GAP-3 CBOE deferred until Q-5 closes.)
+Last updated: 2026-05-23 (session 96 #16 — **Cycle 2 of multi-agent
+orchestration executed**. 4 workers spawned sequentially (daemon
+orchestrator file is the contention point per S96-64); critic-verdict
+AUTO-APPROVE on all four; Worker 4 GAP-7(a) closed as **investigation
+no-op** — guards already in place. **3 new commits** on top of s96 #15
+close: `fd68f2d` (slice 1 GAP-2 FINRA Mondays-only) + `d18f4b3`
+(slice 2 GAP-1 four EDGAR daemon steps) + `961f218` (slice 3 GAP-4
+ETF v1 primary symmetry). **Net 19 unpushed commits** on top of
+`origin/main` (`c0cda7c`). All Layer-0 operator-cadence ingests are
+now autonomous-daemon-cadence; the v1/v3.1 ETF cross-validation
+comparator is symmetric for the first time since s95 #9. **NEXT
+default on `continue`:** Cycle 3 per orchestration §8.3 — Phase 2
+ADR-044 infrastructure (quarantine table + brief §0 daily digest +
+Telegram alerts + daemon step 0a auto-health-check + the post-CBOE
+`accepted-as-warning` quarantine row).)
 
 ---
 
@@ -27,33 +30,8 @@ subscription / authenticated-scrape / methodology-canon-amendment gated.
 | Q-1 | First deployment of real capital — timing + initial amount | Standing decision per orchestration §7.1.1 | OPEN — operator-defined timing |
 | Q-2 | Capital-deployment-ramp ADR sign-off (the "#5 ADR") | Operator self-assigned ~1 week per s96 #13 carry-over | OPEN — operator drafting |
 | Q-3 | GAP-5 Stooq apikey gate decision — paid subscription OR canonicalize the constituent-based fallback | Audit GAP-5; orchestration §2.5 | OPEN — paid subscription gates orchestration's call |
-| Q-4 | Push 16 unpushed commits to origin/main | Carry-over s96 #6 — count updated this session | OPEN — `git push` operator-gated per CLAUDE.md hard-stop list |
-| **Q-5** | **phase1_v3 CBOE put/call corrupted-input window — methodology amendment OR DataShop subscription** | **NEW s96 #15 Cycle 1 — Worker A (F2) escalation; ADR-045** | **OPEN — orchestration recommends path (D); operator picks among (A)/(B)/(C)/(D)** |
-
-### Q-5 detail (so operator can decide without re-reading the ADR)
-
-The phase1_v3 macro regime classifier's `sentiment_extreme` primary
-input — CBOE TOTAL put/call ratio 5d-MA — has been reading stale
-2019-10-04 data since the CBOE bulk historical CSVs were retired.
-Cycle 1 Worker A confirmed: **the gap cannot be filled from any
-authorized free source.** Yahoo Finance `^CPC` is delisted; Stooq is
-captcha-apikey-gated (same Q-3 blocker); FRED has no CBOE put/call
-series; Nasdaq Data Link returns 403. CBOE itself moved post-2019
-data to the paid DataShop subscription.
-
-The fail-soft SPEC OR-design has kept the category functional on the
-secondary VIX/VIX3M ≤ 0.80 arm — but the primary arm has been dark
-for ~6.5 years.
-
-**Four paths in ADR-045 §4** (orchestration recommends D, the lowest-
-cost path):
-
-- **(A)** Subscribe to CBOE DataShop (paid) — fully backfills the gap.
-- **(B)** Amend SPEC to canonicalize VIX/VIX3M as primary — orchestration writes the SPEC patch + regression test.
-- **(C)** Forward-only scrape of CBOE's daily statistics page — new worker, ~5 trading days to primary arm restore from today.
-- **(D)** Hybrid: B for the historical window + C for forward (recommended; preserves SPEC intent, no paid sub, scraper maintainable per data-source policy).
-
-Pick a path or amend; the orchestration executes once Q-5 closes.
+| Q-4 | Push 19 unpushed commits to origin/main | Carry-over; count updated this session (+3 Cycle 2 slices) | OPEN — `git push` operator-gated per CLAUDE.md hard-stop list |
+| Q-5 | phase1_v3 CBOE put/call corrupted-input window — methodology amendment OR DataShop subscription | s96 #15 Cycle 1 — Worker A (F2) escalation; ADR-045 | OPEN — orchestration recommends path (D); operator picks among (A)/(B)/(C)/(D) |
 
 **That's the entire queue.** Anything not above is the orchestration's
 to resolve. The orchestration appends rows here only when one of the
@@ -62,82 +40,134 @@ real-money / methodology-amendment triggers in
 
 ---
 
-## What this cycle delivered (s96 #15 Cycle 1)
+## What this cycle delivered (s96 #16 Cycle 2)
 
-### Three commits + ADR-045 + this HANDOFF (4 logical units)
+### Three commits + HANDOFF rewrite (4 logical units)
 
-**Commit 1 (`96a1d7d`) — Workers C + D Tier-1 mechanical:**
-F1 threshold tuning + GAP-14 rename + GAP-15 8 migrations + GAP-18
-cusip migration. 10 files changed, +361/-15 LOC. Health check delta:
-migrations applied 9/17 → 18/18 (zero pending); fresh sources 1 → 6;
-5 daily+Date composites flipped stale → fresh.
+**Commit 1 (`fd68f2d`) — GAP-2 FINRA Mondays-only daemon step 1h-pre + Tier-1 13d_g Unicode fix:**
+New helper `src/server/daemon_finra_short_interest_fetch.ts` (pure
+`buildFinraShortInterestArgs(dryRun)` + pure `shouldRunFinraTodayUtc(now)`
++ impure `runFinraShortInterestFetch(dryRun)`); new daemon step 1h-pre
+between step 1g (cross-asset) and step 1h (short-interest composite)
+under `NO_FETCH || DRY_RUN || !Monday` gates; new HEALTH_SOURCES entry
+for raw `short_interest` table marked `autonomous: true`; 9 new
+convention-pin tests; 1 new healthCheck GAP-2 pin. Bundled Tier-1 fix
+in `scripts/sec_edgar_13d_g_ingest.py` (argparse `→` → `->` blocking
+`--help` crash on Windows cp1252; same Worker B s96 #15 pattern but
+for the 13D/G script). 6 files, +358/-4 LOC.
 
-**Commit 2 (`0901e60`) — Worker B F3 Form 4 first-apply + cp1252 fix:**
-Bounded smoke window 2026-05-01 → 2026-05-15 (EDGAR full-text-search
-returned 100-hit page cap); 142 insider-trade rows landed in
-`quantlab.insider_trades`, 90 unique person CIKs in
-`quantlab.insider_ciks`. Tier-1 fix: 3 Unicode arrows → ASCII in
-print statements (Windows cp1252 console crash). Health check delta:
-insider_trades never-populated → stale (8.6d; daemon-promotion is
-Cycle 2 GAP-1).
+**Commit 2 (`d18f4b3`) — GAP-1 four EDGAR daemon steps 1i-pre / 1k-pre / 1l-pre / 1m-pre:**
+New consolidated helper `src/server/daemon_edgar_ingests.ts` (one
+file over four — all 4 EDGAR ingests share `_sec_edgar_helpers.py`
+contract; pure `buildEdgarIngestArgs` + pure `parseEdgarHitCount`
+regex anchor + 4 impure runners + pinned constants
+`EDGAR_DAEMON_WINDOW_DAYS=2` + `EDGAR_PAGE_CAP=100`). Four daemon
+steps inserted before existing eval steps 1i (exec-departure),
+1k (8-K classifier), 1l (Form 4), 1m (Schedule 13D/G). Each step
+gates on `NO_FETCH || DRY_RUN` (NO_MACRO excluded — EDGAR is
+fundamental equity-event data, not macro). Page-cap (100 hits)
+surfaces as `warning` anomaly with the operator-catchup nudge.
+Four `autonomous: false → true` flips in `health_check.ts` with
+updated `why` strings referencing the new step names. 24 new EDGAR
+tests + 1 new healthCheck GAP-1 convention pin. 5 files, +934/-12
+LOC. Investigation step (dry-run each EDGAR ingest for stdout
+shape) ran cleanly; all 4 scripts emit `[edgar-<prefix>] parsed N
+<noun> from search response`, all 4 cap-hit at 100 on a 2-day
+window today.
 
-**Commit 3 (this commit) — ADR-045 + HANDOFF:**
-ADR-045 documents the phase1_v3 CBOE corrupted-input window
-2019-10-05 → 2026-05-23 + the free-source exhaustion + the four
-methodology amendment paths. Q-5 added to operator queue.
+**Commit 3 (`961f218`) — GAP-4 ETF v1 primary daemon step 1jb:**
+Restores cross-validation symmetry between the v1 yfinance primary
++ v3.1 SSGA secondary panels. The v3.1 secondary refreshes daemon-
+cadence at step 1ja since s96 #9, but the v1 primary stayed
+operator-cadence per s92 design — producing a comparator pathology
+where divergence was dominated by primary staleness rather than
+real issuer-vs-Yahoo data delta. New helper
+`src/server/daemon_etf_flow_v1_primary_refresh.ts` (single-spawn
+shape, no chain — v1 ingest is one script). Step 1jb placed
+between step 1ja + step 1j so today's snapshot reads today's
+both-panels. Gate set `NO_MACRO || NO_FETCH || DRY_RUN` matches the
+sibling step 1ja (asymmetry under `--no-macro` would defeat the
+GAP-4 symmetry restoration). One health flip + 7 new tests + 2
+healthCheck pins (the second is a symmetry pin — catches any future
+drift on either side). 5 files, +382/-2 LOC.
 
-### Cycle 1 worker outcomes (orchestration §6 critic verdicts)
+**Worker 4 GAP-7(a) UI tableExists guards — closed as no-op:**
+Worker 4 investigated all 7 dashboard routes in `server.ts` +
+confirmed none read the 7 Cycle 1 newly-created tables. The 7
+tables are consumed by `composeMorningBrief` (CLI tool, not HTTP)
+and `runHealthCheck` (HTTP-routed at `/api/health/state` but
+gracefully degrades on missing-table per-source). Brief renderer
+calls 6 `fetchLatest*FromCH` helpers — each already implements
+`tableExists() + try/catch → null` (the gold-standard pattern,
+predating Cycle 2). Worker prompt explicitly authorized closing
+the gap as no-op when investigation shows guards already in place;
+the worker did that + recommended HANDOFF "Decisions locked in"
+record this finding. **Zero files modified.**
+
+### Cycle 2 worker outcomes (orchestration §6 critic verdicts)
 
 | Worker | Task | Verdict | Outcome |
 | --- | --- | --- | --- |
-| A (Data-Ingest) | F2 CBOE backfill | **ESCALATE** (§6.3 trigger #5: methodology ADR amendment required) | Q-5 surfaced; ADR-045 written; pending operator decision |
-| B (Data-Ingest) | F3 Form 4 first-apply | AUTO-APPROVE | 142 rows landed; Tier-1 Unicode fix shipped |
-| C (Health, worktree-requested) | F1 threshold tuning | AUTO-APPROVE | Per-timestampType thresholds; 24/24 tests; tsc delta 0 |
-| D (Infra, worktree-requested) | GAP-14 + GAP-15 + GAP-18 | AUTO-APPROVE (canon-thin fork on cusip cadence resolved per CLAUDE.md autonomous-execution three-criterion test) | Rename + 8 migrations + cusip migration |
-
-### Worktree-isolation finding (orchestration §9 update — S96-64)
-
-`isolation: "worktree"` was specified on Workers C and D per
-orchestration §3.2's policy ("isolation: worktree whenever the work
-touches > 1 file OR the worker will run concurrently with another").
-**In practice, both workers' diffs landed directly in the main
-checkout's working tree** — Worker D's report explicitly observed
-Worker C's uncommitted edits in `git status`. Either the Agent tool's
-worktree isolation behaved differently than the orchestration design
-assumed, OR the tool's behavior is a "session-scoped worktree" that
-returns to main before exit. **No actual file-collision occurred**
-because the workers' edits to `src/server/health_check.ts` were in
-non-overlapping sections (Worker C touched `classifyStatus` +
-`CADENCE_THRESHOLDS_HOURS` + signature; Worker D touched
-`HEALTH_MIGRATIONS` + `HEALTH_SOURCES`). But the design's safety
-assumption is now empirically broken; the multi-agent orchestration
-doc §4.2 + §9 should be revised in a future Infra cycle.
-
-**Mitigation already in use:** when spawning concurrent workers
-that could touch the same file, the orchestrator explicitly partitions
-file ranges in the constraint envelope (as in Worker D's "ONLY
-HEALTH_MIGRATIONS + HEALTH_SOURCES" carve-out) AND verifies post-spawn
-that the merge didn't lose edits. Until the worktree behavior is
-investigated, treat "concurrent workers on the same file" as a
-documented risk, not a prevented one.
+| 1 (Infra) | GAP-2 FINRA Mondays-only daemon step + Tier-1 13d_g Unicode fix | AUTO-APPROVE | Helper + step 1h-pre + 9 tests + Tier-1 fix |
+| 2 (Infra) | GAP-1 four EDGAR daemon steps + page-cap warning | AUTO-APPROVE (cross-domain edit into `health_check.ts` accepted per §6.4 — flag flip is the surface of the promotion) | Consolidated helper + 4 daemon steps + 24 tests |
+| 3 (Infra) | GAP-4 ETF v1 primary daemon step (symmetry restoration) | AUTO-APPROVE | Helper + step 1jb + 7 tests + symmetry convention pin |
+| 4 (UI) | GAP-7(a) uniform tableExists guards | AUTO-APPROVE (closed as no-op) | 0 files modified; investigation surfaced guards already in place |
 
 ### Verification gates at cycle close
 
 ```text
-git status                            # clean (committed in 3 slices)
-npx tsc --noEmit                      # 13 baseline errors (unchanged from s96 #13)
-healthCheck.test.ts                   # 24/24 pass (was 22; +2 new threshold-pin tests)
-crossAssetSnapshotsRepository.test.ts # 40/40 pass (post-rename verification)
-healthCheck + crossAssetSnapshots     # 64/64 combined pass
-pytest sec_edgar_form4_ingest         # 47/47 pass (post-Unicode-fix)
-npm run health:check                  # migrations 18/18 applied; CBOE still very-stale (Q-5)
+git status                                                                       # clean (3 slices committed; HANDOFF pending this rewrite)
+npx tsc --noEmit                                                                 # 13 baseline errors (unchanged from s96 #15 close)
+node --import tsx --test daemonFinraShortInterestFetch.test.ts                   #  9/9 pass
+node --import tsx --test daemonEdgarIngests.test.ts                              # 24/24 pass
+node --import tsx --test daemonEtfFlowV1PrimaryRefresh.test.ts                   #  7/7 pass
+node --import tsx --test healthCheck.test.ts                                     # 27/27 pass (was 24; +3 Cycle 2 pins: GAP-2, GAP-1, GAP-4 + GAP-4 symmetry)
+node --import tsx --test crossAssetSnapshotsRepository.test.ts                   # 40/40 pass (unchanged)
+combined daemon + health + cross-asset                                           # 107/107 pass
+npm run health:check                                                             # baseline post-Cycle-2: see below
 ```
+
+### Post-Cycle-2 health snapshot
+
+Health-check after slice 3 reports the expected state:
+
+- **Fresh:** 6 sources (macro_regimes, cycle_position_snapshots,
+  vol_structure_snapshots, sector_rotation_snapshots,
+  cross_asset_snapshots, candles after next daemon).
+- **Stale (informational):** Candles 43.8h, ETF SSGA secondary 2.8d,
+  FRED 2.9d, Form 4 trades 8.7d, Live paper-trading signals 31.2h —
+  all autonomous-daemon-cadence sources awaiting next `npm run
+  daemon:daily` run (no daemon has fired since this session began).
+- **Very-stale:** CBOE put/call 2,424d (Q-5 blocked; documented gap
+  per ADR-045 — operator-pending decision).
+- **Never-populated:** 7 composite snapshot tables (will populate
+  on next `daemon:daily`) + raw `short_interest` (will populate
+  next Monday per FINRA Monday-only gate; today is Saturday).
+- **Missing-table:** raw `executive_departures` (will be created
+  by 8-K Item 5.02 ingest on first daemon step 1i-pre run).
+- **Migrations applied:** 18/18 (unchanged from s96 #15).
+
+The "missing-table" entry for `executive_departures` is **expected
+behavior, not a bug** — the 8-K Item 5.02 ingest script creates the
+table via `CREATE TABLE IF NOT EXISTS` on first invocation (same
+pattern as Form 4 first-apply in s96 #15 Worker B). Next daemon run
+will resolve.
+
+### Worktree-isolation finding carry-over (S96-64)
+
+Cycle 2's 4 workers ran sequentially (no concurrent worker on the
+same cycle per the daemon-orchestrator contention point) — so the
+S96-64 worktree-isolation finding did not surface again this cycle.
+Mitigation in place: explicit file-range partitioning in concurrent
+workers' constraint envelopes when same-file edits are possible.
+Investigation deferred to a future Infra cycle (still has no
+reproducer).
 
 ### Push state
 
-- `origin/main` at `c0cda7c`; **16 unpushed commits** after s96 #15
-  Cycle 1 (was 13; this cycle added 3: slice 1 Workers C+D + slice 2
-  Worker B + slice 3 ADR-045+HANDOFF).
+- `origin/main` at `c0cda7c`; **19 unpushed commits** after s96 #16
+  Cycle 2 (was 16 at s96 #15 close; this cycle added 3 slice
+  commits + this HANDOFF rewrite will be the 4th).
 - Push is operator-gated (Q-4 above).
 
 ---
@@ -157,12 +187,12 @@ npm run health:check                  # migrations 18/18 applied; CBOE still ver
 | Working-model change ratified | ✓ s96 #14 |
 | Multi-agent orchestration design committed | ✓ s96 #14 |
 | CLAUDE.md updated with orchestration always-on load | ✓ s96 #14 |
-| **Cycle 1 — F1 + F2(escalated) + F3 + GAP-14/15/18 + ADR-045** | **✓ s96 #15** |
-| Cycle 2 — Daemon promotions (GAP-1/2/4) + GAP-7(a) uniform tableExists guards | ☐ NEXT default |
-| Cycle 3 — Phase 2 ADR-044 (quarantine + brief §0 + Telegram + daemon step 0a) | ☐ after Cycle 2 |
+| Cycle 1 — F1 + F2(escalated) + F3 + GAP-14/15/18 + ADR-045 | ✓ s96 #15 |
+| **Cycle 2 — GAP-2 FINRA + GAP-1 EDGAR + GAP-4 ETF v1 + GAP-7(a) closed-as-noop** | **✓ s96 #16** |
+| Cycle 3 — Phase 2 ADR-044 (quarantine + brief §0 + Telegram + daemon step 0a) | ☐ NEXT default |
 | Cycle 4+ — GAP-8 classifier docs + GAP-13 Quartz + GAP-16/17 cleanup + GAP-10 CI/CD | ☐ after Cycle 3 |
 | F2 CBOE backfill + re-classify | ⏸ blocked on Q-5 operator decision |
-| Composite worker (Cycle 1 follow-up phase1_v3 re-classify) | ⏸ blocked on Q-5 (no fresh CBOE data to re-classify against) |
+| Composite worker (Cycle 1 follow-up phase1_v3 re-classify) | ⏸ blocked on Q-5 |
 | Gap #9 v3.1 iShares/Vanguard/Invesco adapters | ⛔ deferred — Playwright-decision operator-gated (OQ-G9-4) |
 | C-12 Phase B AlpacaAdapter | ⏸ INDEFINITELY PAUSED — operator-gated |
 | Phase B campaigns for nine Layer-0 composites | ⏸ deferred — operator-gated |
@@ -173,135 +203,147 @@ npm run health:check                  # migrations 18/18 applied; CBOE still ver
 
 ## Decisions locked in
 
-### Session 96 #15 (Cycle 1 of multi-agent orchestration)
+### Session 96 #16 (Cycle 2 of multi-agent orchestration)
 
-**S96-59. F2 CBOE backfill is unrecoverable under current free-data
-policy; phase1_v3 corrupted-input window 2019-10-05 → 2026-05-23
-officially documented in ADR-045.** Worker A's investigation
-confirmed: CBOE retired post-2019 free bulk historical CSVs; Yahoo
-Finance / Stooq (apikey-gated) / FRED / Nasdaq Data Link all
-exhausted. The phase1_v3 `sentiment_extreme` primary arm has been
-dark for ~6.5 years; the fail-soft SPEC OR-design held the secondary
-VIX/VIX3M arm functional. Historical record stays (audit-trail
-integrity per ADR-044).
-`Why:` ADR-045 ratifies the corrupted-input window as a permanent
-documented gap. Q-5 surfaces the four methodology amendment paths to
-the operator (A subscribe / B canonicalize VIX/VIX3M / C
-forward-scrape / D hybrid; orchestration recommends D).
-`How to apply:` Until Q-5 closes, the primary arm stays dark for new
-classifications. The `/#/health` panel will continue to flag
-`macro_indicators_cboe` as very-stale; the morning brief should
-treat this as documented permanent gap (post-Phase-2 ADR-044, one
-quarantine row will pin the window with status `accepted-as-warning`).
-Once Q-5 resolves, the orchestration executes the chosen path.
+**S96-65. GAP-2 FINRA Mondays-only daemon-cadence promotion ratified.**
+Step 1h-pre runs `scripts/finra_short_interest_ingest.py --apply` when
+JS `getDay() === 1` (UTC Monday), gated additionally by
+`NO_FETCH || DRY_RUN`. Non-Monday runs skip with a log. New helper
+`src/server/daemon_finra_short_interest_fetch.ts` exports the pure
+`shouldRunFinraTodayUtc(now)` for test-pin coverage. Health-tracking
+now uniform: raw `short_interest` table in HEALTH_SOURCES marked
+`autonomous: true`, cadence `'bi-weekly'`, 18d-fresh / 30d-stale
+thresholds.
+`Why:` FINRA publishes biweekly settlement CSVs on Mondays following
+each settlement-period close — daily fetch attempts on other days
+are wasted HTTP load. The ingest's `--settlement-date` auto-detects
+the most-recent expected settlement when omitted; passing no flag
+is the canonical daemon-cadence shape.
+`How to apply:` Next Monday (2026-05-25) the daemon will fire the
+FINRA fetch step. Other days, step 1h-pre logs `skipped (not Monday
+UTC)` and proceeds to step 1h. Tier-1 cp1252 bug in
+`sec_edgar_13d_g_ingest.py` argparse strings + stderr prints
+(replacing `→` with `->`) bundled into the same commit — required
+before the GAP-1 worker could test the 13D/G ingest's `--help`.
 
-**S96-60. F3 Form 4 ingest pipeline verified end-to-end; first-apply
-bounded smoke window 2026-05-01 → 2026-05-15 landed 142 rows.** The
-sec_edgar_form4_ingest.py script was never run end-to-end before this
-cycle; insider_trades was empty. Worker B's 2-week-window first-apply
-confirmed: EDGAR full-text-search reachable; XML parser handles
-namespaced + non-namespaced Form 4 XML; ReplacingMergeTree idempotency
-holds on re-run; transaction-code distribution healthy
-(A=40/S=32/M=24/P=21/F=10/D=6/J=5/U=2/G=2 — F4-4 SPEC compliance).
-Tier-1 mechanical fix shipped: 3 Unicode `→` arrows in print
-statements replaced with ASCII `->` (Windows cp1252 console crash
-post-write).
-`Why:` First-apply unblocks the Form 4 daemon-promotion (GAP-1 in
-Cycle 2) and the downstream form_4_insider composite. The 100-hit
-EDGAR page cap surfaced is a Cycle 2 design consideration.
-`How to apply:` Cycle 2 GAP-1 daemon promotion needs a multi-day
-pagination pattern. Check `_sec_edgar_helpers.py` for established
-patterns from EK-A1 / Item 5.02 scripts before designing.
+**S96-66. GAP-1 four EDGAR daemon-cadence promotion ratified.**
+Steps 1i-pre / 1k-pre / 1l-pre / 1m-pre wire the four SEC EDGAR
+ingests (8-K Item 5.02 / 8-K broader / Form 4 / Schedule 13D/G)
+into the daily daemon using a **2-day rolling window** + a
+**warning-on-page-cap** posture. Page-cap (100 hits — EDGAR full-
+text-search hard limit; no `from=` pagination in
+`_sec_edgar_helpers.py`) surfaces as a `warning` anomaly with the
+operator-catchup nudge (`Run npm run edgar:X:ingest for catchup`).
+Form 4 + Item 5.02 + 8-K broader cap-hit most days at the 2-day
+window (Form 4 alone runs ~100-300 filings/day); 13D/G rarely caps.
+Consolidated helper `src/server/daemon_edgar_ingests.ts` (one file
+over four — all 4 share `_sec_edgar_helpers.py` contract). Path A
+chosen over Path B (`from=` pagination — out of Infra envelope) +
+Path C (sub-day windows — asymmetric, more knobs) per the three-
+criterion test.
+`Why:` GAP-1 was the single biggest standing-health hole per the
+s96 #12 audit TL;DR (5 SEC EDGAR ingests operator-cadence with no
+autonomous trigger). The 2-day window is a calendar fact (smallest
+window surviving one missed daemon cycle); the page-cap is a
+documented limitation, not a pagination implementation. The
+composite tables tolerate partial daily coverage (signal is
+statistical per AFML §8 event-driven cadence).
+`How to apply:` Next daemon-cadence run fires all 4 EDGAR ingests.
+Cap-hit anomalies will routinely surface for Form 4 + Item 5.02 +
+8-K broader; the operator-catchup commands (`npm run edgar:form4:
+ingest --start-date X --end-date X`) remain the backfill path. A
+future Data-Ingest cycle MAY add `from=` pagination to
+`_sec_edgar_helpers.py` to close the cap-hit anomaly stream
+(Path B; deferred); Cycle 3 may dedupe the cap-hit anomaly in the
+brief §0 quarantine summary.
 
-**S96-61. F1 health-check threshold split per timestampType is
-ratified canon.** `classifyStatus` now takes `timestampType` (5th
-param, default `'datetime'` for back-compat). New `thresholdsFor`
-helper looks up per-(cadence, timestampType) thresholds. For the
-`daily` cadence specifically: `date`-typed = 48h fresh / 96h stale;
-`datetime`-typed = 30h / 72h (unchanged). All other cadences ignore
-timestampType.
-`Why:` Date columns collapse to midnight on read; yesterday's EOD
-snapshot reads as ~42h old at next-day open even though it was
-written on time. Five daily+Date composites flipped stale → fresh
-post-deploy (macro_regimes, cycle_position, vol_structure,
-sector_rotation, cross_asset). Convention pin tests added to
-healthCheck.test.ts (24/24 pass).
-`How to apply:` Future health-check additions for daily snapshot
-tables must declare `timestampType: 'date'` to inherit the wider
-window. DateTime sources (candles, live_signals, EDGAR `accepted_at`)
-stay on 30h/72h.
+**S96-67. GAP-4 ETF v1 primary daemon-cadence promotion ratified +
+v1/v3.1 cross-validation comparator symmetry restored.** Step 1jb
+runs `scripts/etf_flow_ingest.py --apply` daemon-cadence, mirroring
+step 1ja's SSGA-SPDR secondary refresh. Gate set
+`NO_MACRO || NO_FETCH || DRY_RUN` matches the sibling step 1ja
+(asymmetric gates between 1ja + 1jb under `--no-macro` would defeat
+the symmetry restoration). No `--start-date` / `--end-date` flags
+passed — the script's `DEFAULT_LOOKBACK_DAYS = 400` is exactly the
+v1 SPEC's trailing-1y baseline window with ~35d headroom for missed
+cycles.
+`Why:` Pre-GAP-4 the comparator divergence row was dominated by
+v1-primary staleness rather than real issuer-vs-Yahoo data delta.
+Both panels now refresh on the same cycle that consumes them at
+step 1j; symmetry restored at the comparator's READ boundary, not
+just the freshness panel.
+`How to apply:` Two new convention pins in `healthCheck.test.ts`:
+(a) v1 primary daemon-cadence shape, (b) v1 primary + v3.1
+secondary share the daemon-cadence shape (symmetry pin — catches
+future drift on either side that reopens the asymmetry).
 
-**S96-62. GAP-14 rename complete: cross_asset_signals_repository →
-cross_asset_snapshots_repository.** Matches the `*_snapshots_repository`
-sibling convention. Renamed file + 5 import sites + the test file +
-3 spec-doc references. 40/40 cross-asset tests pass post-rename.
-`Why:` The module reads/writes `cross_asset_snapshots` table; the
-file name now matches the table name + sibling pattern (e.g.
-`short_interest_snapshots_repository`).
-`How to apply:` Future tests / imports must use the new name.
-
-**S96-63. GAP-15 + GAP-18 forward-only additive migrations
-orchestration-applied (per S96-58 precedent).** 8 pending migrations
-+ 1 new cusip migration applied in one cycle (CREATEs ordered before
-ALTERs so ALTER targets existed): eight_k_events,
+**S96-68. GAP-7(a) UI tableExists guards closed as no-op.** Worker
+4 investigation confirmed no Express HTTP route in `server.ts`
+reads any of the 7 Cycle 1 newly-created tables (eight_k_events,
 eight_k_classifier_snapshots, executive_departure_snapshots,
-schedule_13d_g_{filings,snapshots}, short_interest_snapshots,
-+max_aggregate_z{,_sector} on eight_k_classifier_snapshots +
-executive_departure_snapshots, cusip_ticker_map (new dedicated
-migration; DDL byte-pinned from finra_short_interest_ingest.py's
-ad-hoc CREATE). Health check delta: migrations applied 9/17 → 18/18.
-`Why:` S96-58 authorized orchestration to apply forward-only additive
-migrations without operator gate. All 9 are CREATE TABLE IF NOT
-EXISTS or ALTER TABLE ADD COLUMN IF NOT EXISTS — idempotent + safe.
-`How to apply:` Future Cycle's Infra worker uses the same pattern;
-ALTER DROP / DROP TABLE / ALTER DELETE remain operator-gated per
-CLAUDE.md hard-stop list.
+schedule_13d_g_filings, schedule_13d_g_snapshots,
+short_interest_snapshots, cusip_ticker_map). The tables are
+consumed by `composeMorningBrief` (CLI, not HTTP) + `runHealthCheck`
+(HTTP at `/api/health/state`, gracefully degrades per-source on
+missing-table). All 6 brief `fetchLatest*FromCH` helpers already
+implement the gold-standard pattern: `tableExists() + try/catch →
+null` sentinel, with renderer-side empty states. Repository helpers
+(`shortInterestSnapshotsTableExists`, `eightKClassifierSnapshotsTableExists`,
+`executiveDepartureSnapshotsTableExists`, `schedule13dgSnapshotsTableExists`,
+`etfFlowSnapshotsTableExists`, `etfSharesOutstandingTableExists`,
+`cyclePositionSnapshotsTableExists`) all already exist.
+`Why:` The audit's GAP-7(a) was written pre-Cycle-1; in the post-
+Cycle-1 state, the gap doesn't exist on any user-facing surface.
+Adding guards for non-existent failure paths would be defensive
+code with no failure mode to defend against (minimum-free-parameters
+principle).
+`How to apply:` Worker 4 explicitly authorized the no-op closeout
+per its prompt; zero files modified. **Future code paths adding a
+direct HTTP route that calls `loadLatestSnapshot` (without going
+through the brief fetcher's `try/catch`) MUST add their own guard**
+(Worker 4's signal #3 — a potential future Infra refactor could
+push the guard into the repository method itself, but that's a
+refactor, not a bug today).
 
-**S96-64. Worktree-isolation observation: Agent-tool `isolation: "worktree"`
-did not produce filesystem isolation in Cycle 1.** Workers C + D
-each requested `isolation: "worktree"`; both diffs landed in the
-main working tree (Worker D's report explicitly observed Worker C's
-uncommitted edits). No actual collision occurred because the file
-overlap was in non-overlapping function ranges, but the orchestration
-design's safety assumption (§4.2 "File-collision guarantee:
-parallel workers in separate worktrees cannot collide at the
-filesystem level") is empirically broken for this tool's
-implementation.
-`Why:` Either the Agent tool's worktree isolation is session-scoped
-(returns to main checkout before exit) OR the isolation flag was
-silently ignored. Investigation deferred; needs reproducer.
-`How to apply:` Until investigation completes, the orchestrator
-**must** explicitly partition file ranges in concurrent workers'
-constraint envelopes when same-file edits are possible (the
-"ONLY HEALTH_MIGRATIONS + HEALTH_SOURCES" carve-out from Worker D's
-prompt is the working pattern). Treat "concurrent workers on the
-same file" as a documented risk, not a prevented one.
+**S96-69. Cycle 2's sequential-spawn pattern was operationally
+correct given S96-64.** Four workers in sequence (FINRA → EDGAR →
+ETF v1 → UI no-op closeout) returned coherent diffs; daemon-
+orchestrator file contention avoided. Critic-verdict path resolved
+all 4 autonomously (3 AUTO-APPROVE + 1 no-op closeout); no
+escalations fired this cycle. Cycle 1's parallel-spawn pattern
+(s96 #15) hypothesis-tested multi-agent parallelism on
+non-overlapping domains; Cycle 2 hypothesis-tested sequential-only
+on the daemon-orchestrator contention case. Both work; Cycle 3 can
+mix parallel + sequential per dependency DAG.
+`Why:` Validates the orchestration design's §4.2 + §9 working-model
+posture: parallel where domains are clean, sequential where the
+orchestrator file is the contention point. The S96-64 worktree-
+isolation finding remains unresolved but no longer blocks Cycle 2-
+style sequential work; it only constrains "concurrent workers on
+the same file" patterns (which Cycle 2 avoided by sequencing).
+`How to apply:` Cycle 3 Phase 2 ADR-044 work parallelizes
+naturally: Health worker delivers items 1+2+3 (script + migration +
+dashboard), Infra worker delivers items 4+5 (brief renderer + daemon
+step 0a) — non-overlapping files, parallel-safe.
 
-**Carry-overs (still in force):** S96-1..S96-58; S95-1..S95-50;
+**Carry-overs (still in force):** S96-1..S96-64; S95-1..S95-50;
 S94-1..S94-33; S93-1..S93-54; all prior s73-s92 lock-ins.
 
 ---
 
 ## Open questions
 
-### NEW (s96 #15)
+### NEW (s96 #16)
 
-None inside orchestration authority. Q-5 (on operator queue) is the
-only new open item from this cycle. The S96-64 worktree-isolation
-finding is a documented watch-out, not an open question — the
-mitigation pattern is already in use.
+None inside orchestration authority. Q-5 (carry-over) is the only
+methodology-amendment open item. No new operator-queue rows opened
+this cycle.
 
-### CARRIED from s96 #12-#13
+### CARRIED from s96 #12-#15
 
-- **OQ-RECON-1 through OQ-RECON-19** — superseded by orchestration §2
-  classifications (s96 #14); closed.
-
-### CARRIED (unchanged from s96 #8-#11)
-
-- **OQ-G9-4** — v3.1 arc continuation for non-SSGA issuers. Playwright
-  dep decision remains operator-gated. Q-3 / Q-1 adjacent.
-- **OQ-XD13-1/2/3** — Phase B independence + filer-reputation +
-  aggregate slicing.
+- **OQ-RECON-1..OQ-RECON-19** — closed by orchestration §2 classifications (s96 #14).
+- **OQ-G9-4** — v3.1 arc continuation for non-SSGA issuers; Playwright dep operator-gated.
+- **OQ-XD13-1/2/3** — Phase B independence + filer-reputation + aggregate slicing.
 - **OQ-G9-1** — issuer-specific schema mappers.
 
 ### CARRIED (long-running)
@@ -313,8 +355,7 @@ mitigation pattern is already in use.
 - ML meta-labeling (ADR-017, deferred ≥4 weeks).
 - Sharadar SF1 subscription — Q-3 adjacent.
 - Compounding-live-equity backtest semantic.
-- 78,399 zero-trade sentinels in `bt_runs_regime` — GAP-16; investigation
-  scheduled in Cycle 4.
+- 78,399 zero-trade sentinels in `bt_runs_regime` — GAP-16; investigation scheduled in Cycle 4.
 - First-apply-run EDGAR Item-filter OR-clause behavior.
 - Cold-start cascade timing for EK + F4 + XD13 arcs.
 - OQ-G2-2 — EDGAR-amendment forensic tooling default.
@@ -323,147 +364,155 @@ mitigation pattern is already in use.
 
 ## Next stage
 
-### Default on `continue` — Cycle 2 (orchestration §8.2)
+### Default on `continue` — Cycle 3 (orchestration §8.3)
 
-Per orchestration §8.2 + the dependency DAG: daemon promotions for
-the SEC EDGAR + FINRA + ETF v1 operator-cadence ingests, each
-shipped with a UI surface update (per ADR-044 UI correctness domain).
-These are sequential because they all touch
-`scripts/daily_signal_daemon.ts` — parallel-spawning two Infra
-workers on the same orchestrator file would collide (per S96-64,
-explicit file-range partitioning would be required and the daemon
-step list isn't easily partitioned).
+Per orchestration §8.3 — Phase 2 ADR-044 infrastructure. Six logical
+items, partially-parallelizable:
 
-**Step-by-step plan:**
+**Health-worker sequence (sequential within Health):**
 
-1. **GAP-3 CBOE daemon step 1b''** — INTENTIONALLY DEFERRED. The
-   underlying CBOE source is gone (S96-59 / Q-5). Promote only after
-   Q-5 closes with path (A), (C), or (D); path (B) makes the daemon
-   step unnecessary.
-2. **GAP-2 FINRA daemon step 1h-pre on Mondays** — Data-Ingest worker
-   + Infra worker pair. Bi-weekly FINRA cadence; free, pre-authorized.
-3. **GAP-1 EDGAR daemon steps 1i-pre / 1k-pre / 1l-pre / 1m-pre** —
-   four ingests (Item 5.02, 8-K event, Form 4, Schedule 13D/G).
-   Worker design must handle the 100-hit EDGAR page cap (S96-60
-   watch-out) — likely a multi-day pagination pattern via the
-   `_sec_edgar_helpers.py` shared module.
-4. **GAP-4 ETF v1 daemon step 1jb** — mirrors the s96 #9 SSGA pattern.
-   Restores cross-validation symmetry.
+1. **`scripts/system_health_check.ts`** — orchestrate the existing
+   `_data_quality.ts` + `_morning_check.ts` + per-route ping + per-
+   table freshness probe + per-composite plausibility band into one
+   structured report. The existing `npm run health:check`
+   (`scripts/health_check.ts`) is the Phase 1 baseline; Phase 2
+   extends with the plausibility-band checks.
+2. **`scripts/migrate_create_health_quarantine.ts`** + the
+   `quantlab.health_quarantine` table DDL (forward-only additive
+   per s96 #15 S96-58 precedent — orchestration applies). One-row
+   pin for Q-5 CBOE corrupted-input window 2019-10-05 → 2026-05-23
+   with status `accepted-as-warning` (ratified per ADR-045).
+3. **`src/server/health_dashboard.ts`** + `HealthApp.tsx` Phase 2
+   panels — quarantine-aware extensions to the existing `/#/health`
+   route (showing pending Tier-2 rows, auto-fix log, plausibility-
+   band violations).
 
-**After daemon promotions** (parallel-safe with the daemon work since
-they touch the read-side `src/server/*_dashboard.ts` routes, not the
-daemon orchestrator):
+**Infra worker (parallel-safe with Health items 1+2+3):**
 
-- **GAP-7(a) uniform `tableExists` guards** — UI worker, one cycle.
-  Applies to the newly-created tables from GAP-15 (eight_k_events,
-  eight_k_classifier_snapshots, executive_departure_snapshots,
-  schedule_13d_g_*, short_interest_snapshots) so their routes render
-  honest empty states instead of unguarded 500s.
+4. **Brief §0 daily digest** — extend `src/server/operator_brief_render.ts`
+   with a new §0 block (freshness summary + quarantine summary +
+   auto-fix log) rendered BEFORE the existing §1 macro regime so
+   the operator sees system state first.
+5. **Daemon step 0a** — auto-run `system_health_check.ts` at the
+   start of `daily_signal_daemon.ts` so each daemon cycle starts
+   with a fresh health snapshot logged.
 
-Each step shipped with a UI surface update + browser validation per
-the standing feedback rule.
+**Health worker, sequential after items 1+2 (needs quarantine table):**
 
-### Cycle 3 plan
+6. **Telegram alert wiring** — emit one alert per Tier-2 quarantine
+   event using the existing `src/alerts/telegram.ts`
+   `SignalForgeTelegram` channel. Tier-1 auto-fixes do NOT alert
+   (they roll up in the daily digest per ADR-044).
 
-Per `docs/architecture/multi-agent-orchestration.md` §8.3 — Phase 2
-ADR-044 infrastructure (quarantine table + brief §0 + Telegram +
-daemon step 0a).
+**Parallel-spawn plan:** Health items 1+2+3 in one Health worker
+(sequential within); Infra items 4+5 in one Infra worker (parallel
+to Health); Health item 6 sequential after Health items 1+2 (needs
+the quarantine table). Total: 2 parallel workers, then 1 sequential
+follow-up.
 
-### Cycle 4+
+### Cycle 4+ (after Cycle 3)
 
-Per orchestration §8.4 — GAP-8 classifier docs ADR, GAP-13 Quartz
-upgrade procedure, GAP-16 sentinel investigation, GAP-17 orphans
-per-file, GAP-10 CI/CD baseline.
+- **GAP-8** classifier-source documentation ADR (Composite + UI workers).
+- **GAP-13 + GAP-19** Quartz vendor fork upgrade procedure (Infra).
+- **GAP-16** sentinel investigation in `bt_runs_regime` (Composite).
+- **GAP-17** orphan-script per-file cleanup (Infra).
+- **GAP-10 / orchestration §2.5 reclassified** CI/CD baseline via
+  `.github/workflows/ci.yml` (Infra).
+- Phase 9+ continued work as defined in HANDOFF (Phase B campaigns
+  remain paused per existing autonomous-execution rules until
+  operator green-light — those stay on the operator queue).
 
 ---
 
 ## Files / code state
 
-### New / modified this cycle (s96 #15)
+### New / modified this cycle (s96 #16 Cycle 2)
 
 | Path | LOC | Notes |
 | --- | --- | --- |
-| `docs/specs/adr-045-phase1-v3-cboe-putcall-input-window.md` | new (+213) | The phase1_v3 corrupted-input window ADR + free-source exhaustion + four methodology paths |
-| `scripts/migrate_create_cusip_ticker_map.ts` | new (+208) | GAP-18; DDL byte-pinned from finra_short_interest_ingest.py |
-| `src/server/cross_asset_snapshots_repository.ts` | renamed (0 content delta) | GAP-14; was cross_asset_signals_repository.ts |
-| `scripts/tests/crossAssetSnapshotsRepository.test.ts` | renamed (+2/-2 string edits) | GAP-14; matching test-file rename |
-| `src/server/health_check.ts` | +71/-10 | Worker C `thresholdsFor` + signature change + jsdoc; Worker D HEALTH_MIGRATIONS + HEALTH_SOURCES entries for cusip migration |
-| `scripts/tests/healthCheck.test.ts` | +50/-2 | F1 convention pin (2 new sub-tests; 24/24 pass) |
-| `scripts/daily_signal_daemon.ts` | -1/+1 | GAP-14 import-path update |
-| `src/server/operator_brief.ts` | -1/+1 | GAP-14 import-path update |
-| `src/server/short_interest_repository.ts` | -2/+2 | GAP-14 doc-comment refs |
-| `docs/specs/cross-asset-signals.md` | -3/+3 | GAP-14 doc refs (replace_all) |
-| `package.json` | +2 | New npm scripts: `migrate:create-cusip-ticker-map`, `:apply` |
-| `scripts/sec_edgar_form4_ingest.py` | +5/-3 | Worker B cp1252 fix: 3 `→` → `->` |
-| `.claude/HANDOFF.md` | this file | Rewrite; new Q-5 row in Operator queue |
+| `src/server/daemon_finra_short_interest_fetch.ts` | new (+108) | Slice 1; pure builder + Monday-gate + impure spawner; FINRA Mondays-only |
+| `src/server/daemon_edgar_ingests.ts` | new (+316) | Slice 2; consolidated 4-runner EDGAR helper + EDGAR_DAEMON_WINDOW_DAYS=2 + EDGAR_PAGE_CAP=100 + parseEdgarHitCount |
+| `src/server/daemon_etf_flow_v1_primary_refresh.ts` | new (+177) | Slice 3; v1 primary single-spawn helper (FINRA-style, not chain) |
+| `scripts/daily_signal_daemon.ts` | +257/-0 | Slice 1: step 1h-pre (+39); Slice 2: 4 steps + import (+172); Slice 3: step 1jb (+46) |
+| `src/server/health_check.ts` | +41/-12 | Slice 1: +short_interest entry; Slice 2: 4 EDGAR autonomous flips + why edits; Slice 3: etf_shares_outstanding flip |
+| `scripts/tests/daemonFinraShortInterestFetch.test.ts` | new (+108) | Slice 1; 9 tests / 2 suites |
+| `scripts/tests/daemonEdgarIngests.test.ts` | new (+278) | Slice 2; 24 tests / 5 suites |
+| `scripts/tests/daemonEtfFlowV1PrimaryRefresh.test.ts` | new (+117) | Slice 3; 7 tests / 1 suite |
+| `scripts/tests/healthCheck.test.ts` | +79/-10 | +4 convention pins across slices: GAP-2 (1), GAP-1 (1), GAP-4 (2 — autonomous + symmetry) |
+| `scripts/sec_edgar_13d_g_ingest.py` | +4/-4 | Slice 1 Tier-1 bundle: argparse + 3 stderr prints `→` → `->` |
+| `.claude/HANDOFF.md` | rewrite | This file; new S96-65..S96-69 lock-ins; operator queue unchanged (no new rows) |
 
 ### Test + tsc state
 
-- `scripts/tests/healthCheck.test.ts`: 24/24 pass (was 22; +2 new threshold pins).
-- `scripts/tests/crossAssetSnapshotsRepository.test.ts`: 40/40 pass.
-- 64/64 combined healthCheck + crossAssetSnapshots tests pass.
-- `pytest scripts/tests/test_sec_edgar_form4_ingest.py`: 47/47 pass.
-- `npx tsc --noEmit`: 13 baseline errors unchanged (all in unrelated `_check_*.ts` / `_verify_*.ts` files).
-- Health check delta: migrations 9/17 → 18/18; fresh 1 → 6; insider_trades never-populated → stale; CBOE remains very-stale (Q-5).
+- `daemonFinraShortInterestFetch.test.ts`: 9/9 pass.
+- `daemonEdgarIngests.test.ts`: 24/24 pass.
+- `daemonEtfFlowV1PrimaryRefresh.test.ts`: 7/7 pass.
+- `healthCheck.test.ts`: 27/27 pass (was 24 at s96 #15 close; +3 net).
+- `crossAssetSnapshotsRepository.test.ts`: 40/40 pass (unchanged).
+- Combined daemon + health + cross-asset: **107/107 pass**.
+- `pytest scripts/tests/test_sec_edgar_form4_ingest.py`: 47/47 pass (unchanged from s96 #15).
+- `npx tsc --noEmit`: **13 baseline errors unchanged** (all in unrelated `_check_*.ts` / `_verify_*.ts` files).
+- Health check delta: migrations 18/18 (unchanged); 4 newly-autonomous EDGAR + 1 newly-autonomous ETF v1 + 1 newly-autonomous FINRA-raw entries flipped to `autonomous: true`; expected first-fire timings: EDGAR + ETF v1 next `daemon:daily`, FINRA next Monday (2026-05-25).
 
 ### Untouched-but-relevant for next session
 
-- The newly-created `quantlab.eight_k_events`, `eight_k_classifier_snapshots`,
-  `executive_departure_snapshots`, `schedule_13d_g_filings`,
-  `schedule_13d_g_snapshots`, `short_interest_snapshots` tables exist but
-  have zero rows. Cycle 2's GAP-1/2 ingests populate them; GAP-7(a)
-  adds tableExists guards on their UI routes.
-- `quantlab.cusip_ticker_map` is registered as cadence=`one-shot` in
-  HEALTH_SOURCES. It will populate as a side-effect of F4 / FINRA
-  ingests (lookup table). Its `operatorAction` field in the health
-  config currently points at the migration (mildly misleading for the
-  empty-state case; small Tier-1 polish for a future cycle).
+- `quantlab.executive_departures` raw source table will be created
+  by the 8-K Item 5.02 ingest on first daemon step 1i-pre run (CREATE
+  TABLE IF NOT EXISTS pattern, same as Form 4 first-apply in s96 #15
+  Worker B). Until then, health-check correctly reports `missing-table`.
+- The brief renderer's empty-state markdown messages (e.g.
+  `\`quantlab.short_interest_snapshots\` is empty (or absent)`) are
+  honest fallbacks, not bugs. Worker 4 flagged informationally.
+- `scripts/cboe_putcall_ingest.py`'s `DEFAULT_CBOE_URL` is still dead
+  (HTTP 403, S96-59 carry-over). Will resolve under Q-5 path A/C/D.
+  Not on daemon path; deferred.
 
 ---
 
 ## Watch-outs
 
-### NEW from this cycle (s96 #15)
+### NEW from this cycle (s96 #16)
 
-- **S96-64 worktree-isolation finding** — the Agent tool's
-  `isolation: "worktree"` flag did not produce filesystem isolation
-  in Cycle 1's Workers C and D. Both diffs landed in the main
-  checkout. No collision occurred (file-overlap was in disjoint
-  function ranges), but the orchestration design's safety assumption
-  is empirically broken. Mitigation: explicit file-range partitioning
-  in constraint envelopes when same-file edits are possible.
-  **Investigation deferred** — needs reproducer + Agent-tool behavior
-  spec check.
-- **S96-59 / Q-5 CBOE permanent gap** — until Q-5 closes, the
-  `/#/health` panel will continue to flag `macro_indicators_cboe` as
-  very-stale. The morning brief should not treat this as a missed
-  cycle. Post-Phase-2 ADR-044 ships, this becomes a documented
-  quarantine row with status `accepted-as-warning`.
-- **Cycle 1's parallel-spawn pattern was operationally heavy but
-  correct.** Four workers in parallel returned coherent diffs; the
-  critic-verdict path resolved 3 autonomously (B/C/D) and escalated
-  1 (A) on a real ADR-trigger. The hypothesis-test of multi-agent
-  parallelism (orchestration §11 revision log) passed cleanly on
-  the first cycle; Cycle 2's sequential daemon work is intentionally
-  more conservative because the daemon-orchestrator file isn't
-  easily partitioned.
-- **The 100-hit EDGAR page cap** observed by Worker B applies to all
-  4 EDGAR ingests (Item 5.02, 8-K event, Form 4, Schedule 13D/G).
-  Cycle 2 GAP-1 daemon promotion design must handle multi-day
-  pagination; check `_sec_edgar_helpers.py` for an established
-  pattern before re-inventing.
-- **`scripts/cboe_putcall_ingest.py`'s `DEFAULT_CBOE_URL` is dead
-  (HTTP 403).** Worker A signaled this. Whoever next opens the
-  script will hit a confusing 403; a follow-up Infra cycle should
-  refresh the URL constant + docstring (note the 2019-10-04 freeze)
-  + add a regression test pinning "expect data through 2019-10-04
-  from this archive endpoint." Not urgent — the script isn't on the
-  daemon path. Deferred to whatever cycle next touches CBOE
-  ingestion (probably Q-5 resolution under paths A/C/D).
+- **GAP-1 cap-hit anomaly stream will fire daily on Form 4 + Item
+  5.02 + 8-K broader.** The 2-day rolling window will routinely
+  return 100 hits (EDGAR cap). The daemon's warning-anomaly path
+  produces one log line + anomaly row per affected ingest per
+  cycle; cycle 3 Phase 2 ADR-044 may want to dedupe these in the
+  brief §0 quarantine summary (Worker 2 Signal #2). Operator-
+  catchup commands (`npm run edgar:form4:ingest --start-date X
+  --end-date X`) remain the manual backfill path. A future Data-
+  Ingest cycle MAY add `from=` pagination to `_sec_edgar_helpers.py`
+  to close the cap-hit stream (Path B; out of Cycle 2 envelope).
+- **Cycle 3's Health worker will face a calibration question** on
+  Tier-2 plausibility-band thresholds. Per ADR-044 the bands start
+  permissive (only catch obviously-impossible values like the
+  937T% return) and ratchet tighter as the operator reviews
+  quarantine patterns. Cycle 3 Health worker's first task is to
+  document the starting bands in `docs/specs/` and add convention-
+  pin tests.
+- **The 4 EDGAR daemon-promotion `why` strings reference daemon
+  step names (1i-pre / 1k-pre / 1l-pre / 1m-pre).** A future
+  daemon refactor that renumbers steps must update these `why`
+  strings; the GAP-1 convention pin in `healthCheck.test.ts`
+  doesn't catch step-name drift (only autonomous-flag drift).
+  Minor watch-out.
+- **`getDay() === 1` UTC-Monday gate is a calendar fact for FINRA.**
+  Worker 1's Decision #3 documented why UTC over ET; the daemon's
+  existing timestamp handling is UTC throughout. If a future
+  refactor introduces ET-aware timestamps anywhere in the daemon,
+  the FINRA Monday gate should be revisited — but the gate's
+  ~1-2h UTC-vs-ET window error is well within the 24-hour grace
+  for biweekly publication.
+- **The empty-state shape for the brief fetchers is `null` returned
+  from `fetchLatest*FromCH` + a renderer-side empty-state string.**
+  This contract is NOT pinned by a test today. Worker 4 Signal #2
+  flagged this informationally; a future cycle could add a renderer-
+  side test that asserts the empty-state strings render correctly
+  given `null` inputs.
 
 ### Carried from earlier sessions
 
-All prior watch-outs (s96 #1-#14 carry-overs) preserved.
+All prior watch-outs (s96 #1-#15 carry-overs) preserved.
 
 ---
 
@@ -481,7 +530,7 @@ npm run health:check:strict            # exit 1 if any non-green; CI-suitable
 ### Daily-keep-it-fresh
 
 ```text
-npm run daemon:daily                                    # all Layer-0 composites + step 1ja SSGA refresh
+npm run daemon:daily                                    # all Layer-0 composites + step 1ja SSGA + 1jb v1 primary + 1h-pre FINRA-Monday + 4 EDGAR -pre steps
 npm run audit:positions
 npx tsx scripts/_paper_trading_review.ts
 npm run brief:morning
@@ -501,41 +550,40 @@ npm run dev:all                                         # dashboard (:3000) + Qu
 ### Tests + dev
 
 ```text
-npm test                                                                       # last full green at s96 #12 close: 3155 pass / 1 fail / 33 skip
-node --import tsx --test scripts/tests/healthCheck.test.ts                     # 24 pass at s96 #15 close (was 22; +2 F1 threshold pins)
-node --import tsx --test scripts/tests/crossAssetSnapshotsRepository.test.ts   # 40 pass at s96 #15 close (post-rename)
-.venv/Scripts/python.exe -m pytest scripts/tests/test_sec_edgar_form4_ingest.py # 47 pass at s96 #15 close
-.venv/Scripts/python.exe -m pytest scripts/tests                               # last green at s96 #9 close: 394 pass
-npm run dev                                                                    # http://localhost:3000
-npx tsc --noEmit                                                               # 13 baseline errors unchanged
+npm test                                                                            # last full green at s96 #12 close: 3155 pass / 1 fail / 33 skip
+node --import tsx --test scripts/tests/healthCheck.test.ts                          # 27 pass at s96 #16 close (was 24; +3 Cycle 2 pins)
+node --import tsx --test scripts/tests/daemonFinraShortInterestFetch.test.ts        #  9 pass at s96 #16 close
+node --import tsx --test scripts/tests/daemonEdgarIngests.test.ts                   # 24 pass at s96 #16 close
+node --import tsx --test scripts/tests/daemonEtfFlowV1PrimaryRefresh.test.ts        #  7 pass at s96 #16 close
+node --import tsx --test scripts/tests/crossAssetSnapshotsRepository.test.ts        # 40 pass at s96 #16 close (unchanged)
+combined daemon + health + cross-asset:                                             # 107 pass
+.venv/Scripts/python.exe -m pytest scripts/tests/test_sec_edgar_form4_ingest.py     # 47 pass at s96 #15 close
+.venv/Scripts/python.exe -m pytest scripts/tests                                    # last green at s96 #9 close: 394 pass
+npm run dev                                                                         # http://localhost:3000
+npx tsc --noEmit                                                                    # 13 baseline errors unchanged
 ```
 
-### Newly available npm scripts (s96 #15)
+### npm scripts touched this cycle
 
-```text
-npm run migrate:create-cusip-ticker-map                # dry-run
-npm run migrate:create-cusip-ticker-map:apply          # apply (idempotent)
-```
-
-### Cycle 1 first-apply commands (record for reference)
-
-```text
-.venv/Scripts/python.exe scripts/sec_edgar_form4_ingest.py --start-date 2026-05-01 --end-date 2026-05-15 --apply
-# ↑ Worker B's smoke-window command; landed 142 rows in insider_trades from 100 EDGAR hits
-```
+No new npm scripts in Cycle 2 — all four daemon promotions use the
+existing `finra:short-interest:ingest`, `edgar:exec-departure:ingest`,
+`edgar:8k-event:ingest`, `edgar:form4:ingest`, `edgar:13d-g:ingest`,
+`etf:flow:ingest` scripts. The helpers spawn them directly via
+`spawnSync`.
 
 ---
 
 ## For the next session — priority order
 
-**Default on `continue`:** Cycle 2 per orchestration §8.2. Sequential
-daemon promotions (Infra orchestrator file isn't easily partitioned
-across parallel workers per S96-64). Order: GAP-2 (FINRA Monday) →
-GAP-1 (4 EDGAR ingests; handle 100-hit pagination) → GAP-4 (ETF v1
-mirroring SSGA s96 #9 pattern). GAP-3 (CBOE) is **deferred until
-Q-5 closes**. Then UI worker for GAP-7(a) uniform tableExists guards
-on the newly-created Cycle 1 tables (parallel-safe with the daemon
-work).
+**Default on `continue`:** Cycle 3 per orchestration §8.3 — Phase 2
+ADR-044 infrastructure. 2 parallel workers (Health items 1+2+3 +
+Infra items 4+5) then 1 sequential follow-up (Health item 6 Telegram,
+needs the quarantine table). First task within Health worker: write
+`scripts/system_health_check.ts` orchestrating the existing
+`_data_quality.ts` + `_morning_check.ts` + per-route ping + per-
+table freshness probe + per-composite plausibility band into one
+structured report. ADR-044 §implementation-plan Phase 2 names the
+specific deliverables.
 
 **Calendar-gated (unchanged):**
 - Vol-structure / sector-rotation / cross-asset / cycle-position /
@@ -550,8 +598,8 @@ above):**
 - Q-1 first real-capital deployment — operator-defined timing.
 - Q-2 capital-deployment-ramp ADR — operator self-assigned ~1 week.
 - Q-3 Stooq apikey gate decision — paid vs self-host.
-- Q-4 push 16 commits to origin/main.
-- **Q-5 phase1_v3 CBOE methodology amendment — pick A/B/C/D.**
+- Q-4 push 19 commits to origin/main.
+- Q-5 phase1_v3 CBOE methodology amendment — pick A/B/C/D.
 
 **Do NOT auto-open without operator green-light:**
 - C-12 Phase B AlpacaAdapter (real-money path; per §7.2 allowlist).
@@ -562,54 +610,53 @@ above):**
 - `git push` (Q-4 above).
 - Q-5-blocked work: F2 CBOE backfill, Composite worker phase1_v3
   re-classify.
+- Path B EDGAR `from=` pagination (Data-Ingest domain; future cycle).
 
 ---
 
 ## Important framing for the next chat
 
-**Cycle 1 is closed.** Four parallel workers (one escalated, three
-auto-approved + merged) + ADR-045 + this HANDOFF rewrite. The
-multi-agent orchestration pattern executed cleanly on its first
-hypothesis-test cycle; the one finding worth investigating is the
-worktree-isolation question (S96-64) — Agent-tool `isolation: "worktree"`
-did not produce filesystem isolation. Mitigation in place
-(explicit file-range partitioning in constraint envelopes) until
-investigation completes.
+**Cycle 2 is closed.** Four workers (3 AUTO-APPROVE Infra + 1 UI no-op
+closeout) + this HANDOFF rewrite. The multi-agent orchestration's
+sequential-only pattern executed cleanly on the daemon-orchestrator
+contention case (S96-69 hypothesis-test result). No new operator-
+queue rows; no escalations fired this cycle.
 
-**The operator queue gained one row (Q-5).** Read it before
-proposing methodology work on phase1_v3 — the SPEC's primary input
-is dark pending operator path-choice. Orchestration recommends
-path (D) hybrid.
+**The operator queue is unchanged at 5 rows (Q-1 through Q-5).**
+Q-5 (CBOE) remains the only methodology-amendment item; the next
+cycle is Phase 2 ADR-044 infrastructure, which does NOT touch
+phase1_v3 or any composite logic — Cycle 3 is purely standing-
+infrastructure (quarantine table + brief §0 digest + Telegram +
+auto-health-check daemon step + a single quarantine pin for Q-5).
 
-**Default next is Cycle 2.** Sequential daemon promotions plus
-parallel UI guards. GAP-3 CBOE is intentionally skipped (blocked on
-Q-5). GAP-1 must handle the 100-hit EDGAR page cap surfaced by
-Worker B.
+**Default next is Cycle 3.** 2 parallel workers (Health 1+2+3 + Infra
+4+5) followed by 1 sequential follow-up (Health 6 Telegram). ADR-044
+§implementation-plan Phase 2 + orchestration §8.3 spell out the
+deliverables. Each step shipped with a UI surface + browser
+validation per the standing feedback rule.
 
 **Backward compat preserved this cycle:**
-1. **CH:** All migrations are forward-only additive (CREATE TABLE
-   IF NOT EXISTS + ALTER ADD COLUMN IF NOT EXISTS).
-2. **Type:** `classifyStatus` 5th param defaults to `'datetime'` for
-   back-compat — existing call sites work without modification.
-3. **Brief:** Zero brief renderer changes.
-4. **Tests:** 22 healthCheck tests preserved + 2 added; 40
-   cross-asset tests preserved via rename; 47 form4 pytest preserved.
+1. **CH:** No new tables created. No DDL run.
+2. **Type:** All new exports are net-additive; no breaking signatures.
+3. **Brief:** Zero brief renderer changes (Cycle 3 adds §0).
+4. **Tests:** 64/64 prior tests preserved + 40/40 new tests added =
+   107/107 combined; 47/47 form4 pytest preserved.
 
-**The chain through s96 #15:**
+**The chain through s96 #16:**
 
 ```text
-ALL S41-S96#14 WORK                                      ✓ as documented
-S96 #15 Cycle 1 of multi-agent orchestration:
-  • Worker A (F2 CBOE)         ESCALATE  → Q-5 + ADR-045
-  • Worker B (F3 Form 4)       AUTO-APPROVE  → 142 rows, cp1252 fix
-  • Worker C (F1 threshold)    AUTO-APPROVE  → per-timestampType split
-  • Worker D (GAP-14/15/18)    AUTO-APPROVE  → rename + 9 migrations
-  + ADR-045 phase1_v3 corrupted-input window
-  + S96-59..S96-64 lock-ins documented
+ALL S41-S96#15 WORK                                      ✓ as documented
+S96 #16 Cycle 2 of multi-agent orchestration:
+  • Worker 1 (Infra, GAP-2)    AUTO-APPROVE  → FINRA Mondays-only + 13d_g Unicode fix
+  • Worker 2 (Infra, GAP-1)    AUTO-APPROVE  → 4 EDGAR daemon steps + page-cap warning
+  • Worker 3 (Infra, GAP-4)    AUTO-APPROVE  → ETF v1 primary + symmetry pin
+  • Worker 4 (UI,    GAP-7a)   AUTO-APPROVE  → 0 files (no-op closeout)
+  + S96-65..S96-69 lock-ins documented
   + 3 commits + this HANDOFF rewrite = 4 logical units
-  + worktree-isolation finding logged for investigation
-  → DEFAULT NEXT: Cycle 2 per orchestration §8.2
-    Sequential: GAP-2 → GAP-1 (with 100-hit pagination) → GAP-4
-    Parallel-safe after: GAP-7(a) UI tableExists guards
-    Deferred: GAP-3 CBOE (blocked on Q-5)
+  + Sequential-spawn pattern validated on daemon-orchestrator
+    contention case (S96-69)
+  → DEFAULT NEXT: Cycle 3 per orchestration §8.3
+    Phase 2 ADR-044: quarantine table + brief §0 + Telegram +
+    daemon step 0a + Q-5 quarantine pin.
+    Parallel: Health 1+2+3 ∥ Infra 4+5. Sequential: Health 6 (Telegram).
 ```
