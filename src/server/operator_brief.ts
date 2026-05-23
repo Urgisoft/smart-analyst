@@ -92,6 +92,11 @@ import {
   form4InsiderSnapshotsTableExists,
 } from './form_4_insider_repository.js';
 import type { Form4InsiderSnapshot } from './form_4_insider.js';
+import {
+  Schedule13DGRepository,
+  schedule13dgSnapshotsTableExists,
+} from './schedule_13d_g_repository.js';
+import type { Schedule13DGSnapshot } from './schedule_13d_g.js';
 import { DEPLOYMENT_STAGES } from './capital_deployment_config.js';
 import {
   computePerCellCapital,
@@ -114,6 +119,7 @@ import type {
   BriefForm4InsiderSection,
   BriefEtfFlowSection,
   BriefExecutiveDepartureSection,
+  BriefSchedule13DGSection,
   BriefSectorRotationSection,
   BriefShortInterestSection,
   BriefStageSection,
@@ -302,6 +308,14 @@ export interface BriefDeps {
    */
   fetchLatestForm4Insider?: () => Promise<Form4InsiderSnapshot | null>;
   /**
+   * Schedule 13D / 13G activist-stake composite reader. Defaults to
+   * `Schedule13DGRepository.loadLatestSnapshot()`, returning null when
+   * `quantlab.schedule_13d_g_snapshots` is absent or empty. SPEC:
+   * docs/specs/schedule-13d-13g-activist-stake.md §3 + §8. Tests stub to
+   * drive the panel deterministically.
+   */
+  fetchLatestSchedule13DG?: () => Promise<Schedule13DGSnapshot | null>;
+  /**
    * Kill-criteria daily history probe — true iff
    * `quantlab.kill_criteria_daily` exists. Drives the brief stage panel's
    * "streak source" warning (SPEC docs/specs/kill-criteria-daily-history.md
@@ -364,6 +378,8 @@ export async function composeMorningBrief(deps?: Partial<BriefDeps>): Promise<Mo
     deps?.fetchLatestEightKClassifier ?? fetchLatestEightKClassifierFromCH;
   const fetchLatestForm4Insider =
     deps?.fetchLatestForm4Insider ?? fetchLatestForm4InsiderFromCH;
+  const fetchLatestSchedule13DG =
+    deps?.fetchLatestSchedule13DG ?? fetchLatestSchedule13DGFromCH;
   // Critic H-2 (SPEC docs/specs/kill-criteria-daily-history.md §10) — probe
   // the table at compose time so the stage panel can surface "streak source"
   // when the daemon falls back to the rolling-asOf shortcut. Defaulted via
@@ -374,7 +390,7 @@ export async function composeMorningBrief(deps?: Partial<BriefDeps>): Promise<Mo
     deps?.fetchCellWeightsForBrief ?? defaultFetchCellWeightsForBrief;
   const now = deps?.now ?? (() => new Date());
 
-  const [regime, paper, lastRun, allowlists, closedTrades, latestDrawdown, latestDrawdownPerStrategy, latestStage, killCritDailyPresent, latestCyclePosition, latestVolStructure, latestSectorRotation, latestCrossAsset, latestShortInterest, latestExecutiveDeparture, latestEtfFlow, latestEightKClassifier, latestForm4Insider] = await Promise.all([
+  const [regime, paper, lastRun, allowlists, closedTrades, latestDrawdown, latestDrawdownPerStrategy, latestStage, killCritDailyPresent, latestCyclePosition, latestVolStructure, latestSectorRotation, latestCrossAsset, latestShortInterest, latestExecutiveDeparture, latestEtfFlow, latestEightKClassifier, latestForm4Insider, latestSchedule13DG] = await Promise.all([
     fetchRegime({ asOf: null, lookbackDays: LOOKBACK_DAYS_DEFAULT }),
     fetchPaper({ runHistoryLimit: 14 }),
     fetchDaemon(),
@@ -393,6 +409,7 @@ export async function composeMorningBrief(deps?: Partial<BriefDeps>): Promise<Mo
     fetchLatestEtfFlow(),
     fetchLatestEightKClassifier(),
     fetchLatestForm4Insider(),
+    fetchLatestSchedule13DG(),
   ]);
 
   if (!regime.biasNote || !regime.biasNote.body) {
@@ -444,6 +461,7 @@ export async function composeMorningBrief(deps?: Partial<BriefDeps>): Promise<Mo
   const etfFlow = buildEtfFlowSection(latestEtfFlow);
   const eightK = buildEightKClassifierSection(latestEightKClassifier);
   const formFour = buildForm4InsiderSection(latestForm4Insider);
+  const scheduleThirteenDG = buildSchedule13DGSection(latestSchedule13DG);
 
   return {
     generatedAt: now().toISOString().slice(0, 19) + 'Z',
@@ -467,6 +485,7 @@ export async function composeMorningBrief(deps?: Partial<BriefDeps>): Promise<Mo
     etfFlow,
     eightK,
     formFour,
+    scheduleThirteenDG,
   };
 }
 
@@ -960,6 +979,82 @@ async function fetchLatestForm4InsiderFromCH(): Promise<Form4InsiderSnapshot | n
   try {
     if (!(await form4InsiderSnapshotsTableExists())) return null;
     const repo = new Form4InsiderRepository();
+    return await repo.loadLatestSnapshot();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Build the morning-brief Schedule 13D / 13G activist-stake section from
+ * the repository snapshot. Returns null when no snapshot exists yet
+ * (pre-first-daemon-cycle state); the renderer handles null with the "not
+ * yet evaluated" footer. Mirrors `buildEightKClassifierSection` +
+ * `buildForm4InsiderSection` structurally — closes the XD13 arc end-to-end
+ * after EK + F4.
+ *
+ * Stamps the composer-side `tickersWithCikCount` + `watchUniverseTickerCount`
+ * onto the section so the renderer's universe-coverage line uses a CIK-only
+ * count (per S93-28: the composite's `inputsAvailablePerTicker` is gated on
+ * 90d-filing-count ≥ 1 and is therefore mostly 0 in v1 — using it directly
+ * in the brief would render a misleading "0/60 with CIK mapping" line).
+ */
+export function buildSchedule13DGSection(
+  snapshot: Schedule13DGSnapshot | null,
+): BriefSchedule13DGSection | null {
+  if (snapshot === null) return null;
+  const watchUniverseTickerCount = snapshot.perTickerRows.length;
+  let tickersWithCikCount = 0;
+  for (const r of snapshot.perTickerRows) {
+    if (r.cik !== '') tickersWithCikCount++;
+  }
+  return {
+    evaluatedAt: snapshot.snapshotDate.toISOString(),
+    snapshotDate: snapshot.snapshotDate.toISOString().slice(0, 10),
+    lastEdgarQueryAt: snapshot.lastEdgarQueryAt != null
+      ? snapshot.lastEdgarQueryAt.toISOString()
+      : null,
+    bdSinceLastQuery: snapshot.bdSinceLastQuery,
+    flaggedSectors: snapshot.flaggedSectors.map(f => ({
+      sector: f.sector,
+      sectorSize: f.sectorSize,
+      new13DRateT: f.new13DRateT,
+      z: f.z,
+      baselineSize: f.baselineSize,
+    })),
+    schedule13DClusterFlag: snapshot.schedule13DClusterFlag,
+    maxAggregateZ: snapshot.maxAggregateZ,
+    maxAggregateZSector: snapshot.maxAggregateZSector,
+    perTickerRows: snapshot.perTickerRows.map(r => ({
+      ticker: r.ticker,
+      cik: r.cik,
+      sector: r.sector,
+      new13DFilingFlag30d: r.new13DFilingFlag30d,
+      new13GFilingFlag30d: r.new13GFilingFlag30d,
+      recent13DCount90d: r.recent13DCount90d,
+      recent13GCount90d: r.recent13GCount90d,
+      new13DCount90d: r.new13DCount90d,
+      distinct13DFilers90d: r.distinct13DFilers90d,
+      daysSinceLatest13D: r.daysSinceLatest13D,
+      daysSinceLatest13G: r.daysSinceLatest13G,
+    })),
+    inputsAvailableAggregate: snapshot.inputsAvailableAggregate,
+    inputsAvailablePerTicker: snapshot.inputsAvailablePerTicker,
+    tickersWithCikCount,
+    watchUniverseTickerCount,
+    compositeVersion: snapshot.version,
+  };
+}
+
+/**
+ * Default fetcher for the morning-brief Schedule 13D / 13G section. Mirrors
+ * the prior nine Layer-0 composites' graceful-degrade posture — returns
+ * null on absent table OR any read error.
+ */
+async function fetchLatestSchedule13DGFromCH(): Promise<Schedule13DGSnapshot | null> {
+  try {
+    if (!(await schedule13dgSnapshotsTableExists())) return null;
+    const repo = new Schedule13DGRepository();
     return await repo.loadLatestSnapshot();
   } catch {
     return null;

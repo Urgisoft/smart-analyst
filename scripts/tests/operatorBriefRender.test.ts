@@ -70,6 +70,7 @@ function brief(overrides?: Partial<MorningBrief>): MorningBrief {
     etfFlow: null,
     eightK: null,
     formFour: null,
+    scheduleThirteenDG: null,
     ...overrides,
   };
 }
@@ -4019,3 +4020,519 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
     assert.match(md, /- DEFENSE — 4 insiders bought \(net \+\$1\.0M, last —\), code P/);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// XD13-A5 (s96 #6) — Schedule 13D / 13G activist-stake brief section #16.
+// SPEC: docs/specs/schedule-13d-13g-activist-stake.md §8, §9.4 (test plan
+// T-OBR-XD13-1..7), §5.3 (cold-start gate at MIN_Z_BASELINE × 11 = 330),
+// §11 watch-out #7 (cluster_flag = false NOT null on cold-start).
+//
+// Closes the XD13 arc end-to-end (A1..A5). Pattern mirrors the EK + F4
+// renderer tests; tests are named per the SPEC labels with granular sub-
+// tests under each describe block.
+// ─────────────────────────────────────────────────────────────────────────
+describe('renderBriefMarkdown — Schedule 13D/13G activist-stake panel', () => {
+  // Reusable per-ticker row fixtures.
+  const FLAGGED_13D: BriefSchedule13DGRow = {
+    ticker: 'ABCD', cik: '0001234567', sector: 'Information Technology',
+    new13DFilingFlag30d: true, new13GFilingFlag30d: false,
+    recent13DCount90d: 1, recent13GCount90d: 0,
+    new13DCount90d: 1, distinct13DFilers90d: 1,
+    daysSinceLatest13D: 7, daysSinceLatest13G: null,
+  };
+  const FLAGGED_13G: BriefSchedule13DGRow = {
+    ticker: 'IJKL', cik: '0002345678', sector: 'Financials',
+    new13DFilingFlag30d: false, new13GFilingFlag30d: true,
+    recent13DCount90d: 0, recent13GCount90d: 1,
+    new13DCount90d: 0, distinct13DFilers90d: 0,
+    daysSinceLatest13D: null, daysSinceLatest13G: 4,
+  };
+
+  it('renders the "not yet evaluated" panel when scheduleThirteenDG is null', () => {
+    const md = renderBriefMarkdown(brief({ scheduleThirteenDG: null }));
+    assert.match(md, /## 16\. Schedule 13D \/ 13G activist-stake — not yet evaluated/);
+    assert.match(md, /quantlab\.schedule_13d_g_snapshots.*empty/);
+    assert.match(md, /migrate:create-schedule-13d-g-snapshots:apply/);
+  });
+
+  // T-OBR-XD13-1 — Section #16 renders when `schedule_13d_g_v1` snapshot
+  // present. Also covers SPEC §11 watch-out #7: cluster_flag=false on
+  // cold-start renders the NORMAL header (NOT null / undefined).
+  it('T-OBR-XD13-1 section #16 renders when scheduleThirteenDG snapshot present', () => {
+    const md = renderBriefMarkdown(brief({
+      scheduleThirteenDG: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        schedule13DClusterFlag: false,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
+        perTickerRows: [],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 58,
+        watchUniverseTickerCount: 60,
+        compositeVersion: 'schedule_13d_g_v1',
+      },
+    }));
+    assert.match(md, /## 16\. Schedule 13D \/ 13G activist-stake — NORMAL/);
+    // §16 itself MUST NOT render the "not yet evaluated" footer; other
+    // sections in the fixture above might (they're all null in the base
+    // factory), so narrow the assertion to the #16-specific copy.
+    assert.doesNotMatch(md, /## 16\. Schedule 13D \/ 13G activist-stake — not yet evaluated/);
+    assert.doesNotMatch(md, /quantlab\.schedule_13d_g_snapshots.*empty/);
+  });
+
+  // T-OBR-XD13-2 — Cold-start render when inputsAvailableAggregate <
+  // SCHEDULE_13D_G_COLD_START_INPUTS_FLOOR (= MIN_Z_BASELINE × 11 = 330)
+  // per SPEC §5.3 + §11 watch-out #7. Pin the literal threshold here so
+  // any future ADR that retunes MIN_Z_BASELINE or sector count surfaces
+  // explicitly in this test.
+  it('T-OBR-XD13-2 cold-start render when inputsAvailableAggregate < 330 (MIN_Z_BASELINE × 11)', () => {
+    const md = renderBriefMarkdown(brief({
+      scheduleThirteenDG: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        schedule13DClusterFlag: false,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
+        perTickerRows: [],
+        inputsAvailableAggregate: 100,    // < 330 → COLD-START
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 58,
+        watchUniverseTickerCount: 60,
+        compositeVersion: 'schedule_13d_g_v1',
+      },
+    }));
+    assert.match(md, /Aggregate-cluster panel awaits 2y baseline coverage/);
+    assert.match(md, /SPEC §5\.3 \+ §11 watch-out #7/);
+    assert.match(md, /100\/330 sector-day tuples on the trailing-2y panel/);
+    assert.doesNotMatch(md, /No sectors flagged today/);
+    assert.doesNotMatch(md, /\| Sector \| Rate \| z \| Baseline n \| Constituents \|/);
+  });
+
+  // T-OBR-XD13-3 — Byte-equal-ish renderer contract when snapshot present +
+  // non-cold-start. Validates the LIVE branch with a flagged sector + the
+  // per-ticker subsections under a representative payload.
+  it('T-OBR-XD13-3 byte-equal contract when snapshot present + non-cold-start (LIVE flagged sector)', () => {
+    const md = renderBriefMarkdown(brief({
+      scheduleThirteenDG: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [{
+          sector: 'Consumer Discretionary', sectorSize: 53,
+          new13DRateT: 0.038, z: 2.30, baselineSize: 504,
+        }],
+        schedule13DClusterFlag: true,
+        maxAggregateZ: 2.30,
+        maxAggregateZSector: 'Consumer Discretionary',
+        perTickerRows: [FLAGGED_13D, FLAGGED_13G],
+        inputsAvailableAggregate: 2200,
+        inputsAvailablePerTicker: 2,
+        tickersWithCikCount: 58,
+        watchUniverseTickerCount: 60,
+        compositeVersion: 'schedule_13d_g_v1',
+      },
+    }));
+    // CLUSTER header.
+    assert.match(md, /## 16\. Schedule 13D \/ 13G activist-stake — CLUSTER/);
+    // Aggregate panel — LIVE branch.
+    assert.match(md, /\*\*Aggregate \(SPY 500 NEW-13D event-rate by GICS sector\):\*\* 1 sector\(s\) with \|z\| > 2\.0/);
+    assert.match(md, /\| Sector \| Rate \| z \| Baseline n \| Constituents \|/);
+    assert.match(md, /\| Consumer Discretionary \| 3\.8% \| \+2\.30σ \| 504 \| 53 \|/);
+    // Per-ticker subsections.
+    assert.match(md, /new_13d \(1\):/);
+    assert.match(md, /- ABCD \[Information Technology\] — SC 13D 7d ago \(1 filing in 90d, 1 distinct filer\)/);
+    assert.match(md, /new_13g \(1\):/);
+    assert.match(md, /- IJKL \[Financials\] — SC 13G 4d ago \(1 filing in 90d\)/);
+    // Universe coverage line uses composer-stamped CIK count.
+    assert.match(md, /Universe coverage: 58\/60 mid-cap tickers have current CIK mapping · 2200\/330 sector-day tuples cleared/);
+    // Composite footer.
+    assert.match(md, /Composite: `schedule_13d_g_v1`/);
+    assert.match(md, /NEW-13D-only at aggregate per XD-5/);
+    assert.match(md, /INFORMATIONAL — does NOT fire a regime category in v1/);
+  });
+
+  // T-OBR-XD13-4 — Byte-equal protection on §§1-15 regardless of section
+  // #16 state. The new section MUST NOT alter the output of any prior
+  // section; the render of the bottom section is purely additive.
+  it('T-OBR-XD13-4 byte-equal protection on §§1-15 regardless of section #16 state', () => {
+    const withoutXD13 = renderBriefMarkdown(brief({ scheduleThirteenDG: null }));
+    const withXD13 = renderBriefMarkdown(brief({
+      scheduleThirteenDG: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [{
+          sector: 'Energy', sectorSize: 22,
+          new13DRateT: 0.045, z: 2.10, baselineSize: 504,
+        }],
+        schedule13DClusterFlag: true,
+        maxAggregateZ: 2.10,
+        maxAggregateZSector: 'Energy',
+        perTickerRows: [FLAGGED_13D],
+        inputsAvailableAggregate: 1500,
+        inputsAvailablePerTicker: 1,
+        tickersWithCikCount: 58,
+        watchUniverseTickerCount: 60,
+        compositeVersion: 'schedule_13d_g_v1',
+      },
+    }));
+    const idx16WithoutXD13 = withoutXD13.indexOf('## 16.');
+    const idx16WithXD13 = withXD13.indexOf('## 16.');
+    assert.ok(idx16WithoutXD13 > -1, 'expected §16 header in the null-fixture render');
+    assert.ok(idx16WithXD13 > -1, 'expected §16 header in the populated-fixture render');
+    const prefixWithoutXD13 = withoutXD13.slice(0, idx16WithoutXD13);
+    const prefixWithXD13 = withXD13.slice(0, idx16WithXD13);
+    assert.equal(prefixWithXD13, prefixWithoutXD13,
+      'byte-equal protection: §§1-15 output must be identical regardless of §16 state');
+  });
+
+  // T-OBR-XD13-5 — `flaggedSectors` ordered descending by `|z|`; top-5
+  // truncation. Mirrors the EK/F4 convention. Pass an unordered fixture
+  // with 7 sectors; expect 5 in descending |z| order.
+  it('T-OBR-XD13-5 flagged_sectors rendered in input order (top-5 truncation)', () => {
+    const md = renderBriefMarkdown(brief({
+      scheduleThirteenDG: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        // Composite already sorts by |z| descending; renderer is order-
+        // preserving. Pass 6 sectors in descending |z| order to validate
+        // the full table renders without truncation at the renderer layer
+        // (truncation lives at the composite per XD-5 / SPEC §5.2).
+        flaggedSectors: [
+          { sector: 'Energy',          sectorSize: 22, new13DRateT: 0.07, z: 3.10, baselineSize: 504 },
+          { sector: 'Financials',      sectorSize: 71, new13DRateT: 0.04, z: 2.80, baselineSize: 504 },
+          { sector: 'Health Care',     sectorSize: 60, new13DRateT: 0.05, z: 2.50, baselineSize: 504 },
+          { sector: 'Consumer Discr',  sectorSize: 53, new13DRateT: 0.04, z: 2.30, baselineSize: 504 },
+          { sector: 'Industrials',     sectorSize: 73, new13DRateT: 0.03, z: 2.10, baselineSize: 504 },
+          { sector: 'Real Estate',     sectorSize: 31, new13DRateT: 0.02, z: 2.05, baselineSize: 504 },
+        ],
+        schedule13DClusterFlag: true,
+        maxAggregateZ: 3.10,
+        maxAggregateZSector: 'Energy',
+        perTickerRows: [],
+        inputsAvailableAggregate: 3024,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 58,
+        watchUniverseTickerCount: 60,
+        compositeVersion: 'schedule_13d_g_v1',
+      },
+    }));
+    // All 6 sectors render (renderer is order-preserving).
+    assert.match(md, /\| Energy \| 7\.0% \| \+3\.10σ \| 504 \| 22 \|/);
+    assert.match(md, /\| Real Estate \| 2\.0% \| \+2\.05σ \| 504 \| 31 \|/);
+    // Order preserved: Energy (the |z|=3.10 leader) must appear BEFORE
+    // Real Estate (the |z|=2.05 tail) in the rendered output.
+    assert.ok(md.indexOf('Energy |') < md.indexOf('Real Estate |'),
+      'expected sector rows in input order (descending |z|)');
+  });
+
+  // T-OBR-XD13-6 — `new_13d` per-ticker subsection lists tickers with
+  // `new_13d_filing_flag_30d = true`; top-5 truncation with "X more not
+  // shown" note. Mirrors EK + F4 truncation convention.
+  it('T-OBR-XD13-6 new_13d per-ticker subsection: top-5 truncation + remainder note', () => {
+    const make13DRow = (ticker: string, days: number): BriefSchedule13DGRow => ({
+      ticker, cik: '0000111111', sector: null,
+      new13DFilingFlag30d: true, new13GFilingFlag30d: false,
+      recent13DCount90d: 1, recent13GCount90d: 0,
+      new13DCount90d: 1, distinct13DFilers90d: 1,
+      daysSinceLatest13D: days, daysSinceLatest13G: null,
+    });
+    const md = renderBriefMarkdown(brief({
+      scheduleThirteenDG: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        schedule13DClusterFlag: false,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
+        perTickerRows: [
+          // 7 flagged-13d tickers — renderer truncates at 5.
+          make13DRow('T01', 2),
+          make13DRow('T02', 4),
+          make13DRow('T03', 6),
+          make13DRow('T04', 8),
+          make13DRow('T05', 10),
+          make13DRow('T06', 12),
+          make13DRow('T07', 14),
+          // Non-flagged row — must NOT appear in the subsection.
+          {
+            ticker: 'NONFLAG', cik: '0000999999', sector: null,
+            new13DFilingFlag30d: false, new13GFilingFlag30d: false,
+            recent13DCount90d: 0, recent13GCount90d: 0,
+            new13DCount90d: 0, distinct13DFilers90d: 0,
+            daysSinceLatest13D: null, daysSinceLatest13G: null,
+          },
+        ],
+        inputsAvailableAggregate: 3300,
+        inputsAvailablePerTicker: 7,
+        tickersWithCikCount: 8,
+        watchUniverseTickerCount: 60,
+        compositeVersion: 'schedule_13d_g_v1',
+      },
+    }));
+    assert.match(md, /new_13d \(7\):/);
+    // First 5 render (smallest daysSinceLatest first).
+    assert.match(md, /- T01 — SC 13D 2d ago/);
+    assert.match(md, /- T05 — SC 13D 10d ago/);
+    // T06 + T07 must NOT appear in the rendered subsection.
+    assert.doesNotMatch(md, /- T06 — SC 13D 12d ago/);
+    assert.doesNotMatch(md, /- T07 — SC 13D 14d ago/);
+    // Truncation note.
+    assert.match(md, /Truncated at top 5 new_13d \(2 more not shown/);
+    // Non-flagged row excluded entirely.
+    assert.doesNotMatch(md, /NONFLAG/);
+    // No new_13g subsection at all (no flagged-13g rows in this fixture).
+    assert.doesNotMatch(md, /new_13g \(/);
+  });
+
+  // T-OBR-XD13-7 — `new_13g` per-ticker subsection lists tickers with
+  // `new_13g_filing_flag_30d = true`; top-5 truncation with "X more not
+  // shown" note. Parallel structure to T-OBR-XD13-6.
+  it('T-OBR-XD13-7 new_13g per-ticker subsection: top-5 truncation + remainder note', () => {
+    const make13GRow = (ticker: string, days: number): BriefSchedule13DGRow => ({
+      ticker, cik: '0000111111', sector: null,
+      new13DFilingFlag30d: false, new13GFilingFlag30d: true,
+      recent13DCount90d: 0, recent13GCount90d: 1,
+      new13DCount90d: 0, distinct13DFilers90d: 0,
+      daysSinceLatest13D: null, daysSinceLatest13G: days,
+    });
+    const md = renderBriefMarkdown(brief({
+      scheduleThirteenDG: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        schedule13DClusterFlag: false,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
+        perTickerRows: [
+          // 6 flagged-13g tickers — renderer truncates at 5.
+          make13GRow('G01', 1),
+          make13GRow('G02', 3),
+          make13GRow('G03', 5),
+          make13GRow('G04', 7),
+          make13GRow('G05', 9),
+          make13GRow('G06', 11),
+        ],
+        inputsAvailableAggregate: 3300,
+        inputsAvailablePerTicker: 6,
+        tickersWithCikCount: 6,
+        watchUniverseTickerCount: 60,
+        compositeVersion: 'schedule_13d_g_v1',
+      },
+    }));
+    assert.match(md, /new_13g \(6\):/);
+    // First 5 render (smallest daysSinceLatest first).
+    assert.match(md, /- G01 — SC 13G 1d ago/);
+    assert.match(md, /- G05 — SC 13G 9d ago/);
+    // G06 must NOT appear in the subsection.
+    assert.doesNotMatch(md, /- G06 — SC 13G 11d ago/);
+    // Truncation note.
+    assert.match(md, /Truncated at top 5 new_13g \(1 more not shown/);
+    // No new_13d subsection at all (no flagged-13d rows in this fixture).
+    assert.doesNotMatch(md, /new_13d \(/);
+  });
+
+  // Section-ordering invariant: §16 must render AFTER §15. Companion to
+  // T-OBR-XD13-4 (byte-equal-prefix protection); the prefix check would
+  // pass even if §16 were inserted ABOVE §15 because §15 might shift to
+  // §16's index. This explicit ordering test catches that regression.
+  it('section ordering: Schedule 13D/G renders AFTER Form 4 insider', () => {
+    const md = renderBriefMarkdown(brief({
+      cyclePosition: null, volStructure: null, sectorRotation: null,
+      crossAsset: null, shortInterest: null, executiveDeparture: null,
+      etfFlow: null, eightK: null, formFour: null,
+      scheduleThirteenDG: null,
+    }));
+    const f4Idx = md.indexOf('## 15.');
+    const xd13Idx = md.indexOf('## 16.');
+    assert.ok(f4Idx > -1, 'expected Form 4 insider section');
+    assert.ok(xd13Idx > -1, 'expected Schedule 13D/G section');
+    assert.ok(xd13Idx > f4Idx, 'Schedule 13D/G section must render after Form 4 insider');
+  });
+
+  // Three-branch §1.4 — NO-FLAG-BUT-CLEARED branch (flaggedSectors=[] AND
+  // inputsAvailableAggregate >= 330). Mirrors G2-RENDER-EK-2 / G2-RENDER-F4-2.
+  it('NO-FLAG-BUT-CLEARED branch — flaggedSectors=[] + aggregate>=330 renders "No sectors flagged today" line with max-|z|', () => {
+    const md = renderBriefMarkdown(brief({
+      scheduleThirteenDG: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        schedule13DClusterFlag: false,
+        maxAggregateZ: -1.73,
+        maxAggregateZSector: 'Utilities',
+        perTickerRows: [],
+        inputsAvailableAggregate: 1800,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 58,
+        watchUniverseTickerCount: 60,
+        compositeVersion: 'schedule_13d_g_v1',
+      },
+    }));
+    assert.match(md, /\*\*Aggregate \(SPY 500 NEW-13D event-rate by GICS sector\):\*\* No sectors flagged today/);
+    assert.match(md, /1800\/330 sector-day tuples cleared MIN_Z_BASELINE; max-\|z\|=-1\.73 at Utilities/);
+    assert.doesNotMatch(md, /\| Sector \| Rate \| z \| Baseline n \| Constituents \|/);
+    assert.doesNotMatch(md, /awaits 2y baseline coverage/);
+  });
+
+  // Staleness — bdSinceLastQuery >= 4 renders the ⚠ stale suffix.
+  it('renders staleness warning when bdSinceLastQuery >= 4', () => {
+    const md = renderBriefMarkdown(brief({
+      scheduleThirteenDG: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-12T13:25:00Z',
+        bdSinceLastQuery: 5,
+        flaggedSectors: [],
+        schedule13DClusterFlag: false,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
+        perTickerRows: [],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 0,
+        watchUniverseTickerCount: 60,
+        compositeVersion: 'schedule_13d_g_v1',
+      },
+    }));
+    assert.match(md, /Last EDGAR query:\*\* 2026-05-12T13:25:00Z \(5 business days ago\) ⚠ stale \(≥4bd\)/);
+  });
+
+  // Staleness — bdSinceLastQuery < 4 omits the ⚠ stale suffix.
+  it('omits staleness warning when bdSinceLastQuery < 4', () => {
+    const md = renderBriefMarkdown(brief({
+      scheduleThirteenDG: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        schedule13DClusterFlag: false,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
+        perTickerRows: [],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 0,
+        watchUniverseTickerCount: 60,
+        compositeVersion: 'schedule_13d_g_v1',
+      },
+    }));
+    assert.doesNotMatch(md, /⚠ stale/);
+  });
+
+  // No EDGAR data — lastEdgarQueryAt null renders the fallback footer.
+  it('renders no-EDGAR-data fallback when lastEdgarQueryAt is null', () => {
+    const md = renderBriefMarkdown(brief({
+      scheduleThirteenDG: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: null,
+        bdSinceLastQuery: null,
+        flaggedSectors: [],
+        schedule13DClusterFlag: false,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
+        perTickerRows: [],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 0,
+        watchUniverseTickerCount: 0,
+        compositeVersion: 'schedule_13d_g_v1',
+      },
+    }));
+    assert.match(md, /Last EDGAR query:\*\* — \(run `npm run edgar:13d-g:ingest`/);
+  });
+
+  // No flagged tickers — "No tickers flagged." fallback.
+  it('renders "No tickers flagged." when no perTickerRows fire either flag', () => {
+    const md = renderBriefMarkdown(brief({
+      scheduleThirteenDG: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        schedule13DClusterFlag: false,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
+        perTickerRows: [
+          {
+            ticker: 'AAPL', cik: '0000320193', sector: null,
+            new13DFilingFlag30d: false, new13GFilingFlag30d: false,
+            recent13DCount90d: 0, recent13GCount90d: 0,
+            new13DCount90d: 0, distinct13DFilers90d: 0,
+            daysSinceLatest13D: null, daysSinceLatest13G: null,
+          },
+        ],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 0,
+        tickersWithCikCount: 1,
+        watchUniverseTickerCount: 1,
+        compositeVersion: 'schedule_13d_g_v1',
+      },
+    }));
+    assert.match(md, /### Flagged tickers \(universe: equity-midcap\)/);
+    assert.match(md, /No tickers flagged\./);
+  });
+
+  // Sector annotation — null sector renders WITHOUT the bracket annotation
+  // (mirrors T-OBR-EK-8 / T-OBR-F4-8 / T-OBR-XD-8 byte-for-byte).
+  it('omits sector annotation when sector is null', () => {
+    const md = renderBriefMarkdown(brief({
+      scheduleThirteenDG: {
+        evaluatedAt: '2026-05-19T13:30:00Z',
+        snapshotDate: '2026-05-19',
+        lastEdgarQueryAt: '2026-05-19T13:25:00Z',
+        bdSinceLastQuery: 0,
+        flaggedSectors: [],
+        schedule13DClusterFlag: false,
+        maxAggregateZ: null,
+        maxAggregateZSector: null,
+        perTickerRows: [{ ...FLAGGED_13D, sector: null }],
+        inputsAvailableAggregate: 0,
+        inputsAvailablePerTicker: 1,
+        tickersWithCikCount: 1,
+        watchUniverseTickerCount: 1,
+        compositeVersion: 'schedule_13d_g_v1',
+      },
+    }));
+    assert.match(md, /- ABCD — SC 13D 7d ago/);
+    assert.doesNotMatch(md, /- ABCD \[/);
+  });
+});
+
+// Type-only re-export for the test fixtures above. Keeping it inline at
+// the bottom of the test file avoids a long type expression duplicated
+// across each test case + matches the EK / F4 fixture-shadow conventions.
+type BriefSchedule13DGRow = {
+  ticker: string;
+  cik: string;
+  sector: string | null;
+  new13DFilingFlag30d: boolean;
+  new13GFilingFlag30d: boolean;
+  recent13DCount90d: number;
+  recent13GCount90d: number;
+  new13DCount90d: number;
+  distinct13DFilers90d: number;
+  daysSinceLatest13D: number | null;
+  daysSinceLatest13G: number | null;
+};

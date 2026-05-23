@@ -297,9 +297,19 @@ export interface MorningBrief {
    * §1 non-goal #1 (does NOT fire a regime category in v1; informational).
    * `null` when the table is absent or empty.
    * APPENDED as section #15 to preserve byte-equal-stdout protection on
-   * sections 1-14 (F4-A5 lock; closes gap #7 entirely).
+   * sections 1-14 (F4-A5 lock; carries the invariant forward to #16).
    */
   formFour: BriefForm4InsiderSection | null;
+  /**
+   * Schedule 13D / 13G activist-stake composite — informational Layer-0
+   * context. SPEC: docs/specs/schedule-13d-13g-activist-stake.md §8 (brief
+   * panel) + §1 non-goal #1 (does NOT fire a regime category in v1;
+   * informational). `null` when the table is absent or empty.
+   * APPENDED as section #16 to preserve byte-equal-stdout protection on
+   * sections 1-15 (XD13-A5 lock; closes the XD13 arc end-to-end after
+   * EK + F4).
+   */
+  scheduleThirteenDG: BriefSchedule13DGSection | null;
 }
 
 /**
@@ -898,6 +908,118 @@ export interface BriefForm4InsiderSection {
  *  top-N truncation convention"). Buys and sells each get up to N rows. */
 export const FORM_4_FLAGGED_TOP_N = 5;
 
+/**
+ * Schedule 13D / 13G activist-stake panel — informational Layer-0 context.
+ * SPEC: docs/specs/schedule-13d-13g-activist-stake.md §§3, 5, 8.
+ *
+ * GICS sector resolution mirrors the EK + F4 conventions: per-ticker rows
+ * carry an optional `sector` resolved from `quantlab.gics_sector_map` at
+ * the repository layer (`Schedule13DGRepository.populateSectorsForCycle`).
+ * The aggregate-sector layer is LIVE from v1 — `flaggedSectors` contains
+ * sectors with `|z| > 2.0` (per XD-5 / SPEC §5.2). The three-branch §1.4
+ * pattern under ADR-042 Option (a) is reused: (a) `flaggedSectors > 0` →
+ * table; (b) `flaggedSectors === []` AND aggregate panel populated → "No
+ * sectors flagged today" line with max-|z|; (c) `inputsAvailableAggregate
+ * < MIN_Z_BASELINE × SECTOR_COUNT` (= 330) → cold-start branch per SPEC
+ * §5.3 + §11 watch-out #7.
+ *
+ * `tickersWithCikCount` + `watchUniverseTickerCount` are populated by the
+ * composer (`buildSchedule13DGSection`) and used for the universe-coverage
+ * line — same posture as EK + F4 (the composite's `inputsAvailablePerTicker`
+ * counts rows-with-≥1-filing, not CIK presence; using it for the universe
+ * coverage line would mis-state the count).
+ *
+ * v2 deferrals (per SPEC §10 / ADR-043):
+ *   - Filer-reputation classifier (XD-2) — composite weights all filers 1.0
+ *     in v1; renderer does not surface filer names even when XD-12 has
+ *     populated them in the raw layer.
+ *   - Cover-page % beneficially owned (XD-15) — not parsed in v1; renderer
+ *     does not surface ownership percentages.
+ *   - `max_aggregate_z` persistence (S96-21 / SPEC §6) — the snapshot stores
+ *     only the 10 v1 columns; `maxAggregateZ` is DERIVED from `flaggedSectors`
+ *     at read time, so sectors with non-null z but `|z| ≤ THRESHOLD` are
+ *     LOST on the cross-day cycle. The renderer's NO-FLAG-BUT-CLEARED branch
+ *     therefore reports `max-|z|=n/a` whenever every sector is below the
+ *     threshold but the panel cleared baseline coverage; v2 ADR can lift
+ *     this once the add-* migration ships.
+ */
+export interface BriefSchedule13DGSection {
+  /** Composite computation timestamp (ISO 8601). */
+  evaluatedAt: string;
+  /** Snapshot date (YYYY-MM-DD). */
+  snapshotDate: string;
+  /** ISO 8601 of the most-recent EDGAR acceptance ≤ asOf (null pre-ingest). */
+  lastEdgarQueryAt: string | null;
+  /** Business days between lastEdgarQueryAt and asOf (null pre-ingest). */
+  bdSinceLastQuery: number | null;
+  /** Sectors with |z| > 2.0 — XD-5 (NEW-13D only at the aggregate layer).
+   *  Empty in cold-start. Pre-v2 sectors with `|z| ≤ THRESHOLD` are not
+   *  retained (S96-21). */
+  flaggedSectors: ReadonlyArray<{
+    sector: string;
+    sectorSize: number;
+    new13DRateT: number;
+    z: number;
+    baselineSize: number;
+  }>;
+  /** Flag: ANY sector has |z| > 2.0. Cold-start = false (NOT null) per SPEC
+   *  §11 watch-out #7. */
+  schedule13DClusterFlag: boolean;
+  /** Signed z of the sector with max |z| across all sectors with non-null z.
+   *  Null when all sector z's are null (cold-start) OR when every sector
+   *  has `|z| ≤ THRESHOLD` and the v1 derivation loses the next-closest
+   *  signal (S96-21). Ties broken lexicographically. */
+  maxAggregateZ: number | null;
+  /** Sector name with max |z|; null when `maxAggregateZ` is null. */
+  maxAggregateZSector: string | null;
+  /** Per-ticker rows for the watch universe (equity-midcap). */
+  perTickerRows: ReadonlyArray<{
+    ticker: string;
+    cik: string;
+    sector: string | null;
+    new13DFilingFlag30d: boolean;
+    new13GFilingFlag30d: boolean;
+    recent13DCount90d: number;
+    recent13GCount90d: number;
+    new13DCount90d: number;
+    distinct13DFilers90d: number;
+    daysSinceLatest13D: number | null;
+    daysSinceLatest13G: number | null;
+  }>;
+  /** Σ across sectors of (sector,day) tuples with non-null new_13d_rate on
+   *  the trailing-2y baseline. Cold-start gate: < MIN_Z_BASELINE × SECTOR_COUNT
+   *  (= 330) renders the COLD-START branch per SPEC §5.3 + §11 watch-out #7. */
+  inputsAvailableAggregate: number;
+  /** Count of per-ticker rows with at least one filing in the 90d window —
+   *  informational, NOT a gate. */
+  inputsAvailablePerTicker: number;
+  /** Composer-stamped CIK-only count of watch-universe tickers — mirrors
+   *  EK-A5 / F4-A5 S93-28. */
+  tickersWithCikCount: number;
+  /** Watch-universe total ticker count (= snapshot.perTickerRows.length). */
+  watchUniverseTickerCount: number;
+  /** Composite version stamp ('schedule_13d_g_v1' in v1). */
+  compositeVersion: string;
+}
+
+/** Top-N flagged tickers shown PER SIDE in section #16 (SPEC §8 mockup
+ *  "top-N truncation = 5 per side"). `new_13d` and `new_13g` each get up
+ *  to N rows. */
+export const SCHEDULE_13D_G_FLAGGED_TOP_N = 5;
+
+/** Staleness threshold for the bd-since-last-query warning. Matches
+ *  EK + F4 (4bd) — EDGAR statutory cadence: SC 13D 10bd / SC 13D/A
+ *  promptly; 4bd ingest-gap is the operationally aligned threshold. */
+export const SCHEDULE_13D_G_STALENESS_BD_THRESHOLD = 4;
+
+/** Cold-start gate per SPEC §5.3 + §11 watch-out #7:
+ *  `inputsAvailableAggregate < MIN_Z_BASELINE (=30) × SECTOR_COUNT (=11) = 330`
+ *  renders the COLD-START branch instead of the NO-FLAG-BUT-CLEARED branch.
+ *  Pinned here (not imported from the composite) to keep the renderer
+ *  self-contained; drift detection is a code-review concern + T-OBR-XD13-2
+ *  pins the value at the test boundary. */
+export const SCHEDULE_13D_G_COLD_START_INPUTS_FLOOR = 330;
+
 /** Staleness threshold for the bd-since-last-query warning. EDGAR Form 4
  *  has a 2-business-day filing deadline (Sarbanes-Oxley §403(a)); ingest
  *  treated as stale at the same threshold as 8-K classifier (4bd+). */
@@ -937,6 +1059,8 @@ export function renderBriefMarkdown(brief: MorningBrief): string {
   parts.push(renderEightKClassifierSection(brief));
   parts.push('');
   parts.push(renderForm4InsiderSection(brief));
+  parts.push('');
+  parts.push(renderScheduleThirteenDGSection(brief));
   parts.push('');
   return parts.join('\n');
 }
@@ -2603,6 +2727,196 @@ function renderForm4InsiderSection(b: MorningBrief): string {
     `≥3 distinct insiders → cluster flag; aggregate-sector layer LIVE under ` +
     `ADR-042 Option (a)). INFORMATIONAL — does NOT fire a regime category ` +
     `in v1 (SPEC §1 non-goal #1)._`,
+  );
+  lines.push(``);
+  lines.push(
+    `_Last evaluated: \`${s.evaluatedAt}\` · snapshot date: \`${s.snapshotDate}\`._`,
+  );
+  return lines.join('\n');
+}
+
+/**
+ * Section #16 — Schedule 13D / 13G activist-stake composite. Informational
+ * only in v1 (SPEC §1 non-goal #1). Closes the XD13 arc end-to-end after
+ * EK + F4. Pattern matches `renderEightKClassifierSection` (#14) +
+ * `renderForm4InsiderSection` (#15) structurally: CLUSTER/NORMAL header →
+ * aggregate sector panel (three-branch §1.4 under ADR-042 Option (a)) →
+ * staleness/last-query line → per-ticker flagged rows (top-N per side:
+ * `new_13d` + `new_13g`) → universe coverage + composite-version footer.
+ *
+ * Per-row format: `${ticker}${[Sector]} — SC 13D ${days}d ago (M filings in 90d, K distinct filers)`
+ * for the `new_13d` subsection, and a parallel form WITHOUT the
+ * `, K distinct filers` annotation for `new_13g` (per XD-5: the
+ * filer-deduplication metric only applies to 13D-family — passive 13G
+ * filers are statutorily institutional and the dedup count carries no
+ * activist signal there).
+ *
+ * Cold-start branch: SPEC §5.3 + §11 watch-out #7 — when
+ * `inputsAvailableAggregate < SCHEDULE_13D_G_COLD_START_INPUTS_FLOOR` (= 330)
+ * AND `flaggedSectors === []`, renders a baseline-thin cold-start panel.
+ * The NO-FLAG-BUT-CLEARED branch fires when `inputsAvailableAggregate >=
+ * SCHEDULE_13D_G_COLD_START_INPUTS_FLOOR` AND `flaggedSectors === []`.
+ *
+ * Universe-coverage line uses the composer-stamped `tickersWithCikCount`
+ * (CIK-only count) instead of `inputsAvailablePerTicker` (90d-filing-count-
+ * gated; would mis-state coverage when no qualifying filings) — mirrors the
+ * EK-A5 / F4-A5 S93-28 fix.
+ */
+function renderScheduleThirteenDGSection(b: MorningBrief): string {
+  const lines: string[] = [];
+  if (b.scheduleThirteenDG === null) {
+    lines.push(`## 16. Schedule 13D / 13G activist-stake — not yet evaluated`);
+    lines.push(``);
+    lines.push(
+      `\`quantlab.schedule_13d_g_snapshots\` is empty (or absent). ` +
+      `Apply \`npm run migrate:create-schedule-13d-g-snapshots:apply\` and run ` +
+      `\`npm run edgar:13d-g:ingest\` + \`npm run daemon:daily\` to populate. ` +
+      `SPEC: docs/specs/schedule-13d-13g-activist-stake.md §3.`,
+    );
+    return lines.join('\n');
+  }
+  const s = b.scheduleThirteenDG;
+  const clusterLabel = s.schedule13DClusterFlag ? 'CLUSTER' : 'NORMAL';
+  lines.push(`## 16. Schedule 13D / 13G activist-stake — ${clusterLabel}`);
+  lines.push(``);
+
+  // Aggregate sector panel — three-branch §1.4 (per ADR-042 Option (a) +
+  // SPEC §5.3 cold-start gate).
+  if (s.flaggedSectors.length > 0) {
+    lines.push(`**Aggregate (SPY 500 NEW-13D event-rate by GICS sector):** ` +
+      `${s.flaggedSectors.length} sector(s) with |z| > 2.0`);
+    lines.push(``);
+    lines.push(`| Sector | Rate | z | Baseline n | Constituents |`);
+    lines.push(`|---|---|---|---|---|`);
+    for (const f of s.flaggedSectors) {
+      const ratePct = (f.new13DRateT * 100).toFixed(1);
+      const zStr = `${f.z >= 0 ? '+' : ''}${f.z.toFixed(2)}σ`;
+      lines.push(`| ${f.sector} | ${ratePct}% | ${zStr} | ${f.baselineSize} | ${f.sectorSize} |`);
+    }
+  } else if (s.inputsAvailableAggregate >= SCHEDULE_13D_G_COLD_START_INPUTS_FLOOR) {
+    const k = s.inputsAvailableAggregate;
+    const maxZStr = s.maxAggregateZ != null
+      ? `${s.maxAggregateZ >= 0 ? '+' : ''}${s.maxAggregateZ.toFixed(2)}`
+      : 'n/a';
+    const maxZSectorStr = s.maxAggregateZSector ?? 'n/a';
+    lines.push(
+      `**Aggregate (SPY 500 NEW-13D event-rate by GICS sector):** No sectors flagged today ` +
+      `(${k}/${SCHEDULE_13D_G_COLD_START_INPUTS_FLOOR} sector-day tuples cleared ` +
+      `MIN_Z_BASELINE; max-|z|=${maxZStr} at ${maxZSectorStr}). ` +
+      `Per-sector NEW-13D rate re-computed per daemon cycle from raw filings ` +
+      `+ PIT constituents + GICS map (XD-5 / SPEC §5.2).`,
+    );
+  } else {
+    lines.push(
+      `**Aggregate (SPY 500 NEW-13D event-rate by GICS sector):** Aggregate-cluster ` +
+      `panel awaits 2y baseline coverage ` +
+      `(SPEC §5.3 + §11 watch-out #7; ${s.inputsAvailableAggregate}/${SCHEDULE_13D_G_COLD_START_INPUTS_FLOOR} ` +
+      `sector-day tuples on the trailing-2y panel). Per-ticker sector annotations ` +
+      `are active from \`quantlab.gics_sector_map\` (s94 #1 G1-A1).`,
+    );
+  }
+
+  // Staleness indicator.
+  if (s.lastEdgarQueryAt != null) {
+    const bdSince = s.bdSinceLastQuery;
+    const staleSuffix =
+      bdSince != null && bdSince >= SCHEDULE_13D_G_STALENESS_BD_THRESHOLD
+        ? ` ⚠ stale (≥${SCHEDULE_13D_G_STALENESS_BD_THRESHOLD}bd)`
+        : '';
+    lines.push(
+      `**Last EDGAR query:** ${s.lastEdgarQueryAt}` +
+      ` (${bdSince != null ? `${bdSince} business days ago` : '—'})${staleSuffix}`,
+    );
+  } else {
+    lines.push(
+      `**Last EDGAR query:** — (run \`npm run edgar:13d-g:ingest\` to populate)`,
+    );
+  }
+  lines.push(``);
+
+  // Per-ticker flagged rows — top-N per side (new_13d + new_13g).
+  // Sort by daysSinceLatest13D / 13G ascending (most recent first); nulls last
+  // (defensive — when the 30d flag fires the recency is guaranteed non-null
+  // since the 90d window subsumes the 30d window, but the sort survives an
+  // upstream-payload regression). Ties resolve by ticker for deterministic
+  // output.
+  const new13D = s.perTickerRows
+    .filter(r => r.new13DFilingFlag30d)
+    .slice()
+    .sort((a, b) => {
+      const r = sortByRecency(a.daysSinceLatest13D, b.daysSinceLatest13D);
+      if (r !== 0) return r;
+      return a.ticker < b.ticker ? -1 : a.ticker > b.ticker ? 1 : 0;
+    });
+  const new13G = s.perTickerRows
+    .filter(r => r.new13GFilingFlag30d)
+    .slice()
+    .sort((a, b) => {
+      const r = sortByRecency(a.daysSinceLatest13G, b.daysSinceLatest13G);
+      if (r !== 0) return r;
+      return a.ticker < b.ticker ? -1 : a.ticker > b.ticker ? 1 : 0;
+    });
+  const new13DShown = new13D.slice(0, SCHEDULE_13D_G_FLAGGED_TOP_N);
+  const new13GShown = new13G.slice(0, SCHEDULE_13D_G_FLAGGED_TOP_N);
+  const totalFlagged = new13D.length + new13G.length;
+
+  lines.push(`### Flagged tickers (universe: equity-midcap)`);
+  lines.push(``);
+  if (totalFlagged === 0) {
+    lines.push(`No tickers flagged.`);
+  } else {
+    if (new13DShown.length > 0) {
+      lines.push(`new_13d (${new13D.length}):`);
+      for (const r of new13DShown) {
+        const sectorAnnotation = formatSectorAnnotation(r.sector);
+        const recencyStr = formatDaysSince(r.daysSinceLatest13D);
+        lines.push(
+          `- ${r.ticker}${sectorAnnotation} — SC 13D ${recencyStr} ` +
+          `(${r.recent13DCount90d} filing${r.recent13DCount90d === 1 ? '' : 's'} in 90d, ` +
+          `${r.distinct13DFilers90d} distinct filer${r.distinct13DFilers90d === 1 ? '' : 's'})`,
+        );
+      }
+      if (new13D.length > new13DShown.length) {
+        lines.push(
+          `_Truncated at top ${SCHEDULE_13D_G_FLAGGED_TOP_N} new_13d ` +
+          `(${new13D.length - new13DShown.length} more not shown — query ` +
+          `\`quantlab.schedule_13d_g_snapshots\` for the full list)._`,
+        );
+      }
+      if (new13GShown.length > 0) lines.push(``);
+    }
+    if (new13GShown.length > 0) {
+      lines.push(`new_13g (${new13G.length}):`);
+      for (const r of new13GShown) {
+        const sectorAnnotation = formatSectorAnnotation(r.sector);
+        const recencyStr = formatDaysSince(r.daysSinceLatest13G);
+        lines.push(
+          `- ${r.ticker}${sectorAnnotation} — SC 13G ${recencyStr} ` +
+          `(${r.recent13GCount90d} filing${r.recent13GCount90d === 1 ? '' : 's'} in 90d)`,
+        );
+      }
+      if (new13G.length > new13GShown.length) {
+        lines.push(
+          `_Truncated at top ${SCHEDULE_13D_G_FLAGGED_TOP_N} new_13g ` +
+          `(${new13G.length - new13GShown.length} more not shown — query ` +
+          `\`quantlab.schedule_13d_g_snapshots\` for the full list)._`,
+        );
+      }
+    }
+  }
+  lines.push(``);
+  lines.push(
+    `_Universe coverage: ${s.tickersWithCikCount}/${s.watchUniverseTickerCount} ` +
+    `mid-cap tickers have current CIK mapping · ` +
+    `${s.inputsAvailableAggregate}/${SCHEDULE_13D_G_COLD_START_INPUTS_FLOOR} ` +
+    `sector-day tuples cleared on the trailing-2y baseline panel._`,
+  );
+  lines.push(
+    `_Composite: \`${s.compositeVersion}\` ` +
+    `(form types {SC 13D, SC 13D/A, SC 13G, SC 13G/A}; 90d carrying window; ` +
+    `30d cluster trigger; NEW-13D-only at aggregate per XD-5; |z| > 2.0 → ` +
+    `flagged sector). INFORMATIONAL — does NOT fire a regime category in v1 ` +
+    `(SPEC §1 non-goal #1)._`,
   );
   lines.push(``);
   lines.push(
