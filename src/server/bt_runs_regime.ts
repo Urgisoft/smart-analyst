@@ -28,7 +28,19 @@ import { getClickHouse } from './clickhouse.js';
  *  rows (e.g., pre-2008 data, or zero-trade legacy run). */
 export type RegimeLabel = 'red' | 'orange' | 'yellow' | 'green' | 'unknown';
 
-/** Per §3.1 SPEC — debug field. */
+/** Per §3.1 SPEC — debug field.
+ *
+ *  `sentinel_no_trades` is **semantically misleading** for historical reasons.
+ *  Per ADR-047 (Cycle 6 GAP-16 closure), the actual trigger is "data_span_days
+ *  missing AND bt_trades fallback returned no rows for the (sweep_id,
+ *  token_address, strategy_type, param) lookup" — which is NOT the same as
+ *  "the run had zero trades." About 73% of the rows carrying this label
+ *  correspond to bt_runs with `trades > 0` whose per-trade detail in
+ *  `bt_trades` was unavailable at attribution time (engine-version asymmetry,
+ *  historical pruning, or key-format drift — root cause not isolated). The
+ *  accurate label would be `sentinel_no_window_derivable`; the cost of
+ *  re-labelling the existing 78,399 rows + the public type change does not
+ *  justify the precision-gain. See ADR-047 § "Why not re-label." */
 export type AttributionSource = 'window' | 'trades_fallback' | 'sentinel_no_trades';
 
 /** Result of one attribution computation. Persisted into `bt_runs_regime`. */
@@ -240,7 +252,14 @@ export function buildAttributionResult(args: {
   };
 }
 
-/** SPEC §3.2 step 2 sentinel branch — zero-trade legacy run. */
+/** SPEC §3.2 step 2 sentinel branch — fires when `data_span_days <= 0` AND
+ *  `bt_trades` fallback yielded no rows. Historically labelled "zero-trade
+ *  legacy run" in the SPEC; per ADR-047 (Cycle 6 GAP-16 closure) the more
+ *  accurate label is "no derivable window" — `bt_runs.trades > 0` is
+ *  consistent with this branch when `bt_trades` per-trade detail is missing
+ *  for the (sweep_id, token_address, strategy_type, param) lookup. The label
+ *  on the persisted row stays `sentinel_no_trades` for backward compat per
+ *  ADR-047 § "Why not re-label". */
 export function buildSentinelResult(args: {
   run_id: string;
   classifier_version: string;
