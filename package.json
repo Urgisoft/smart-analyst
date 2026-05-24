@@ -44,6 +44,8 @@
     "macro:backfill:v3:dry": "tsx scripts/macro_regime_backfill.ts --start 2008-01-01 --classifier-version phase1_v3 --dry-run",
     "cboe:ingest": ".venv\\Scripts\\python.exe scripts/cboe_putcall_ingest.py",
     "cboe:ingest:dry": ".venv\\Scripts\\python.exe scripts/cboe_putcall_ingest.py --dry-run",
+    "cboe:ingest:json": ".venv\\Scripts\\python.exe scripts/cboe_putcall_json_ingest.py",
+    "cboe:ingest:json:dry": ".venv\\Scripts\\python.exe scripts/cboe_putcall_json_ingest.py --dry-run",
     "fred:ingest": ".venv\\Scripts\\python.exe scripts/fred_ingest.py",
     "fred:ingest:dry": ".venv\\Scripts\\python.exe scripts/fred_ingest.py --dry-run",
     "finra:short-interest:ingest": ".venv\\Scripts\\python.exe scripts/finra_short_interest_ingest.py --apply",

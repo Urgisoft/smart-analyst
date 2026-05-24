@@ -159,6 +159,7 @@ import {
   runDaemonSchedule13DGEvaluation,
 } from '../src/server/schedule_13d_g_repository.js';
 import { runFredFetch } from '../src/server/daemon_fred_fetch.js';
+import { runCboePutCallFetch } from '../src/server/daemon_cboe_putcall_fetch.js';
 import { runHealthCheckStep0a } from '../src/server/daemon_health_check_step.js';
 import { sendQuarantineAlerts } from '../src/server/health_quarantine_alerter.js';
 import { runSsgaSpdrRefresh } from '../src/server/daemon_etf_flow_ssga_spdr_refresh.js';
@@ -1178,6 +1179,42 @@ async function main() {
       anomalies.push({
         severity: 'warning',
         message: `FRED macro refresh failed: ${r.error}`,
+      });
+    }
+  }
+
+  // 1b''. CBOE put/call ratio refresh — required by phase1_v3's
+  //     sentiment_extreme category (rolling-5d MA of TOTAL P/C from
+  //     macro_indicators_cboe; SPEC docs/specs/macro-regime-classifier-
+  //     phase1_v3.md §2.1 + §3 Turn B). The legacy public CSV froze
+  //     2019-10-04 (S96-88); phase1_v3 has been operating on stale-from-
+  //     2019 inputs ever since (ADR-045 quarantine — accepted-as-warning).
+  //     Cycle 20 slice 2 research found a free anonymous CBOE daily JSON
+  //     endpoint at cdn.cboe.com/data/us/options/market_statistics/daily/
+  //     {YYYY-MM-DD}_daily_options live continuously since 2019-10-07
+  //     (docs/analysis/q5-path-d-cboe-json-2026-05-24.md). Cycle 21 ships
+  //     the ingest. This step is the daemon-cadence forward hook; the
+  //     historical backfill (2019-10-07 → today) is a one-shot operator
+  //     step (`npm run cboe:ingest:json`). GAP-3 (CBOE daemon hook) resolves
+  //     as a side-effect of this step. Q-5 quarantine row drops once
+  //     classifier produces non-corrupted-input output (~5 trading days
+  //     after backfill completes + this step runs forward). Idempotent
+  //     under ReplacingMergeTree on (series_id, observation_date) — the
+  //     ~5-trading-day window re-fetches harmlessly across runs. Gated by
+  //     the same NO_MACRO || NO_FETCH posture as 1b/1b' so smoke-tests
+  //     and no-fetch reruns work uniformly. Non-fatal: failure surfaces
+  //     as a warning anomaly.
+  if (NO_MACRO || NO_FETCH) {
+    console.log(`[cboe-putcall-fetch] skipped (${NO_MACRO ? '--no-macro' : '--no-fetch'})`);
+  } else {
+    const r = runCboePutCallFetch(DRY_RUN);
+    if (r.ok) {
+      console.log(`[cboe-putcall-fetch] OK | ${r.seconds.toFixed(1)}s`);
+    } else {
+      console.warn(`[cboe-putcall-fetch] failed (non-fatal): ${r.error}`);
+      anomalies.push({
+        severity: 'warning',
+        message: `CBOE put/call refresh failed: ${r.error}`,
       });
     }
   }

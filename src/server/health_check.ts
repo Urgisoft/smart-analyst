@@ -319,16 +319,15 @@ export const HEALTH_SOURCES: ReadonlyArray<HealthSourceConfig> = [
     operatorAction: 'npm run edgar:13d-g:ingest',
     why: 'GAP-1 daemon-cadence promotion — step 1m-pre runs the EDGAR 13D/G ingest on a 2-day rolling window. Lowest-volume of the four EDGAR ingests; cap-hit rare. Manual catchup for backfill.',
   },
-  // ── Operator-cadence (autonomous=false) — remaining standing-health gap ───
   {
     name: 'macro_indicators_cboe',
     label: 'CBOE put/call ratio',
     cadence: 'daily',
-    autonomous: false,
+    autonomous: true,
     timestampCol: 'observation_date',
     timestampType: 'date',
-    operatorAction: 'npm run cboe:ingest',
-    why: 'Cycle 11 (S96-88) finding: CBOE public totalpc.csv + totalpcarchive.csv files end 2019-10-04 (source frozen). Re-running the ingest does NOT advance max(observation_date) — the panel will remain very-stale by design until Q-5 path (A) DataShop subscription OR path (B) methodology amendment removing CBOE put/call from phase1_v3. GAP-3 daemon promotion deferred (low priority — promoting a frozen source adds no value).',
+    operatorAction: 'npm run daemon:daily',
+    why: 'Cycle 21 (Q-5 Path D resolution): legacy public CSV froze 2019-10-04 (S96-88), but Cycle 20 slice 2 research found a free anonymous CBOE daily JSON endpoint at cdn.cboe.com/data/us/options/market_statistics/daily/{YYYY-MM-DD}_daily_options live continuously since 2019-10-07 (docs/analysis/q5-path-d-cboe-json-2026-05-24.md). Cycle 21 ships the new ingest at scripts/cboe_putcall_json_ingest.py (source label cboe_json; legacy CSV rows keep source cboe) and wires daemon step 1b\'\' between FRED fetch (1b\') and macro-classify-v3 (1c) — GAP-3 resolves as a side-effect. The Q-5 quarantine row stays pinned accepted-as-warning until ~5 trading days of fresh CBOE rows land and the orchestrator drops the row.',
   },
   {
     name: 'etf_shares_outstanding',
