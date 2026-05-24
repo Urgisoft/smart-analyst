@@ -114,6 +114,8 @@
     "migrate:create-phase-b-verdicts:apply": "tsx scripts/migrate_create_phase_b_verdicts.ts --apply",
     "phase_b:cycle_v1:dry": "tsx scripts/phase_b_campaign_cycle_v1.ts",
     "phase_b:cycle_v1:apply": "tsx scripts/phase_b_campaign_cycle_v1.ts --apply",
+    "phase_b:vol_struct_v1:dry": "tsx scripts/phase_b_campaign_vol_struct_v1.ts",
+    "phase_b:vol_struct_v1:apply": "tsx scripts/phase_b_campaign_vol_struct_v1.ts --apply",
     "migrate:create-vol-structure-snapshots": "tsx scripts/migrate_create_vol_structure_snapshots.ts",
     "migrate:create-vol-structure-snapshots:apply": "tsx scripts/migrate_create_vol_structure_snapshots.ts --apply",
     "migrate:create-sector-rotation-snapshots": "tsx scripts/migrate_create_sector_rotation_snapshots.ts",
