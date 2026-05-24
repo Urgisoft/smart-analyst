@@ -14,12 +14,12 @@ documenting Path D + marking ADR-045 as Superseded, health-check
 autonomous-flip + npm scripts. **Q-5 closes as orchestration-resolved.
 GAP-3 (CBOE daemon hook) closes as side-effect.** All worker diffs
 passed §6.1 auto-approve; tsc 13 baseline preserved; 56/56 tests pass on
-affected suites + 23/23 pytest on new ingest. **Net 64 unpushed commits**
+affected suites + 23/23 pytest on new ingest. **Net 63 unpushed commits**
 on top of `origin/main` (`c0cda7c`) after this HANDOFF rewrite
-(was 59 at Cycle 20 close · +1 ingest+tests+probe (Data-Ingest worker) ·
-+1 daemon helper+step+npm scripts+health flip+test (Infra worker) ·
-+1 backfill run (one-shot operator step + ADR-050 + ADR-045 supersede) ·
-+1 ADR + ADR-045 supersede + HANDOFF = 64). **NEXT default on
+(was 59 at Cycle 20 close · +1 slice 1 ingest+tests+probe (0a74464) = 60 ·
++1 slice 2 daemon helper+step+npm scripts+health flip+test (b27864e) = 61 ·
++1 slice 4 ADR-050 + ADR-045 supersede (0838017) = 62 ·
++1 HANDOFF = 63. Slice 3 backfill was data execution only, no commit). **NEXT default on
 `continue`:** Cycle 22 candidate — recommended **day-3 stockanalysis
 observation (Monday 2026-05-25 — first trading day in the window)** IF
 invoked Monday EOD or later; otherwise pivot to **Phase B campaign for
@@ -46,7 +46,7 @@ validation, health domain) — not real-money-readiness ramp.
 | Q-1 | First deployment of real capital — timing + initial amount | Standing decision per orchestration §7.1.1 | **INDEFINITELY DEFERRED** per s96 #19 operator framing — orchestration will not press on this |
 | Q-2 | Capital-deployment-ramp ADR sign-off (the "#5 ADR") | Operator self-assigned ~1 week per s96 #13 carry-over | **INDEFINITELY DEFERRED** per s96 #19 operator framing — orchestration can draft `PROPOSED` whenever; ratification (Accepted status) waits until operator engages |
 | Q-3 | GAP-5 Stooq apikey gate decision — paid subscription OR canonicalize the constituent-based fallback | Audit GAP-5; orchestration §2.5 | OPEN — paid subscription gates orchestration's call |
-| Q-4 | Push 64 unpushed commits to origin/main (Cycle 21 slices 1+2+3+4 + this HANDOFF is the 64th) | Carry-over; count updated this session | OPEN — `git push` operator-gated per CLAUDE.md hard-stop list |
+| Q-4 | Push 63 unpushed commits to origin/main (Cycle 21 slices 1+2+4 + this HANDOFF is the 63rd; slice 3 was data execution, no commit) | Carry-over; count updated this session | OPEN — `git push` operator-gated per CLAUDE.md hard-stop list |
 | Q-5 | phase1_v3 CBOE put/call corrupted-input window. **CLOSED as orchestration-resolved Cycle 21 — Path D shipped via ADR-050.** New ingest `scripts/cboe_putcall_json_ingest.py` writes `quantlab.macro_indicators_cboe` rows with `source="cboe_json"` (legacy CSV rows keep `source="cboe"` — both coexist in the table). Daemon step 1b'' between FRED (1b') and macro-classify-v3 (1c) keeps the source fresh. Backfill 2019-10-07 → today executed Cycle 21. ADR-045 marked Superseded. Q-5 quarantine row stays pinned `accepted-as-warning` until ~5 consecutive fresh CBOE days land + orchestrator drops it (a follow-up cycle's task, no operator action). | s96 #15 Cycle 1 / s96 #19 Cycle 20 research / s96 #20 Cycle 21 implementation | **CLOSED — orchestration-resolved via ADR-050** |
 | Q-6 | ETF v1 yfinance primary panel — Cycle 17 resolved data side via ADR-049; Cycle 20 fixed UI side via 3-mode dispatch + primary-dark banner. **Status: PARTIAL-WITH-UI-FIX.** Closes on (a) the 5-day stockanalysis observation completing successfully + (b) the v1-primary read-path flip (Cycle 23+). Operator action no longer required for the UI; remaining residual gate is on (a) SA proving unreliable (revert to ADR-048 path-B), or (b) operator wanting paid feed for VOO specifically. | s96 #17 Cycle 12-17 (S96-89..S96-101); Cycle 18 (S96-102); Cycle 20 (S96-104) | PARTIAL-WITH-UI-FIX — orchestration-resolved; closes on read-path flip (Cycle 23+) |
 | Q-7 | phase1_v3 yield-curve source persistence — macro_regimes.yield_curve_value carries T10Y2Y on trade_dates 2026-05-15..2026-05-21; ADR-041 (Accepted 2026-05-19) mandates T10Y3M. Three resolution paths: (1) narrow re-classify post-ADR-041 dates only; (2) daemon refresh-stale loop; (3) daemon timing shift after FRED EOD publish. Orchestration's recommendation: Path 1 immediate cleanup + Path 2 architectural follow-up. Full detail in `docs/analysis/fred-t10y3m-alignment-2026-05-24.md`. | s96 #18 Cycle 19 — OQ-C16-1 probe falsified Cycle 16 hypothesis; Tier-2 per ADR-044 + ADR-041 conformance gap | **OPEN — operator picks among Path 1 / Path 2 / Path 3 (or hybrid)** |
@@ -250,7 +250,7 @@ fresh CBOE rows land and orchestrator drops it (follow-up cycle).
 
 ### Push state
 
-- `origin/main` at `c0cda7c`; **64 unpushed commits** after this HANDOFF
+- `origin/main` at `c0cda7c`; **63 unpushed commits** after this HANDOFF
   rewrite.
 - Push operator-gated (Q-4).
 
@@ -716,7 +716,7 @@ Monday EOD, pivot to one of the NEWLY UNLOCKED alternatives below.
 - Q-2 capital-deployment-ramp ADR — **INDEFINITELY DEFERRED** per
   S96-107.
 - Q-3 Stooq apikey gate decision.
-- Q-4 push 64 commits to origin/main.
+- Q-4 push 63 commits to origin/main.
 - Q-5 **CLOSED via ADR-050** Cycle 21.
 - Q-6 PARTIAL-WITH-UI-FIX (operator should `npm run dev` restart +
   visually verify `/#/etf-flow`).
@@ -746,8 +746,9 @@ Monday EOD, pivot to one of the NEWLY UNLOCKED alternatives below.
 Ingest worker, +960 LOC); slice 2 daemon helper + step 1b'' wiring +
 health flip (Infra worker, +268/-4 LOC); slice 3 backfill 2019-10-07
 → today (orchestrator-executed); slice 4 ADR-050 + ADR-045 supersede
-(orchestrator-written). This HANDOFF rewrite is the 64th unpushed
-commit (5 commits this cycle).
+(orchestrator-written). This HANDOFF rewrite is the 63rd unpushed
+commit (4 commits this cycle — slice 3 was data execution only, no
+commit).
 
 **Q-5 transformed from "PATH D ORCHESTRATION-OWNED" → CLOSED.**
 ADR-050 ratified the resolution; ADR-045 marked Superseded.
