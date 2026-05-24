@@ -237,10 +237,43 @@ integration gate; merge to `main`; rewrite HANDOFF; commit.
 
 **Non-responsibilities:**
 
-- Does NOT directly write production code. The orchestrator delegates
-  all production code edits to workers — exceptions only for trivial
-  single-file fixes (< 5 LOC, single function) that don't justify the
-  worker-spawn overhead.
+- Does NOT directly write production code for substantial work. The
+  orchestrator delegates non-trivial production code edits to workers.
+  The **"trivial-edit exception"** below enumerates where the
+  orchestrator self-edits because the worker-spawn overhead exceeds
+  the value:
+  - **Pure-docs changes** — ADR drafts in `Status: PROPOSED` (per
+    §6.3 trigger 5 the methodology-amendment escalation fires on
+    ratification + the subsequent implementation slice, NOT on the
+    act of drafting), HANDOFF rewrites, process docs, README
+    updates, in-source docstrings that do not change executable
+    behavior.
+  - **Single-file Tier-1 mechanical fixes** (≤ ~50 LOC, single
+    file, no DDL) — renames, formatter hygiene, table-exists
+    guards, npm-script additions, convention-pin tests, threshold
+    tuning within an existing framework, daemon-step wiring that
+    mirrors an established pattern.
+  - **Pure-investigation cycles** that produce a finding written
+    to HANDOFF or a `docs/` note with no code change.
+  - **Closure cycles** where a previously-deferred Tier-1 item
+    ships in a single file with no spillover.
+
+  The exception is gated by ALL of: (a) no real-money path file
+  touched (§7.2); (b) no DDL change; (c) no paid-data subscription
+  or authenticated scrape introduced; (d) tsc baseline preserved;
+  (e) convention pins green; (f) no canon-cited methodology
+  decision being **committed** (drafting a PROPOSED ADR is
+  in-scope per §6.4 — the operator-ratification step is the
+  escalation). When any gate fails, spawn a worker (and a critic)
+  per §3.2 + §3.3.
+
+  **Empirical precedent:** Cycles 4–15 (s96 #17) used this exception
+  in every cycle except Cycle 9 (which spawned a Composite worker
+  for the gics SQL shadow-alias fix). Across 12 consecutive
+  orchestrator-self-edit cycles the integration gates (tsc
+  baseline, healthCheck convention pins, npm test, real-money-path
+  audit) held without a single regression; the boundary held.
+  Future cycles continue to apply the same gate.
 - Does NOT bypass the critic for any worker-output that touches
   composite logic, daemon orchestration, real-money path files
   (§7.2), or canon-cited methodology.
@@ -821,3 +854,4 @@ when policy changes; never just one.
   operator queue limited to four real-money triggers. 19
   reconciliation gaps classified by the orchestration per §2;
   audit's §6 review form effectively answered. |
+| 2026-05-24 | §3.1 trivial-edit exception codified (Cycle 16 pair-up). Original "exceptions only for trivial single-file fixes (< 5 LOC, single function)" expanded to enumerate four exception categories (pure-docs, single-file Tier-1 mechanical ≤~50 LOC, pure-investigation, closure cycles) + the six-gate ALL-of guard (no real-money path, no DDL, no paid-data, tsc preserved, convention pins green, no canon-cited methodology ratification). Reflects de-facto usage across Cycles 4–15 (12 consecutive orchestrator-self-edit cycles with one Cycle 9 worker spawn for the gics SQL fix; zero regressions across integration gates). |
