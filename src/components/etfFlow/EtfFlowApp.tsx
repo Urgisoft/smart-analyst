@@ -25,6 +25,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import type {
   EtfFlowCrossValidationStateResponse,
+  EtfFlowSecondaryLatestRow,
 } from '../../server/etf_flow_dashboard.js';
 import type {
   EtfFlowDivergence,
@@ -78,13 +79,21 @@ export default function EtfFlowApp() {
         <div className="flex items-center gap-3">
           <div className="w-2 h-2 rounded-full bg-fuchsia-400 animate-pulse shadow-[0_0_10px_rgba(232,121,249,0.5)]" />
           <h2 className="text-xs font-black uppercase tracking-[0.3em] text-white italic">
-            VECTOR_ETFFLOW · Cross-validation (v1 yfinance vs v3.1 SSGA)
+            VECTOR_ETFFLOW · {state.data?.mode === 'secondary-only'
+              ? 'v3.1 secondary panel (primary dark)'
+              : 'Cross-validation (v1 yfinance vs v3.1 SSGA)'}
           </h2>
-          {state.data?.hasData && state.data.summary && (
+          {state.data?.mode === 'cross-validation' && state.data.summary && (
             <span className="text-[10px] font-mono text-zinc-500 ml-2">
               source: {state.data.summary.secondarySourceLabel} ·{' '}
               {state.data.summary.totalCompared.toLocaleString()} pairs ·{' '}
               {state.data.summary.divergenceCount} divergences
+            </span>
+          )}
+          {state.data?.mode === 'secondary-only' && (
+            <span className="text-[10px] font-mono text-amber-300/80 ml-2">
+              {state.data.counts.secondaryRows.toLocaleString()} secondary rows ·{' '}
+              {(state.data.secondaryLatest?.length ?? 0)} tickers
             </span>
           )}
         </div>
@@ -123,7 +132,11 @@ export default function EtfFlowApp() {
       </header>
 
       <main className="p-6 max-w-[1600px] mx-auto">
-        <SpecBanner />
+        {state.data?.mode === 'secondary-only' ? (
+          <PrimaryDarkBanner data={state.data} />
+        ) : (
+          <SpecBanner />
+        )}
         {state.error && (
           <div className="border border-red-500/40 bg-red-500/10 rounded p-4 mb-4">
             <div className="text-[9px] font-black uppercase tracking-[0.2em] text-red-300 mb-1">
@@ -137,12 +150,20 @@ export default function EtfFlowApp() {
           <div className="text-[11px] font-mono text-zinc-500">loading etf-flow cross-validation…</div>
         )}
 
-        {state.data && !state.data.hasData && (
+        {/* Cycle 20 (s96 #19): dispatch on the response's `mode` field. */}
+        {state.data?.mode === 'empty' && (
           <EmptyState data={state.data} />
         )}
 
-        {state.data && state.data.hasData && state.data.summary && (
+        {state.data?.mode === 'cross-validation' && state.data.summary && (
           <Dashboard data={state.data} />
+        )}
+
+        {state.data?.mode === 'secondary-only' && state.data.secondaryLatest && (
+          <SecondaryOnlyDashboard
+            data={state.data}
+            secondaryLatest={state.data.secondaryLatest}
+          />
         )}
       </main>
     </div>
@@ -169,6 +190,35 @@ function SpecBanner() {
   );
 }
 
+/** Cycle 20 (s96 #19): primary-dark banner. Renders when the v1 yfinance
+ *  primary is empty but the v3.1 secondary panel has data — the panel
+ *  falls back to secondary-only mode per ADR-049 + Q-6.
+ *
+ *  Honest-banner rule per ADR-044 §UI: the operator MUST see that this
+ *  is secondary-source data, not silent. The cross-validation
+ *  sub-panels are hidden because the comparison would be meaningless
+ *  with one side empty. */
+function PrimaryDarkBanner({ data }: { data: EtfFlowCrossValidationStateResponse }) {
+  return (
+    <div className="border border-amber-500/40 bg-amber-500/5 rounded p-3 mb-4 flex items-start gap-3">
+      <div className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-300 whitespace-nowrap pt-0.5">
+        Primary dark
+      </div>
+      <div className="text-[11px] font-mono text-amber-100/80 leading-relaxed">
+        v1 primary (<code className="text-amber-200">yfinance Ticker.get_shares_full</code>) returned{' '}
+        <span className="text-amber-300 font-bold">0 rows</span> in the last {data.lookbackDays}d window.
+        Yahoo broke the ETF SHO endpoint ~2026-05-19 (S96-89); panel data shown below is from{' '}
+        <span className="text-amber-300 font-bold">v3.1 secondary sources</span> per{' '}
+        <code className="text-amber-200">ADR-049</code> (SSGA SPDR adapter for 15 tickers +{' '}
+        stockanalysis.com free-aggregator scrape for 5 tickers). Cross-validation sub-panels are{' '}
+        suppressed because the primary/secondary comparison is meaningless with one side empty;{' '}
+        resolution paths tracked under operator queue{' '}
+        <span className="text-fuchsia-300 font-bold">Q-6</span>.
+      </div>
+    </div>
+  );
+}
+
 function Dashboard({ data }: { data: EtfFlowCrossValidationStateResponse }) {
   if (!data.summary) return null;
   const { summary } = data;
@@ -177,6 +227,129 @@ function Dashboard({ data }: { data: EtfFlowCrossValidationStateResponse }) {
       <SummaryPanel data={data} />
       <TopDivergencesPanel divergences={summary.topDivergences} />
       <PerTickerPanel byTicker={summary.byTicker} />
+    </div>
+  );
+}
+
+/** Cycle 20 (s96 #19): secondary-only dashboard. Renders the v3.1
+ *  secondary panel as the source-of-truth display when primary is dark.
+ *  Layout mirrors `Dashboard` (summary tiles + per-ticker table) for
+ *  visual continuity; the cross-validation-specific panels
+ *  (TopDivergencesPanel, PerTickerPanel comparing primary vs secondary)
+ *  are intentionally omitted because the comparison is meaningless. */
+function SecondaryOnlyDashboard({
+  data,
+  secondaryLatest,
+}: {
+  data: EtfFlowCrossValidationStateResponse;
+  secondaryLatest: ReadonlyArray<EtfFlowSecondaryLatestRow>;
+}) {
+  return (
+    <div className="grid grid-cols-1 gap-4">
+      <SecondaryOnlySummaryPanel data={data} rows={secondaryLatest} />
+      <SecondaryOnlyTablePanel rows={secondaryLatest} />
+    </div>
+  );
+}
+
+function SecondaryOnlySummaryPanel({
+  data,
+  rows,
+}: {
+  data: EtfFlowCrossValidationStateResponse;
+  rows: ReadonlyArray<EtfFlowSecondaryLatestRow>;
+}) {
+  // Roll-up tiles — operator-readable freshness signals over the v3.1
+  // secondary panel. AUM totals are the sum of per-ticker latest aum;
+  // distinct dates surface freshness staleness if some tickers are
+  // missing their most-recent row.
+  const tickerCount = rows.length;
+  const totalAum = rows.reduce(
+    (acc, r) => (Number.isFinite(r.aum) ? acc + r.aum : acc),
+    0,
+  );
+  const distinctLatestDates = new Set(rows.map(r => r.date));
+  const sortedDates = [...distinctLatestDates].sort();
+  const oldestLatest = sortedDates[0] ?? '—';
+  const newestLatest = sortedDates[sortedDates.length - 1] ?? '—';
+  const tickersWithDelta = rows.filter(r => r.sharesPctDelta != null).length;
+
+  const tiles: Array<{ label: string; value: string; color: string }> = [
+    { label: 'Tickers (latest)', value: tickerCount.toLocaleString(), color: 'text-amber-200' },
+    { label: 'Secondary rows (window)', value: data.counts.secondaryRows.toLocaleString(), color: 'text-amber-200' },
+    { label: 'Total AUM (latest)', value: formatAum(totalAum), color: 'text-amber-200' },
+    { label: 'Latest date — newest', value: newestLatest, color: 'text-amber-200' },
+    { label: 'Latest date — oldest', value: oldestLatest, color: 'text-zinc-400' },
+    { label: 'With day-over-day delta', value: `${tickersWithDelta}/${tickerCount}`, color: 'text-zinc-400' },
+  ];
+
+  return (
+    <div className="border border-[#1a1a1a] rounded-xl bg-[#0a0a0a] p-4">
+      <div className="text-[9px] font-black uppercase tracking-[0.2em] text-zinc-400 mb-3">
+        Secondary panel rollup · as of {data.asOf} · {data.lookbackDays}d lookback
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        {tiles.map(t => (
+          <div key={t.label} className="border border-[#1a1a1a] rounded bg-black/40 p-2">
+            <div className="text-[8px] font-mono uppercase tracking-[0.15em] text-zinc-500 mb-1">
+              {t.label}
+            </div>
+            <div className={`text-sm font-mono font-bold ${t.color}`}>{t.value}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SecondaryOnlyTablePanel({
+  rows,
+}: {
+  rows: ReadonlyArray<EtfFlowSecondaryLatestRow>;
+}) {
+  return (
+    <div className="border border-[#1a1a1a] rounded-xl bg-[#0a0a0a] p-4">
+      <div className="text-[9px] font-black uppercase tracking-[0.2em] text-zinc-400 mb-3">
+        Per-ticker latest snapshot ({rows.length} ticker{rows.length === 1 ? '' : 's'} from v3.1 secondary)
+      </div>
+      {rows.length === 0 ? (
+        <div className="text-[11px] font-mono text-zinc-500">
+          No secondary rows in window.
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-[10px] font-mono">
+            <thead>
+              <tr className="text-zinc-500 border-b border-[#1a1a1a]">
+                <th className="text-left py-1 px-2 uppercase tracking-[0.15em]">Ticker</th>
+                <th className="text-left py-1 px-2 uppercase tracking-[0.15em]">Latest date</th>
+                <th className="text-right py-1 px-2 uppercase tracking-[0.15em]">Shares</th>
+                <th className="text-right py-1 px-2 uppercase tracking-[0.15em]">Close</th>
+                <th className="text-right py-1 px-2 uppercase tracking-[0.15em]">AUM</th>
+                <th className="text-left py-1 px-2 uppercase tracking-[0.15em]">Prior date</th>
+                <th className="text-right py-1 px-2 uppercase tracking-[0.15em]">Δshares (DoD)</th>
+                <th className="text-right py-1 px-2 uppercase tracking-[0.15em]">Rows</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(r => (
+                <tr key={r.ticker} className="border-b border-[#0f0f0f] hover:bg-white/5">
+                  <td className="py-1 px-2 text-white font-bold">{r.ticker}</td>
+                  <td className="py-1 px-2 text-zinc-300">{r.date}</td>
+                  <td className="py-1 px-2 text-right text-zinc-300">{formatShares(r.shares)}</td>
+                  <td className="py-1 px-2 text-right text-zinc-300">{formatClose(r.close)}</td>
+                  <td className="py-1 px-2 text-right text-amber-200">{formatAum(r.aum)}</td>
+                  <td className="py-1 px-2 text-zinc-500">{r.previousDate ?? '—'}</td>
+                  <td className={`py-1 px-2 text-right font-bold ${signedColor(r.sharesPctDelta ?? 0)}`}>
+                    {r.sharesPctDelta == null ? '—' : formatSignedPct(r.sharesPctDelta)}
+                  </td>
+                  <td className="py-1 px-2 text-right text-zinc-400">{r.rowCount}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -482,6 +655,20 @@ function formatShares(n: number): string {
   if (Math.abs(n) >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
   if (Math.abs(n) >= 1e3) return `${(n / 1e3).toFixed(2)}K`;
   return n.toFixed(0);
+}
+
+function formatClose(n: number): string {
+  if (!Number.isFinite(n)) return '—';
+  return `$${n.toFixed(2)}`;
+}
+
+function formatAum(n: number): string {
+  if (!Number.isFinite(n)) return '—';
+  if (Math.abs(n) >= 1e12) return `$${(n / 1e12).toFixed(2)}T`;
+  if (Math.abs(n) >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
+  if (Math.abs(n) >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
+  if (Math.abs(n) >= 1e3) return `$${(n / 1e3).toFixed(2)}K`;
+  return `$${n.toFixed(0)}`;
 }
 
 function signedColor(pct: number): string {
