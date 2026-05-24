@@ -23,6 +23,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   readGicsSectorByTicker,
+  readGicsSectorTimeline,
   readSectorMembershipPanel,
 } from '../../src/server/gics_sector_repository_helper.js';
 import { assertCHGrammar } from './_chGrammarCheck.js';
@@ -301,6 +302,26 @@ describe('readSectorMembershipPanel — EXPLAIN PLAN grammar (SMP-6)', () => {
     if (!verdict.ok && (/Unknown table expression identifier.*gics_sector_map/.test(errStr)
         || /Unknown table expression identifier.*sp500_constituents/.test(errStr))) {
       return t.skip('quantlab.gics_sector_map or quantlab.sp500_constituents not yet created — first ingest activates this check');
+    }
+    if (!verdict.ok) assert.fail(`EXPLAIN PLAN rejected:\n${verdict.failure?.error}\n---\n${verdict.failure?.query}`);
+  });
+});
+
+describe('readGicsSectorTimeline — EXPLAIN PLAN grammar (GST-1)', () => {
+  it('is EXPLAIN-clean (skipped when CH unreachable OR table absent)', async (t) => {
+    const fake = new FakeClickHouse();
+    fake.route(_ => true, []);
+    await readGicsSectorTimeline(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      fake as any,
+      TABLE,
+      ['AAPL', 'MSFT'],
+      new Date('2026-05-19T13:45:00.000Z'),
+    );
+    const verdict = await assertCHGrammar({ queries: fake.queries });
+    if (verdict.skipped) return t.skip('CH unreachable');
+    if (!verdict.ok && /Unknown table expression identifier.*gics_sector_map/.test(verdict.failure?.error ?? '')) {
+      return t.skip('quantlab.gics_sector_map not yet created — first G1-A1 ingest activates this check');
     }
     if (!verdict.ok) assert.fail(`EXPLAIN PLAN rejected:\n${verdict.failure?.error}\n---\n${verdict.failure?.query}`);
   });

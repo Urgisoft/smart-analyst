@@ -199,7 +199,7 @@ export async function readSectorMembershipPanel(
 
   const cq = await ch.query({
     query: `
-        SELECT ticker, toString(effective_date) AS effective_date
+        SELECT ticker, effective_date
         FROM ${constituentsTable} FINAL
         WHERE effective_date <= {asOfEnd:Date}
         ORDER BY effective_date ASC, ticker ASC
@@ -211,7 +211,7 @@ export async function readSectorMembershipPanel(
 
   const gq = await ch.query({
     query: `
-        SELECT ticker, gics_sector, toString(snapshot_date) AS snapshot_date
+        SELECT ticker, gics_sector, snapshot_date
         FROM ${gicsTable} FINAL
         WHERE snapshot_date <= {asOfEnd:Date}
           AND gics_sector != ''
@@ -323,7 +323,7 @@ export async function readGicsSectorTimeline(
   const asOfEndStr = asOfEnd.toISOString().slice(0, 10);
   const q = await ch.query({
     query: `
-        SELECT ticker, gics_sector, toString(snapshot_date) AS snapshot_date
+        SELECT ticker, gics_sector, snapshot_date
         FROM ${gicsTable} FINAL
         WHERE ticker IN ({tickers:Array(String)})
           AND snapshot_date <= {asOfEnd:Date}
