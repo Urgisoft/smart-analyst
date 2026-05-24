@@ -219,7 +219,7 @@ export const HEALTH_SOURCES: ReadonlyArray<HealthSourceConfig> = [
     timestampCol: 'date',
     timestampType: 'date',
     operatorAction: 'npm run daemon:daily',
-    why: 'Daemon step 1ja (s96 #9) — SSGA navhist auto-refresh.',
+    why: 'Daemon step 1ja (s96 #9) — SSGA navhist auto-refresh. Cycle 13 (S96-91) expanded the SSGA adapter from 13 to 15 tickers (SPY+DIA+11 sector XL*+JNK+GLD); the 6 remaining F-UNIVERSE tickers (IVV/IWM/HYG/TLT/VOO/QQQ) are served by other issuers (Q-6 path-B\').',
   },
   {
     name: 'etf_flow_snapshots',
@@ -328,7 +328,7 @@ export const HEALTH_SOURCES: ReadonlyArray<HealthSourceConfig> = [
     timestampCol: 'observation_date',
     timestampType: 'date',
     operatorAction: 'npm run cboe:ingest',
-    why: 'GAP-3 — operator-cadence; phase1_v3 classifier reads stale data.',
+    why: 'Cycle 11 (S96-88) finding: CBOE public totalpc.csv + totalpcarchive.csv files end 2019-10-04 (source frozen). Re-running the ingest does NOT advance max(observation_date) — the panel will remain very-stale by design until Q-5 path (A) DataShop subscription OR path (B) methodology amendment removing CBOE put/call from phase1_v3. GAP-3 daemon promotion deferred (low priority — promoting a frozen source adds no value).',
   },
   {
     name: 'etf_shares_outstanding',
@@ -338,7 +338,7 @@ export const HEALTH_SOURCES: ReadonlyArray<HealthSourceConfig> = [
     timestampCol: 'date',
     timestampType: 'date',
     operatorAction: 'npm run etf:flow:ingest',
-    why: 'GAP-4 — daemon step 1jb (s96 #15 Cycle 2); refreshes alongside SSGA secondary so the cross-validation comparator reads same-day primary + secondary.',
+    why: 'GAP-4 daemon step 1jb (s96 #15 Cycle 2) wires the refresh, but Cycle 12 (S96-89) confirmed Yahoo broke `Ticker.get_shares_full` for ETFs (~2026); yfinance 1.4.0 returns empty DataFrames for the full F-UNIVERSE. The panel will remain never-populated until Q-6 resolution: path (A) paid Sharadar/Polygon, path (B) drop the panel + promote v3.1 secondary, path (B\') per-issuer free adapters (Cycle 13: SSGA expanded to 15 tickers; iShares/Vanguard/Invesco endpoints empirically dead per Cycle 14 survey), path (C) accept-as-warning, OR path (D) Yahoo restores the endpoint (monitored by the daemon step\'s anomaly).',
   },
   // ── FINRA raw source (autonomous via Mondays-only daemon step 1h-pre) ────
   {
