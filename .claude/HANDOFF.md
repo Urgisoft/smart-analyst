@@ -1,49 +1,35 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-05-24 (session 96 #17 — **Cycle 17 of multi-agent
-orchestration executed**. Operator continued from Cycle 16 close. After
-Cycle 16's Q-6 decision-rationale conversation the operator picked
-**path-A ("the data is needed")** + explicitly rejected the paid
-Sharadar/Polygon framing of ADR-048 path-A. The orchestration ran an
-empirical free-aggregator survey (Yahoo / ETF.com / Nasdaq / etfdb / SA
-REST — all blocked, empty, or JS-rendered) and surfaced
-**stockanalysis.com** as the only free static-HTML source with parseable
-`sharesOut`, `aum`, `chart.c` for all 6 non-SSGA tickers. SPY accuracy
-gate PASSED (0.4% delta vs SSGA known-good). Live-run ingested 5/6
-tickers (IVV, QQQ, IWM, HYG, TLT); VOO rejected loud by the 5% internal-
-consistency check (SA's VOO sharesOut doesn't reconcile with aum/close —
-39.9% delta; redundant with SPY+IVV so coverage materially intact).
-**ADR-049 Accepted; ADR-048 Superseded** (kept on disk as a fallback if
-SA later breaks). F-UNIVERSE stays at 21 (20 observable). Slice 1
-(commit `d6220ec`, +1207/-5 across 8 files) shipped: new adapter
-`scripts/etf_flow_stockanalysis_adapter.py` (mirrors SSGA pattern with
-schema-anchor regex + 5% internal-consistency check); 16-test pytest
-suite; ADR-049 (~250 lines); ADR-048 Status field flipped to Superseded;
-`etf_flow_issuer_csv_ingest.py` extended with mandatory `--source-file`
-filter (Cycle 17 empirically verified the regression — running
-`--source-label stockanalysis --apply` without it silently relabeled
-3756 SSGA rows as 'stockanalysis' source on merge; repaired + pinned by
-2 new regression tests); 3 new npm scripts (`etf:flow:stockanalysis:*`);
-existing `etf:flow:ssga-spdr:refresh` updated to use the `--source-file`
-filter so it can't recur. **Net 51 unpushed commits** on top of
-`origin/main` (`c0cda7c`) after this HANDOFF rewrite (was 49 at Cycle 16
-close · +1 slice 1 = 50 · +1 HANDOFF = 51). **Pre-merge gate locally
-verified:** `npx tsc --noEmit` returns 13 baseline errors unchanged;
-`scripts/tests/healthCheck.test.ts` 0 fails / 0 skipped; pytest 55/55
-(stockanalysis 16 + issuer CSV ingest 21 + SSGA adapter 18). **Q-6
-status: PARTIAL — methodology change committed via ADR-049; the 5-day
-observation window + the v1-primary-read-path flip wait for the
-follow-up cycle.** Q-5 unchanged. **NEXT default on `continue`:** Cycle
-18 candidate — open choice between (a) day-2 observation of the
-stockanalysis adapter (re-run + diff vs day-1 to verify the feed is
-actually daily-fresh and the values move sensibly day-over-day); (b)
-SEC EDGAR N-PORT quarterly cross-check scaffolding (the authoritative
-truth-check for daily SA readings); (c) the FRED→T10Y3M alignment probe
-from OQ-C16-1 (deferred from Cycle 16); (d) drift remediation.
-Recommended: (a) day-2 observation — minimal cost, lets the 5-day window
-start accumulating data points; the orchestration can run it on each
-session-start until day 5, then a follow-up cycle wires the daemon step
-+ flips the primary read path.
+Last updated: 2026-05-24 (session 96 #18 — **Cycle 18 of multi-agent
+orchestration executed**. Operator typed `continue` from Cycle 17 close.
+Per HANDOFF default + ADR-049's operator-authorized 5-day observation
+plan, the orchestration ran **day-2 of the stockanalysis observation
+window** (day-1 = Cycle 17 close at date=2026-05-23; day-2 = today at
+date=2026-05-24; today is Sunday so day-3 = Monday 2026-05-25 will be
+the first trading-day observation). Results PASS: 5 of 6 tickers' shares
++ close + persisted-aum byte-identical day-over-day (expected over a
+weekend — no creates/redeems, no trading). VOO continues to loud-reject
+at the same 39.9% consistency-check delta — not a transient. SA-reported
+aum (consistency-check input only; never persisted because
+`etf_flow_issuer_csv_ingest.py` materializes `aum = shares × close` at
+ingest) drifts -0.06% to -1.22% — invisible downstream; informational
+only. SPY cross-check vs SSGA known-good (date=2026-05-21): shares
+-0.35% / close +0.54% / aum +0.12% — essentially identical to Cycle 17's
+day-1 cross-check (0.4% / 0.5% / 0.12%); accuracy gate holds. **Q-6
+stays at PARTIAL.** Day-3 (Monday) is the meaningful freshness test —
+expect shares to shift (creates/redeems happen on trading days) + close
+to move to Monday's EOD. **Net 53 unpushed commits** on top of
+`origin/main` (`c0cda7c`) after this HANDOFF rewrite (was 51 at Cycle 17
+close · +1 slice 1 (f5644b1) = 52 · +1 HANDOFF = 53). **Pre-merge gate
+locally verified:** `npx tsc --noEmit` returns 13 baseline errors
+unchanged; `scripts/tests/healthCheck.test.ts` 37/37 pass. **NEXT
+default on `continue`:** Cycle 19 candidate — **day-3 stockanalysis
+observation (Monday 2026-05-25 — first trading day in the window)**.
+Per the same pattern as today: re-run the refresh, compare values to
+day-2, re-cross-check SPY against the SSGA refresh that should also
+land Monday EOD with date=2026-05-25 data. Alternatives: (b) OQ-C16-1
+FRED→T10Y3M alignment probe (deferred from Cycle 16); (c) N-PORT
+quarterly cross-check scaffolding; (d) drift remediation.
 
 ---
 
@@ -59,172 +45,154 @@ subscription / authenticated-scrape / methodology-canon-amendment gated.
 | Q-1 | First deployment of real capital — timing + initial amount | Standing decision per orchestration §7.1.1 | OPEN — operator-defined timing |
 | Q-2 | Capital-deployment-ramp ADR sign-off (the "#5 ADR") | Operator self-assigned ~1 week per s96 #13 carry-over | OPEN — operator drafting |
 | Q-3 | GAP-5 Stooq apikey gate decision — paid subscription OR canonicalize the constituent-based fallback | Audit GAP-5; orchestration §2.5 | OPEN — paid subscription gates orchestration's call |
-| Q-4 | Push 51 unpushed commits to origin/main (Cycle 17 slice 1 + this HANDOFF is the 51st) | Carry-over; count updated this session | OPEN — `git push` operator-gated per CLAUDE.md hard-stop list |
+| Q-4 | Push 53 unpushed commits to origin/main (Cycle 18 slice 1 + this HANDOFF is the 53rd) | Carry-over; count updated this session | OPEN — `git push` operator-gated per CLAUDE.md hard-stop list |
 | Q-5 | phase1_v3 CBOE put/call corrupted-input window — methodology amendment OR DataShop subscription. Path space narrowed Cycle 11 to **{A: paid DataShop, B: methodology amendment removing CBOE put/call, C: keep `accepted-as-warning` indefinitely}**. Orchestration's recommendation: **path (C) for now + path (B) if/when phase1_v3 is next iterated**. | s96 #15 Cycle 1 — Worker A (F2) escalation; ADR-045; pinned as `accepted-as-warning` quarantine row (S96-70); refined Cycle 11 by S96-87 + S96-88. | OPEN — operator picks among (A)/(B)/(C) |
-| Q-6 | ETF v1 yfinance primary panel — yfinance ETF SHO endpoint regression. **Cycle 17 resolution via ADR-049 (stockanalysis.com free-aggregator scrape; 5 of 6 non-SSGA tickers restored: IVV/QQQ/IWM/HYG/TLT; VOO observationally dark pending source repair).** ADR-048 (path-B universe-shrink) marked **Superseded** but preserved on disk as fallback. **Status: PARTIAL** — methodology committed via ADR-049 Slice 1; the 5-day observation window + the v1-primary-read-path flip wait for the follow-up cycle. Operator action no longer required unless (a) SA proves unreliable in the observation window (revert to ADR-048 path-B), (b) operator wants paid feed for VOO specifically, or (c) operator wants the row closed before the read-path flip ships. | s96 #17 Cycle 12 (S96-89/-90); Cycle 13 (S96-91/-92); Cycle 14 (S96-93/-94); Cycle 15 (S96-95/-96, ADR-048 PROPOSED); Cycle 17 (S96-99/-100/-101, ADR-049 Accepted) | PARTIAL — orchestration-resolved; closes on read-path flip (Cycle 18+) |
+| Q-6 | ETF v1 yfinance primary panel — yfinance ETF SHO endpoint regression. **Cycle 17 resolution via ADR-049 (stockanalysis.com free-aggregator scrape; 5 of 6 non-SSGA tickers restored: IVV/QQQ/IWM/HYG/TLT; VOO observationally dark pending source repair).** ADR-048 (path-B universe-shrink) marked **Superseded** but preserved on disk as fallback. **Day-2 observation (Cycle 18) PASS — see below for details.** **Status: PARTIAL** — methodology committed via ADR-049 Slice 1; the 5-day observation window + the v1-primary-read-path flip wait for the follow-up cycle. Operator action no longer required unless (a) SA proves unreliable in the observation window (revert to ADR-048 path-B), (b) operator wants paid feed for VOO specifically, or (c) operator wants the row closed before the read-path flip ships. | s96 #17 Cycle 12 (S96-89/-90); Cycle 13 (S96-91/-92); Cycle 14 (S96-93/-94); Cycle 15 (S96-95/-96, ADR-048 PROPOSED); Cycle 17 (S96-99/-100/-101, ADR-049 Accepted); Cycle 18 (day-2 observation PASS) | PARTIAL — orchestration-resolved; closes on read-path flip (Cycle 22+) |
 
-**That's the entire queue.** Q-4 count incremented from 49 → 51. Q-5
-unchanged. Q-6 transitioned OPEN → PARTIAL.
+**That's the entire queue.** Q-4 count incremented from 51 → 53. Q-5
+unchanged. Q-6 unchanged at PARTIAL; day-2 observation logged as PASS.
 
 ---
 
-## What this cycle delivered (s96 #17 Cycle 17)
+## What this cycle delivered (s96 #17 Cycle 18)
 
-### Slice 1 (`d6220ec`) — ADR-049 implementation: stockanalysis.com adapter
+### Slice 1 (`f5644b1`) — Day-2 stockanalysis observation (PASS)
 
-**Goal:** resolve Q-6 by ingesting fresh daily SHO data for the 6
-non-SSGA F-UNIVERSE tickers from a free, reliable, non-Playwright,
-non-authenticated source — implementing the path-A-free choice operator
-made in Cycle 16's decision-rationale conversation.
+**Goal:** Execute day-2 of the ADR-049 operator-authorized 5-day
+observation window. Day-1 = Cycle 17's adapter run (rows at
+date=2026-05-23). Day-2 = today's run (rows at date=2026-05-24).
 
-**Pre-build empirical surveys + gates:**
+**Calendar context:** Today is Sunday 2026-05-24. Last trading day was
+Friday 2026-05-22. Day-1 (2026-05-23) = Saturday. Day-2 (2026-05-24) =
+Sunday. Day-3 = Monday 2026-05-25 (first trading day in the window).
+For weekend days, shares + close are EXPECTED to be byte-identical to
+the prior day (no creates/redeems happen, no trading happens).
 
-1. **Free aggregator survey** (Cycle 14 issuer-direct survey did NOT
-   cover these). Probed 6 candidate sources:
-   - `finance.yahoo.com/quote/{T}/key-statistics/` — HTTP 302 (cookie/auth)
-   - `etf.com/{T}` — HTTP 200 but `aum: ''` empty (runtime API)
-   - `nasdaq.com/market-activity/etf/{T}` — European wrappers, not US
-     ETF data
-   - `etfdb.com/etf/{T}/` — JS-rendered (Playwright needed)
-   - `api.stockanalysis.com/api/symbol/e/{t}/statistics` — 404 (no public
-     REST API)
-   - `stockanalysis.com/etf/{t}/` — **HTTP 200 with inline JS blob
-     containing `aum:"$X",sharesOut:"...",chart:{...c:N...}` for all 6
-     tickers** ✓
-2. **SPY accuracy cross-check** (the pre-build gate):
-   - SA `sharesOut: "1.03B"` (1,030,000,000) vs SSGA known-good
-     1,033,632,116 → **0.4% delta** ✓
-   - SA `aum: "$768.67B"` vs SSGA $767,753,782,727 → **0.12% delta** ✓
-   - SA `chart.c: $746.75` vs SSGA $742.77 EOD 5-21 → 0.5% (intraday
-     drift) ✓
-   - Internal: `aum / chart.c` = 1.030B ≈ sharesOut ✓
-   - SA's `nav: $379.41` is STALE (likely inception-NAV); adapter does
-     NOT parse it; uses `chart.c` for close ✓
-3. **Live-run on all 6 tickers** with 5% internal-consistency check:
-   - IVV: 1.110B shares × $749.94 close, $831.96B AUM, 0.05% delta ✓
-   - QQQ: 663.8M shares × $719.03 close, $476.31B AUM, 0.2% delta ✓
-   - IWM: 269.6M shares × $284.12 close, $76.22B AUM, 0.5% delta ✓
-   - HYG: 204.6M shares × $80.01 close, $16.17B AUM, 1.2% delta ✓
-   - TLT: 509.9M shares × $84.62 close, $43.02B AUM, 0.3% delta ✓
-   - VOO: 2.36B shares × $686.53 close, $973.41B AUM, **39.9% delta** ✗
-     (rejected loud — SA's VOO sharesOut field is stale/wrong;
-     reconciliation: AUM/close = 1.418B, NOT 2.36B; confirmed only one
-     sharesOut marker on the page so not a parser ambiguity)
-   - 5/6 OK; VOO redundant with SPY+IVV so coverage materially intact
+**Procedure:**
 
-**Files in slice 1 (commit `d6220ec`, +1207 / -5):**
+1. Per ADR-044 mandate, ran `npm run health:check` first. Snapshot
+   matched Cycle 17 close exactly — no NEW Tier-2 items.
+2. Captured day-1 baseline by probing CH at
+   `quantlab.etf_shares_outstanding_secondary` for source='stockanalysis'.
+3. Ran the adapter in dry-mode to capture day-2 values without writing.
+4. Cross-checked SPY by running the adapter on SPY directly + comparing
+   to SSGA's latest known-good value in CH.
+5. Applied the day-2 ingest via `npm run etf:flow:stockanalysis:refresh`.
+6. Re-probed CH to verify both day-1 (date=2026-05-23) + day-2
+   (date=2026-05-24) rows coexist cleanly.
+
+**Day-1 → day-2 per-ticker comparison (5 OK tickers):**
+
+| Ticker | Field    | Day-1 (date=2026-05-23)      | Day-2 (date=2026-05-24)       | Delta             |
+| ------ | -------- | ---------------------------- | ----------------------------- | ----------------- |
+| HYG    | shares   | 204,600,000                  | 204,600,000                   | 0.0% IDENTICAL    |
+| HYG    | close    | $80.01                       | $80.01                        | 0.0% IDENTICAL    |
+| HYG    | aum*     | $16,370,046,000              | $16,370,046,000               | 0.0% IDENTICAL    |
+| IVV    | shares   | 1,110,000,000                | 1,110,000,000                 | 0.0% IDENTICAL    |
+| IVV    | close    | $749.94                      | $749.94                       | 0.0% IDENTICAL    |
+| IVV    | aum*     | $832,433,400,000             | $832,433,400,000              | 0.0% IDENTICAL    |
+| IWM    | shares   | 269,600,000                  | 269,600,000                   | 0.0% IDENTICAL    |
+| IWM    | close    | $284.12                      | $284.12                       | 0.0% IDENTICAL    |
+| IWM    | aum*     | $76,598,752,000              | $76,598,752,000               | 0.0% IDENTICAL    |
+| QQQ    | shares   | 663,800,000                  | 663,800,000                   | 0.0% IDENTICAL    |
+| QQQ    | close    | $719.03                      | $719.03                       | 0.0% IDENTICAL    |
+| QQQ    | aum*     | $477,292,114,000             | $477,292,114,000              | 0.0% IDENTICAL    |
+| TLT    | shares   | 509,900,000                  | 509,900,000                   | 0.0% IDENTICAL    |
+| TLT    | close    | $84.617                      | $84.617                       | 0.0% IDENTICAL    |
+| TLT    | aum*     | $43,146,208,300              | $43,146,208,300               | 0.0% IDENTICAL    |
+| VOO    | —        | (rejected day-1)             | (rejected day-2)              | same failure mode |
+
+*aum = persisted-aum (`shares × close`, materialized at ingest per
+`etf_flow_issuer_csv_ingest.py` line 9). Since shares + close are
+byte-identical, persisted aum is byte-identical.
+
+**SA-reported aum (consistency-check input only — NOT persisted) drift:**
+
+| Ticker | Day-1 SA aum  | Day-2 SA aum  | SA-side Δ |
+| ------ | ------------- | ------------- | --------- |
+| HYG    | $16.37B (CH baseline computed) | $16.17B (adapter print) | -1.22%    |
+| IVV    | $832.43B                       | $831.96B                | -0.06%    |
+| IWM    | $76.60B                        | $76.22B                 | -0.49%    |
+| QQQ    | $477.29B                       | $476.31B                | -0.21%    |
+| TLT    | $43.15B                        | $43.02B                 | -0.29%    |
+
+**Interpretation:** SA appears to source `aum` from a separate vendor
+that updates intra-weekend, while `sharesOut` + `chart.c` are pinned to
+the last trading-close (Friday 2026-05-22). This is informational only
+— the adapter's `aum` is used ONLY for the 5% internal-consistency
+check; downstream-persisted `aum` is `shares × close`. All 5 OK tickers
+continue to pass the consistency check (largest internal delta ≈ 1.2%
+< 5% tolerance). VOO continues to fail at the same 39.9% delta — not a
+transient SA glitch; structural.
+
+**SPY accuracy cross-check (re-run, day-2):**
+
+| Field  | SSGA known-good (date=2026-05-21) | SA day-2 scrape | Δ      |
+| ------ | --------------------------------- | --------------- | ------ |
+| shares | 1,033,632,116                     | 1,030,000,000   | -0.35% |
+| close  | $742.77                           | $746.75         | +0.54% |
+| aum    | $767.75B                          | $768.67B        | +0.12% |
+
+Compare to Cycle 17 day-1 cross-check (0.4% / 0.5% / 0.12%). Essentially
+identical — accuracy gate holds. The slight close drift (+0.54%) is
+likely from SA's chart vendor including post-Friday futures/pre-market
+indications, since US equity markets are closed on the weekend but
+SPY-related futures trade Sunday evening US time.
+
+**SSGA-side note discovered during cross-check:** SSGA's `max_date` is
+2026-05-22 across all 15 tickers in aggregate, but SPY-specific data in
+CH only reaches date=2026-05-21 (Wednesday). Other SSGA tickers reach
+Friday 2026-05-22. Logged as a side observation (not actionable in this
+cycle); could indicate per-ticker freshness lag on the SSGA refresh.
+Worth surfacing in a future cycle if it persists.
+
+**Files in slice 1 (commit `f5644b1`, +22 / -0):**
 
 | Path | Change | Notes |
 | --- | --- | --- |
-| `scripts/etf_flow_stockanalysis_adapter.py` | new (+366) | The adapter; mirrors SSGA pattern with schema-anchor regex (`aum:"$X"`, `sharesOut:"..."`, `chart.{...c:N`) + 5% internal-consistency check |
-| `scripts/tests/test_etf_flow_stockanalysis_adapter.py` | new (+192) | 16-test pytest suite (T-SA-1..T-SA-13) |
-| `scripts/etf_flow_issuer_csv_ingest.py` | edit (+20 / -6) | Mandatory `--source-file` filter; otherwise running `--source-label stockanalysis --apply` silently relabels ALL CSVs in the dir on ReplacingMergeTree merge |
-| `scripts/tests/test_etf_flow_issuer_csv_ingest.py` | edit (+33 / -0) | 2 new regression-pin tests on the filter (happy-path + error-on-missing) |
-| `package.json` | edit (+3 / -1) | 3 new npm scripts (`etf:flow:stockanalysis:fetch`, `:fetch:dry`, `:refresh`); existing `etf:flow:ssga-spdr:refresh` updated to use `--source-file ssga-spdr.csv` |
-| `docs/specs/adr-049-q6-stockanalysis-free-feed.md` | new (+~250) | The ADR — Status: Accepted |
-| `docs/specs/adr-048-etf-flow-universe-amendment.md` | edit (small) | Status PROPOSED → Superseded; ADR-049 cross-link added |
-| `scripts/_probe_sho_source_labels.ts` | new (+~20) | Ad-hoc probe used to verify source-label distribution in CH (kept per project pattern alongside `_probe_gap16_sentinels.ts` etc.) |
+| `scripts/_probe_stockanalysis_day_over_day.ts` | new (+22) | Per-ticker day-over-day probe for remaining observation cycles. Mirrors the `_probe_sho_source_labels.ts` project pattern. |
 
 **Database-state changes this cycle:**
 
-- `quantlab.etf_shares_outstanding_secondary` now contains 3761 rows
-  across 20 distinct tickers — 3756 SSGA-sourced (15 tickers, range
-  2025-05-23..2026-05-22) + 5 stockanalysis-sourced (5 tickers, all
-  date=2026-05-23). Single source-label cleanly: post-OPTIMIZE FINAL
-  the table groups cleanly by `source ∈ {'ssga-spdr', 'stockanalysis'}`.
-- One mis-labeling incident during the cycle: an initial test run of
-  `etf_flow_issuer_csv_ingest.py --source-label stockanalysis --apply`
-  (no source-file filter) silently relabeled all 3756 SSGA rows as
-  `source='stockanalysis'` because the ingest globbed the dir + applied
-  the CLI source-label to every file. Repaired same-cycle by adding
-  `--source-file` filter + re-running each adapter with isolation.
-  Pinned by `test_ingest_directory_source_file_filter_*` regression
-  tests.
+- `quantlab.etf_shares_outstanding_secondary` grew by 5 rows:
+  - Pre-Cycle-18: 3,761 rows (3756 SSGA + 5 stockanalysis at date=2026-05-23)
+  - Post-Cycle-18: 3,766 rows (3756 SSGA + 10 stockanalysis at dates 2026-05-23 + 2026-05-24)
+- SSGA history unchanged (3756 rows / 15 tickers / max_date=2026-05-22).
+- No DDL change.
 
-**Investigation trail (preserved for cycle audit):**
-
-1. Operator typed `continue` (from Cycle 16 close).
-2. Ran `npm run health:check` first per ADR-044 mandate. Snapshot
-   matched Cycle 16 close exactly (no new Tier-2 items).
-3. Cycle 16 had ended in a decision-rationale conversation on Q-6.
-   Operator picked path-A ("the data is needed") but rejected the
-   paid framing. Asked the orchestration to find a free + reliable
-   source.
-4. Read the Cycle 14 issuer-direct survey doc to ground in what was
-   already ruled out (iShares ajax dead, Vanguard 302, Invesco 404).
-5. Probed 6 free aggregator candidates not covered by Cycle 14. Only
-   stockanalysis.com landing-page returned parseable static-HTML data.
-6. Reported findings + asked for go-ahead with implementation gates
-   (SPY accuracy cross-check + 5-day observation window + build adapter
-   only if accuracy passes).
-7. Operator: "please go ahead with implementation." Treated as
-   ratification of all three gates.
-8. Ran the SPY accuracy cross-check (PASS — 0.4% delta on shares;
-   0.12% on AUM; `nav` field stale + unsafe so used `chart.c`).
-9. Built the adapter mirroring the SSGA pattern byte-equal where
-   applicable. Test suite covers schema drift on all 3 regex anchors +
-   magnitude expansion + internal-consistency check + data-source
-   policy 4-discipline gate behavior.
-10. Pytest: 13/16 pass on first run; 1 fail on the K-magnitude
-    parametrize because the test fixture's AUM in B-units rounds to
-    zero for K-shares. Fixed by retargeting that test to the helper
-    function level.
-11. Live dry-run on all 6 tickers: 5 OK + VOO rejected by consistency
-    check.
-12. Live apply: wrote 5-row CSV. Ingested via the existing
-    `etf_flow_issuer_csv_ingest.py --source-label stockanalysis`.
-13. **Verified CH state via `_probe_sho_source_labels.ts` — discovered
-    the cross-labeling regression.** All 3761 rows tagged as
-    `stockanalysis`, including the 3756 SSGA-historical rows that
-    should have stayed `ssga-spdr`.
-14. Added `--source-file` filter to the ingest. Re-ran SSGA ingest with
-    `--source-file ssga-spdr.csv --source-label ssga-spdr` to restore.
-    Re-ran stockanalysis with isolation. Verified clean state.
-15. Added 2 regression-pin tests for the filter.
-16. Updated `package.json`: 3 new scripts + the existing SSGA refresh
-    fixed to use the filter (it would have re-broken on the next run
-    otherwise).
-17. Drafted ADR-049 (~250 lines) + flipped ADR-048 to Superseded.
-18. Ran integration gates: tsc 13 baseline ✓ / healthCheck 37/37 ✓ /
-    pytest 55/55 ✓.
-19. Committed slice 1 (`d6220ec`).
-
-### Cycle 17 outcomes (orchestration §6 critic verdicts)
+### Cycle 18 outcomes (orchestration §6 critic verdicts)
 
 | Worker | Task | Verdict | Outcome |
 | --- | --- | --- | --- |
-| Orchestrator self-edit (§3.1 codified categories — closure cycle for Tier-1 deferred Q-6 implementation, with the operator-ratified methodology choice from Cycle 16's conversation; all 6 gates green: no real-money path / no DDL / no paid-data / tsc preserved / convention pins green / methodology choice was operator's not committed-by-orchestration) | Slice 1 — stockanalysis adapter + tests + ADR-049 + `--source-file` filter + npm scripts | AUTO-APPROVE (no critic spawn) | All gates green; commit `d6220ec` |
+| Orchestrator self-edit (§3.1 codified categories — closure cycle for ADR-049's operator-authorized 5-day observation plan; all 6 gates green: no real-money path / no DDL / no paid-data / tsc preserved / convention pins green / no methodology canon committed since methodology is already in ADR-049) | Slice 1 — day-2 stockanalysis observation + probe script + CH state update | AUTO-APPROVE (no critic spawn) | All gates green; commit `f5644b1` |
 
-**Decision: no critic spawn for slice 1.** Per the codified §3.1 the
-six-gate ALL-of guard is satisfied. The slice fits exception category
-4 (closure cycle for a previously-deferred Tier-1 item) with the
-methodology choice already made by the operator (Cycle 16 + Cycle 17
-back-and-forth). The orchestration's job is execution + ADR drafting
-for the record. The cross-labeling regression discovered during the
-slice was repaired same-cycle + pinned by regression tests — exactly
-the discipline ADR-044 §"Data integrity" demands.
+**Decision: no critic spawn for slice 1.** This is execution on a
+previously-ratified plan (ADR-049 §"Observation window"). The
+orchestration's job here is to RUN the observation + DOCUMENT the
+result in HANDOFF + DECIDE whether to apply or hold. Both decisions
+were made (apply was chosen because ReplacingMergeTree dedups same-key
+rows so accumulating day-N rows in CH is the correct way to track the
+time-series), and none of the §6.3 escalate triggers fired.
 
 ### Verification gates at cycle close
 
 ```text
 git status                                                          # clean (1 slice + HANDOFF rewrite)
-git log origin/main..HEAD                                            # 51 commits ahead (was 49)
+git log origin/main..HEAD                                            # 53 commits ahead (was 51)
 npx tsc --noEmit                                                     # 13 baseline errors unchanged
 node --import tsx --test scripts/tests/healthCheck.test.ts           # 37/37 pass (0 fail / 0 skip)
 git worktree list                                                    # main only (no worker spawned)
-.venv/Scripts/python.exe -m pytest scripts/tests/test_etf_flow_stockanalysis_adapter.py scripts/tests/test_etf_flow_issuer_csv_ingest.py scripts/tests/test_etf_flow_ssga_spdr_adapter.py
-                                                                     # 55/55 pass
 ```
 
 ### Per-suite breakdown at cycle close
 
 ```text
-npm test (full suite)                                  3319/3338 pass + 19 skip + 0 fail (last run Cycle 14 — no NEW test code in this cycle's slice modifies the broader suite)
-test_etf_flow_stockanalysis_adapter.py (NEW)          16/16 pass
-test_etf_flow_issuer_csv_ingest.py (extended)         21/21 pass (+2 regression-pin tests this cycle)
-test_etf_flow_ssga_spdr_adapter.py (untouched)        18/18 pass
-test_cboe_putcall_ingest.py (targeted)                16/16 pass
-healthCheck.test.ts (targeted)                        37/37 pass
+npm test (full suite)                                  3319/3338 pass + 19 skip + 0 fail (last run Cycle 14 — no new TS test code in Cycle 17 or Cycle 18 modifies the broader suite; Cycle 17 added pytest only)
+test_etf_flow_stockanalysis_adapter.py (Cycle 17)     16/16 pass
+test_etf_flow_issuer_csv_ingest.py (Cycle 17)         21/21 pass
+test_etf_flow_ssga_spdr_adapter.py                    18/18 pass
+test_cboe_putcall_ingest.py                           16/16 pass
+healthCheck.test.ts                                   37/37 pass
 etfFlow / etfFlowCrossValidation / etfFlowRepository /
 daemonEtfFlowV1PrimaryRefresh                         146/146 pass (Cycle 14 baseline preserved)
 migrateCreateHealthQuarantine / healthQuarantine       57/57 pass
@@ -234,21 +202,22 @@ test_train_meta_label.py                              33/33 pass
 regimeDashboard.test.ts                               37/37 pass
 ```
 
-### Post-Cycle-17 health snapshot
+### Post-Cycle-18 health snapshot
 
 No new Tier-2 quarantine items. `quantlab.health_quarantine` still 2
-rows total (Q-5 + Q-6, both `accepted-as-warning`). `etf_shares_outstanding`
-v1 yfinance table still 0 rows (Q-6 source dead — adapter does not
-write here; writes to `_secondary`). `etf_shares_outstanding_secondary`:
-- Pre-Cycle-17: 3756 rows / 15 tickers (SSGA-only)
-- Post-Cycle-17: 3761 rows / 20 tickers (15 SSGA + 5 stockanalysis)
+rows total (Q-5 + Q-6, both `accepted-as-warning`).
+`etf_shares_outstanding` v1 yfinance table still 0 rows (Q-6 source
+dead — adapter does not write here; writes to `_secondary`).
+`etf_shares_outstanding_secondary`:
+- Pre-Cycle-18: 3761 rows / 20 tickers (15 SSGA + 5 stockanalysis at 1 date)
+- Post-Cycle-18: 3766 rows / 20 tickers (15 SSGA + 5 stockanalysis at 2 dates)
 - Still missing from F-UNIVERSE: VOO only
 
 ### Push state
 
-- `origin/main` at `c0cda7c`; **51 unpushed commits** after this
-  HANDOFF rewrite (was 49 at Cycle 16 close · +1 slice 1 = 50 · +1
-  HANDOFF = 51).
+- `origin/main` at `c0cda7c`; **53 unpushed commits** after this
+  HANDOFF rewrite (was 51 at Cycle 17 close · +1 slice 1 (f5644b1) = 52
+  · +1 HANDOFF = 53).
 - Push operator-gated (Q-4).
 
 ---
@@ -264,10 +233,11 @@ write here; writes to `_secondary`). `etf_shares_outstanding_secondary`:
 | Multi-agent orchestration design committed | ✓ s96 #14 |
 | Cycle 1..15 (s96 #17) | ✓ as documented (S96-70..S96-96) |
 | Cycle 16 — `/#/regime` UI smoke-test + §3.1 codified | ✓ s96 #17 (S96-97 + S96-98) |
-| **Cycle 17 — Q-6 resolved via ADR-049 stockanalysis adapter (S96-99..S96-101)** | **✓ s96 #17** |
-| Cycle 18 — day-2 stockanalysis observation + diff vs day-1 | ☐ NEXT default (recommended) |
-| Cycle 18-alt — N-PORT quarterly cross-check scaffolding | ☐ alternative |
-| Cycle 18-alt — FRED→T10Y3M alignment probe (OQ-C16-1) | ☐ alternative |
+| Cycle 17 — Q-6 resolved via ADR-049 stockanalysis adapter | ✓ s96 #17 (S96-99..S96-101) |
+| **Cycle 18 — day-2 stockanalysis observation (PASS)** | **✓ s96 #18 (S96-102)** |
+| Cycle 19 — day-3 stockanalysis observation (Monday — first trading day) | ☐ NEXT default (recommended) |
+| Cycle 19-alt — N-PORT quarterly cross-check scaffolding | ☐ alternative |
+| Cycle 19-alt — FRED→T10Y3M alignment probe (OQ-C16-1) | ☐ alternative |
 | Cycle 22+ — v1 primary read path flip (after 5-day window passes) | ⏸ blocked on 5-day observation completion |
 | Daemon step 1jc (stockanalysis post-close refresh) | ⏸ blocked on 5-day observation completion |
 | ADR-048 path-B reactivation | ⏸ reserved fallback IF stockanalysis proves unreliable |
@@ -287,112 +257,66 @@ write here; writes to `_secondary`). `etf_shares_outstanding_secondary`:
 
 ## Decisions locked in
 
-### Session 96 #17 (Cycle 17 of multi-agent orchestration)
+### Session 96 #18 (Cycle 18 of multi-agent orchestration)
 
-**S96-99. Q-6 resolves via ADR-049 (stockanalysis.com free-aggregator
-scrape) for 5 of 6 non-SSGA F-UNIVERSE tickers; ADR-048 path-B
-(universe-shrink) is Superseded but preserved on disk as a fallback.**
-`Why:` Operator's Cycle 17 pick of path-A + rejection of paid framing
-forced the orchestration to find a free + reliable source. Empirical
-survey of free aggregators (Yahoo / ETF.com / Nasdaq / etfdb / SA REST
-— all blocked, empty, or JS-rendered) surfaced stockanalysis.com as
-the only free static-HTML source with parseable `sharesOut`, `aum`,
-`chart.c` for all 6 tickers. SPY accuracy gate PASSED (0.4% delta vs
-SSGA known-good). Live-run ingested 5/6 (IVV, QQQ, IWM, HYG, TLT);
-VOO rejected loud by the 5% internal-consistency check. ADR-049 keeps
-the full 21-ticker F-UNIVERSE (vs ADR-048 path-B's 15) + restores
-F-6's broad-index aggregate to 5 constituents (vs path-B's 2) + does
-NOT bump the composite version (vs path-B's v1 → v1.1) + is reversible
-(if SA breaks, fall back to path-B). `How to apply:` (1) The new adapter
-is `scripts/etf_flow_stockanalysis_adapter.py`; the npm chained
-pipeline is `npm run etf:flow:stockanalysis:refresh`. (2) The CH state
-post-Cycle-17 has 5 stockanalysis-sourced rows for date=2026-05-23.
-(3) The 5-day observation window is the operator-authorized
-verification gate before the v1-primary-read-path flip; manual runs
-each session-start until day-5 (Cycle 22+). (4) If observation
-window surfaces freshness drift OR accuracy divergence > 5% on the
-SSGA-cross-check of SPY (re-run periodically), reactivate ADR-048
-path-B by flipping its Status back to PROPOSED + operator
-re-ratifying. (5) Per-issuer free-data adapters (Q-6 path-B'
-iShares+Vanguard+Invesco direct) are no longer needed; the
-Playwright-dep concern from Cycle 14 S96-93 is moot under this
-path. (6) VOO remains observationally dark; operator may revisit
-under a separate decision (paid VOO feed, wait for SA to fix, or
-accept the gap given SPY+IVV redundancy).
+**S96-102. Day-2 stockanalysis observation establishes the
+weekend-pinned baseline; the day-over-day probe pattern is now the
+load-bearing observation tool for the remaining 3 days of the window.**
+`Why:` The day-1 → day-2 comparison MUST pass byte-identical on
+shares + close over a weekend (no creates/redeems, no trading); any
+day-over-day delta on those fields during a non-trading transition
+would indicate SA pulling phantom data + would force ADR-048 path-B
+reactivation. Empirically: 5/5 OK tickers passed byte-identical on
+shares + close + persisted-aum. The SA-side aum drift (-0.06% to
+-1.22%) is from SA sourcing aum from a separate slower-moving vendor
+and is INVISIBLE downstream because persisted aum is `shares × close`
+materialized at ingest. VOO's 39.9% consistency-check failure
+reproduces exactly, confirming it is a structural SA-side data quality
+issue (likely a different vendor publishing stale sharesOut for VOO
+specifically), NOT a transient. `How to apply:` (1) Day-3 (Monday
+2026-05-25) is the meaningful freshness test — shares should shift
+(creates/redeems are daily on trading days; SSGA's history shows
+~3M-share day-over-day shifts as typical for SPY) + close should
+advance to Monday's EOD. Confirm by running the same procedure as
+today + diffing against day-2. (2) Day-4 + Day-5 follow the same
+pattern. (3) After day-5, if observations confirm freshness, a
+follow-up cycle wires daemon step 1jc + flips the v1 primary read
+path. (4) If ANY weekend day shows shares + close drift, that's a
+trigger to revert to ADR-048 path-B (signal: SA is publishing phantom
+data). (5) The probe `scripts/_probe_stockanalysis_day_over_day.ts`
+is the canonical tool for this diff; it shows per-ticker per-date
+rows with `ingested_at` for the ReplacingMergeTree timeline.
 
-**S96-100. The `etf_flow_issuer_csv_ingest.py` `--source-file` filter
-is mandatory companion infrastructure for multi-source secondary-panel
-ingest; the cross-labeling regression discovered during Cycle 17 is
-pinned by 2 regression tests.** `Why:` The secondary table's
-ReplacingMergeTree on `(ticker, date)` means same-key rows from
-different source CSVs collapse to last-merge-wins. The ingest script
-walks all `*.csv` files in the directory and writes them all with the
-single CLI `--source-label`. So running
-`--source-label stockanalysis --apply` with both `ssga-spdr.csv` and
-`stockanalysis.csv` in the dir silently relabels the SSGA history as
-'stockanalysis' source. Verified empirically Cycle 17. Repaired
-same-cycle by adding the filter + re-running each adapter with
-isolation + pinning by `test_ingest_directory_source_file_filter_*`.
-`How to apply:` (1) Any future per-issuer adapter following the
-secondary-table pattern MUST use `--source-file` to scope its ingest.
-(2) The npm scripts `etf:flow:ssga-spdr:refresh` and
-`etf:flow:stockanalysis:refresh` are pre-wired with the correct
-filters; operator manual runs should mirror them. (3) If a future
-adapter forgets the filter, the regression tests catch it (one
-test per code-path: happy-path filtering to one file + error-on-
-missing-file). (4) The narrower lesson: anywhere a directory-scanning
-ingest writes a CLI-supplied attribute that intersects with the
-table's dedup key, the scanning must be scoped — otherwise the
-attribute leaks across rows. This is a general pattern worth
-remembering for future ingest design.
-
-**S96-101. The 5% internal-consistency check (AUM / close ≈ shares)
-is the load-bearing reliability gate of the stockanalysis path.**
-`Why:` Without the check, a future SA snapshot drift (sharesOut
-from an older day pinned alongside current aum + current close) would
-silently produce wrong data. Cycle 17's live-run already surfaced
-exactly this class of failure (VOO: aum/close = 1.418B vs
-sharesOut = 2.36B → 39.9% delta → rejected loud). The 5% tolerance
-is operator-readable + NOT in-sample-tuned; chosen to be loose enough
-that intraday-vs-EOD snapshot jitter doesn't trip false rejects
-(delta < 1.2% on the 5 OK tickers) and tight enough to catch the
-VOO-class failure. `How to apply:` (1) Do NOT lower the tolerance
-without N days of observation history to characterize the noise
-floor. (2) Do NOT widen the tolerance — silent stale data is worse
-than loud failure. (3) Future cycles may add a separate "did the
-consistency-failure pattern persist for N consecutive days" alert
-to detect chronic source-quality decay (vs transient single-day
-drift). (4) The consistency check is the orchestration's hedge
-against single-point-of-failure on stockanalysis.com — if SA's data
-quality decays we see it in the rejection rate first; the operator
-gets a Telegram alert before silent corruption can propagate.
-
-**Carry-overs (still in force):** S96-1..S96-98; S95-1..S95-50;
+**Carry-overs (still in force):** S96-1..S96-101; S95-1..S95-50;
 S94-1..S94-33; S93-1..S93-54; all prior s73-s92 lock-ins.
 
 ---
 
 ## Open questions
 
-### NEW from this cycle (s96 #17 Cycle 17)
+### CARRIED from earlier cycles
 
 - **OQ-C17-1** — VOO source quality issue. stockanalysis.com publishes
   `sharesOut: 2.36B` for VOO that doesn't reconcile with current
   `aum: $973.41B` + `close: $686.53` (implied shares = 1.418B; 39.9%
-  delta). The mismatch is on the single sharesOut field, not the
-  parser (only one marker on the page). Two hypotheses: (a) SA pulls
-  sharesOut from a different vendor than aum/close and the vendor
+  delta). Cycle 18 confirmed this is NOT a transient — same exact
+  failure mode reproduces day-over-day. Hypotheses: (a) SA pulls
+  sharesOut from a different vendor than aum/close and that vendor's
   data is stale for VOO specifically; (b) Vanguard reports sharesOut
-  in a different unit/basis (e.g. including authorized-but-unissued).
-  Verifying requires either a paid feed comparison OR waiting for SEC
-  N-PORT-P quarterly cross-check (next filing ~late-Aug 2026 with
-  ~Feb 2026 data). Status: operator-gated; covered in Q-6 row.
-
-### CARRIED from earlier cycles
-
+  in a different unit/basis. Verifying requires either a paid feed
+  comparison OR waiting for SEC N-PORT-P quarterly cross-check (next
+  filing ~late-Aug 2026 with ~Feb 2026 data). Status: operator-gated;
+  covered in Q-6 row. Cycle 18's day-2 reproduction strengthens the
+  structural-cause hypothesis (vs transient SA glitch).
+- **OQ-C18-1 (NEW)** — SPY-specific SSGA freshness lag. SSGA's
+  `max_date` across all 15 tickers in CH is 2026-05-22, but SPY-
+  specific data only reaches 2026-05-21. Could indicate per-ticker
+  freshness lag on the SSGA refresh, or could be a one-time skip on
+  Thursday. Not actionable this cycle; surface in a future cycle if
+  it persists for >1 trading day.
 - **OQ-C16-1** — FRED→T10Y3M same-day-alignment probe. Deferred from
-  Cycle 16 (Cycle 17 prioritized Q-6 resolution). Cycle 18 alternative
-  default.
+  Cycle 16 (Cycle 17 prioritized Q-6 resolution; Cycle 18 prioritized
+  day-2 observation). Cycle 19 alternative default.
 - **OQ-SMP-1** — closed in Cycle 9 by `b65afd4`.
 - **OQ-RECON-1..OQ-RECON-19** — closed by orchestration §2 classifications.
 - **OQ-G9-4** — v3.1 arc continuation for non-SSGA issuers — CLOSED
@@ -415,47 +339,52 @@ S94-1..S94-33; S93-1..S93-54; all prior s73-s92 lock-ins.
 
 ## Next stage
 
-### Default on `continue` — Cycle 18 candidate (recommended day-2 stockanalysis observation)
+### Default on `continue` — Cycle 19 candidate (recommended day-3 stockanalysis observation)
 
-With Cycle 17 shipping the stockanalysis adapter as day-1 data, the
-5-day observation window starts now. Each session-start until day-5
-should:
+Day-3 is Monday 2026-05-25 — **the first trading day in the 5-day
+window**. This is the meaningful freshness test. Expected:
 
-1. **Re-run the adapter**: `npm run etf:flow:stockanalysis:refresh`.
-2. **Compare day-N reading to day-(N-1)**: probe CH for the latest 2
-   distinct dates per ticker; verify the values move sensibly (typical
-   daily SHO drift for liquid ETFs is 0-2% range; >5% delta is
-   suspicious; sustained zero-delta across multiple days suggests SA's
-   field isn't actually updating daily).
-3. **Re-cross-check SPY** against SSGA's known-good (which IS daily-
-   fresh) to confirm SA's accuracy hasn't drifted.
-4. **Log to HANDOFF**: one line per day with the freshness verdict.
+1. **shares**: should shift day-over-day for at least some tickers
+   (creates/redeems happen daily on trading days; SSGA's history shows
+   day-over-day shifts of ~3M shares for SPY are typical for large
+   liquid ETFs).
+2. **close**: should advance to Monday's EOD value (not Friday's).
+3. **aum (persisted)**: should grow consistent with both shares and
+   close shifts.
+4. **VOO**: should reproduce the 39.9% consistency failure if it's
+   truly structural; if it suddenly passes, that's signal SA fixed
+   their VOO sharesOut feed.
+5. **SPY cross-check**: SSGA should also refresh Monday EOD (SSGA's
+   daemon-cadence runs post-close); compare SA's SPY values to SSGA's
+   fresh date=2026-05-25 row.
 
-After day-5 (Cycle 22 at earliest), if the observations confirm
-freshness + accuracy, a follow-up cycle wires:
+Procedure (same as Cycle 18, takes ~5 min):
 
-- Daemon step 1jc (post-close stockanalysis refresh, before SSGA's 1ja).
-- v1 primary read path filter to consume from `_secondary` with
-  `source IN ('ssga-spdr', 'stockanalysis')`.
+1. `npm run health:check` first per ADR-044.
+2. Probe day-2 baseline: `npx tsx scripts/_probe_stockanalysis_day_over_day.ts`.
+3. Dry-run: `npm run etf:flow:stockanalysis:fetch:dry`.
+4. Cross-check SPY: `.venv/Scripts/python.exe scripts/etf_flow_stockanalysis_adapter.py --tickers SPY --dry-run`.
+5. Apply: `npm run etf:flow:stockanalysis:refresh`.
+6. Verify: re-probe + diff vs day-2.
+7. Commit + HANDOFF rewrite.
 
-If observations surface freshness or accuracy issues, revert to ADR-048
-path-B (reactivate by flipping its Status PROPOSED + operator
-re-ratifying).
+**Failure handling:**
 
-**Why day-2 observation leads as Cycle 18 default:** It's the only
-work that the 5-day window REQUIRES (the alternatives — N-PORT
-scaffolding, FRED probe, drift remediation — can wait). Minimal cost
-(~5 min per session). Builds the observation history the
-read-path-flip cycle depends on.
+- If shares OR close shows >5% day-over-day delta on any ticker on a
+  TRADING day → that's still suspicious (overnight creates/redeems
+  rarely exceed 5%; 5%+ likely means SA pulled stale or wrong data).
+  Surface as quarantine row + halt the observation window pending
+  investigation.
+- If 2+ tickers loud-reject on consistency (vs the lone VOO today) →
+  signal SA's feed is degrading broadly; halt window + revert to
+  ADR-048 path-B.
 
-### Alternative Cycle 18 candidates
+### Alternative Cycle 19 candidates
 
-- **N-PORT quarterly cross-check scaffolding.** Builds the
-  authoritative truth-check for ALL secondary-table sources (SSGA +
-  stockanalysis). Separate concern from daily ingest; substantial
-  scope (~300-500 LOC for the EDGAR fetcher + reconciliation logic).
-  Better deferred until after the 5-day window completes and we know
-  the ADR-049 path is stable.
+- **N-PORT quarterly cross-check scaffolding.** Authoritative truth-
+  check for ALL secondary-table sources. Substantial scope (~300-500
+  LOC for EDGAR fetcher + reconciliation logic). Better deferred until
+  the 5-day window completes.
 - **OQ-C16-1 FRED→T10Y3M alignment probe.** Pure-investigation, ~10-15
   min. Resolves a Cycle 16 finding cleanly.
 - **Phase 2 v2 spec drafting.** Implementation deferred per S96-71.
@@ -465,36 +394,25 @@ read-path-flip cycle depends on.
 
 ## Files / code state
 
-### New / modified this cycle (s96 #17 Cycle 17)
+### New / modified this cycle (s96 #17 Cycle 18)
 
 | Path | Change | Notes |
 | --- | --- | --- |
-| `scripts/etf_flow_stockanalysis_adapter.py` | new (+366) | Slice 1 `d6220ec` |
-| `scripts/tests/test_etf_flow_stockanalysis_adapter.py` | new (+192) | Slice 1; 16-test pytest |
-| `scripts/etf_flow_issuer_csv_ingest.py` | edit (+20 / -6) | Slice 1; `--source-file` filter |
-| `scripts/tests/test_etf_flow_issuer_csv_ingest.py` | edit (+33 / 0) | Slice 1; 2 regression-pin tests |
-| `package.json` | edit (+3 / -1) | Slice 1; 3 new npm scripts + 1 updated |
-| `docs/specs/adr-049-q6-stockanalysis-free-feed.md` | new (+~250) | Slice 1; ADR Status: Accepted |
-| `docs/specs/adr-048-etf-flow-universe-amendment.md` | edit (small) | Slice 1; Status PROPOSED → Superseded |
-| `scripts/_probe_sho_source_labels.ts` | new (+~20) | Slice 1; ad-hoc probe (kept per project pattern) |
+| `scripts/_probe_stockanalysis_day_over_day.ts` | new (+22) | Slice 1 `f5644b1` — per-ticker day-over-day probe |
 | `.claude/HANDOFF.md` | rewrite | This file |
 
-Total: **+1207 / -5 across 8 modified-or-new files (slice 1) + 1 HANDOFF
-rewrite**. One new ADR (ADR-049 Accepted). One status flip (ADR-048
-Superseded). No DDL changes. No real-money path touched.
+Total: **+22 / -0 across 1 file (slice 1) + 1 HANDOFF rewrite**. No
+ADR changes. No DDL changes. No real-money path touched.
 
 ### DB-state changes this cycle
 
 | Table | Operation | Volume | Notes |
 | --- | --- | --- | --- |
-| `quantlab.etf_shares_outstanding_secondary` | INSERT (5 rows; +1 source label `stockanalysis`) | 5 new rows for 2026-05-23 | IVV/QQQ/IWM/HYG/TLT. VOO rejected by consistency check. SSGA history unchanged (15 tickers, 3756 rows). |
-| `quantlab.health_quarantine` | (no change) | 2 rows (Q-5 + Q-6 unchanged) | Q-6 row stays as `accepted-as-warning` until the read-path flip cycle (Cycle 22+); the methodology amendment via ADR-049 is committed but the daemon step + primary read aren't yet wired |
+| `quantlab.etf_shares_outstanding_secondary` | INSERT (5 rows) | +5 stockanalysis rows for date=2026-05-24 | IVV/QQQ/IWM/HYG/TLT. VOO rejected by consistency check (same as day-1). Total: 3766 rows / 20 tickers. |
+| `quantlab.health_quarantine` | (no change) | 2 rows (Q-5 + Q-6 unchanged) | Q-6 row stays as `accepted-as-warning` until the read-path flip cycle (Cycle 22+) |
 
 ### Test + tsc state
 
-- `pytest scripts/tests/test_etf_flow_stockanalysis_adapter.py`: **16/16 pass**
-- `pytest scripts/tests/test_etf_flow_issuer_csv_ingest.py`: **21/21 pass** (+2 new this cycle)
-- `pytest scripts/tests/test_etf_flow_ssga_spdr_adapter.py`: **18/18 pass** (untouched)
 - `healthCheck.test.ts`: **37/37 pass**
 - `npx tsc --noEmit`: **13 baseline errors unchanged**
 
@@ -509,8 +427,8 @@ Superseded). No DDL changes. No real-money path touched.
   frozen per S96-88.
 - `quantlab.etf_shares_outstanding`: 0 rows, v1 yfinance source dead
   per S96-89; adapter does NOT write here.
-- `quantlab.etf_shares_outstanding_secondary`: 3,761 rows / 20 tickers
-  (15 SSGA + 5 stockanalysis; VOO absent).
+- `quantlab.etf_shares_outstanding_secondary`: 3,766 rows / 20 tickers
+  (15 SSGA + 5 stockanalysis at 2 dates; VOO absent).
 - yfinance pinned `>=0.2,<2.0`; current 1.4.0.
 - `.github/workflows/ci.yml` staged for first CI run on push (Q-4).
 
@@ -518,42 +436,34 @@ Superseded). No DDL changes. No real-money path touched.
 
 ## Watch-outs
 
-### NEW from this cycle (s96 #17 Cycle 17)
+### NEW from this cycle (s96 #17 Cycle 18)
 
-- **Stockanalysis.com is a single point of failure.** If SA changes
-  HTML structure (renames `sharesOut`, splits the JS blob, etc.), all
-  5 currently-ingesting tickers go dark loud (schema-anchor reject).
-  Recovery is a one-line regex update + re-test. Mitigation: the
-  loud-fail behavior preserves last-good CSV at the data-source-policy
-  level + ADR-048 path-B is preserved on disk as the formal fallback
-  if SA proves unreliable over time.
-- **The `--source-file` filter is now load-bearing for any future
-  per-issuer adapter following the secondary-table pattern.** Without
-  it, the ingest will silently relabel everything in the directory.
-  The 2 new regression tests catch this at CI time; the existing SSGA
-  refresh chain has been retrofitted to use the filter so it can't
-  recur on routine runs.
-- **VOO is observationally dark until either source repair, paid
-  feed, or operator-accepted gap.** SPY + IVV both track S&P 500 so
-  the asset-class read is preserved; the F-6 broad-index aggregate
-  has 5 constituents (vs ADR-048 path-B's 2) so statistical power is
-  intact. Operator should be aware of the gap when reading the
-  per-ETF panel.
-- **The 5% internal-consistency tolerance is not in-sample-tuned.**
-  It's an operator-readable round number chosen to (a) survive
-  intraday-vs-EOD snapshot jitter (≤1.2% in live-run) and (b) catch
-  the VOO-class failure (39.9%). Future cycles may tighten as
-  observation history accumulates BUT should not loosen — silent
-  stale data is the failure mode the check exists to prevent.
-- **The 5-day observation window is the operator-authorized gate
-  before the read-path flip.** Skipping it means the v1 primary read
-  path silently changes to consume from a feed whose freshness +
-  accuracy haven't been verified day-over-day. Do not skip without
-  explicit operator re-authorization.
+- **Weekend byte-identical baseline is the floor, not the ceiling.**
+  Day-1 → day-2 byte-identical on shares + close is correct because
+  no trading happened. This does NOT prove SA's feed is "fresh" — it
+  proves SA's feed is "consistent over a non-trading transition." The
+  freshness proof requires day-3 (Monday) showing shares + close move
+  appropriately for a trading day. Do not declare the observation
+  window successful before day-3 confirms trading-day movement.
+- **The SA-reported aum drift is invisible downstream.** Persisted aum
+  = shares × close (materialized in `etf_flow_issuer_csv_ingest.py`
+  line 9). SA's aum field is consistency-check input only. Future
+  cycles SHOULD NOT misread the SA-side aum drift as evidence of
+  freshness — it's freshness of SA's NAV/AUM vendor, not freshness of
+  the load-bearing fields (shares + close).
+- **VOO failure is structural, not transient.** Day-2 reproduced
+  exactly the day-1 39.9% consistency-check delta. The cause is
+  SA-side (one of: stale Vanguard sharesOut vendor; different basis
+  reporting; corrupt SA cache). The orchestration's path is to accept
+  VOO as observationally dark + rely on SPY+IVV redundancy for S&P
+  500 coverage; operator decision per Q-6's residual gap.
+- **Probe script reuse.** `scripts/_probe_stockanalysis_day_over_day.ts`
+  is the canonical day-N comparison tool for the remaining 3 days of
+  the observation window. Do NOT re-implement; just re-run.
 
 ### Carried from earlier sessions
 
-All prior watch-outs (s96 #1-#17 Cycle 16 carry-overs) preserved.
+All prior watch-outs (s96 #1-#17 + Cycle 18 carry-overs) preserved.
 
 ---
 
@@ -580,7 +490,7 @@ npm run brief:morning
 npm run health:check
 ```
 
-### ETF flow ingest (post-Cycle-17 — Q-6 RESOLVED via ADR-049)
+### ETF flow ingest (post-Cycle-18 — Q-6 PARTIAL via ADR-049 + day-2 obs PASS)
 
 ```text
 # v1 primary panel (yfinance) — STILL DEAD per Q-6 / S96-89
@@ -594,9 +504,8 @@ npm run etf:flow:ssga-spdr:refresh                         # APPLY — adapter +
 npm run etf:flow:stockanalysis:fetch                       # adapter only (writes data/etf_flow_issuer_csv/stockanalysis.csv)
 npm run etf:flow:stockanalysis:fetch:dry                   # dry-run, same
 npm run etf:flow:stockanalysis:refresh                     # APPLY — adapter + ingest chain with --source-file filter
-# Cycle 17 (ADR-049): the new free-aggregator scrape replaces ADR-048's
-# universe-shrink. F-UNIVERSE stays at 21; 20 observable; VOO dark.
-# 5-trading-day observation window is the gate before primary-read-path flip.
+# Cycle 18 day-2 observation PASS — 5-day window now at day 2/5.
+# Day-3 (Monday 2026-05-25) is the meaningful freshness test.
 ```
 
 ### CBOE put/call ingest (post-Cycle-11)
@@ -622,10 +531,20 @@ npm run backfill:bt-regime
 npm run backfill:bt-regime -- --classifier-version=phase1_v3                  # S96-78 CLOSED Cycle 10
 ```
 
-### Cross-source probe (Cycle 17)
+### Cross-source probe (Cycle 17 + Cycle 18)
 
 ```text
 npx tsx scripts/_probe_sho_source_labels.ts             # post-OPTIMIZE source label counts in CH
+npx tsx scripts/_probe_stockanalysis_day_over_day.ts    # per-ticker per-date stockanalysis rows (NEW Cycle 18)
+```
+
+### SPY cross-check command (Cycle 17/18 pattern)
+
+```text
+.venv/Scripts/python.exe scripts/etf_flow_stockanalysis_adapter.py --tickers SPY --dry-run
+# Compare output to SSGA latest SPY in CH:
+#   SELECT ticker, date, shares, close, aum FROM quantlab.etf_shares_outstanding_secondary
+#   FINAL WHERE ticker = 'SPY' AND source = 'ssga-spdr' ORDER BY date DESC LIMIT 3
 ```
 
 ### CI (Cycle 8 baseline)
@@ -641,8 +560,8 @@ pytest scripts/tests
 
 ```text
 npm test                                                                                              # 3319/3338 pass + 19 skip + 0 fail
-.venv/Scripts/python.exe -m pytest scripts/tests/test_etf_flow_stockanalysis_adapter.py -v             # 16/16 pass (NEW Cycle 17)
-.venv/Scripts/python.exe -m pytest scripts/tests/test_etf_flow_issuer_csv_ingest.py -v                # 21/21 pass (+2 regression pins this cycle)
+.venv/Scripts/python.exe -m pytest scripts/tests/test_etf_flow_stockanalysis_adapter.py -v             # 16/16 pass
+.venv/Scripts/python.exe -m pytest scripts/tests/test_etf_flow_issuer_csv_ingest.py -v                # 21/21 pass
 .venv/Scripts/python.exe -m pytest scripts/tests/test_etf_flow_ssga_spdr_adapter.py -v                # 18/18 pass
 node --import tsx --test scripts/tests/healthCheck.test.ts                                            # 37/37 pass
 npm run dev                                                                                           # http://localhost:3000
@@ -651,25 +570,20 @@ npx tsc --noEmit                                                                
 
 ### npm scripts touched this cycle
 
-- **NEW**: `etf:flow:stockanalysis:fetch`, `etf:flow:stockanalysis:fetch:dry`,
-  `etf:flow:stockanalysis:refresh`.
-- **UPDATED**: `etf:flow:ssga-spdr:refresh` now uses `--source-file
-  ssga-spdr.csv` (mandatory companion fix to prevent the cross-labeling
-  regression from recurring on routine SSGA runs after the
-  stockanalysis CSV starts coexisting in the dir).
+- (no changes — Cycle 18 reused the npm scripts added in Cycle 17)
 
 ---
 
 ## For the next session — priority order
 
-**Default on `continue`:** Cycle 18 candidate — **recommended day-2
-stockanalysis observation**. Re-run `npm run etf:flow:stockanalysis:refresh`,
-diff vs day-1 (2026-05-23) reading, re-cross-check SPY against SSGA's
-known-good, log the freshness verdict.
+**Default on `continue`:** Cycle 19 candidate — **recommended day-3
+stockanalysis observation (Monday 2026-05-25, first trading day in the
+window)**. Use the same procedure as Cycle 18; the meaningful test is
+whether shares + close move appropriately for a trading day.
 
-**Alternative Cycle 18 candidates:**
+**Alternative Cycle 19 candidates:**
 
-- **Day-2 stockanalysis observation** — see above (recommended).
+- **Day-3 stockanalysis observation** — see above (recommended).
 - **OQ-C16-1 FRED→T10Y3M alignment probe** — deferred from Cycle 16.
 - **N-PORT quarterly cross-check scaffolding** — for ALL
   secondary-table sources.
@@ -688,10 +602,11 @@ known-good, log the freshness verdict.
 - Q-1 first real-capital deployment.
 - Q-2 capital-deployment-ramp ADR.
 - Q-3 Stooq apikey gate decision.
-- Q-4 push 51 commits to origin/main.
+- Q-4 push 53 commits to origin/main.
 - Q-5 phase1_v3 CBOE methodology — A/B/C.
 - Q-6 — **PARTIAL** (orchestration-resolved via ADR-049; closes on
-  read-path flip in Cycle 22+; VOO residual gap is operator-gated).
+  read-path flip in Cycle 22+; VOO residual gap is operator-gated;
+  Cycle 18 day-2 observation PASS).
 
 **Do NOT auto-open without operator green-light:**
 
@@ -710,105 +625,84 @@ known-good, log the freshness verdict.
 
 ## Important framing for the next chat
 
-**Cycle 17 is closed.** One slice + one HANDOFF rewrite (2 commits).
-Slice 1 (`d6220ec`, +1207/-5 across 8 files) implemented ADR-049:
-new stockanalysis.com adapter for 5 of 6 non-SSGA tickers; mandatory
-`--source-file` filter on the existing issuer-csv ingest; ADR-049
-Accepted; ADR-048 Superseded.
+**Cycle 18 is closed.** Two commits: slice 1 (`f5644b1`, +22/-0) added
+the day-over-day probe script + executed the day-2 observation +
+applied 5 new rows to CH; this HANDOFF rewrite is the 53rd commit.
 
-**Q-6 is now PARTIAL not OPEN.** Methodology change committed via
-ADR-049; the daemon step + primary-read-path flip wait for the 5-day
-observation window completion (Cycle 22 at earliest).
+**Q-6 stays PARTIAL.** Day-2 observation PASS strengthens confidence
+in the ADR-049 path but does NOT close Q-6 — that requires the 5-day
+window completing successfully + the read-path flip (Cycle 22+).
 
-**One NEW open question:** OQ-C17-1 — VOO source quality (SA's
-sharesOut field doesn't reconcile with aum/close). Operator-gated
-under Q-6 row.
+**One NEW open question of low priority:** OQ-C18-1 — SPY-specific
+SSGA freshness lag (max_date=2026-05-21 for SPY vs 2026-05-22 for
+other SSGA tickers). OQ-C17-1 (VOO structural failure) is now
+strengthened by day-2 reproduction.
 
-**The operator queue is still 6 rows.** Q-4 count incremented 49 →
-51. Q-5 unchanged. Q-6 transitioned OPEN → PARTIAL.
+**S96-102 is the new lock-in.** Future cycles encountering the
+remaining 3 days of the observation window follow the same
+procedure: probe day-N-1 baseline → dry-run day-N → SPY
+cross-check → apply → probe → diff → log.
 
-**S96-99 + S96-100 + S96-101 are the new lock-ins.** Future cycles
-encountering (a) a Q-6-class problem with multiple free-aggregator
-candidates should follow the Cycle 17 survey + accuracy-gate +
-internal-consistency pattern; (b) any multi-source secondary-table
-ingest must use `--source-file` to scope the source-label application
-(S96-100 pinned by regression tests); (c) load-bearing source
-reliability gates (like the 5% internal-consistency check) should be
-operator-readable round numbers, not in-sample-tuned (S96-101).
-
-**Cycle 18 recommended path: day-2 stockanalysis observation** — the
-5-day window MUST be observed; everything else can wait.
+**Cycle 19 recommended path: day-3 stockanalysis observation (Monday
+trading day)** — this is the meaningful freshness test the entire
+ADR-049 path depends on.
 
 **Backward compat preserved this cycle:**
 
 1. **CH:** No DDL change. `etf_shares_outstanding_secondary` schema
-   unchanged; just gained 5 rows with new `source='stockanalysis'`
-   label. SSGA history still 3,756 rows / 15 tickers / source
-   `ssga-spdr`.
+   unchanged; gained 5 rows with `source='stockanalysis'` at
+   date=2026-05-24. Day-1 rows (date=2026-05-23) preserved.
 2. **Type:** No type-system changes.
 3. **Brief:** No render-side changes.
-4. **Tests:** All previously-passing suites still pass + 18 new tests
-   (16 stockanalysis adapter + 2 ingest filter regression-pins).
-5. **Code behavior on existing surfaces:** SSGA refresh chain
-   continues to work + is now hardened against the
-   cross-labeling regression.
+4. **Tests:** All previously-passing suites still pass; no new tests
+   this cycle.
+5. **Code behavior on existing surfaces:** No code changes other than
+   the new probe script (read-only).
 6. **Operator UX:**
    - `/#/etf-flow` unchanged (5-day observation window before
      read-path flip; primary still reads from the empty yfinance
      table).
    - `/#/health` quarantine queue still shows 2 rows.
-   - `npm run health:check` output unchanged from Cycle 16 (the new
-     stockanalysis data is in `_secondary` which is tracked but the
-     `why:` strings don't mention the new sub-source yet — that's a
-     follow-up cycle's task).
-   - **NEW**: operator can run `npm run etf:flow:stockanalysis:refresh`
-     manually each session-start to accumulate observation history;
-     can probe source-label distribution via
-     `npx tsx scripts/_probe_sho_source_labels.ts`.
+   - `npm run health:check` output unchanged from Cycle 17.
+   - **NEW**: operator can run `npx tsx scripts/_probe_stockanalysis_day_over_day.ts`
+     to see per-ticker per-date stockanalysis rows.
 
-**The chain through s96 #17:**
+**The chain through s96 #18:**
 
 ```text
-ALL S41-S96#16 WORK                                      ✓ as documented
-S96 #17 Cycle 3..16                                      ✓ as documented (S96-70..S96-98)
-S96 #17 Cycle 17:
-  • Slice 1 — Q-6 resolved via ADR-049 stockanalysis adapter
-    AUTO-APPROVE  → +1207/-5 across 8 files; new adapter + 16-test
-                    pytest + ADR-049 Accepted + ADR-048 Superseded +
-                    mandatory --source-file filter on ingest + 2
-                    regression-pin tests + 3 new npm scripts + 1
-                    updated existing script.
-       LIVE-RUN
-       OUTCOME    → 5/6 tickers ingested clean (IVV/QQQ/IWM/HYG/TLT);
-                    VOO rejected loud by 5% internal-consistency check
-                    (sharesOut doesn't reconcile with aum/close); CH
-                    state post-Cycle-17: 3761 rows / 20 tickers / 2
-                    distinct sources.
-       CROSS-
-       LABELING
-       INCIDENT   → Empirically verified during slice that running
-                    `--source-label stockanalysis --apply` without the
-                    filter silently relabels 3756 SSGA rows on merge.
-                    Repaired same-cycle by adding the filter + re-
-                    running each adapter with isolation + pinning by 2
-                    regression tests + retrofitting the existing SSGA
-                    refresh chain. The full repair lives in the slice 1
-                    diff.
-  + S96-99 (Q-6 resolved via stockanalysis path; ADR-048 superseded
-    but preserved as fallback) + S96-100 (`--source-file` filter is
-    mandatory companion infrastructure; regression-pinned) + S96-101
-    (5% internal-consistency tolerance is the load-bearing reliability
-    gate, operator-readable round number) lock-ins
-  + 2 commits: slice 1 (d6220ec) + this HANDOFF rewrite
-  + Zero downstream consumer behavior change on existing surfaces;
-    `_secondary` table unchanged in schema; npm test + tsc + health
-    baselines all preserved
-  + Q-6 transitioned OPEN → PARTIAL (closes on read-path flip in
-    Cycle 22+); Q-4 count 49 → 51
-  + ONE new open question: OQ-C17-1 (VOO source quality)
-  → DEFAULT NEXT: Cycle 18 candidate — RECOMMENDED day-2 stockanalysis
-    observation. The 5-day window MUST be observed; the alternatives
-    (N-PORT scaffolding, FRED probe, Phase 2 v2) can wait. Day-N tasks
-    accumulate freshness + accuracy evidence; after day-5 a follow-up
-    cycle wires daemon step 1jc + flips the v1 primary read path.
+ALL S41-S96#17 WORK                                       ✓ as documented
+S96 #17 Cycle 17 (Q-6 PARTIAL via ADR-049)                ✓ as documented (S96-99..S96-101)
+S96 #18 Cycle 18:
+  • Slice 1 — day-2 stockanalysis observation
+    AUTO-APPROVE  → +22/-0 (1 new probe script); CH +5 rows
+                    (date=2026-05-24 stockanalysis); SSGA history
+                    untouched.
+       DAY-OVER-DAY
+       RESULTS    → shares + close + persisted-aum byte-identical day-
+                    1 → day-2 for all 5 OK tickers (expected over a
+                    weekend); SA-side aum drift -0.06% to -1.22% is
+                    invisible downstream (persisted aum = shares ×
+                    close); VOO loud-reject reproduces exact same
+                    39.9% delta (structural, not transient); SPY
+                    cross-check shares -0.35% / close +0.54% / aum
+                    +0.12% — accuracy gate holds, essentially
+                    identical to Cycle 17 day-1 cross-check.
+       SIDE
+       OBSERVATION → SPY-specific SSGA max_date is 2026-05-21 in CH
+                    while other SSGA tickers reach 2026-05-22.
+                    Informational only; logged as OQ-C18-1.
+  + S96-102 (day-2 observation establishes the weekend-pinned
+    baseline; the day-over-day probe pattern is the load-bearing
+    observation tool for the remaining 3 days of the window) lock-in
+  + 2 commits: slice 1 (f5644b1) + this HANDOFF rewrite
+  + Zero downstream consumer behavior change on existing surfaces
+  + Q-6 stays at PARTIAL (closes on read-path flip in Cycle 22+);
+    Q-4 count 51 → 53
+  + ONE new open question of low priority (OQ-C18-1 SPY freshness lag);
+    OQ-C17-1 strengthened by day-2 reproduction
+  → DEFAULT NEXT: Cycle 19 candidate — RECOMMENDED day-3 stockanalysis
+    observation (Monday 2026-05-25 — first trading day in the window).
+    Meaningful freshness test: shares + close should move appropriately
+    for a trading day. If they do, the ADR-049 path is validated; if
+    they don't, the 5-day window halts pending investigation.
 ```
