@@ -20,14 +20,31 @@ classifier's loader joins both on observation_date.
 Operational notes
 -----------------
 CBOE has historically gated bulk historical CSVs behind cookie walls and
-the exact URL changes. This script supports three operator paths:
+the exact URL changes. As of 2026-05-24 the public CSVs live at
+`https://cdn.cboe.com/resources/options/volume_and_call_put_ratios/`
+(the older `/api/global/us_indices/daily_prices/PUT-CALL-RATIO_History.csv`
+path was removed — S3 returns AccessDenied; sibling files like VIX/SPX
+still resolve there, so this is a CBOE move, not a CDN-wide change).
 
-1. `--url <url>` — try a specific URL (overrides the built-in best-guess).
+The current source-of-truth file pair is:
+  - `totalpc.csv`         — modern: 2006-11-01 → present
+  - `totalpcarchive.csv`  — historical: 2003-10-17 → 2012-06-07
+
+Default invocation fetches BOTH and concatenates; the 5.5-year overlap
+(2006-11 → 2012-06) collapses cleanly under ReplacingMergeTree on
+(series_id, observation_date) with `ingested_at` as version column —
+modern wins on overlap because it ingests last.
+
+This script supports three operator paths:
+
+1. `--url <url>` / `--archive-url <url>` — override either feed URL.
 2. `--from-file <path>` — ingest a locally-downloaded CSV. The operator can
    visit https://www.cboe.com/us/options/market_statistics/historical_data/
-   and download the file manually if the URL path 404s.
-3. Default (no flag) — attempts the built-in URL; logs clear instructions
-   on failure.
+   and download the file manually if both URLs ever fail simultaneously.
+3. Default (no flag) — attempts both built-in URLs; if the archive fetch
+   fails, falls through to modern-only with a stderr warning (modern alone
+   still covers 2006-11 → present, which is enough for non-backfill
+   cadence — only first-apply backfills lose the 2003-2006 window).
 
 Idempotent — ReplacingMergeTree on (series_id, observation_date) collapses
 re-runs.
@@ -37,7 +54,8 @@ Usage
   .venv/Scripts/python.exe scripts/cboe_putcall_ingest.py
   .venv/Scripts/python.exe scripts/cboe_putcall_ingest.py --dry-run
   .venv/Scripts/python.exe scripts/cboe_putcall_ingest.py --from-file C:/Users/Pejman/Downloads/cboe_pc.csv
-  .venv/Scripts/python.exe scripts/cboe_putcall_ingest.py --url https://cdn.cboe.com/.../PUT-CALL.csv
+  .venv/Scripts/python.exe scripts/cboe_putcall_ingest.py --url https://cdn.cboe.com/.../totalpc.csv
+  .venv/Scripts/python.exe scripts/cboe_putcall_ingest.py --archive-url https://cdn.cboe.com/.../totalpcarchive.csv
 """
 from __future__ import annotations
 
@@ -57,13 +75,21 @@ import clickhouse_connect
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
-# Best-guess CBOE historical put/call URL. CBOE has moved this file multiple
-# times historically. If this 404s, the operator should fetch the file
-# manually from https://www.cboe.com/us/options/market_statistics/historical_data/
-# and pass --from-file. Documented in phase1_v3 SPEC §6 watch-outs.
+# CBOE moved the public put/call CSVs in 2026 from the
+# `/api/global/us_indices/daily_prices/PUT-CALL-RATIO_History.csv` path
+# (which now S3-403s with AccessDenied) to the URLs below. Both are
+# advertised on https://www.cboe.com/us/options/market_statistics/historical_data/.
+# If these ever 404, the operator should fetch manually and pass
+# --from-file. Documented in phase1_v3 SPEC §6 watch-outs.
 DEFAULT_CBOE_URL = (
-    "https://cdn.cboe.com/api/global/us_indices/daily_prices/"
-    "PUT-CALL-RATIO_History.csv"
+    "https://cdn.cboe.com/resources/options/volume_and_call_put_ratios/"
+    "totalpc.csv"
+)
+# Pre-2012 archive — `totalpc.csv` starts 2006-11-01, so first-apply
+# backfills to phase1_v3's 2003-10-17 start need this second file too.
+DEFAULT_CBOE_ARCHIVE_URL = (
+    "https://cdn.cboe.com/resources/options/volume_and_call_put_ratios/"
+    "totalpcarchive.csv"
 )
 
 # Candidate column names for the put/call ratio value across CBOE's historical
@@ -109,11 +135,22 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--url", type=str, default=DEFAULT_CBOE_URL,
-        help=f"CBOE CSV URL (default {DEFAULT_CBOE_URL}).",
+        help=f"CBOE modern CSV URL (default {DEFAULT_CBOE_URL}).",
+    )
+    p.add_argument(
+        "--archive-url", type=str, default=DEFAULT_CBOE_ARCHIVE_URL,
+        help=(
+            f"CBOE archive CSV URL covering 2003-10-17 → 2012-06-07 "
+            f"(default {DEFAULT_CBOE_ARCHIVE_URL}). The 5.5-year overlap "
+            f"with --url is collapsed by the CH ReplacingMergeTree."
+        ),
     )
     p.add_argument(
         "--from-file", type=str, default=None,
-        help="Ingest a local CSV file instead of fetching CBOE. Skips HTTP.",
+        help=(
+            "Ingest a local CSV file instead of fetching CBOE. Skips both "
+            "HTTP fetches; useful when CBOE's CDN is unreachable."
+        ),
     )
     p.add_argument(
         "--column", type=str, default=None,
@@ -328,24 +365,47 @@ def main() -> int:
     print("cboe_putcall_ingest")
     print(f"  start    : {args.start}")
     print(f"  end      : {end}")
-    print(f"  source   : {args.from_file or args.url}")
+    if args.from_file:
+        print(f"  source   : {args.from_file}")
+    else:
+        print(f"  source   : {args.url}")
+        print(f"  archive  : {args.archive_url}")
     print(f"  column   : {args.column or '(auto-detect)'}")
     print(f"  dry-run  : {args.dry_run}")
 
-    # Acquire CSV bytes — either from disk or HTTP.
-    body: bytes | None
+    # Acquire CSV(s) — either from a single disk file or from CBOE's two
+    # public feeds (modern + archive). When both feeds succeed we concatenate
+    # them and let CH's ReplacingMergeTree collapse the 2006-2012 overlap.
     if args.from_file:
         path = Path(args.from_file)
         if not path.exists():
             print(f"  ! --from-file does not exist: {path}", file=sys.stderr)
             return 2
-        body = path.read_bytes()
+        df = parse_csv(path.read_bytes(), args.column, args.start, end)
     else:
-        body = fetch_csv_bytes(args.url)
-        if body is None:
+        modern_body = fetch_csv_bytes(args.url)
+        if modern_body is None:
             return 1
+        modern_df = parse_csv(modern_body, args.column, args.start, end)
+        archive_body = fetch_csv_bytes(args.archive_url)
+        if archive_body is None:
+            # Archive optional — modern alone covers 2006-11 → present, which
+            # is enough for non-backfill cadence. Only first-apply backfills
+            # to 2003-10-17 lose the pre-2006 window if the archive fails.
+            print(
+                "  ! archive fetch failed; continuing with modern-only data "
+                "(coverage starts 2006-11-01 instead of 2003-10-17).",
+                file=sys.stderr,
+            )
+            df = modern_df
+        else:
+            archive_df = parse_csv(
+                archive_body, args.column, args.start, end
+            )
+            df = pd.concat(
+                [archive_df, modern_df], ignore_index=True
+            )
 
-    df = parse_csv(body, args.column, args.start, end)
     if df.empty:
         print("  ! parsed 0 rows.", file=sys.stderr)
         return 1

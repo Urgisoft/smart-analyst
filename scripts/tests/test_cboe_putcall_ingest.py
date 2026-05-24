@@ -169,3 +169,25 @@ def test_parse_date_iso():
 
 def test_parse_date_garbage_returns_none():
     assert cpi._parse_cboe_date("not a date") is None
+
+
+# ── URL constants (regression pin) ───────────────────────────────────────────
+
+
+def test_default_urls_point_to_current_cboe_path():
+    """Pin the post-2026-05 URL pair. CBOE moved the public CSVs from
+    `/api/global/us_indices/daily_prices/PUT-CALL-RATIO_History.csv`
+    (which now S3-403s with AccessDenied) to
+    `/resources/options/volume_and_call_put_ratios/`. If CBOE moves them
+    again, this test fails first — much cheaper than discovering the
+    move at next-daemon-run ingest time."""
+    assert cpi.DEFAULT_CBOE_URL == (
+        "https://cdn.cboe.com/resources/options/volume_and_call_put_ratios/"
+        "totalpc.csv"
+    ), "Modern CBOE put/call URL drifted; verify the live page at " \
+       "https://www.cboe.com/us/options/market_statistics/historical_data/"
+    assert cpi.DEFAULT_CBOE_ARCHIVE_URL == (
+        "https://cdn.cboe.com/resources/options/volume_and_call_put_ratios/"
+        "totalpcarchive.csv"
+    ), "Archive CBOE put/call URL drifted; verify the live page at " \
+       "https://www.cboe.com/us/options/market_statistics/historical_data/"
