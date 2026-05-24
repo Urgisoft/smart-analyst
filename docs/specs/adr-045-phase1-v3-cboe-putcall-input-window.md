@@ -1,6 +1,6 @@
 # ADR-045 — phase1_v3 CBOE put/call corrupted-input window + free-source exhaustion
 
-**Status:** Accepted (provisional — orchestration-authored 2026-05-23 in session 96 #15 Cycle 1; the methodology amendment in §4 is on the operator queue as Q-5 and may revise this ADR).
+**Status:** Superseded by [ADR-050](adr-050-q5-path-d-cboe-putcall-json-ingest.md) (2026-05-24, s96 #19 Cycle 21). Originally Accepted (provisional) — orchestration-authored 2026-05-23 in session 96 #15 Cycle 1; the §4 path-pick Q-5 closed via Path D (a free CBOE JSON endpoint not enumerated in this ADR's original path set). This file is preserved as the historical record of the corrupted-input window; the resolution lives in ADR-050.
 **Date:** 2026-05-23
 **Owner:** Vector Core orchestration (assistant) + operator (Q-5 sign-off gate).
 **Supersedes / extends:** Extends `docs/specs/macro-regime-classifier-phase1_v3.md` §2.1 (sentiment_extreme) + §3 Turn B. Operates under [ADR-044](adr-044-standing-system-health-ownership.md).
