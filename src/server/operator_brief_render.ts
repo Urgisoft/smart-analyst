@@ -387,6 +387,20 @@ export interface MorningBrief {
    * EK + F4).
    */
   scheduleThirteenDG: BriefSchedule13DGSection | null;
+  /**
+   * ADR-051 §Decision 7 — Layer-0 Phase B deflation-pipeline verdicts.
+   * Rendered as §0c right after the system health digest §0 (and before
+   * §1 macro regime) when ANY composite has verdict rows AND ≥1 of:
+   *   - phase_c_eligible cell exists (operator-queue surface), OR
+   *   - any composite has a verdict row at all (PARTIAL / FAIL surfaces
+   *     to the dashboard only per ADR-051 §Decision 7, but the brief
+   *     §0c renderer still surfaces a one-liner per composite so the
+   *     operator can see the status at a glance).
+   * `null` skips the section entirely (zero bytes added) — composer
+   * sets this when `quantlab.phase_b_verdicts` is absent OR has zero
+   * rows across all KNOWN_COMPOSITES.
+   */
+  phaseBVerdicts: BriefPhaseBVerdictsSection | null;
 }
 
 /**
@@ -1102,6 +1116,68 @@ export const SCHEDULE_13D_G_COLD_START_INPUTS_FLOOR = 330;
  *  treated as stale at the same threshold as 8-K classifier (4bd+). */
 export const FORM_4_STALENESS_BD_THRESHOLD = 4;
 
+/**
+ * ADR-051 §Decision 7 — Phase B verdicts brief §0c section.
+ *
+ * One row per composite with a verdict result. Per ADR-051 §Decision 7:
+ *   - PASS-ALL composites auto-surface to the operator queue (Q-NEW) with
+ *     a one-liner that explicitly names the Phase-C eligibility.
+ *   - PARTIAL and FAIL composites surface only on the `/#/phase-b`
+ *     dashboard; the §0c renderer surfaces a one-liner per composite so
+ *     the operator can see status at a glance, but the line does NOT
+ *     route to the operator queue.
+ *
+ * The composer skips §0c entirely (sets `phaseBVerdicts = null`) when
+ * the verdicts table is absent OR all composites have zero verdict rows —
+ * byte-equal-stdout preservation for legacy brief fixtures.
+ *
+ * Per-composite row shape mirrors the dashboard's `bestVerdict`
+ * picked-cell (the headline benchmark whose verdict the §0c line
+ * summarizes). When `bestVerdict === null` (composite has no cells),
+ * the row is omitted from `composites`.
+ */
+export interface BriefPhaseBVerdictsSection {
+  /** ISO 8601 of when the verdict snapshot was read. */
+  generatedAt: string;
+  /** One entry per composite with ≥1 verdict row. Composites with no
+   *  verdict rows are NOT included (they remain visible on the
+   *  /#/phase-b dashboard "awaiting" section). */
+  composites: ReadonlyArray<BriefPhaseBVerdictsRow>;
+  /** Cell-level Phase-C-eligible count (sum across composites). When > 0,
+   *  the operator queue line is rendered AND those cells appear as
+   *  `Phase C eligible (operator queue Q-NEW)` annotations. */
+  phaseCEligibleCount: number;
+}
+
+export interface BriefPhaseBVerdictsRow {
+  /** Composite version stamp (e.g. 'cycle_v1'). */
+  compositeVersion: string;
+  /** Best verdict across cells per ADR-051 §Decision 5 priority ordering
+   *  (pass-all > partial > fail > insufficient). */
+  bestVerdict: 'pass-all' | 'partial' | 'fail' | 'insufficient';
+  /** Best (DSR-headline) benchmark for the summary line. For PASS-ALL this
+   *  is the headline candidate cell; for PARTIAL/FAIL it's still the best
+   *  cell so the operator sees the most-favorable evidence. */
+  headlineBenchmark: string;
+  /** All benchmark labels across cells, for the "across BENCHMARKS" rollup
+   *  on PARTIAL/FAIL rows. Sorted alphabetically. */
+  benchmarks: ReadonlyArray<string>;
+  /** Best cell's headline gate values — formatted inline. Null if the
+   *  gate didn't run (rendered as '—'). */
+  bestDsrValue: number | null;
+  bestDsrPass: boolean;
+  bestPboValue: number | null;
+  bestPboPass: boolean;
+  bestHlzPass: boolean;
+  bestOosIsRatio: number | null;
+  bestOosIsPass: boolean;
+  /** True iff bestVerdict === 'pass-all' AND PBO < 0.2 — operator queue gate. */
+  phaseCEligible: boolean;
+  /** Blocking gate label for the PARTIAL/FAIL line (e.g. 'HLZ blocks at M=57').
+   *  Empty string for PASS-ALL rows where no gate blocks. */
+  blockingGate: string;
+}
+
 /** Render the brief as operator-facing markdown. Pure. */
 export function renderBriefMarkdown(brief: MorningBrief): string {
   const parts: string[] = [];
@@ -1116,6 +1192,15 @@ export function renderBriefMarkdown(brief: MorningBrief): string {
   const sectionZero = renderHealthDigestSection(brief);
   if (sectionZero !== '') {
     parts.push(sectionZero);
+    parts.push('');
+  }
+  // ADR-051 §Decision 7 — §0c Phase B verdicts. Rendered between §0 and
+  // §1 macro regime when ≥1 composite has a verdict row. Composer sets
+  // phaseBVerdicts=null when the verdicts table is absent OR all
+  // composites have zero verdict rows (byte-equal-stdout preservation).
+  const sectionZeroC = renderPhaseBVerdictsSection(brief);
+  if (sectionZeroC !== '') {
+    parts.push(sectionZeroC);
     parts.push('');
   }
   parts.push(renderRegimeSection(brief));
@@ -1258,6 +1343,95 @@ function renderHealthDigestSection(b: MorningBrief): string {
   lines.push(``);
   lines.push(`---`);
   return lines.join('\n');
+}
+
+/**
+ * ADR-051 §Decision 7 — §0c Phase B verdicts renderer.
+ *
+ * Returns the rendered markdown when there's something to surface, OR an
+ * empty string when §0c should be skipped (byte-equal-stdout preservation
+ * for the all-clean / pre-campaign path). Skip conditions:
+ *   - `phaseBVerdicts === null` (composer skipped the fetch OR no rows
+ *     across all composites), OR
+ *   - `phaseBVerdicts.composites.length === 0` (defense-in-depth).
+ *
+ * Markdown shape (PIN — operatorBriefPhaseB.test.ts cases pin every branch):
+ *
+ *   ### §0c — Phase B verdicts · <generatedAt>
+ *
+ *   <composite>: PASS-ALL on <bench> (DSR=X.XX, PBO=X.XX, HLZ=passes, OOS/IS=X.XX) — Phase C eligible (operator queue Q-NEW)
+ *   <composite>: PARTIAL across <bench-list> (best DSR=X.XXX on <bench>; <gate> blocks) — see /#/phase-b
+ *   <composite>: FAIL across <bench-list> (best DSR=X.XXX on <bench>; <gate> blocks) — see /#/phase-b
+ *
+ *   ---
+ *
+ * Composites are emitted in `phaseBVerdicts.composites[]` order (composer
+ * sorts by KNOWN_COMPOSITES order; deterministic across runs).
+ */
+function renderPhaseBVerdictsSection(b: MorningBrief): string {
+  const s = b.phaseBVerdicts;
+  if (s === null) return '';
+  if (s.composites.length === 0) return '';
+
+  const lines: string[] = [];
+  lines.push(`### §0c — Phase B verdicts · ${s.generatedAt}`);
+  lines.push(``);
+  for (const c of s.composites) {
+    lines.push(formatPhaseBVerdictLine(c));
+  }
+  lines.push(``);
+  lines.push(`---`);
+  return lines.join('\n');
+}
+
+/** Format ONE composite's §0c line per ADR-051 §Decision 7. */
+function formatPhaseBVerdictLine(c: BriefPhaseBVerdictsRow): string {
+  const dsr = fmtPhaseB(c.bestDsrValue);
+  const pbo = fmtPhaseB(c.bestPboValue);
+  const hlz = c.bestHlzPass ? 'passes' : 'fails';
+  const oosIs = fmtPhaseB(c.bestOosIsRatio);
+  switch (c.bestVerdict) {
+    case 'pass-all': {
+      const suffix = c.phaseCEligible
+        ? ' — Phase C eligible (operator queue Q-NEW)'
+        : ' — see /#/phase-b';
+      return (
+        `${c.compositeVersion}: PASS-ALL on ${c.headlineBenchmark} ` +
+        `(DSR=${dsr}, PBO=${pbo}, HLZ=${hlz}, OOS/IS=${oosIs})${suffix}`
+      );
+    }
+    case 'partial': {
+      const benchList = c.benchmarks.join('/');
+      const blocking = c.blockingGate ? `${c.blockingGate}` : 'no single blocker';
+      return (
+        `${c.compositeVersion}: PARTIAL across ${benchList} ` +
+        `(best DSR=${dsr} on ${c.headlineBenchmark}; ${blocking}) — see /#/phase-b`
+      );
+    }
+    case 'fail': {
+      const benchList = c.benchmarks.join('/');
+      const blocking = c.blockingGate ? `${c.blockingGate}` : 'all gates fail';
+      return (
+        `${c.compositeVersion}: FAIL across ${benchList} ` +
+        `(best DSR=${dsr} on ${c.headlineBenchmark}; ${blocking}) — see /#/phase-b`
+      );
+    }
+    case 'insufficient': {
+      const benchList = c.benchmarks.join('/');
+      return (
+        `${c.compositeVersion}: INSUFFICIENT across ${benchList} ` +
+        `(gate did not run; best benchmark=${c.headlineBenchmark}) — see /#/phase-b`
+      );
+    }
+  }
+}
+
+/** Format a Phase B numeric to 3 decimals; '—' for null / non-finite.
+ *  Mirrors the dashboard's `fmt()` helper to keep numeric rendering
+ *  consistent across the §0c brief line and the /#/phase-b dashboard. */
+function fmtPhaseB(v: number | null): string {
+  if (v === null || !Number.isFinite(v)) return '—';
+  return v.toFixed(3);
 }
 
 function renderRegimeSection(b: MorningBrief): string {

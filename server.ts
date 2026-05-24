@@ -78,6 +78,7 @@ import {
 } from "./src/server/cycle_position_dashboard.js";
 import { fetchEtfFlowCrossValidationState } from "./src/server/etf_flow_dashboard.js";
 import { fetchHealthState } from "./src/server/health_dashboard.js";
+import { fetchPhaseBDashboardState } from "./src/server/phase_b_dashboard.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -670,6 +671,26 @@ async function startServer() {
       console.error('health state error', e);
       return res.status(503).json({
         error: 'health_check_unavailable',
+        detail: (e as Error).message,
+      });
+    }
+  });
+
+  // Powers /#/phase-b — ADR-051 §Decision 7 Phase B verdict surface
+  // (Cycle 24 UI+Health worker). Read-only view of the Layer-0 Phase B
+  // deflation-pipeline campaign verdicts persisted in
+  // `quantlab.phase_b_verdicts` by Cycle 23+ Composite worker campaigns.
+  // Mirrors the health route's posture: always returns 200 + structured
+  // payload; CH failures degrade to `topLevelStatus = 'read-failed'`
+  // inside the payload (the UI surfaces them inline).
+  app.get("/api/phase_b/state", async (_req, res) => {
+    try {
+      const response = await fetchPhaseBDashboardState();
+      return res.json(response);
+    } catch (e) {
+      console.error('phase_b state error', e);
+      return res.status(503).json({
+        error: 'phase_b_dashboard_unavailable',
         detail: (e as Error).message,
       });
     }

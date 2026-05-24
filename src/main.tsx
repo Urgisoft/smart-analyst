@@ -33,6 +33,10 @@ const EtfFlowApp = lazy(() => import('./components/etfFlow/EtfFlowApp.tsx'));
 // migrations. The standing-health mandate's single UI surface; Phase 2 will add the
 // quarantine queue + Telegram alerts + auto-fix log on top of this foundation.
 const HealthApp = lazy(() => import('./components/health/HealthApp.tsx'));
+// Lazy-load the Phase B verdict dashboard — ADR-051 §Decision 7 (Cycle 24).
+// Read-only view of the Layer-0 Phase B deflation-pipeline verdicts persisted in
+// `quantlab.phase_b_verdicts` by Cycle 23+ Composite worker campaigns.
+const PhaseBApp = lazy(() => import('./components/phase_b/PhaseBApp.tsx'));
 
 function Router() {
   const [hash, setHash] = useState(window.location.hash);
@@ -132,6 +136,17 @@ function Router() {
         </div>
       }>
         <HealthApp />
+      </Suspense>
+    );
+  }
+  if (path === '#/phase-b' || path.startsWith('#/phase-b/')) {
+    return (
+      <Suspense fallback={
+        <div className="min-h-screen bg-[#050505] text-emerald-400/70 flex items-center justify-center text-[10px] font-mono uppercase tracking-widest">
+          reading Phase B verdicts…
+        </div>
+      }>
+        <PhaseBApp />
       </Suspense>
     );
   }

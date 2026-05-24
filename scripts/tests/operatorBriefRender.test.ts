@@ -75,6 +75,7 @@ function brief(overrides?: Partial<MorningBrief>): MorningBrief {
     eightK: null,
     formFour: null,
     scheduleThirteenDG: null,
+    phaseBVerdicts: null,
     ...overrides,
   };
 }

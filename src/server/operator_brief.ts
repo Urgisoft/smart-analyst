@@ -134,6 +134,8 @@ import type {
   BriefHealthDigestFreshnessBlock,
   BriefHealthDigestQuarantineBlock,
   BriefHealthDigestSection,
+  BriefPhaseBVerdictsRow,
+  BriefPhaseBVerdictsSection,
   BriefSchedule13DGSection,
   BriefSectorRotationSection,
   BriefShortInterestSection,
@@ -141,6 +143,13 @@ import type {
   BriefVolStructureSection,
   BriefWatchlistItem,
 } from './operator_brief_render.js';
+import {
+  fetchPhaseBDashboardState,
+  KNOWN_COMPOSITES,
+  type PhaseBDashboardResponse,
+  type PhaseBDashboardComposite,
+  type PhaseBDashboardCell,
+} from './phase_b_dashboard.js';
 
 /** A2 kill threshold (per SPEC §2.5 + session-32 lock-in). Used for distance ranking. */
 const A2_KILL_THRESHOLD_PCT = -64.37;
@@ -362,6 +371,15 @@ export interface BriefDeps {
    * byte-equal-stdout preservation for existing brief fixtures).
    */
   fetchHealthDigest?: () => Promise<BriefHealthDigestSection | null>;
+  /**
+   * ADR-051 §Decision 7 — Phase B verdicts fetcher. Defaults to a wrapper
+   * around `fetchPhaseBDashboardState()` that converts the dashboard
+   * payload into the brief §0c section. Returns `null` when the verdicts
+   * table is absent OR no composite has any verdict rows OR the read
+   * failed (renderer skips §0c — zero bytes added, byte-equal-stdout
+   * preservation). Tests inject a stub.
+   */
+  fetchPhaseBVerdicts?: () => Promise<BriefPhaseBVerdictsSection | null>;
   /** Override the clock for tests. */
   now?: () => Date;
 }
@@ -414,9 +432,11 @@ export async function composeMorningBrief(deps?: Partial<BriefDeps>): Promise<Mo
     deps?.fetchCellWeightsForBrief ?? defaultFetchCellWeightsForBrief;
   const fetchHealthDigest =
     deps?.fetchHealthDigest ?? defaultFetchHealthDigest;
+  const fetchPhaseBVerdicts =
+    deps?.fetchPhaseBVerdicts ?? defaultFetchPhaseBVerdicts;
   const now = deps?.now ?? (() => new Date());
 
-  const [regime, paper, lastRun, allowlists, closedTrades, latestDrawdown, latestDrawdownPerStrategy, latestStage, killCritDailyPresent, latestCyclePosition, latestVolStructure, latestSectorRotation, latestCrossAsset, latestShortInterest, latestExecutiveDeparture, latestEtfFlow, latestEightKClassifier, latestForm4Insider, latestSchedule13DG, healthDigest] = await Promise.all([
+  const [regime, paper, lastRun, allowlists, closedTrades, latestDrawdown, latestDrawdownPerStrategy, latestStage, killCritDailyPresent, latestCyclePosition, latestVolStructure, latestSectorRotation, latestCrossAsset, latestShortInterest, latestExecutiveDeparture, latestEtfFlow, latestEightKClassifier, latestForm4Insider, latestSchedule13DG, healthDigest, phaseBVerdicts] = await Promise.all([
     fetchRegime({ asOf: null, lookbackDays: LOOKBACK_DAYS_DEFAULT }),
     fetchPaper({ runHistoryLimit: 14 }),
     fetchDaemon(),
@@ -437,6 +457,7 @@ export async function composeMorningBrief(deps?: Partial<BriefDeps>): Promise<Mo
     fetchLatestForm4Insider(),
     fetchLatestSchedule13DG(),
     fetchHealthDigest(),
+    fetchPhaseBVerdicts(),
   ]);
 
   if (!regime.biasNote || !regime.biasNote.body) {
@@ -514,6 +535,7 @@ export async function composeMorningBrief(deps?: Partial<BriefDeps>): Promise<Mo
     eightK,
     formFour,
     scheduleThirteenDG,
+    phaseBVerdicts,
   };
 }
 
@@ -1633,6 +1655,136 @@ export function buildHealthDigestSection(
  * degrades on any CH failure (returns null → renderer skips §0). Tests
  * inject a stub via `BriefDeps.fetchHealthDigest`.
  */
+/**
+ * ADR-051 §Decision 7 — convert a dashboard payload to the brief §0c
+ * section shape. Returns `null` when there's nothing to surface so the
+ * renderer skips §0c entirely (byte-equal-stdout preservation):
+ *   - dashboard payload has topLevelStatus other than 'ok' (table absent,
+ *     no verdicts, or read failed), OR
+ *   - the dashboard has composites but none has any cells.
+ *
+ * For each composite with cells, picks the "best" cell (per ADR-051
+ * §Decision 5 verdict-priority ordering — pass-all > partial > fail >
+ * insufficient; ties broken by highest DSR, then alphabetical benchmark)
+ * as the headline cell whose gate values populate the one-line summary.
+ *
+ * The `blockingGate` field is derived defensively — for PARTIAL/FAIL
+ * verdicts, we name the FIRST failing gate among {DSR, PBO, HLZ,
+ * OOS-IS} in that priority order (DSR is the canonical headline, HLZ
+ * blocks at M=N most commonly per cycle_v1's pattern).
+ */
+export function buildPhaseBVerdictsSection(
+  payload: PhaseBDashboardResponse,
+): BriefPhaseBVerdictsSection | null {
+  if (payload.topLevelStatus !== 'ok') return null;
+  const compositesWithCells = payload.composites.filter(c => c.cells.length > 0);
+  if (compositesWithCells.length === 0) return null;
+
+  const composites: BriefPhaseBVerdictsRow[] = compositesWithCells
+    .map(c => buildPhaseBVerdictRow(c))
+    .filter((r): r is BriefPhaseBVerdictsRow => r !== null);
+  if (composites.length === 0) return null;
+  return {
+    generatedAt: payload.generatedAt,
+    composites,
+    phaseCEligibleCount: payload.summary.phaseCEligibleCount,
+  };
+}
+
+/** Verdict priority for "best cell" selection — mirrors VERDICT_ORDER
+ *  in phase_b_dashboard.ts but lives here so the brief composer is
+ *  self-contained (no leaking the dashboard's internal constant). */
+const PHASE_B_VERDICT_PRIORITY: Record<
+  PhaseBDashboardCell['verdict'],
+  number
+> = {
+  'pass-all':     0,
+  'partial':      1,
+  'fail':         2,
+  'insufficient': 3,
+};
+
+function buildPhaseBVerdictRow(
+  composite: PhaseBDashboardComposite,
+): BriefPhaseBVerdictsRow | null {
+  if (composite.cells.length === 0) return null;
+  // Pick the best cell: lowest verdict priority, then highest DSR, then
+  // alphabetical benchmark for tiebreak.
+  const sortedCells = [...composite.cells].sort((a, b) => {
+    const pa = PHASE_B_VERDICT_PRIORITY[a.verdict];
+    const pb = PHASE_B_VERDICT_PRIORITY[b.verdict];
+    if (pa !== pb) return pa - pb;
+    const da = a.dsrValue ?? -Infinity;
+    const db = b.dsrValue ?? -Infinity;
+    if (da !== db) return db - da;
+    return a.benchmark.localeCompare(b.benchmark);
+  });
+  const best = sortedCells[0];
+  const allBenchmarks = composite.cells
+    .map(c => c.benchmark)
+    .slice()
+    .sort((a, b) => a.localeCompare(b));
+  return {
+    compositeVersion: composite.compositeVersion,
+    bestVerdict: best.verdict,
+    headlineBenchmark: best.benchmark,
+    benchmarks: allBenchmarks,
+    bestDsrValue: best.dsrValue,
+    bestDsrPass: best.dsrPass,
+    bestPboValue: best.pboValue,
+    bestPboPass: best.pboPass,
+    bestHlzPass: best.hlzPass,
+    bestOosIsRatio: best.oosIsRatio,
+    bestOosIsPass: best.oosIsPass,
+    phaseCEligible: best.phaseCEligible,
+    blockingGate: pickBlockingGate(best),
+  };
+}
+
+/** Pick the FIRST failing gate among {DSR, PBO, HLZ, OOS-IS} in priority
+ *  order. Empty string when no gate fails (PASS-ALL cells). */
+function pickBlockingGate(cell: PhaseBDashboardCell): string {
+  if (!cell.dsrPass) {
+    const v = cell.dsrValue !== null && Number.isFinite(cell.dsrValue)
+      ? ` (DSR=${cell.dsrValue.toFixed(3)})` : '';
+    return `DSR blocks${v}`;
+  }
+  if (!cell.pboPass) {
+    const v = cell.pboValue !== null && Number.isFinite(cell.pboValue)
+      ? ` (PBO=${cell.pboValue.toFixed(3)})` : '';
+    return `PBO blocks${v}`;
+  }
+  if (!cell.hlzPass) {
+    // HLZ failure is the canonical Layer-0 Phase B blocker (per cycle_v1
+    // Cycle 23 verdict). Surface the M reference if available — the threshold
+    // value implies M but the literal value is more operator-friendly.
+    return 'HLZ blocks';
+  }
+  if (!cell.oosIsPass) {
+    const v = cell.oosIsRatio !== null && Number.isFinite(cell.oosIsRatio)
+      ? ` (OOS/IS=${cell.oosIsRatio.toFixed(3)})` : '';
+    return `OOS/IS blocks${v}`;
+  }
+  return '';
+}
+
+/**
+ * Default impure fetcher for the brief §0c Phase B verdicts. Wraps
+ * `fetchPhaseBDashboardState()` and projects to the brief shape.
+ * Gracefully degrades to null on any failure → renderer skips §0c.
+ */
+async function defaultFetchPhaseBVerdicts(): Promise<BriefPhaseBVerdictsSection | null> {
+  void KNOWN_COMPOSITES; // referenced for cross-file invariant audit
+  try {
+    const payload = await fetchPhaseBDashboardState();
+    return buildPhaseBVerdictsSection(payload);
+  } catch {
+    // Total failure — skip §0c. The operator can still read the
+    // /#/phase-b dashboard for diagnostics.
+    return null;
+  }
+}
+
 async function defaultFetchHealthDigest(): Promise<BriefHealthDigestSection | null> {
   let phase1: HealthCheckResponse | null = null;
   try {
