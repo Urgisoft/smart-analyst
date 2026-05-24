@@ -1,32 +1,38 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-05-23 (session 96 #17 — **Cycle 6 of multi-agent
-orchestration executed**. Single Composite/Infra slice (GAP-16 closure)
-authored directly by the orchestrator under §3.1 trivial-edit exception
-(documentation-only resolution backed by a read-only diagnostic probe; no
-worker-spawn overhead justified). **1 new commit** on top of s96 #17 Cycle 5
-close: `0c9d92a` (slice 1 — `docs/specs/adr-047-bt_runs_regime-sentinel-
-semantics.md` + `src/server/bt_runs_regime.ts` docstring updates +
-`scripts/_probe_gap16_sentinels.ts` diagnostic probe). **Net 29 unpushed
-commits** on top of `origin/main` (`c0cda7c`) after this slice; will be 30
-after this HANDOFF rewrite. Cycle 6 closes audit GAP-16 (78,399 zero-trade
-sentinels in `bt_runs_regime`) as documentation-only: a read-only six-probe
-forensic found the rows are by-design BUT the label `sentinel_no_trades` is
-**semantically misleading** — only 21,489 / 78,399 (27.4%) correspond to
-`bt_runs.trades = 0`; the remaining ~57k are runs that DID execute trades
-but couldn't be window-attributed because `data_span_days=0` AND `bt_trades`
-fallback returned no rows. Read-side default `includeSentinels=false` already
-excludes all sentinels from downstream metrics; no calc is corrupted; the
-cost of re-labelling 78k rows + the public TS type change outweighs the
-precision gain. ADR-047 records the decision + the rejected purge/re-label
-alternatives. **Side-finding (NOT on operator queue):** `bt_runs_regime` has
-zero `phase1_v3` rows; the v2-vs-v3 attribution comparison promised in
-ADR-037 / SPEC §1 D4 requires `npm run backfill:bt-regime --
---classifier-version=phase1_v3` — defer to a future cycle, no methodology
-trigger. **NEXT default on `continue`:** Cycle 7 per orchestration §8.4 —
-**GAP-17 orphan-script per-file cleanup** (Infra worker: `sharadar_backfill.py`
-→ remove (paid blocked); `import_botdb_candles.py` → confirm + remove;
-`walk_forward_cluster.py` + `train_meta_label.py` → leave with `_` prefix).)
+Last updated: 2026-05-23 (session 96 #17 — **Cycle 7 of multi-agent
+orchestration executed**. Single Infra slice (GAP-17 orphan-script
+per-file cleanup) authored directly by the orchestrator under §3.1
+trivial-edit exception (deletions + rename + audit reclassification;
+no methodology decision; reversible via `git revert`). **1 new commit**
+on top of s96 #17 Cycle 6 close: `1548d57` (slice 1 — delete
+`scripts/sharadar_backfill.py` + delete `scripts/import_botdb_candles.py`
++ rename `scripts/walk_forward_cluster.py` → `scripts/_walk_forward_cluster.py`).
+**Net 30 unpushed commits** on top of `origin/main` (`c0cda7c`) after this
+slice; will be 31 after this HANDOFF rewrite. Cycle 7 closes audit GAP-17
+(four orphan-script files) as **2 deletions + 1 rename + 1 reclassified-
+leave-as-is**. The audit's "leave with `_` prefix" classification for
+`scripts/train_meta_label.py` was **reclassified by the orchestration under
+§6.4 routine-reclassification authority** because the reconciliation
+evidence (test file imports it by module name at
+`scripts/tests/test_train_meta_label.py:19`; `scripts/build_meta_train_set.ts:623`
+prints `scripts/train_meta_label.py` as the operator-facing next-step;
+3 TS files reference it in load-bearing docstrings) contradicts the audit-
+time assumption that the file was a diagnostic. The `_`-prefix convention
+is for scripts the operator never invokes — `train_meta_label.py` is the
+opposite (operator-invoked training pipeline with a 33-test pytest suite).
+Both deletions verified safe via CH probes (zero rows with `source='sharadar_sep'`
+ever landed; zero rows with `source='botdb'` either — ADR-005 freeze +
+runtime-guard `ADR005_OVERRIDE=1` requirement on `import_botdb_candles.py`).
+Sharadar references in production code (`clickhouse.ts` SOURCE_PRIORITY
+enum + 5 forward-looking documentation comments) are **preserved as-is**
+because they encode the architectural fact that Sharadar is the future
+paid-data path that would unlock phase1_v3 fully — that architectural
+decision survives the script deletion. **NEXT default on `continue`:** Cycle 8
+per orchestration §8.4 — **GAP-10 CI/CD baseline via `.github/workflows/ci.yml`**
+(Infra worker: GitHub Actions free-tier-safe on private repos; SHOULD
+include the deferred Quartz vendor-patch grep-assertion documented in
+`docs/processes/quartz-upgrade.md` § Alternative CI grep test).)
 
 ---
 
@@ -42,130 +48,163 @@ subscription / authenticated-scrape / methodology-canon-amendment gated.
 | Q-1 | First deployment of real capital — timing + initial amount | Standing decision per orchestration §7.1.1 | OPEN — operator-defined timing |
 | Q-2 | Capital-deployment-ramp ADR sign-off (the "#5 ADR") | Operator self-assigned ~1 week per s96 #13 carry-over | OPEN — operator drafting |
 | Q-3 | GAP-5 Stooq apikey gate decision — paid subscription OR canonicalize the constituent-based fallback | Audit GAP-5; orchestration §2.5 | OPEN — paid subscription gates orchestration's call |
-| Q-4 | Push 29 unpushed commits to origin/main | Carry-over; count updated this session (Cycle 6 slice + this HANDOFF will be the 30th) | OPEN — `git push` operator-gated per CLAUDE.md hard-stop list |
+| Q-4 | Push 30 unpushed commits to origin/main | Carry-over; count updated this session (Cycle 7 slice + this HANDOFF will be the 31st) | OPEN — `git push` operator-gated per CLAUDE.md hard-stop list |
 | Q-5 | phase1_v3 CBOE put/call corrupted-input window — methodology amendment OR DataShop subscription | s96 #15 Cycle 1 — Worker A (F2) escalation; ADR-045; pinned as `accepted-as-warning` quarantine row in `quantlab.health_quarantine` (S96-70); first Telegram alert fires on next live daemon run with valid TELEGRAM_BOT_TOKEN+TELEGRAM_ALERT_CHAT_ID (intended ADR-044 §infrastructure-4 first-alert semantics; one message — no re-alert via S96-72 dedupe sidecar) | OPEN — orchestration recommends path (D); operator picks among (A)/(B)/(C)/(D) |
 
 **That's the entire queue.** Anything not above is the orchestration's
 to resolve. The orchestration appends rows here only when one of the
 real-money / methodology-amendment triggers in
 `docs/architecture/multi-agent-orchestration.md` §7.2 + §6.3 fires.
-**Cycle 6 added zero rows** (GAP-16 closure is documentation-only — no
-real-money / methodology-amendment trigger fires; the side-finding about
-missing v3 attribution is a Phase 9+ deliverable, not a queue item).
+**Cycle 7 added zero rows** (GAP-17 cleanup is filesystem janitorial — no
+real-money / methodology-amendment trigger fires; the reclassification of
+`train_meta_label.py` is routine §6.4 authority, not a methodology change).
 
 ---
 
-## What this cycle delivered (s96 #17 Cycle 6)
+## What this cycle delivered (s96 #17 Cycle 7)
 
 ### One commit + HANDOFF rewrite (2 logical units)
 
-**Commit (`0c9d92a`) — GAP-16 closure:** Closes the audit's GAP-16
-("78,399 zero-trade sentinels in `bt_runs_regime`") as documentation-only.
-Per orchestration §6.4 routine-resolution authority the choice between
-the audit's three fix-options (keep / label / purge) is the
-orchestration's; Cycle 6 ships **keep + clarify-docs** because:
+**Commit (`1548d57`) — GAP-17 closure:** Closes the audit's GAP-17
+("Orphan candidates") as 2 deletions + 1 rename + 1 reclassified-leave-as-is.
+Per orchestration §6.4 routine-resolution authority + §3.1 trivial-edit
+exception, the four per-file decisions are the orchestration's; Cycle 7
+ships:
 
-1. **Not garbage.** The sentinel rows record a real fact: the regime
-   attribution pipeline considered these `bt_runs` rows and determined
-   that neither the primary path (`data_span_days`) nor the fallback
-   path (`bt_trades` window derivation) could produce a window. That is
-   audit information — purging would lose the record that 78k legacy
-   runs exist and were considered.
-2. **Purge would escalate.** `ALTER ... DELETE` on `bt_runs_regime` is
-   on the CLAUDE.md hard-stop list; operator-gated. The cost-benefit
-   (operator queue add to lose an audit trail and reclaim trivial
-   storage) does not justify the escalation.
-3. **Re-label would touch a public type + 78k row backfill.** The label
-   change cascades through the public TypeScript `AttributionSource`
-   type, the read-side `includeSentinels` discriminator, every test
-   fixture, the SPEC, and the backfill path. The cost outweighs the
-   precision gain when `includeSentinels=false` already excludes them
-   from downstream metrics.
+1. **DELETE `scripts/sharadar_backfill.py`.** Sharadar paid-data API
+   (Nasdaq Data Link SEP) is on CLAUDE.md blocked-data-source list (paid
+   subscription requires explicit operator approval). CH probe confirmed
+   **zero rows with `source='sharadar_sep'`** ever landed in
+   `quantlab.candles` — the script never ran on this DB instance. No code
+   imports it; no npm script invokes it; no test references it. Architectural
+   references to Sharadar in production code (`clickhouse.ts:1855` SOURCE_PRIORITY
+   enum entry; `clickhouse.ts:523,624` + `bt_runs_regime.ts:8,81` + `regime_dashboard.ts:234`
+   + `yfinance_backfill.py:17` + `daily_signal_daemon.ts:8` + `ingest_sp500_history.ts:15,38`
+   forward-looking documentation comments about the future paid-data path
+   that would unlock phase1_v3 fully) are **preserved as-is** because they
+   encode an architectural fact that survives the script deletion. If/when
+   the operator approves the Sharadar subscription (Q-3-adjacent), the
+   script can be re-authored from scratch (the docstring + ADR-032 follow-up
+   + the SOURCE_PRIORITY enum + the surviving documentation comments together
+   carry all the design intent).
 
-**The forensic finding** (driven by the read-only probe at
-`scripts/_probe_gap16_sentinels.ts`): only 21,489 / 78,399 (27.4%) of
-the sentinel rows correspond to `bt_runs.trades = 0`. The remaining ~57k
-are runs that DID execute trades but couldn't be window-attributed
-because `data_span_days = 0` AND `fetchTradeWindow` returned no rows
-for the `(sweep_id, token_address, strategy_type, param)` lookup. The
-label `sentinel_no_trades` therefore conflates "no trades" with "no
-window derivable" — the latter is the actual trigger. Three plausible
-root causes (not investigated further — not load-bearing for the
-decision): engine-version asymmetry where an older engine wrote the
-summary count without per-trade detail; historical pruning of
-`bt_trades`; or key-format drift on the `(sweep_id, …)` quadruple.
+2. **DELETE `scripts/import_botdb_candles.py`.** ADR-005 frozen 2026-05-03
+   (per the script's own runtime guard requiring `ADR005_OVERRIDE=1` to
+   execute). CH probe confirmed **zero rows with `source='botdb'`** in
+   `quantlab.candles` on this DB instance — either the migration never
+   ran here, or the original `bot.db` source column had different values
+   that flowed through (the script's `"source": source or "botdb"` fallback
+   never fired in practice). Hardcoded source path
+   `C:\Users\Pejman\Desktop\PROJECTS\AIProjects\solana-smart-money-bot\bot.db`
+   is operator-local-old and probably doesn't exist on the current
+   workstation. ADR-005 record is the source-of-truth for the freeze
+   decision; the script file added no operational value post-freeze
+   (un-runnable without explicit override; one-shot migration semantics;
+   never re-runnable under current policy).
 
-**Side-finding (NOT in scope for GAP-16; tracked in ADR-047
-§"Side-finding"):** `bt_runs_regime` has **zero `phase1_v3` rows**.
-The v2-vs-v3 attribution comparison promised in ADR-037 / SPEC §1 D4
-requires a v3 backfill via `npm run backfill:bt-regime --
---classifier-version=phase1_v3`. This is independent of GAP-16 and
-**not** on the operator queue (no real-money / methodology-amendment
-trigger). It will surface in a future cycle as part of Phase 9+
-analytical work; or — if an operator query against bt_runs_regime
-under v3 returns empty when v3 is the active classifier — the missing
-backfill will be the obvious diagnosis.
+3. **RENAME `scripts/walk_forward_cluster.py` → `scripts/_walk_forward_cluster.py`.**
+   No code/test references (verified via Grep across all `.ts`/`.py`/test
+   files). Diagnostic walk-forward orchestrator for the weekly cluster
+   pipeline; invoked via direct `python` per its docstring (`python scripts/walk_forward_cluster.py
+   --start-week … --end-week …`). The `_`-prefix-for-diagnostics convention
+   (`_`-prefix marks "diagnostic, run manually; not on the daemon-cadence path")
+   matches this script's actual usage. Used `git mv` to preserve history
+   (git tracks the rename as `R`, not delete+add).
+
+4. **RECLASSIFIED — `scripts/train_meta_label.py` LEFT AS-IS, NOT renamed.**
+   The audit's "leave with `_` prefix" classification was made without
+   reconciliation evidence. Grep surfaced:
+   - `scripts/tests/test_train_meta_label.py:19` does
+     `from train_meta_label import (HLZ_ALPHA, REGIME_FILTERS, ...)` —
+     rename to `_train_meta_label` would break the import (and the
+     33-test pytest suite that depends on it).
+   - `scripts/build_meta_train_set.ts:623` prints
+     `Next: .venv/Scripts/python.exe scripts/train_meta_label.py
+     --cell-key '${cellKey}' --m1-run-sig ${sig}` as the operator-facing
+     next-step instruction after running the build step. Renaming would
+     leave the operator typing a non-existent path.
+   - `src/server/meta_labeling_dashboard.ts:9,30,34` references the
+     script in load-bearing docstrings for the verdict-mirroring contract
+     ("Mirrors lines 86-91 of `scripts/train_meta_label.py`. Update both
+     together").
+   - `src/lib/metaLabeling/features.ts:50,74` references it for the
+     META_COLS exclusion list + the BTC_DRAWDOWN_WINDOW invariant.
+   - `scripts/migrate_meta_models_verdict.ts:14,39` references it in
+     docstring + help text.
+
+   The `_`-prefix convention is for diagnostic scripts the operator never
+   invokes; `train_meta_label.py` is the **opposite** — operator-invoked
+   production training pipeline with a full pytest suite and 5+ load-
+   bearing production-code references. Adding the prefix would actively
+   confuse the operator into thinking this is a diagnostic. Per orchestration
+   §6.4 routine reclassification authority, the orchestration owns this
+   classification call. The audit's recommendation is overridden; the file
+   stays at `scripts/train_meta_label.py`.
 
 **Files in this commit:**
 
-| Path | LOC | Notes |
+| Path | Change | Notes |
 | --- | --- | --- |
-| `docs/specs/adr-047-bt_runs_regime-sentinel-semantics.md` | new (+388) | The decision + six-probe forensic record + rejected purge/re-label alternatives + side-finding; explicit Tier-2-quarantine-non-applicability justification per ADR-044 |
-| `src/server/bt_runs_regime.ts` | +20 -2 | Docstring updates on `AttributionSource` type (l.32) and `buildSentinelResult` (l.243) pointing to ADR-047; **no runtime behavior change** |
-| `scripts/_probe_gap16_sentinels.ts` | new (+96) | Six read-only probes (P1 totals; P2 attribution_source split; P3 sentinel-vs-bt_runs.trades alignment; P4 anomaly check; P5 sample content; P6 count cross-check); preserved with `_` prefix per GAP-17 leave-with-prefix policy; future re-runs after v3 backfill lands can use the same queries |
+| `scripts/sharadar_backfill.py` | DELETED (-303 LOC) | Paid-data path; zero CH rows ever landed; no code references |
+| `scripts/import_botdb_candles.py` | DELETED (-164 LOC) | ADR-005 frozen; runtime guard; zero CH rows with source='botdb' |
+| `scripts/walk_forward_cluster.py` → `scripts/_walk_forward_cluster.py` | RENAMED (R 100% similarity) | Diagnostic orchestrator; `_`-prefix convention |
 
-### Cycle 6 outcomes (orchestration §6 critic verdicts)
+Total: -467 LOC across 3 files (no net new code; reduction in surface area).
+
+### Cycle 7 outcomes (orchestration §6 critic verdicts)
 
 | Worker | Task | Verdict | Outcome |
 | --- | --- | --- | --- |
-| (none) | GAP-16 closure — read-only probe + ADR + docstring updates | AUTO-APPROVE (orchestrator self-review per §6.1) | 3 files (1 new ADR + 1 docstring edit + 1 new diagnostic probe); tsc baseline 13 unchanged; tests unchanged (btRunsRegime.test.ts 19/19) |
+| (none) | GAP-17 closure — 2 deletions + 1 rename + 1 reclassified-leave-as-is | AUTO-APPROVE (orchestrator self-review per §6.1) | 3 files modified (-467 LOC net); tsc baseline 13 unchanged; tests preserved (btRunsRegime 19/19, test_train_meta_label 33/33 — the latter operationally validating the reclassification) |
 
 No subagent worker spawned — per orchestration §3.1 trivial-edit
-exception. The investigation phase (running the read-only probe) is
-diagnostic, not code-change; the resolution phase (docstring + ADR) is
-pure documentation. Three consecutive cycles (4, 5, 6) have now used
-the §3.1 trivial-edit exception for documentation-only GAP closures;
-this is the established pattern for the audit's §2.3 documentation /
-cleanup gaps. The next two cycles (7 GAP-17 orphan cleanup; 8 GAP-10
-CI/CD baseline) will return to worker-spawn patterns since they involve
-code/infrastructure change.
+exception. The work is reversible (`git revert`), filesystem-only (no
+DDL, no DML, no daemon edits), and the four per-file decisions are
+janitorial scope. Four consecutive cycles (4, 5, 6, 7) have now used
+the §3.1 trivial-edit exception for documentation/cleanup gaps; this
+is the established pattern for the audit's §2.3 cleanup gaps. The next
+cycle (8 GAP-10 CI/CD baseline) will return to a worker-spawn pattern
+since it involves new infrastructure file creation (`.github/workflows/ci.yml`).
 
 Orchestrator self-review under §6.1 AUTO-APPROVE criteria (domain-clean
-Composite + Infra; no code path touched; tsc baseline unchanged; no
-Tier-2 quarantine delta; no real-money path; no paid-data; no
-methodology-canon claim; no ADR conflict — ADR-047 documents an
-existing-state finding without proposing methodology change).
+Infra; only `scripts/` touched + zero references broken by the deletions/
+rename; tsc baseline unchanged; no Tier-2 quarantine delta; no real-
+money path; no paid-data; no methodology-canon claim; no ADR conflict
+— no new ADR written because the reclassification is routine §6.4
+authority, not architecture).
 
 ### Verification gates at cycle close
 
 ```text
 git status                                                                          # clean (1 slice committed; HANDOFF pending this rewrite)
-npx tsc --noEmit                                                                    # 13 baseline errors (unchanged from s96 #17 Cycle 5 close; same files: _check_constituent_cleanup.ts, _cleanup_polluted_constituents.ts, _diagnose_constituent_pollution.ts, _verify_sp500_constituents_ddl.ts)
-node --import tsx --test scripts/tests/btRunsRegime.test.ts                          # 19/19 pass (no fixture change)
-node --import tsx --test scripts/tests/*                                             # all Cycle 5-touched suites unchanged
-npm run health:check                                                                # post-Cycle-6 baseline: see below (same set as Cycle 5 close; no new Tier-2; no DB state touched)
+npx tsc --noEmit                                                                    # 13 baseline errors (unchanged from s96 #17 Cycle 6 close; same files: _check_constituent_cleanup.ts, _cleanup_polluted_constituents.ts, _diagnose_constituent_pollution.ts, _verify_sp500_constituents_ddl.ts)
+node --import tsx --test scripts/tests/btRunsRegime.test.ts                          # 19/19 pass (no fixture change; Cycle 6 protected)
+.venv/Scripts/python.exe -m pytest scripts/tests/test_train_meta_label.py           # 33/33 pass — operationally validates the reclassification (the import 'from train_meta_label import ...' still resolves; the file is preserved at its original path)
+npm run health:check                                                                # post-Cycle-7 baseline: same set as Cycle 6 close; no NEW Tier-2; no DB state touched
 ```
 
 ### Per-suite breakdown at cycle close
 
 ```text
-btRunsRegime.test.ts                                   19/19 pass    (no fixture change)
+btRunsRegime.test.ts                                   19/19 pass    (no fixture change; Cycle 6 protected)
+test_train_meta_label.py                               33/33 pass    (operationally validates Cycle 7 reclassification)
 all Cycle 5-touched suites                            (unchanged — no test files in their domain touched)
 regimeDashboard.test.ts                                37/37 pass    (unchanged)
 all Cycle 3-touched suites                            472/472 pass   (unchanged from s96 #17 Cycle 4 close)
 ```
 
-### Post-Cycle-6 health snapshot
+### Post-Cycle-7 health snapshot
 
-Identical to Cycle 5 close. No new probes, no new tables, no new freshness
-classes, no DB state changed at all (Cycle 6 is documentation-only). The
-health-check output is the standard daemon-cadence pattern:
+Identical to Cycle 6 close. No new probes, no new tables, no new freshness
+classes, no DB state changed at all (Cycle 7 is filesystem-only:
+2 deletions + 1 rename in `scripts/`). The health-check output is the
+standard daemon-cadence pattern:
 
 - **Fresh:** 1 source (`Wikipedia/fja05680 S&P 500 constituents`).
 - **Stale (informational, 2-3d since last `npm run daemon:daily` run):**
   Candles ~2.0d, Cross-asset ~2.0d, Cycle position ~2.0d, ETF v3.1 SSGA
   secondary ~3.0d, FRED ~3.0d, Form 4 trades ~8.8d, Live paper-trading
-  signals ~33.7h, Macro regime (phase1_v3) ~2.0d, Sector rotation ~2.0d,
+  signals ~34.0h, Macro regime (phase1_v3) ~2.0d, Sector rotation ~2.0d,
   Vol structure ~2.0d. All clear on next `npm run daemon:daily`.
 - **Very-stale:** CBOE put/call 2,424d (Q-5 blocked; pinned as Tier-2
   `accepted-as-warning` row in `quantlab.health_quarantine`).
@@ -180,10 +219,10 @@ health-check output is the standard daemon-cadence pattern:
 
 ### Push state
 
-- `origin/main` at `c0cda7c`; **29 unpushed commits** after s96 #17 Cycle 6
-  slice (was 27 at s96 #17 Cycle 5 close; this cycle added 1 slice commit +
-  this HANDOFF rewrite will be the 30th, bringing the close-state count to
-  30).
+- `origin/main` at `c0cda7c`; **30 unpushed commits** after s96 #17 Cycle 7
+  slice (was 29 at s96 #17 Cycle 6 close; this cycle added 1 slice commit +
+  this HANDOFF rewrite will be the 31st, bringing the close-state count to
+  31).
 - Push is operator-gated (Q-4 above).
 
 ---
@@ -208,9 +247,9 @@ health-check output is the standard daemon-cadence pattern:
 | Cycle 3 — Phase 2 v1 ADR-044: quarantine table + repo + dispatcher + dashboard panels + brief §0 + daemon step 0a + Telegram + sidecar + daemon step 0b + Q-5 pin row | ✓ s96 #17 |
 | Cycle 4 — GAP-8 classifier-source documentation (ADR-046 + regime_dashboard.ts docstring) | ✓ s96 #17 |
 | Cycle 5 — GAP-13 + GAP-19 Quartz vendor-fork upgrade procedure (docs/processes/quartz-upgrade.md) | ✓ s96 #17 |
-| **Cycle 6 — GAP-16 sentinel investigation closure (ADR-047 + bt_runs_regime.ts docstrings + diagnostic probe)** | **✓ s96 #17** |
-| Cycle 7 — GAP-17 orphan-script per-file cleanup (Infra) | ☐ NEXT default |
-| Cycle 8 — GAP-10 CI/CD baseline via .github/workflows/ci.yml (Infra) | ☐ after Cycle 7 |
+| Cycle 6 — GAP-16 sentinel investigation closure (ADR-047 + bt_runs_regime.ts docstrings + diagnostic probe) | ✓ s96 #17 |
+| **Cycle 7 — GAP-17 orphan-script cleanup (2 deletions + 1 rename + 1 reclassified-leave-as-is)** | **✓ s96 #17** |
+| Cycle 8 — GAP-10 CI/CD baseline via .github/workflows/ci.yml (Infra) | ☐ NEXT default |
 | Phase 2 v2 — plausibility-band probes + per-UI-route ping + auto-insert logic + re-alert-on-status-transition cursor | ☐ deferred per S96-71 |
 | `phase1_v3` `bt_runs_regime` backfill (side-finding from Cycle 6) | ☐ deferred — Phase 9+ analytical work; no operator gate |
 | F2 CBOE backfill + re-classify | ⏸ blocked on Q-5 operator decision |
@@ -225,74 +264,96 @@ health-check output is the standard daemon-cadence pattern:
 
 ## Decisions locked in
 
-### Session 96 #17 (Cycle 6 of multi-agent orchestration)
+### Session 96 #17 (Cycle 7 of multi-agent orchestration)
 
-**S96-77. `bt_runs_regime`'s 78,399 sentinel rows stay as-is with the
-historically-mislabelled `attribution_source = 'sentinel_no_trades'`
-label preserved for backward compat.** The forensic probe at
-`scripts/_probe_gap16_sentinels.ts` confirmed only 21,489 / 78,399
-(27.4%) correspond to `bt_runs.trades = 0`; the remaining ~57k are
-runs that DID execute trades but the per-trade detail in `bt_trades`
-was unavailable at attribution time, so the fallback window-derivation
-returned empty. The accurate label would be
-`sentinel_no_window_derivable`; the cost of re-labelling (public TS
-type change, 78k row backfill, every test fixture, the SPEC, the
-read-side discriminator) does not justify the precision gain because
-the read-side default `includeSentinels=false` already excludes all
-sentinels from downstream metrics. The mislabel is now documented in
-the type's docstring (`bt_runs_regime.ts:32`) + in the function's
-docstring (`bt_runs_regime.ts:243`) + in ADR-047. `Why:` Per
-orchestration §6.4 routine-resolution authority + §3.1 trivial-edit
-exception. Three options were on the table (keep / label / purge per
-the audit framing); keep + clarify-docs is the choice because
-(a) the rows are audit information not garbage, (b) purge requires
-`ALTER ... DELETE` which is operator-gated per CLAUDE.md hard-stop,
-(c) re-label cascades through too many surfaces for too little benefit
-when downstream impact is already zero. `How to apply:` A future Phase
-9+ schema cleanup MAY revisit the re-label decision IF the
-`phase1_v3` backfill (the Cycle 6 side-finding) exposes additional
-sentinel patterns that warrant a richer source enum. Until then,
-operators querying the raw `bt_runs_regime` table directly should
-consult the type docstring + ADR-047 to understand that
-`sentinel_no_trades` includes BOTH true zero-trade runs AND legacy
-runs with missing per-trade detail; the `attribution_source != 'sentinel_no_trades'`
-filter on every read-path remains the canonical
-exclusion-of-attribution-failures filter.
+**S96-79. `scripts/train_meta_label.py` LEFT AS-IS (audit reclassification
+under orchestration §6.4 routine authority); `_`-prefix convention applies
+ONLY to operator-never-invoked diagnostics.** The audit's GAP-17 classification
+of "leave with `_` prefix" for `train_meta_label.py` was reclassified by the
+orchestration because the reconciliation evidence — surfaced via grep across
+all `.ts`/`.py`/test files — contradicts the audit-time assumption that the
+file was diagnostic. The evidence: (a) `scripts/tests/test_train_meta_label.py:19`
+does `from train_meta_label import (HLZ_ALPHA, REGIME_FILTERS, ...)` (a 33-test
+pytest suite depending on the import); (b) `scripts/build_meta_train_set.ts:623`
+prints `scripts/train_meta_label.py` as the operator-facing next-step
+instruction after the build phase; (c) `src/server/meta_labeling_dashboard.ts:9,30,34`
+references the script in the verdict-mirroring contract docstrings; (d)
+`src/lib/metaLabeling/features.ts:50,74` references it for the META_COLS
+exclusion list + the BTC_DRAWDOWN_WINDOW invariant; (e)
+`scripts/migrate_meta_models_verdict.ts:14,39` references it in docstring
++ help text. `Why:` Per orchestration §6.4 the orchestration owns routine
+reclassification decisions; the `_`-prefix convention is for scripts the
+operator NEVER invokes (e.g. `_probe_*.ts`, `_check_*.ts`, `_diagnose_*.ts`,
+`_walk_forward_cluster.py` post-Cycle-7), and `train_meta_label.py` is the
+**opposite** of that — operator-invoked production training pipeline with a
+full test suite and 5+ load-bearing production-code references; adding the
+prefix would actively mislead the operator. `How to apply:` Future audit
+classifications that propose `_`-prefix renames MUST be validated against the
+test-imports + production-code-references reconciliation evidence before
+acting. The rule of thumb: if a script has a test file OR is referenced by
+operator-facing print statements OR has TS-side docstring references that
+spell out its path, it is NOT a diagnostic and MUST NOT take the `_` prefix.
 
-**S96-78. The `phase1_v3` attribution backfill into `bt_runs_regime` is
-a pending Phase 9+ deliverable, NOT on the operator queue.** Cycle 6's
-probe found `bt_runs_regime` has zero `phase1_v3` rows (all 197,064
-existing rows are under `phase1_v2`). The v2-vs-v3 comparison
-promised in ADR-037 / SPEC §1 D4 requires `npm run backfill:bt-regime
--- --classifier-version=phase1_v3`. This is documented in ADR-047
-§"Side-finding" but no operator-queue row is added: per orchestration
-§7.2 + §6.3 no real-money trigger / methodology amendment trigger
-fires. The backfill is a routine `backfill_bt_runs_regime.ts` invocation
-under an established classifier version; the existing tests + the
-ReplacingMergeTree idempotence guarantee correctness. `Why:` Adding
-the v3 backfill to the operator queue would be queue-noise — the
-operator queue is exclusively real-money triggers per the working-model
-change (s96 #14); a "run an existing npm script with a known flag" is
-orchestration-domain work. `How to apply:` Surface this as a candidate
-for any future cycle where the orchestration is between gaps; or, if
-an operator query against `bt_runs_regime` returns empty when v3 is
-the active classifier, the missing backfill is the obvious diagnosis
-(visible in the diagnostic probe's P1 output).
+**S96-80. `scripts/sharadar_backfill.py` deleted; the architectural Sharadar-
+future-paid-data-path documentation in production code is preserved as-is.**
+Per orchestration §6.4 + the CLAUDE.md blocked-data-source policy, the
+sharadar paid-data script is removed because (a) Sharadar SEP requires a
+paid Nasdaq Data Link subscription which is on the CLAUDE.md blocked list;
+(b) the CH probe confirmed **zero rows with `source='sharadar_sep'`** ever
+landed in `quantlab.candles` — the script never ran on this DB; (c) no code
+or test references the script (no npm script, no TS import, no Python
+import). However, the **architectural documentation references** to Sharadar
+in `clickhouse.ts:523,624,1855` (the SOURCE_PRIORITY enum entry +
+forward-looking phase1_v3 comments), `bt_runs_regime.ts:8,81` (post-Sharadar
+attribution semantics + delisted-ticker refinement), `regime_dashboard.ts:234`
+(phase1_v3 bias-fix gated on Sharadar), `yfinance_backfill.py:17`
+(Sharadar SF1 follow-up path), `daily_signal_daemon.ts:8` (the deployment
+predicate), and `ingest_sp500_history.ts:15,38` (delisted-ticker price
+data requires Sharadar) are **preserved as-is** because they encode an
+architectural decision (Sharadar is the canonical future paid-data path)
+that survives the script's deletion. `Why:` Removing the architectural
+references would destroy the operator's ability to understand WHY phase1_v3
+is partial-only without paid data; the script is reusable from-scratch
+(its docstring + ADR-032 follow-up + the SOURCE_PRIORITY enum carry all
+the design intent) if/when the operator approves the Q-3-adjacent paid
+subscription. `How to apply:` Future paid-data-blocked script deletions
+follow the same pattern: delete the script; preserve the architectural
+documentation references that encode the future-path design intent.
 
-**Carry-overs (still in force):** S96-1..S96-76; S95-1..S95-50;
+**S96-81. `scripts/import_botdb_candles.py` deleted; ADR-005 freeze record
+is the source-of-truth for the historical migration semantics.** Per
+orchestration §6.4 + the ADR-005 freeze (2026-05-03), the bot.db one-shot
+migration script is removed because (a) ADR-005 froze it 2026-05-03 with
+explicit grandfathering of existing rows; (b) the script's runtime guard
+requires `ADR005_OVERRIDE=1` to execute — it is permanently un-runnable
+without explicit override; (c) the CH probe confirmed **zero rows with
+`source='botdb'`** in `quantlab.candles` on this DB instance (either the
+migration never ran here, or the original bot.db `source` column had
+different values that flowed through the script's `"source": source or "botdb"`
+fallback never firing); (d) the hardcoded path
+`C:\Users\Pejman\Desktop\PROJECTS\AIProjects\solana-smart-money-bot\bot.db`
+is operator-local-old and probably doesn't exist on the current workstation;
+(e) no code or test references the script. `Why:` The script added no
+operational value post-freeze (un-runnable; one-shot semantics; never re-
+runnable under current ADR-005 policy); the ADR-005 record + the historical
+git log carry the full semantic record of what happened. `How to apply:`
+Future frozen-by-ADR one-shot migration scripts can be deleted when (a) the
+ADR record persists the freeze decision, (b) the runtime is permanently
+blocked (guard requiring environment override), (c) no code/test references
+the script, (d) data state verification confirms the migration ran or did
+not run (here: did not run on this DB instance, so deletion is doubly safe).
+
+**Carry-overs (still in force):** S96-1..S96-78; S95-1..S95-50;
 S94-1..S94-33; S93-1..S93-54; all prior s73-s92 lock-ins.
 
 ---
 
 ## Open questions
 
-### NEW (s96 #17 Cycle 6)
+### NEW (s96 #17 Cycle 7)
 
 None inside orchestration authority. No new operator-queue rows opened
 this cycle. The five Q-rows above are all carry-overs from prior cycles.
-
-The Cycle 6 side-finding about missing `phase1_v3` attribution
-(S96-78) is documented as a Phase 9+ deliverable, not a queue item.
 
 ### CARRIED from s96 #12-#16
 
@@ -308,87 +369,90 @@ The Cycle 6 side-finding about missing `phase1_v3` attribution
 - Capital-deployment-ramp ADR — Q-2.
 - Schema-migration bootstrap-only.
 - ML meta-labeling (ADR-017, deferred ≥4 weeks).
-- Sharadar SF1 subscription — Q-3 adjacent.
+- Sharadar SF1 subscription — Q-3 adjacent (now: if approved, re-author
+  `scripts/sharadar_backfill.py` from scratch using the surviving
+  architectural references in `clickhouse.ts` SOURCE_PRIORITY + the
+  Sharadar-future-path documentation comments + ADR-032 follow-up notes).
 - Compounding-live-equity backtest semantic.
 - First-apply-run EDGAR Item-filter OR-clause behavior.
 - Cold-start cascade timing for EK + F4 + XD13 arcs.
 - OQ-G2-2 — EDGAR-amendment forensic tooling default.
 - Phase 2 v2 — plausibility-band probes + per-UI-route ping + auto-insert + re-alert-on-status-transition cursor (deferred per S96-71).
-- **Root cause of `bt_runs.trades > 0` AND `bt_trades` empty divergence** (Cycle 6 surfaced; not investigated — three plausible causes listed in ADR-047 §"The semantic surprise"; deferred until a downstream consumer needs to know).
+- Root cause of `bt_runs.trades > 0` AND `bt_trades` empty divergence (Cycle 6 surfaced; not investigated — three plausible causes listed in ADR-047 §"The semantic surprise"; deferred until a downstream consumer needs to know).
 
 ---
 
 ## Next stage
 
-### Default on `continue` — Cycle 7 (orchestration §8.4)
+### Default on `continue` — Cycle 8 (orchestration §8.4)
 
-Per orchestration §8.4 — first item is **GAP-17 orphan-script per-file
-cleanup**. Infra domain. Per the audit's classification:
+Per orchestration §8.4 — next item is **GAP-10 CI/CD baseline** via
+`.github/workflows/ci.yml`. Infra domain. Per the audit's classification:
 
-- `sharadar_backfill.py` → **remove** (paid Sharadar subscription is on
-  CLAUDE.md blocked-data-source list; no path to ever exercise this
-  file under current policy).
-- `import_botdb_candles.py` → **confirm one-shot migration completed +
-  remove** (need to verify the migration ran historically; if confirmed
-  done, delete).
-- `walk_forward_cluster.py` → **leave with `_` prefix** (dev-only
-  diagnostic per the established `_`-prefix-for-diagnostics convention;
-  rename in-place).
-- `train_meta_label.py` → **leave with `_` prefix** (same convention;
-  rename in-place).
+- GitHub Actions free-tier-safe on private repos (the audit's framing
+  note: "Free tier on private repos covers SignalForge's usage; if
+  minute-limits become an issue, surfacing as paid-subscription trigger").
+- Workflow SHOULD include the deferred Quartz vendor-patch grep-assertion
+  documented in `docs/processes/quartz-upgrade.md` § Alternative CI grep
+  test (per S96-76).
+- Workflow SHOULD include the baseline tsc gate (13 errors max,
+  matching the established baseline) + the npm test suite + the
+  Python pytest suite + `npm run health:check:strict` post-build.
+- Workflow scope decisions (push triggers, PR triggers, scheduled
+  nightly runs, matrix strategies, runner OS choice) are orchestration's
+  per §6.4 routine authority.
 
 Plausible spawn pattern: single Infra worker, `isolation: "worktree"`,
-four per-file decisions in one cycle. Or, given the per-file decisions
-are independent and the diffs are tiny (delete-or-rename), the
-orchestrator could self-resolve under §3.1 trivial-edit exception —
-this would be the fourth consecutive documentation/cleanup cycle
-following that pattern (Cycles 4 + 5 + 6 + 7). Either approach is
-defensible; the worker-spawn pattern is more conservative if any of
-the per-file decisions reveal hidden dependencies (e.g.
-`import_botdb_candles.py` is referenced by some live tooling — needs
-verification before deletion).
+one cycle deliverable: `.github/workflows/ci.yml` + minor README addition
+documenting the badge URL + first-push verification (the worker can run
+the workflow YAML through GitHub Actions' linter via `actionlint` if
+available, OR rely on the post-merge first-CI-run to surface syntax
+errors). The orchestrator does NOT push to origin/main — the workflow
+file lands locally; first CI run happens whenever the operator pushes
+(Q-4 above).
 
-**After GAP-17:** orchestration §8.4 enumerates:
+**After Cycle 8:** orchestration §8.4 has no further classified gaps;
+Phase 9+ work (Phase B campaigns, capital-deployment-ramp ADR, etc.)
+remains operator-gated. Candidate orchestration-domain cycles after
+Cycle 8 include:
 
-- **Cycle 8 — GAP-10 CI/CD baseline** via `.github/workflows/ci.yml`
-  (Infra) — GitHub Actions free-tier-safe on private repos; SHOULD
-  include the deferred Quartz vendor-patch grep-assertion documented
-  in `docs/processes/quartz-upgrade.md` § Alternative CI grep test.
-
-**After Cycle 8+:** Phase 9 continued work as defined in HANDOFF
-(Phase B campaigns remain paused per existing autonomous-execution
-rules until operator green-light — those stay on the operator queue).
-
-The Cycle 6 side-finding (S96-78 `phase1_v3` backfill into
-`bt_runs_regime`) is also a candidate for a future cycle — small,
-self-contained, orchestration-domain, no operator gate. Defer until
-the GAP-17 + GAP-10 cleanup cycles close OR a downstream consumer
-needs the v3 attribution.
+- The Cycle 6 side-finding (S96-78) — `npm run backfill:bt-regime --
+  --classifier-version=phase1_v3` to populate the missing `phase1_v3`
+  attribution rows in `bt_runs_regime`. Small, self-contained,
+  orchestration-domain, no operator gate.
+- Phase 2 v2 plausibility-band probes (deferred per S96-71; depends
+  on operator review of Phase 2 v1 quarantine schema first — could
+  become orchestration-domain if S96-71's deferral conditions resolve).
+- Any drift surfaced by `npm run health:check` between sessions.
 
 ---
 
 ## Files / code state
 
-### New / modified this cycle (s96 #17 Cycle 6)
+### New / modified this cycle (s96 #17 Cycle 7)
 
-| Path | LOC | Notes |
+| Path | Change | Notes |
 | --- | --- | --- |
-| `docs/specs/adr-047-bt_runs_regime-sentinel-semantics.md` | new (+388) | The decision + six-probe forensic record + rejected purge/re-label alternatives + side-finding; explicit Tier-2-quarantine-non-applicability justification per ADR-044 |
-| `src/server/bt_runs_regime.ts` | +20 -2 | Docstring updates on `AttributionSource` type (l.32-44) and `buildSentinelResult` (l.252-260) pointing to ADR-047; **no runtime behavior change** |
-| `scripts/_probe_gap16_sentinels.ts` | new (+96) | Read-only diagnostic probe (P1 totals; P2 attribution_source split; P3 sentinel-vs-bt_runs.trades alignment; P4 anomaly check; P5 sample content; P6 count cross-check); preserved with `_` prefix per GAP-17 leave-with-prefix policy |
-| `.claude/HANDOFF.md` | rewrite | This file; new S96-77 + S96-78 lock-ins; operator queue unchanged (Q-4 count incremented to 29) |
+| `scripts/sharadar_backfill.py` | DELETED (-303 LOC) | Paid-data path; zero CH rows with source='sharadar_sep'; no code references |
+| `scripts/import_botdb_candles.py` | DELETED (-164 LOC) | ADR-005 frozen; runtime guard requires ADR005_OVERRIDE=1; zero CH rows with source='botdb' |
+| `scripts/walk_forward_cluster.py` → `scripts/_walk_forward_cluster.py` | RENAMED (R 100%) | Diagnostic walk-forward orchestrator; `_`-prefix convention; no code/test references |
+| `.claude/HANDOFF.md` | rewrite | This file; new S96-79 + S96-80 + S96-81 lock-ins; operator queue unchanged (Q-4 count incremented to 30) |
+
+Total: -467 LOC across 3 files (no net new code; surface-area reduction).
 
 ### Test + tsc state
 
-- `btRunsRegime.test.ts`: **19/19 pass** (no fixture change; the docstring
-  edits don't touch any tested code path).
-- All Cycle 3/4/5-touched suites: **unchanged** (no test files in any of
-  their domains touched this cycle).
+- `btRunsRegime.test.ts`: **19/19 pass** (no fixture change; Cycle 6 protected).
+- `test_train_meta_label.py`: **33/33 pass** (operationally validates the
+  Cycle 7 reclassification — the `from train_meta_label import …` resolves
+  because the file is preserved at its original path).
+- All Cycle 3/4/5/6-touched suites: **unchanged** (no test files in their
+  domains touched this cycle).
 - `npx tsc --noEmit`: **13 baseline errors unchanged** (all in unrelated
   `_check_*.ts` / `_verify_*.ts` / `_cleanup_*.ts` / `_diagnose_*.ts`).
 - Health check delta: **zero**. No new tables, no new probes, no new
   freshness classes, no DB state changed. The output is the same
-  fresh/stale/very-stale/missing/empty pattern as Cycle 5 close.
+  fresh/stale/very-stale/missing/empty pattern as Cycle 6 close.
 
 ### Untouched-but-relevant for next session
 
@@ -404,64 +468,70 @@ needs the v3 attribution.
   zero-bytes-on-clean preservation pattern intact).
 - `bt_runs_regime` has zero `phase1_v3` attribution rows; the
   `npm run backfill:bt-regime -- --classifier-version=phase1_v3`
-  invocation is a Cycle-7+ candidate per S96-78.
-- Cycle 7 (GAP-17 orphan-script cleanup) is per-file: 2 deletions
-  (after verification for `import_botdb_candles.py`) + 2 renames (with
-  `_` prefix). Worker-spawn vs. orchestrator-direct is a judgment call;
-  worker-spawn is safer for the deletion-with-verification leg.
+  invocation is a candidate after Cycle 8 closes per S96-78.
+- Sharadar architectural documentation in production code (`clickhouse.ts`
+  SOURCE_PRIORITY enum + 5 forward-looking comments) preserved; if/when
+  Q-3-adjacent paid subscription approves, the script can be re-authored
+  from scratch using those references + the ADR-032 follow-up + the
+  surviving docstring intent.
+- ADR-005 freeze record persists in `MASTER.html §6` + the surviving
+  `docs/decisions/README.md` reference; the historical migration
+  semantics for bot.db rows in `quantlab.candles` (grandfathered or
+  never-landed depending on the DB instance) are recoverable from the
+  ADR-005 record alone.
 
 ---
 
 ## Watch-outs
 
-### NEW from this cycle (s96 #17 Cycle 6)
+### NEW from this cycle (s96 #17 Cycle 7)
 
-- **The label `attribution_source = 'sentinel_no_trades'` is misleading
-  for ~73% of the rows it tags.** A future contributor reading the
-  literal label and assuming "all 78,399 rows = true zero-trade runs"
-  will be wrong. Mitigation: the docstring on `AttributionSource`
-  (`bt_runs_regime.ts:32`) and on `buildSentinelResult`
-  (`bt_runs_regime.ts:243`) now call out the actual trigger condition
-  + the GAP-16 forensic finding + the ADR-047 reference. If a future
-  contributor proposes "let me clean up these zero-trade sentinels,"
-  the docstring + ADR-047 are the stop signs.
-- **The read-side default `includeSentinels=false` filter is the
-  load-bearing exclusion.** If any future reader site forgets to set
-  this (or if a new reader is added without consulting the existing
-  `fetchBtRunsByRegime` pattern), the 78,399 sentinels would leak into
-  the result set with `total_days=0` and `dominant_regime='unknown'`.
-  The convention-pin test in `scripts/tests/btRunsRegime.test.ts` does
-  exercise the discriminator; a new reader pattern should be paired
-  with a matching convention pin. Mitigation: the docstring on
-  `RegimeFilter.includeSentinels` (l.110) already documents the
-  default-false convention.
-- **A future Phase 9+ schema cleanup that adds a new `AttributionSource`
-  value must update the discriminator literal at
-  `bt_runs_regime.ts:503-505`.** The filter `attribution_source !=
-  'sentinel_no_trades'` is the exclusion expression; adding a new
-  sentinel-class value without updating the filter would leak the new
-  class into downstream metrics. Mitigation: the filter literal is
-  grep-able; the test pin would catch a mismatch.
-- **Three root causes for the `bt_runs.trades > 0` AND `bt_trades`
-  empty divergence are not investigated.** ADR-047 §"The semantic
-  surprise" lists three plausible causes (engine-version asymmetry,
-  historical pruning, key drift) but does not rank or investigate
-  them. If a downstream consumer ever needs to know the actual
-  cause, the investigation will need to scan `bt_runs.started_at`
-  histogram for the sentinel run_ids vs. the bt_runs schema-evolution
-  timeline + the bt_trades retention policy history (no formal
-  retention policy exists; this would need spot-checks against the
-  CH `system.parts` history).
-- **The `_probe_gap16_sentinels.ts` diagnostic is preserved but not
-  in `package.json`.** Future re-runs are via `npx tsx
-  scripts/_probe_gap16_sentinels.ts` directly. If the orchestration
-  decides to promote it to an npm script in a future cycle, the
-  `help` metadata pattern from `backfill_bt_runs_regime.ts:27-42` is
-  the convention to follow.
+- **The `_`-prefix-for-diagnostics convention has a sharp edge: it is
+  ONLY for scripts the operator never invokes.** A future contributor
+  applying the convention naively (e.g. to any script not in
+  `package.json`) would mislead the operator about which scripts are
+  operator-facing vs diagnostic. Mitigation: S96-79 documents the
+  reconciliation evidence rule of thumb — if a script has a test file
+  OR is referenced by operator-facing print statements OR has TS-side
+  docstring references that spell out its path, it is NOT a diagnostic
+  and MUST NOT take the `_` prefix.
+- **The Sharadar architectural documentation references in production
+  code (8 reference sites across `clickhouse.ts`, `bt_runs_regime.ts`,
+  `regime_dashboard.ts`, `yfinance_backfill.py`, `daily_signal_daemon.ts`,
+  `ingest_sp500_history.ts`) are now "orphaned" in the sense that the
+  script they conceptually pair with (`sharadar_backfill.py`) no longer
+  exists.** A future contributor reading those comments + searching for
+  `sharadar_backfill.py` will find nothing. Mitigation: S96-80 documents
+  the deletion + the preservation rationale + the re-author-from-scratch
+  recovery path. The Q-3 operator queue row is the canonical pointer for
+  the future-paid-data decision; if/when approved, the re-authoring task
+  becomes orchestration-domain (no methodology change; the surviving
+  references are sufficient design intent).
+- **`scripts/_walk_forward_cluster.py` invocation is now via the renamed
+  path; any historical operator notes / runbooks that say "python
+  scripts/walk_forward_cluster.py …" are stale.** Mitigation: the
+  docstring's usage example was pre-rename; a future operator invoking
+  it from the docstring would type the old path. This is low-risk because
+  (a) the script is diagnostic — operators don't run it on a cadence;
+  (b) `git mv` preserves the historical content for `git log --follow`;
+  (c) the rename is mechanically reversible if needed. No active runbook
+  or cron job invokes the old path (verified via Grep across all files).
+- **The CH probe finding that zero rows have `source='botdb'` or
+  `source='sharadar_sep'` is point-in-time on the current DB instance.**
+  If a future operator restores from a backup taken pre-2026-05-19 (the
+  approximate window when those source values would have been written),
+  the old rows could reappear without the deletion scripts existing —
+  this would be inconsistent with the current codebase but harmless
+  (the rows still satisfy the candles schema; the SOURCE_PRIORITY enum
+  in `clickhouse.ts` still has `sharadar_sep` priority 60 to handle
+  any future-restored or future-ingested rows of that source). The
+  `botdb` source has no SOURCE_PRIORITY entry so a restored backup
+  would defer to priority 99 (the catch-all). Mitigation: low-risk
+  edge case; documenting for completeness.
 
 ### Carried from earlier sessions
 
-All prior watch-outs (s96 #1-#17 Cycle 5 carry-overs) preserved.
+All prior watch-outs (s96 #1-#17 Cycle 6 carry-overs) preserved.
 
 ---
 
@@ -515,15 +585,24 @@ npm run dev:all                                         # dashboard (:3000) + Qu
 npm run backfill:bt-regime                                                    # default classifier version (CLASSIFIER_VERSION)
 npm run backfill:bt-regime -- --classifier-version=phase1_v3                  # the deferred S96-78 v3 backfill
 npm run backfill:bt-regime:dry                                                # count candidates without writing
-npx tsx scripts/_probe_gap16_sentinels.ts                                     # Cycle 6 GAP-16 diagnostic; preserved per GAP-17 leave-with-prefix
+npx tsx scripts/_probe_gap16_sentinels.ts                                     # Cycle 6 GAP-16 diagnostic
 npx tsx scripts/_probe_ch_btregime.ts                                         # pre-existing distribution probe (sampling + quantiles)
+```
+
+### Weekly cluster pipeline diagnostic (post-Cycle-7 rename)
+
+```text
+.venv/Scripts/python.exe scripts/_walk_forward_cluster.py \
+    --start-week 2024-07-15 --end-week 2026-04-27               # the renamed diagnostic
+# (was scripts/walk_forward_cluster.py pre-Cycle-7; rename to _-prefix
+#  per the diagnostic convention; same CLI surface)
 ```
 
 ### Tests + dev
 
 ```text
 npm test                                                                                              # last full green at s96 #12 close
-node --import tsx --test scripts/tests/btRunsRegime.test.ts                                           # 19/19 pass at s96 #17 Cycle 6 close
+node --import tsx --test scripts/tests/btRunsRegime.test.ts                                           # 19/19 pass at s96 #17 Cycle 7 close (unchanged)
 node --import tsx --test scripts/tests/regimeDashboard.test.ts                                        # 37/37 pass at s96 #17 Cycle 5 close (unchanged)
 node --import tsx --test scripts/tests/healthCheck.test.ts                                            # 37 pass at s96 #17 Cycle 3 close (unchanged)
 node --import tsx --test scripts/tests/migrateCreateHealthQuarantine.test.ts                          # 48 pass at s96 #17 Cycle 3 close
@@ -539,6 +618,7 @@ node --import tsx --test scripts/tests/daemonEdgarIngests.test.ts               
 node --import tsx --test scripts/tests/daemonEtfFlowV1PrimaryRefresh.test.ts                          #  7 pass (Cycle 2 carryover)
 node --import tsx --test scripts/tests/crossAssetSnapshotsRepository.test.ts                          # 40 pass (Cycle 2 carryover)
 combined Cycle 3 affected suites:                                                                    472 pass across 91 suites
+.venv/Scripts/python.exe -m pytest scripts/tests/test_train_meta_label.py                             # 33 pass at s96 #17 Cycle 7 close (operationally validates the reclassification)
 .venv/Scripts/python.exe -m pytest scripts/tests/test_sec_edgar_form4_ingest.py                       # 47 pass at s96 #15 close
 .venv/Scripts/python.exe -m pytest scripts/tests                                                      # last green at s96 #9 close: 394 pass
 npm run dev                                                                                           # http://localhost:3000
@@ -547,43 +627,45 @@ npx tsc --noEmit                                                                
 
 ### npm scripts touched this cycle
 
-- **None.** Cycle 6 is documentation-only (1 new ADR + 1 docstring edit
-  + 1 new diagnostic probe; no `package.json` change; no script behavior
-  change). The new probe at `scripts/_probe_gap16_sentinels.ts` runs via
-  direct `npx tsx` invocation; not promoted to an npm script per the
-  diagnostic-script convention (`_`-prefix marks "diagnostic, run
+- **None.** Cycle 7 is filesystem-only (2 deletions + 1 rename in
+  `scripts/`; no `package.json` change; no script behavior change).
+  The renamed diagnostic at `scripts/_walk_forward_cluster.py` runs
+  via direct `python` invocation; not promoted to an npm script per
+  the diagnostic-script convention (`_`-prefix marks "diagnostic, run
   manually").
 
 ---
 
 ## For the next session — priority order
 
-**Default on `continue`:** Cycle 7 per orchestration §8.4 — **GAP-17
-orphan-script per-file cleanup**. Infra domain. Per the audit's
-classification: `sharadar_backfill.py` → remove (paid blocked);
-`import_botdb_candles.py` → confirm completion then remove;
-`walk_forward_cluster.py` + `train_meta_label.py` → leave with `_`
-prefix (rename in-place).
+**Default on `continue`:** Cycle 8 per orchestration §8.4 — **GAP-10 CI/CD
+baseline via `.github/workflows/ci.yml`**. Infra domain. Per the audit's
+classification: GitHub Actions free-tier-safe on private repos; workflow
+SHOULD include the deferred Quartz vendor-patch grep-assertion from
+`docs/processes/quartz-upgrade.md` § Alternative CI grep test; workflow
+scope (push triggers, PR triggers, scheduled nightly runs, matrix
+strategies, runner OS) is orchestration's per §6.4 routine authority.
 
-Plausible spawn pattern: single Infra worker with `isolation:
-"worktree"`; four per-file decisions; deliverable is 2 deletions +
-2 renames + tests still green + no broken imports. OR orchestrator
-self-resolve under §3.1 trivial-edit exception IF the
-`import_botdb_candles.py` deletion-with-verification leg can be
-folded into a single pass.
+Plausible spawn pattern: single Infra worker with `isolation: "worktree"`;
+deliverable is `.github/workflows/ci.yml` + minor README addition for the
+badge URL. The orchestrator does NOT push to origin/main — the workflow
+file lands locally; first CI run happens whenever the operator pushes
+(Q-4 above). Worker-spawn vs. orchestrator-direct is a judgment call:
+worker-spawn is the more conservative choice given this is the first new
+file-class added in 4 cycles (`.github/` directory); orchestrator-direct
+under §3.1 would also be defensible since the YAML scope is well-bounded.
 
-**Then per orchestration §8.4:**
+**After Cycle 8 (no further classified audit gaps):**
 
-- Cycle 8 — GAP-10 CI/CD baseline via `.github/workflows/ci.yml`
-  (Infra; GitHub Actions free-tier-safe on private repos; SHOULD
-  include the deferred Quartz vendor-patch grep-assertion from
-  `docs/processes/quartz-upgrade.md` § Alternative CI grep test).
-
-**Cycle 6 side-finding candidate (S96-78):**
-
-- `npm run backfill:bt-regime -- --classifier-version=phase1_v3` —
-  small, self-contained, orchestration-domain. Defer until GAP-17
-  + GAP-10 close OR a downstream consumer needs v3 attribution.
+- **S96-78 follow-up (Cycle 9 candidate)** — `npm run backfill:bt-regime --
+  --classifier-version=phase1_v3` to populate the missing `phase1_v3`
+  attribution rows in `bt_runs_regime`. Small, self-contained,
+  orchestration-domain, no operator gate.
+- **Phase 2 v2** — plausibility-band probes + per-UI-route ping + auto-
+  insert + re-alert-on-status-transition cursor (deferred per S96-71;
+  needs operator review of Phase 2 v1 quarantine schema first).
+- **Drift remediation** — any new Tier-2 quarantine items surfaced by
+  `npm run health:check` between sessions.
 
 **Calendar-gated (unchanged):**
 
@@ -600,7 +682,7 @@ above):**
 - Q-1 first real-capital deployment — operator-defined timing.
 - Q-2 capital-deployment-ramp ADR — operator self-assigned ~1 week.
 - Q-3 Stooq apikey gate decision — paid vs self-host.
-- Q-4 push 29 commits to origin/main.
+- Q-4 push 30 commits to origin/main.
 - Q-5 phase1_v3 CBOE methodology amendment — pick A/B/C/D (pinned
   as `accepted-as-warning` Tier-2 quarantine row; Telegram alert
   fires once on next live daemon run with valid Telegram creds,
@@ -612,10 +694,8 @@ above):**
 - Phase B campaigns (deferred).
 - Playwright dep adoption (OQ-G9-4 branch A; dep-tree expansion).
 - ALTER DROP / DROP TABLE / ALTER ... DELETE migrations (per §6.3
-  hard-stop) — note: GAP-16 closure explicitly avoided this path
-  (purge would have required `ALTER ... DELETE` on `bt_runs_regime`).
-  Cycle 7 GAP-17 cleanup is `rm` on script files only — filesystem
-  not CH; not on the hard-stop list.
+  hard-stop) — Cycle 7 GAP-17 cleanup is `git rm` on script files
+  only; filesystem not CH; not on the hard-stop list.
 - `git push` (Q-4 above).
 - Q-5-blocked work: F2 CBOE backfill, Composite worker phase1_v3
   re-classify.
@@ -630,43 +710,48 @@ above):**
 
 ## Important framing for the next chat
 
-**Cycle 6 is closed.** Three new files (1 ADR + 1 diagnostic probe +
-1 docstring edit) + this HANDOFF rewrite. Documentation-only; no DDL,
-no DML, no behavior change; tsc baseline 13 unchanged; tests unchanged
-(btRunsRegime.test.ts 19/19); health-check deltas zero. The
-orchestration's §3.1 trivial-edit exception (documentation + read-only
-diagnostic) makes this a clean self-review under §6.1 AUTO-APPROVE
-without subagent spawn. No new operator-queue rows; no escalations
-fired this cycle.
+**Cycle 7 is closed.** Three files modified (-467 LOC net; surface-area
+reduction with no behavior change) + this HANDOFF rewrite. Filesystem-only;
+no DDL, no DML, no behavior change; tsc baseline 13 unchanged; tests
+preserved (btRunsRegime 19/19, **test_train_meta_label 33/33 —
+operationally validating the reclassification**); health-check deltas
+zero. The orchestration's §3.1 trivial-edit exception (deletions + rename
++ audit reclassification) makes this a clean self-review under §6.1
+AUTO-APPROVE without subagent spawn. No new operator-queue rows; no
+escalations fired this cycle.
+
+**Four consecutive cycles (4, 5, 6, 7) have now used the §3.1 trivial-
+edit exception for documentation/cleanup gaps.** This is the established
+pattern for the audit's §2.3 cleanup gaps. The next cycle (8 GAP-10
+CI/CD baseline) introduces a NEW file-class (`.github/workflows/`) and
+will likely return to a worker-spawn pattern for the more conservative
+review.
 
 **The operator queue is unchanged at 5 rows (Q-1 through Q-5).** Q-4
-count incremented from 27 → 29 (Cycle 6 slice + HANDOFF rewrite will
-make it 30 at the actual commit moment).
+count incremented from 29 → 30 (Cycle 7 slice + HANDOFF rewrite will
+make it 31 at the actual commit moment).
 
-**ADR-047 is the canonical resolution for GAP-16.** Future contributors
-querying `bt_runs_regime` directly or proposing changes to
-`AttributionSource` should consult ADR-047 first. The Cycle 6 probe
-script `scripts/_probe_gap16_sentinels.ts` is preserved per GAP-17
-leave-with-`_`-prefix policy and is the canonical re-investigation
-tool — re-run it after any future structural change to bt_runs_regime
-(notably the deferred S96-78 v3 backfill) to refresh the picture.
-
-**Default next is Cycle 7 — GAP-17 orphan-script per-file cleanup.**
-Infra worker; per-file decisions (2 deletions + 2 renames); the
-`import_botdb_candles.py` deletion needs a verification step (confirm
-the historical migration completed). Worker-spawn vs. orchestrator-
-direct is a judgment call at start-of-cycle.
+**S96-79 + S96-80 + S96-81 are the new lock-ins.** Future cycles that
+encounter (a) audit classifications that look diagnostic-y, (b) paid-
+data-blocked scripts with surviving architectural references, or
+(c) ADR-frozen one-shot migration scripts, should consult these lock-
+ins for the reconciliation-evidence rule of thumb (S96-79), the
+preserve-architectural-docs pattern (S96-80), and the safe-deletion
+predicate (S96-81) respectively.
 
 **Backward compat preserved this cycle:**
 
 1. **CH:** No table changes.
-2. **Type:** Docstring-only edits to `AttributionSource` and
-   `buildSentinelResult`; runtime type unchanged.
+2. **Type:** No type-system changes.
 3. **Brief:** No render-side changes; byte-equal-stdout preserved.
-4. **Tests:** btRunsRegime.test.ts 19/19 still pass; no fixture change.
-5. **Code behavior:** Zero behavior change; docstring-only modification
-   on an already-shipped file documents an existing finding without
-   changing any code path.
+4. **Tests:** btRunsRegime.test.ts 19/19 still pass; test_train_meta_label.py
+   33/33 still pass (the import is the operational validation that
+   the reclassification was correct).
+5. **Code behavior:** Zero behavior change at runtime. The renamed
+   `_walk_forward_cluster.py` has the same CLI surface; the deleted
+   `sharadar_backfill.py` was never running anyway (CH probe confirmed);
+   the deleted `import_botdb_candles.py` was permanently blocked by
+   its own runtime guard.
 
 **The chain through s96 #17:**
 
@@ -700,13 +785,22 @@ S96 #17 Cycle 6 of multi-agent orchestration:
                                                        + _probe_gap16_sentinels.ts
                                                        diagnostic
   + S96-77 + S96-78 lock-ins documented
+S96 #17 Cycle 7 of multi-agent orchestration:
+  • Orchestrator self-edit            AUTO-APPROVE  → GAP-17 closure: 2 deletions
+                                                       (sharadar_backfill.py +
+                                                       import_botdb_candles.py)
+                                                       + 1 rename (walk_forward_cluster.py
+                                                       → _walk_forward_cluster.py)
+                                                       + 1 reclassified-leave-as-is
+                                                       (train_meta_label.py per S96-79
+                                                       evidence-based reclassification)
+  + S96-79 + S96-80 + S96-81 lock-ins documented
   + 1 commit + this HANDOFF rewrite = 2 logical units
-  + No subagent worker spawned (§3.1 trivial-edit exception, third cycle
+  + No subagent worker spawned (§3.1 trivial-edit exception, fourth cycle
     in a row for documentation/cleanup work)
   + Zero behavior change; tsc baseline + tests + health-check all unchanged
   + No new operator-queue rows
-  → DEFAULT NEXT: Cycle 7 per orchestration §8.4
-    GAP-17 orphan-script per-file cleanup (2 deletions + 2 renames).
-    Infra worker (or orchestrator-direct under §3.1 if all four files
-    can be resolved in one pass without hidden-dependency surprises).
+  → DEFAULT NEXT: Cycle 8 per orchestration §8.4
+    GAP-10 CI/CD baseline via .github/workflows/ci.yml. Infra worker
+    (or orchestrator-direct under §3.1 if the YAML scope is well-bounded).
 ```
