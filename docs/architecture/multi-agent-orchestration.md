@@ -631,6 +631,20 @@ appends rows; the operator reviews when they choose to engage.
    behind a session cookie.
 7. **The current GAP-5 Stooq apikey gate decision** — paid subscription
    OR commit to constituent-based fallback as canonical.
+8. **Phase C promotion of any Layer-0 informational composite to
+   `phase1_v3+` classifier input** — Phase B statistical validation
+   (DSR / PBO / HLZ deflation pipeline per AFML §11, Bailey-LdP 2014,
+   Harvey-Liu-Zhu 2016) is orchestration-owned because it is offline
+   backtest work, not real-money execution. The Phase C promotion
+   decision (adding a category to the classifier that affects live
+   firing behavior + downstream trade decisions) is a methodology
+   amendment and stays operator-gated. Clarification added 2026-05-24
+   (s96 #19) to unbundle Phase B execution from the previously-
+   conflated "all Phase B is operator-gated" framing in the s96
+   HANDOFF. The conflation came from the C-12 nomenclature ("C-12
+   Phase B AlpacaAdapter") which refers to broker integration for a
+   specific strategy and is unrelated to the Layer-0 Phase B
+   statistical-validation work.
 
 ### 7.2 Real-money path file allowlist (critic checks every diff)
 
@@ -679,6 +693,16 @@ For the avoidance of doubt:
   authorization, daemon orchestrator changes that don't touch
   real-money path files.
 - Migrations that are forward-only additive (CREATE / ALTER ADD).
+- **Phase B statistical validation campaigns for the nine Layer-0
+  informational composites** (cycle_v1, vol_struct_v1, sector_rot_v1,
+  cross_asset_v1, short_interest_v1, and the four remaining gap
+  composites). Phase B is the DSR / PBO / HLZ deflation-pipeline
+  validation per AFML §11 / Bailey-LdP 2014 / Harvey-Liu-Zhu 2016. It
+  runs offline against `quantlab.bt_runs_regime` + historical price
+  panels; no broker integration; no real-money exposure. Orchestration
+  owns campaign execution + results aggregation + per-composite verdict
+  surfacing. The Phase C promotion decision (per §7.1 item 8) is the
+  only Phase-B-adjacent thing that reaches operator.
 
 ---
 
@@ -855,3 +879,4 @@ when policy changes; never just one.
   reconciliation gaps classified by the orchestration per §2;
   audit's §6 review form effectively answered. |
 | 2026-05-24 | §3.1 trivial-edit exception codified (Cycle 16 pair-up). Original "exceptions only for trivial single-file fixes (< 5 LOC, single function)" expanded to enumerate four exception categories (pure-docs, single-file Tier-1 mechanical ≤~50 LOC, pure-investigation, closure cycles) + the six-gate ALL-of guard (no real-money path, no DDL, no paid-data, tsc preserved, convention pins green, no canon-cited methodology ratification). Reflects de-facto usage across Cycles 4–15 (12 consecutive orchestrator-self-edit cycles with one Cycle 9 worker spawn for the gics SQL fix; zero regressions across integration gates). |
+| 2026-05-24 | §7.1 item 8 added + §7.3 "Phase B statistical validation campaigns" exclusion added (Cycle 20 / s96 #19 slice 2). Reclassifies Phase B execution for the nine Layer-0 informational composites as orchestration-owned, with Phase C classifier promotion remaining operator-gated. Unbundles the prior s96 HANDOFF framing that bucketed "all Phase B" as operator-gated; that framing conflated C-12's "Phase B AlpacaAdapter" (broker integration, real-money path, correctly operator-gated) with the Layer-0 composites' Phase B statistical-validation work (offline deflation pipeline, no real-money exposure). Triggered by operator question 2026-05-24 + operator framing "no real-money trading while system is incomplete" — Q-1 / Q-2 are indefinitely deferred but foundational validation work continues. |
