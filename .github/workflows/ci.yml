@@ -1,0 +1,129 @@
+# SignalForge CI — baseline workflow (Cycle 8 of multi-agent orchestration; closes
+# audit GAP-10 per docs/audits/system-reconciliation-2026-05.md and
+# docs/architecture/multi-agent-orchestration.md §2.5/§8.4).
+#
+# Scope (intentional minimum-viable baseline):
+#   - Lint job: tsc baseline gate (≤13 errors per the documented baseline in
+#     HANDOFF.md s96 #17), help-doc sync check, Quartz vendor-patch grep
+#     assertions (the deferred CI check from docs/processes/quartz-upgrade.md
+#     § Alternative — CI-enforced grep test).
+#   - TypeScript test suite (node --test on scripts/tests/*.test.ts via tsx).
+#   - Python test suite (pytest on scripts/tests/test_*.py via the
+#     requirements.txt dependency set).
+#
+# Out of scope for this baseline (deliberate deferrals):
+#   - `npm run health:check:strict` — requires a live ClickHouse instance
+#     (the health probes read warehouse state). Spinning CH in CI is a
+#     meaningful infra investment that belongs with Phase 2 v2 of ADR-044
+#     (deferred per HANDOFF.md S96-71) rather than this baseline.
+#   - Scheduled nightly runs — would burn private-repo Actions minutes
+#     without surfacing new signal (the suite is deterministic; nothing
+#     about CI-time changes between pushes). Add later only if drift
+#     between pushes becomes a real signal we want to catch.
+#   - Vite build (`npm run build`) — not currently in `npm test` or `npm
+#     run lint`; if a downstream consumer needs the bundled assets verified
+#     at PR time, add as a separate job.
+#
+# Runner choice:
+#   - ubuntu-latest. Cheapest of the GitHub-hosted runners (1x minute
+#     multiplier on private repos, vs 2x for windows-latest and 10x for
+#     macos-latest). The TypeScript test suite uses Node's built-in
+#     test runner and tsx (both cross-platform); the Python tests mock
+#     ClickHouse and have no Windows-only code paths. The project's
+#     npm scripts that wrap Windows-specific paths (`.venv\Scripts\…`)
+#     are NOT exercised by `npm test` — those are operator-side
+#     daemon/ingest commands, not CI-time entry points.
+#
+# Concurrency: cancel in-progress runs on the same ref when a new push
+# lands. Saves minutes on rapid-fire pushes.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint (tsc baseline + help-doc + Quartz patches)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+
+      - name: TypeScript baseline check (≤13 errors)
+        # Cycle 8 baseline: the 13 pre-existing errors all live in `_*.ts`
+        # diagnostic/cleanup scripts (per HANDOFF.md s96 #17 Cycle 7 close:
+        # scripts/_check_constituent_cleanup.ts, _cleanup_polluted_constituents.ts,
+        # _diagnose_constituent_pollution.ts, _verify_sp500_constituents_ddl.ts).
+        # CI fails only on NEW errors introduced by a PR. When the baseline
+        # is cleaned up, lower this number; never raise it.
+        run: |
+          set +e
+          npx tsc --noEmit > tsc-output.txt 2>&1
+          set -e
+          echo "=== tsc output ==="
+          cat tsc-output.txt
+          echo "=================="
+          ERROR_COUNT=$(grep -c "error TS" tsc-output.txt || true)
+          BASELINE=13
+          echo "tsc errors: $ERROR_COUNT (baseline: $BASELINE)"
+          if [ "$ERROR_COUNT" -gt "$BASELINE" ]; then
+            echo "::error::TypeScript errors ($ERROR_COUNT) exceed baseline ($BASELINE). New error introduced; either fix the new error or update the baseline in .github/workflows/ci.yml and HANDOFF.md together."
+            exit 1
+          fi
+
+      - name: Help-doc sync check
+        # Asserts scripts/help.ts is in sync with package.json scripts.
+        # Fails if a new npm script lacks a help entry (or vice versa).
+        run: npm run check:help
+
+      - name: Quartz vendor-patch presence
+        # Asserts both SignalForge-local patches on the vendored Quartz tree
+        # are intact. Documented in docs/processes/quartz-upgrade.md §
+        # "Alternative — CI-enforced grep test" (the deferred Cycle 8 add).
+        # Catches the literal patch lines BEFORE a regression hits prod
+        # (the silent /dashboard 404 + .log-file leak symptoms in s96 #10).
+        # This is fast-fail; the canonical signal for Patch 1 is still the
+        # browser smoke-test in the upgrade procedure's Step 5e.
+        run: |
+          grep -q "gitignore: false" quartz/quartz/util/glob.ts
+          grep -q '"\*\*/\*\.log"' quartz/quartz.config.ts
+
+  test-typescript:
+    name: TypeScript tests (node --test via tsx)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm test
+
+  test-python:
+    name: Python tests (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+      - run: pip install -r requirements.txt
+      - run: pytest scripts/tests
