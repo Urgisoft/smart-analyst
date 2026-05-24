@@ -1,44 +1,36 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-05-24 (session 96 #19 — **Cycle 19 of multi-agent
-orchestration executed**. Operator typed `continue` from Cycle 18 close.
-HANDOFF default was **day-3 stockanalysis observation (Monday 2026-05-25)**,
-but day-3 is calendar-blocked — today is still Sunday 2026-05-24 and day-3
-needs Monday's EOD data. Per the listed alternatives, orchestration
-pivoted to the next-listed alternative: **OQ-C16-1 FRED→T10Y3M
-same-day-alignment probe**, a pure-investigation slice that Cycle 16
-had recommended as a 10-15 min closure. **The probe falsified Cycle
-16's hypothesis** — what looked like graceful-degradation under
-FRED-stale turned out to be a real **Tier-2 correctness issue per
-ADR-044**: macro_regimes.yield_curve_value for trade_dates 2026-05-15..
-2026-05-21 carries T10Y2Y values, not the T10Y3M required by ADR-041
-(Accepted 2026-05-19). Two compounding mechanisms produce the
-wrong-source persistence: (1) **code-change race** — the T10Y2Y →
-T10Y3M loader call shipped in commit `4406674` on 2026-05-21 21:42 MDT
-(~ 2026-05-22 03:42 UTC); rows ingested before that commit are stuck
-under T10Y2Y because the one-shot classifier-today daemon never
-re-classifies; (2) **late-FRED race for 2026-05-20** — daemon ran
-08:02 MDT before FRED's EOD publish (~18:00 ET); row written null +
-bit 64, never refreshed. The 2026-05-22 row IS genuine graceful-
-degradation (FRED has neither T10Y3M nor T10Y2Y for 2026-05-22 yet —
-3.5d FRED stale per `npm run health:check`). Orchestration does NOT
-auto-fix per ADR-044 ("never auto-fix calculation logic ... ADR-ratified
-design choices"). Finding surfaced to operator queue as Q-7 with three
-resolution paths (narrow re-classify / daemon refresh-stale loop /
-daemon timing shift); orchestration recommends Path 1 + Path 2
-follow-up. Full evidence + downstream consumer impact + side
-observation (inputs_missing UInt8 truncation at bits 8+) in
-`docs/analysis/fred-t10y3m-alignment-2026-05-24.md`. **Net 55 unpushed
-commits** on top of `origin/main` (`c0cda7c`) after this HANDOFF
-rewrite (was 53 at Cycle 18 close · +1 slice 1 (d65d4d3) = 54 · +1
-HANDOFF = 55). **Pre-merge gate locally verified:** `npx tsc --noEmit`
-returns 13 baseline errors unchanged; `scripts/tests/healthCheck.test.ts`
-37/37 pass. **NEXT default on `continue`:** Cycle 20 candidate — **day-3
-stockanalysis observation (Monday 2026-05-25 — first trading day in
-the window)**, the originally-planned Cycle 19 default deferred by 1
-day. Alternatives: (b) operator-picks Q-7 path → orchestration executes
-the chosen path; (c) N-PORT quarterly cross-check scaffolding;
-(d) drift remediation.
+Last updated: 2026-05-24 (session 96 #19 — **Cycle 20 of multi-agent
+orchestration executed**. Operator typed `continue` after pre-cycle
+conversation that established three new framings: (1) **"We will not be
+trading real money while the system is incomplete and other segments are
+set"** — pins Q-1 and Q-2 as indefinitely deferred, not near-term; (2)
+**Q-5 must use free reliable data** — paid CBOE DataShop is dead; (3)
+**Q-6 etf-flow not populating in UI** — operator-reported bug, [HEALTH]
+miss on orchestration. Cycle 20 executed the four-item sequence from the
+pre-cycle conversation: slice 1 Q-6 UI fix (UI worker); slice 2 Q-5 Path
+D research (research agent, background); slice 3 Phase B unbundling
+(orchestrator self-edit); item 4 day-3 stockanalysis observation deferred
+to Cycle 21 (calendar-blocked — today is still Sunday 2026-05-24; day-3
+needs Monday EOD). **All three slices integrated cleanly; tsc 13 baseline
+preserved; 283/283 tests pass on affected suites.** **Net 59 unpushed
+commits** on top of `origin/main` (`c0cda7c`) after this HANDOFF rewrite
+(was 55 at Cycle 19 close · +1 slice 1 (8c6caa7) = 56 · +1 slice 2
+(81e7382) = 57 · +1 slice 3 (3819814) = 58 · +1 HANDOFF = 59).
+**Key deliverables:** Q-6 panel now renders v3.1 secondary as
+source-of-truth when v1 primary is dark, with honest banner per ADR-044
+§UI (browser-smoke deferred to operator dev-server restart — operator
+should `npm run dev` restart + refresh `/#/etf-flow` to visually
+validate); Q-5 Path D **confirmed and clean** (CBOE daily JSON endpoint
+at `cdn.cboe.com/data/us/options/market_statistics/daily/{YYYY-MM-DD}_daily_options`,
+live since 2019-10-07, like-for-like with the dead `totalpc.csv`, no
+methodology amendment needed); Phase B statistical-validation campaigns
+formally unbundled from operator queue (orchestration owns execution;
+only Phase C promotion of any Layer-0 composite to classifier input
+stays operator-gated). **NEXT default on `continue`:** Cycle 21 candidate
+— recommended **day-3 stockanalysis observation (Monday 2026-05-25 — first
+trading day)** OR **Q-5 Path D implementation** (newly-unlocked, ~400-500
+LOC + 1 ADR, Data-Ingest + Infra worker pair).
 
 ---
 
@@ -49,169 +41,219 @@ change ratified 2026-05-23 (s96 #14), every routine decision is the
 orchestration's. Items below are exclusively real-money / paid-
 subscription / authenticated-scrape / methodology-canon-amendment gated.
 
+**Standing constraint (2026-05-24, s96 #19):** Operator stated "We will
+not be trading real money while the system is incomplete and other
+segments are set." Q-1 and Q-2 are indefinitely deferred. Orchestration
+prioritizes foundational work (gaps, drift, UI completeness, OOS
+validation, health domain) — not real-money-readiness ramp.
+
 | # | Item | Source | Status |
 | --- | --- | --- | --- |
-| Q-1 | First deployment of real capital — timing + initial amount | Standing decision per orchestration §7.1.1 | OPEN — operator-defined timing |
-| Q-2 | Capital-deployment-ramp ADR sign-off (the "#5 ADR") | Operator self-assigned ~1 week per s96 #13 carry-over | OPEN — operator drafting |
+| Q-1 | First deployment of real capital — timing + initial amount | Standing decision per orchestration §7.1.1 | **INDEFINITELY DEFERRED** per s96 #19 operator framing — orchestration will not press on this |
+| Q-2 | Capital-deployment-ramp ADR sign-off (the "#5 ADR") | Operator self-assigned ~1 week per s96 #13 carry-over | **INDEFINITELY DEFERRED** per s96 #19 operator framing — orchestration can draft `PROPOSED` whenever; ratification (Accepted status) waits until operator engages |
 | Q-3 | GAP-5 Stooq apikey gate decision — paid subscription OR canonicalize the constituent-based fallback | Audit GAP-5; orchestration §2.5 | OPEN — paid subscription gates orchestration's call |
-| Q-4 | Push 55 unpushed commits to origin/main (Cycle 19 slice 1 + this HANDOFF is the 55th) | Carry-over; count updated this session | OPEN — `git push` operator-gated per CLAUDE.md hard-stop list |
-| Q-5 | phase1_v3 CBOE put/call corrupted-input window — methodology amendment OR DataShop subscription. Path space narrowed Cycle 11 to **{A: paid DataShop, B: methodology amendment removing CBOE put/call, C: keep `accepted-as-warning` indefinitely}**. Orchestration's recommendation: **path (C) for now + path (B) if/when phase1_v3 is next iterated**. | s96 #15 Cycle 1 — Worker A (F2) escalation; ADR-045; pinned as `accepted-as-warning` quarantine row (S96-70); refined Cycle 11 by S96-87 + S96-88. | OPEN — operator picks among (A)/(B)/(C) |
-| Q-6 | ETF v1 yfinance primary panel — yfinance ETF SHO endpoint regression. **Cycle 17 resolution via ADR-049 (stockanalysis.com free-aggregator scrape; 5 of 6 non-SSGA tickers restored: IVV/QQQ/IWM/HYG/TLT; VOO observationally dark pending source repair).** ADR-048 (path-B universe-shrink) marked **Superseded** but preserved on disk as fallback. **Day-2 observation (Cycle 18) PASS — weekend byte-identical baseline established; day-3 (Monday) is the meaningful freshness test.** **Status: PARTIAL** — methodology committed via ADR-049 Slice 1; the 5-day observation window + the v1-primary-read-path flip wait for the follow-up cycle. Operator action no longer required unless (a) SA proves unreliable in the observation window (revert to ADR-048 path-B), (b) operator wants paid feed for VOO specifically, or (c) operator wants the row closed before the read-path flip ships. | s96 #17 Cycle 12-17 (S96-89..S96-101); Cycle 18 (S96-102, day-2 obs PASS) | PARTIAL — orchestration-resolved; closes on read-path flip (Cycle 23+) |
-| **Q-7 (NEW)** | **phase1_v3 yield-curve source persistence — macro_regimes.yield_curve_value carries T10Y2Y on trade_dates 2026-05-15..2026-05-21; ADR-041 (Accepted 2026-05-19) mandates T10Y3M. Three resolution paths: (1) narrow re-classify post-ADR-041 dates only (mechanical, no baseline shift); (2) daemon refresh-stale loop (architectural, closes root cause for future code changes + late-arriving data); (3) daemon timing shift after FRED EOD publish (partial fix to one of two mechanisms). Orchestration's recommendation: Path 1 immediate cleanup + Path 2 architectural follow-up cycle.** Full detail in `docs/analysis/fred-t10y3m-alignment-2026-05-24.md`. | s96 #18 Cycle 19 — OQ-C16-1 probe falsified Cycle 16 hypothesis; finding Tier-2 per ADR-044 + ADR-041 conformance gap | **OPEN — operator picks among Path 1 / Path 2 / Path 3 (or hybrid)** |
+| Q-4 | Push 59 unpushed commits to origin/main (Cycle 20 slices 1+2+3 + this HANDOFF is the 59th) | Carry-over; count updated this session | OPEN — `git push` operator-gated per CLAUDE.md hard-stop list |
+| Q-5 | phase1_v3 CBOE put/call corrupted-input window. **Path D CONFIRMED Cycle 20 — CBOE daily JSON endpoint is a free, anonymous, like-for-like replacement for the dead `totalpc.csv`. Orchestration owns the ingest change per data-source policy; no operator pick needed.** Implementation effort ~400-500 LOC + 1 ADR. Paths B (methodology amendment) and C (keep quarantine) remain as fallbacks if Path D's prototype surfaces a blocker. Path A (paid DataShop) stays dead. Full finding in `docs/analysis/q5-path-d-cboe-json-2026-05-24.md`. | s96 #15 Cycle 1 — Worker A (F2) escalation; ADR-045; pinned `accepted-as-warning`; refined Cycles 11 + 20 | **PATH D ORCHESTRATION-OWNED** — operator action no longer required for resolution (orchestration ships Path D in Cycle 21+); only re-engaged if Path D's prototype hits a blocker |
+| Q-6 | ETF v1 yfinance primary panel — Cycle 17 resolved data side via ADR-049; Cycle 20 fixed UI side via 3-mode dispatch + primary-dark banner. **Status: PARTIAL-WITH-UI-FIX.** Closes on (a) the 5-day stockanalysis observation completing successfully + (b) the v1-primary read-path flip (Cycle 23+). Operator action no longer required for the UI; remaining residual gate is on (a) SA proving unreliable (revert to ADR-048 path-B), or (b) operator wanting paid feed for VOO specifically. | s96 #17 Cycle 12-17 (S96-89..S96-101); Cycle 18 (S96-102); Cycle 20 (S96-104) | PARTIAL-WITH-UI-FIX — orchestration-resolved; closes on read-path flip (Cycle 23+) |
+| Q-7 | phase1_v3 yield-curve source persistence — macro_regimes.yield_curve_value carries T10Y2Y on trade_dates 2026-05-15..2026-05-21; ADR-041 (Accepted 2026-05-19) mandates T10Y3M. Three resolution paths: (1) narrow re-classify post-ADR-041 dates only; (2) daemon refresh-stale loop; (3) daemon timing shift after FRED EOD publish. Orchestration's recommendation: Path 1 immediate cleanup + Path 2 architectural follow-up. Full detail in `docs/analysis/fred-t10y3m-alignment-2026-05-24.md`. | s96 #18 Cycle 19 — OQ-C16-1 probe falsified Cycle 16 hypothesis; Tier-2 per ADR-044 + ADR-041 conformance gap | **OPEN — operator picks among Path 1 / Path 2 / Path 3 (or hybrid)** |
 
-**That's the entire queue.** Q-4 count incremented from 53 → 55. Q-5 +
-Q-6 unchanged. **Q-7 NEW** — surfaced by Cycle 19's probe.
+**That's the entire queue.** Q-1 + Q-2 NEW status (indefinitely deferred).
+Q-4 count 55 → 59. **Q-5 status changed**: was "operator picks A/B/C";
+now "Path D orchestration-owned" — operator no longer required to pick.
+Q-6 status appended ("with UI fix"). Q-7 unchanged.
 
 ---
 
-## What this cycle delivered (s96 #18 Cycle 19)
+## What this cycle delivered (s96 #19 Cycle 20)
 
-### Slice 1 (`d65d4d3`) — OQ-C16-1 probe + Tier-2 finding surfaced
+### Slice 1 (`8c6caa7`, +553/-25 across 4 files) — Q-6 ETF flow UI fix (UI worker)
 
-**Goal:** Execute the Cycle 16-recommended pure-investigation probe of
-FRED→T10Y3M same-day alignment to resolve OQ-C16-1. Day-3 stockanalysis
-observation (the HANDOFF default) was calendar-blocked (today is still
-Sunday 2026-05-24; day-3 needs Monday's EOD data), so orchestration
-pivoted to the next listed alternative.
+**Goal:** Fix the operator-reported "etf-flow is not populating in UI"
+bug. Cycle 17's ADR-049 stockanalysis adapter + the SSGA adapter both
+populate `quantlab.etf_shares_outstanding_secondary` (956 rows / 20
+tickers at recent dates), but the dashboard rendered empty-state
+because `etf_flow_dashboard.ts:91` enforced AND-logic
+`hasIntersection = primary.length > 0 && secondary.length > 0`. With v1
+yfinance primary dead since 2026-05-19 (S96-89), `primary.length === 0`
+always, so the response always returned `hasData: false`, so the panel
+always rendered empty.
 
-**Procedure:**
+**Worker procedure (general-purpose agent, ~10 min, in-place edits on main):**
 
-1. Per ADR-044 mandate, ran `npm run health:check` first. Snapshot
-   matched pre-Cycle-19 state — no NEW Tier-2 items at session start.
-2. Read the classifier loader at
-   [src/server/macro_regime_v3.ts:770-779](src/server/macro_regime_v3.ts#L770-L779)
-   and [:1004](src/server/macro_regime_v3.ts#L1004) to map alignment
-   logic: the loader iterates SPY trading dates and pulls T10Y3M via
-   `bundle.t10y3mByDate.get(dt)` — strict same-day lookup, no
-   carry-forward.
-3. Wrote `scripts/_probe_fred_t10y3m_alignment.ts` to probe (a) FRED
-   T10Y3M state, (b) recent SPY trading dates, (c) alignment diff
-   via LEFT JOIN, (d) macro_regimes rows in the suspect window.
-4. Discovered macro_regimes values didn't match T10Y3M; wrote
-   `scripts/_probe_t10y2y_compare.ts` to check the T10Y2Y hypothesis.
-5. Confirmed T10Y2Y values matched persisted yield_curve_value 1:1
-   for 4 of 6 dates; the other 2 are null with bit 64 set.
-6. Cross-referenced ingested_at against `git log --oneline -S
-   "loadFredSeries(ch, 'T10Y3M'" --follow src/server/macro_regime_v3.ts`
-   → commit `4406674` (s95 #5) on 2026-05-21 21:42 MDT changed the
-   loader from T10Y2Y to T10Y3M.
-7. Built the full per-row table mapping (trade_date × ingested_at ×
-   code-at-classify × source-matched). Wrote
-   `docs/analysis/fred-t10y3m-alignment-2026-05-24.md` with evidence,
-   root cause, downstream consumer impact, three resolution paths,
-   and a side observation on inputs_missing UInt8 truncation.
+1. Investigated root cause via existing files (no new probes needed at
+   investigation stage).
+2. Refactored builder into a 3-mode dispatch (`cross-validation` /
+   `secondary-only` / `empty`) with new types `EtfFlowPanelMode` +
+   `EtfFlowSecondaryLatestRow` and helper `buildSecondaryLatest`.
+3. Added React components: `PrimaryDarkBanner` (amber, dense, names dead
+   source + failure date + diagnostic ticket + resolution doc + secondary
+   breakdown + why cross-validation is hidden + operator-queue tag),
+   `SecondaryOnlyDashboard` (no cross-validation sub-panels — meaningless
+   with one side empty), `SecondaryOnlySummaryPanel` (6 tiles),
+   `SecondaryOnlyTablePanel` (8-column per-ticker latest shares/close/AUM
+   + day-over-day delta).
+4. Added 6 new tests in `etfFlowDashboard.test.ts` covering all 3 modes
+   + the secondary-latest helper.
+5. Added re-runnable smoke probe `scripts/_probe_etf_flow_dashboard_response.ts`
+   (`_probe_*.ts` pattern from Cycles 18-19).
+6. Verified probe output against live CH: `mode: secondary-only`,
+   `hasData: true`, counts `{primaryRows: 0, secondaryRows: 956}`, 20
+   secondaryLatest rows. SPY: 1,033,632,116 shares × $742.77 = $7.68e+11
+   AUM (+0.291% DoD). All values plausible; no NaN/Infinity.
 
-**Key finding (verbatim from analysis doc):**
+**Critic verdict (orchestration §6):** RESOLVE-IN-PLACE with note.
+Browser-smoke deferred to operator dev-server restart (operator's dev
+server holds :3000 with the pre-Cycle-20 binary; orchestrator declined
+to restart per "killing user processes" hard-stop rule). Substituted:
+tests + JSX reading + the new probe script against live CH. All six §6.1
+gates green except the browser-smoke gate; resolved in-place by
+explicit note + Cycle 21 first-task to operator-validate.
 
-> Cycle 16's "graceful-degradation under FRED-stale" hypothesis was
-> wrong. macro_regimes.yield_curve_value for trade_dates 2026-05-15..
-> 2026-05-21 carries T10Y2Y values, not T10Y3M. ADR-041 (Accepted
-> 2026-05-19) mandates T10Y3M. The classifier-today daemon is
-> one-shot per latest date — once a row exists for (trade_date,
-> classifier_version) it is never re-written, even after a code
-> change or after late-arriving FRED data lands.
+**Semantic shift accepted by critic:** in `cross-validation` mode with
+`totalCompared === 0` (both panels non-empty but no date overlap), the
+response now returns `hasData: true` (was `false`). Worker's reasoning:
+the prior empty-state copy was misleading; the new behavior surfaces
+"0 pairs compared, 0 divergences" via existing empty-message branches
+which is more honest. No test breaks.
 
-**Per-row source mapping (full evidence in analysis doc):**
+**Operator-visible expected DOM** when dev-server restart picks up the
+change:
 
-| trade_date | ingested_at (UTC) | code at classify | yield_curve_value | matches T10Y2Y? | matches T10Y3M? |
-| --- | --- | --- | --- | --- | --- |
-| 2026-05-15 | 2026-05-18 04:18 | OLD | 0.5 | YES | NO (T10Y3M=0.9) |
-| 2026-05-18 | 2026-05-18 22:25 | OLD | 0.54 | YES | NO (T10Y3M=0.93) |
-| 2026-05-19 | 2026-05-19 23:40 | OLD | 0.54 | YES | NO (T10Y3M=1.0) |
-| **2026-05-20** | 2026-05-20 14:02 | OLD | **null + bit 64** | NO (race) | NO (race) |
-| 2026-05-21 | 2026-05-22 01:25 | OLD (commit was 03:42 UTC) | 0.49 | YES | NO (T10Y3M=0.89) |
-| 2026-05-22 | 2026-05-22 14:45 | NEW | null + bit 64 | n/a | YES (FRED truly stale) |
+- Header: "VECTOR_ETFFLOW · v3.1 secondary panel (primary dark)" + amber
+  subtitle "956 secondary rows · 20 tickers"
+- Amber `PrimaryDarkBanner` above the panels naming source + dates +
+  S96-89 + ADR-049 + secondary breakdown
+- `SecondaryOnlySummaryPanel`: 6 tiles (Tickers / Secondary rows / Total
+  AUM / Newest date / Oldest date / With DoD delta)
+- `SecondaryOnlyTablePanel`: 8-column table with 20 rows sorted ASC by
+  ticker
+- The old `TopDivergencesPanel` + `PerTickerPanel` (cross-validation
+  comparison) do NOT render in this mode
 
-**Firing-signal impact (limited at this moment):** Both T10Y2Y and
-T10Y3M are positive in the affected window, so `yield_curve_inverted`
-fires the same (0 = not inverted) regardless of source. The
-diagnostic counter `yield_curve_inversion_days_20d` on these rows is
-computed from T10Y2Y not T10Y3M. **Forward inversions** (when one
-series inverts before the other) would produce different firing
-decisions on source-mix rows.
-
-**Downstream consumers reading the stale `yield_curve_value`:**
-`src/server/regime_dashboard.ts` (the `/#/regime` UI TodayPanel) +
-`src/server/operator_brief_render.ts` (morning brief). NOT affected:
-`src/server/cycle_position.ts` + `src/server/cross_asset_signals.ts`
-both read `quantlab.macro_indicators_fred` directly for T10Y3M.
-
-**Side observation (separate from OQ-C16-1):**
-`quantlab.macro_regimes.inputs_missing` is `UInt8` at
-[src/server/clickhouse.ts:712](src/server/clickhouse.ts#L712), but the
-bitmask constants in macro_regime_v3.ts go up to bit 9 (512). Bits 8+
-(TLT, PUT_CALL) would silently truncate at storage. Hasn't fired in
-practice yet (T10Y3M bit 6 + BREADTH bit 4 dominate observed values),
-but a row with TLT-missing or PUT_CALL-missing would lose those bits.
-Tracked in the analysis doc; not actioned this cycle.
-
-**Files in slice 1 (commit `d65d4d3`, +320/-0):**
+**Files in slice 1 (commit `8c6caa7`, +553/-25):**
 
 | Path | Change | Notes |
 | --- | --- | --- |
-| `scripts/_probe_fred_t10y3m_alignment.ts` | new (+91) | Re-runnable probe for FRED T10Y3M + SPY alignment + macro_regimes state |
-| `scripts/_probe_t10y2y_compare.ts` | new (+38) | T10Y2Y comparison + ingested_at metadata probe |
-| `docs/analysis/fred-t10y3m-alignment-2026-05-24.md` | new (+191) | Full finding: TL;DR, evidence, root cause, three resolution paths, side observation |
+| `src/server/etf_flow_dashboard.ts` | +166/-25 | 3-mode dispatch + types + `buildSecondaryLatest` helper |
+| `src/components/etfFlow/EtfFlowApp.tsx` | +197/-14 | `PrimaryDarkBanner` + `SecondaryOnlyDashboard` + `SecondaryOnlySummaryPanel` + `SecondaryOnlyTablePanel` + formatters + mode dispatch |
+| `scripts/tests/etfFlowDashboard.test.ts` | new (+154) | 6 tests covering all 3 modes + secondary-latest helper |
+| `scripts/_probe_etf_flow_dashboard_response.ts` | new (+47) | Re-runnable smoke probe |
 
-**Database-state changes this cycle:** NONE. All operations were
-read-only.
+### Slice 2 (`81e7382`, +160/-0 across 1 file) — Q-5 Path D research
 
-### Cycle 19 outcomes (orchestration §6 critic verdicts)
+**Goal:** Find a free, reliable, like-for-like replacement for the dead
+`totalpc.csv` feed (Q-5 resolution gate). Operator constraint: "Q-5
+needs to have free reliable data" — paid CBOE DataShop rejected.
+
+**Research-agent procedure (general-purpose agent, background ~12 min):**
+
+1. Verified existing legacy CSV freeze (re-confirmed `totalpc.csv` +
+   `equitypc.csv` + `indexpc.csv` are all frozen at 2019-10-04).
+2. Probed CBOE daily JSON endpoint at
+   `https://cdn.cboe.com/data/us/options/market_statistics/daily/{YYYY-MM-DD}_daily_options`
+   across 7 historical dates spanning 2019-10-07 to 2026-05-22 — all
+   HTTP 200.
+3. Verified no rate-limit at 20 rapid sequential fetches.
+4. Probed alternatives: OCC weekly (cadence mismatch — daily MA window
+   would break); Yahoo / yfinance (no put/call symbol exposed); Stooq
+   `^cpc` (does not exist); FRED release 200 (volatility indices only,
+   no put/call); MacroMicro / YCharts / Barchart / Investing.com /
+   AlphaQuery (paid or auth-gated, all derivatives one extra hop from
+   CBOE's own JSON).
+5. Confirmed independent reference: `debegr92/cboe_pcr` Python crawler
+   (2026-03-29) documents the same endpoint.
+6. Spot-check semantic match: 2026-05-22 = 0.85; 2020-01-02 = 0.83 —
+   same CBOE-computed scalar as the dead legacy `totalpc.csv`.
+
+**Key finding (verbatim from analysis doc):**
+
+> Path D exists and is robust. CBOE publishes a free, anonymous, daily
+> JSON endpoint that has been live continuously since 2019-10-07 (the
+> first trading day after the legacy CSV froze) and returns TOTAL P/C,
+> EQUITY P/C, INDEX P/C, ETP P/C plus raw call/put volume and open
+> interest. It is a like-for-like replacement for the dead `totalpc.csv`
+> feed and exactly closes the 6.5-year gap behind Q-5. No methodology
+> amendment required.
+
+**Implementation effort (recommended Cycle 21+):** ~400-500 LOC + 1 ADR.
+No new Python or TS dependencies. ~5 minutes wall-clock for the full
+2019-10-07 → today backfill (~1,640 fetches at 1 req/s). New ingest
+script + daemon step 1b'' wiring (GAP-3 resolves alongside) + schema-
+validation pin + drop Q-5 `accepted-as-warning` quarantine row once ~5
+trading days of fresh CBOE rows land.
+
+**Files in slice 2 (commit `81e7382`, +160/-0):**
+
+| Path | Change | Notes |
+| --- | --- | --- |
+| `docs/analysis/q5-path-d-cboe-json-2026-05-24.md` | new (+160) | Full finding: TL;DR, per-candidate table (9 candidates), recommended implementation shape, effort estimate, methodology concerns, sources, queue impact |
+
+### Slice 3 (`3819814`, +25/-0 across 1 file) — Phase B unbundling docs
+
+**Goal:** Codify the naming-confusion fix that the operator's question
+surfaced: "Phase B" has two unrelated meanings in SignalForge —
+(a) offline statistical validation for the nine Layer-0 informational
+composites (DSR / PBO / HLZ deflation pipeline, no real-money exposure
+— this belongs to orchestration); (b) C-12 "Phase B AlpacaAdapter"
+broker integration for a specific strategy (real-money path — operator-
+gated, unchanged). The s96 HANDOFF previously bucketed both as
+operator-gated, which incorrectly extended (b)'s gating to (a)'s
+offline validation work.
+
+**Orchestrator self-edit (§3.1 category 1 — pure-docs):**
+
+1. `docs/architecture/multi-agent-orchestration.md` §7.1 item 8 ADDED —
+   "Phase C promotion of any Layer-0 informational composite to
+   `phase1_v3+` classifier input" is the only Phase-B-adjacent thing
+   that reaches operator (Phase C adds a category that affects live
+   firing behavior + downstream trade decisions; methodology amendment).
+2. §7.3 EXTENDED — "Phase B statistical validation campaigns for the
+   nine Layer-0 informational composites" added to the "does NOT go on
+   the queue" list. Orchestration owns campaign execution + results
+   aggregation + per-composite verdict surfacing.
+3. §11 revision log entry added documenting the unbundling rationale.
+
+Memory `feedback-no-real-money-until-complete` updated with the
+naming-confusion fix.
+
+**Files in slice 3 (commit `3819814`, +25/-0):**
+
+| Path | Change | Notes |
+| --- | --- | --- |
+| `docs/architecture/multi-agent-orchestration.md` | +25/-0 | §7.1 item 8 + §7.3 Phase B exclusion + §11 revision log |
+
+### Cycle 20 outcomes (orchestration §6 critic verdicts)
 
 | Worker | Task | Verdict | Outcome |
 | --- | --- | --- | --- |
-| Orchestrator self-edit (§3.1 codified category 3 — pure-investigation; all 6 gates green: no real-money path / no DDL / no paid-data / tsc 13 baseline preserved / healthCheck convention pins 37/37 green / no methodology canon committed since the finding is SURFACED to operator queue, NOT decided) | Slice 1 — OQ-C16-1 probe + Tier-2 finding surface | AUTO-APPROVE (no critic spawn) | All gates green; commit `d65d4d3` |
-
-**Decision: no critic spawn for slice 1.** Pure-investigation category
-3 per §3.1. The finding's resolution paths are surfaced to the operator
-queue (Q-7) per ADR-044's "never auto-fix calculation logic ...
-ADR-ratified design choices" rule — orchestration explicitly defers
-the methodology decision to operator, so no critic gate is needed
-between probe + surface.
+| UI worker (general-purpose, in-place on main) | Slice 1 — Q-6 etf-flow panel fix | RESOLVE-IN-PLACE with note (browser-smoke deferred) | `8c6caa7` shipped; integration gate green |
+| Research agent (general-purpose, background) | Slice 2 — Q-5 Path D investigation | AUTO-APPROVE (research output; no critic spawn) | `81e7382` shipped; Path D confirmed |
+| Orchestrator self-edit (§3.1 category 1 — pure-docs; all 6 gates green) | Slice 3 — Phase B unbundling | AUTO-APPROVE (no critic spawn) | `3819814` shipped |
 
 ### Verification gates at cycle close
 
 ```text
-git status                                                          # clean (1 slice + HANDOFF rewrite)
-git log origin/main..HEAD                                            # 55 commits ahead (was 53)
-npx tsc --noEmit                                                     # 13 baseline errors unchanged
-node --import tsx --test scripts/tests/healthCheck.test.ts           # 37/37 pass (0 fail / 0 skip)
-git worktree list                                                    # main only (no worker spawned)
+git status                                                          # clean (3 slices + HANDOFF rewrite)
+git log origin/main..HEAD                                            # 59 commits ahead (was 55)
+npx tsc --noEmit                                                     # 13 baseline errors unchanged (delta 0)
+node --import tsx --test scripts/tests/etfFlowDashboard.test.ts ...  # 182/182 pass across 5 affected suites
+node --import tsx --test scripts/tests/healthCheck.test.ts           # 37/37 pass (convention pins green)
+git worktree list                                                    # main only (UI worker ran in-place, not in worktree)
 ```
 
-### Per-suite breakdown at cycle close
+### Post-Cycle-20 health snapshot
 
-```text
-npm test (full suite)                                  3319/3338 pass + 19 skip + 0 fail (last full run Cycle 14 — no new TS code in Cycles 17-19 modifies the broader suite)
-test_etf_flow_stockanalysis_adapter.py (Cycle 17)     16/16 pass
-test_etf_flow_issuer_csv_ingest.py (Cycle 17)         21/21 pass
-test_etf_flow_ssga_spdr_adapter.py                    18/18 pass
-test_cboe_putcall_ingest.py                           16/16 pass
-healthCheck.test.ts                                   37/37 pass
-etfFlow / etfFlowCrossValidation / etfFlowRepository /
-daemonEtfFlowV1PrimaryRefresh                         146/146 pass (Cycle 14 baseline preserved)
-migrateCreateHealthQuarantine / healthQuarantine       57/57 pass
-gicsSectorRepositoryHelper.test.ts                    13/16 pass + 3 skip
-btRunsRegime.test.ts                                  19/19 pass
-test_train_meta_label.py                              33/33 pass
-regimeDashboard.test.ts                               37/37 pass
-```
-
-### Post-Cycle-19 health snapshot
-
-No new Tier-2 quarantine ROWS inserted (the Q-7 finding is surfaced to
-operator queue + analysis doc; quarantine-row insertion is one of the
-operator-pick paths under Q-7 — orchestration does not auto-insert a
-calc-logic quarantine row per ADR-044). `quantlab.health_quarantine`
-still 2 rows total (Q-5 + Q-6, both `accepted-as-warning`).
-`quantlab.etf_shares_outstanding_secondary` unchanged at 3,766 rows /
-20 tickers (15 SSGA + 5 stockanalysis at 2 dates; VOO absent).
+No new Tier-2 quarantine rows. `quantlab.health_quarantine` still 2
+rows total (Q-5 + Q-6, both `accepted-as-warning`). Q-7 finding still
+in operator queue + analysis doc only; no quarantine-row insertion
+(per ADR-044, calc-logic gates operator pick).
+`quantlab.etf_shares_outstanding_secondary` unchanged at 956 rows / 20
+tickers (15 SSGA + 5 stockanalysis at 2 dates; VOO absent).
 
 ### Push state
 
-- `origin/main` at `c0cda7c`; **55 unpushed commits** after this
-  HANDOFF rewrite (was 53 at Cycle 18 close · +1 slice 1 (d65d4d3) =
-  54 · +1 HANDOFF = 55).
+- `origin/main` at `c0cda7c`; **59 unpushed commits** after this HANDOFF
+  rewrite.
 - Push operator-gated (Q-4).
 
 ---
@@ -229,146 +271,197 @@ still 2 rows total (Q-5 + Q-6, both `accepted-as-warning`).
 | Cycle 16 — `/#/regime` UI smoke-test + §3.1 codified | ✓ s96 #17 (S96-97 + S96-98) |
 | Cycle 17 — Q-6 resolved via ADR-049 stockanalysis adapter | ✓ s96 #17 (S96-99..S96-101) |
 | Cycle 18 — day-2 stockanalysis observation (PASS) | ✓ s96 #18 (S96-102) |
-| **Cycle 19 — OQ-C16-1 probe → Q-7 surfaced** | **✓ s96 #18 (S96-103)** |
-| Cycle 20 — day-3 stockanalysis observation (Monday — first trading day) | ☐ NEXT default (recommended) |
-| Cycle 20-alt — Q-7 Path 1/2/3 execution (operator-gated) | ☐ alternative once operator picks Q-7 path |
-| Cycle 20-alt — N-PORT quarterly cross-check scaffolding | ☐ alternative |
+| Cycle 19 — OQ-C16-1 probe → Q-7 surfaced | ✓ s96 #18 (S96-103) |
+| **Cycle 20 — Q-6 UI fix + Q-5 Path D found + Phase B unbundled** | **✓ s96 #19 (S96-104..S96-107)** |
+| Cycle 21 — day-3 stockanalysis observation (Monday — first trading day) | ☐ NEXT default (recommended IF Monday EOD or later) |
+| Cycle 21-alt — Q-5 Path D implementation (Data-Ingest + Infra worker pair, ~400-500 LOC + ADR-050) | ☐ NEWLY UNLOCKED alternative |
+| Cycle 21-alt — Phase B campaign for cycle_v1 (first Layer-0 statistical validation, newly unblocked by slice 3) | ☐ NEWLY UNLOCKED alternative |
+| Cycle 21-alt — Q-7 Path 1/2/3 execution (operator-gated) | ☐ alternative once operator picks Q-7 path |
 | Cycle 23+ — v1 primary read path flip (after 5-day window passes) | ⏸ blocked on 5-day observation completion |
 | Daemon step 1jc (stockanalysis post-close refresh) | ⏸ blocked on 5-day observation completion |
 | ADR-048 path-B reactivation | ⏸ reserved fallback IF stockanalysis proves unreliable |
 | Phase 2 v2 — plausibility-band probes + per-UI-route ping + auto-insert + re-alert cursor | ☐ deferred per S96-71 |
-| GAP-3 CBOE put/call daemon hook | ⛔ low priority — source frozen per S96-88 |
-| F2 CBOE backfill + re-classify (Q-5 path D) | ⛔ EMPIRICALLY DEAD — Cycle 11 |
-| Composite worker (Q-5-blocked phase1_v3 re-classify) | ⏸ blocked on Q-5 pick |
+| GAP-3 CBOE put/call daemon hook | ✓ RESOLVES alongside Q-5 Path D Cycle 21+ implementation |
+| F2 CBOE backfill + re-classify (Q-5 path D) | ✓ NEWLY UNBLOCKED via Q-5 Path D confirmation |
+| Composite worker (Q-5-blocked phase1_v3 re-classify) | ⏸ blocked on Q-5 Path D implementation cycle |
 | Composite worker (Q-6-blocked etf-flow read-path flip) | ⏸ blocked on 5-day observation completion |
-| **Q-7-blocked phase1_v3 yield-curve source persistence resolution** | **⏸ blocked on Q-7 pick** |
-| Per-issuer free-data adapters (iShares + Vanguard + Invesco) | ⛔ EMPIRICALLY EXPENSIVE — Cycle 14 (S96-93); requires Playwright; not authorized + no longer needed (ADR-049 fills the gap differently) |
-| VOO source repair | ⛔ ESCALATED — operator-gated (paid feed OR wait for SA to fix OR accept observational gap) |
-| C-12 Phase B AlpacaAdapter | ⏸ INDEFINITELY PAUSED — operator-gated |
-| Phase B campaigns for nine Layer-0 composites | ⏸ deferred — operator-gated |
-| Capital-deployment-ramp ADR (Q-2) | ☐ operator self-assigned |
+| Q-7-blocked phase1_v3 yield-curve source persistence resolution | ⏸ blocked on Q-7 pick |
+| C-12 Phase B AlpacaAdapter (broker integration, real-money path) | ⏸ INDEFINITELY PAUSED — operator-gated (unchanged); distinct from Layer-0 Phase B statistical validation per slice 3 |
+| **Layer-0 Phase B statistical validation campaigns (nine composites)** | **☐ NEWLY UNBLOCKED — orchestration owns execution per slice 3 §7.3 update** |
+| Phase C promotion of any Layer-0 composite to phase1_v3+ classifier input | ⏸ operator-gated per slice 3 §7.1 item 8 |
+| Capital-deployment-ramp ADR (Q-2) | ☐ INDEFINITELY DEFERRED per s96 #19 framing |
 | Drawdown framework §12 90d empirical retune | ☐ scheduled — earliest 2026-08-29 |
 
 ---
 
 ## Decisions locked in
 
-### Session 96 #18 (Cycle 19 of multi-agent orchestration)
+### Session 96 #19 (Cycle 20 of multi-agent orchestration)
 
-**S96-103. OQ-C16-1 is RESOLVED with a falsified Cycle 16 hypothesis;
-the real finding is a Tier-2 correctness issue on macro_regimes
-yield-curve source persistence (Q-7 NEW operator queue row).** `Why:`
-Cycle 16's smoke-test surface (`yield_curve_value: null` + bit 64 on
-the 2026-05-22 macro_regimes row) was predicted to be graceful-
-degradation under FRED-stale. Cycle 19's probe found this prediction
-was correct ONLY for 2026-05-22 — FRED genuinely has no T10Y3M
-observation for that date yet (max in CH = 2026-05-21). But the same
-probe surfaced that the OTHER recent macro_regimes rows
-(2026-05-15..2026-05-21) carry T10Y2Y values labeled as T10Y3M's
-column, violating ADR-041's mandate. Root cause is a combination of
-the T10Y2Y → T10Y3M code change shipping in commit `4406674` on
-2026-05-21 21:42 MDT (so rows ingested before that commit are stuck
-under the old source) PLUS the classifier-today daemon being one-shot
-per latest date (so once a row exists, it's never refreshed even when
-the underlying loader code OR upstream data changes). A separate
-late-FRED race for 2026-05-20 (daemon ran 08:02 MDT before FRED's
-~18:00 ET publish) produces a null + bit 64 that never got refreshed.
-`How to apply:` (1) The smoke-test interpretation rule for future
-cycles updates to: a null + bit 64 on the latest macro_regimes row is
-suspicious until cross-checked against (a) `quantlab.macro_indicators_fred`
-for T10Y3M's max(observation_date) AND (b) the row's `ingested_at` vs
-the current loader-code commit time. (2) The Cycle 16 framing "likely
-no-op; expected behavior under FRED-stale > 1 business day" is RETIRED
-— it conflates two distinct mechanisms (genuine FRED-stale vs late-FRED
-race + code-change race) that produce the same surface symptom but
-have different root causes and different fix paths. (3) Probe scripts
-(`_probe_fred_t10y3m_alignment.ts` + `_probe_t10y2y_compare.ts`) are
-preserved on disk; re-runnable as smoke checks for any future FRED→
-macro_regimes alignment question. (4) Per ADR-044, orchestration does
-NOT auto-fix calc logic / ADR-ratified design — the finding is
-surfaced as Q-7 with three resolution paths for operator pick; once
-operator picks, orchestration executes via a follow-up cycle.
+**S96-104. Q-6 etf-flow UI panel fixed via 3-mode dispatch +
+primary-dark banner; AND-logic gate replaced.** `Why:` The Cycle 17
+ADR-049 stockanalysis adapter + the SSGA adapter both populated
+`etf_shares_outstanding_secondary` with 956 rows / 20 tickers, but the
+dashboard rendered empty-state because `etf_flow_dashboard.ts:91`
+enforced AND-logic between primary + secondary. With v1 yfinance
+primary dead since 2026-05-19 (S96-89), the AND condition was
+permanently false, so `hasData: false` was permanently returned, so
+the React panel permanently rendered empty-state. This was a [HEALTH]
+miss caught only when the operator reported the bug — exactly the
+failure mode ADR-044 §UI was supposed to prevent. `How to apply:`
+(1) The new 3-mode dispatch (`cross-validation` / `secondary-only` /
+`empty`) is the canonical pattern for any future cross-validation
+panel where one side could go structurally dead. (2) When a primary
+source goes structurally dead (not just transiently stale), the UI
+MUST surface that to the operator via an honest banner, not silently
+fall back to the secondary. ADR-044 §UI's "no silent stale-data
+propagation" extends here. (3) Browser-smoke per ADR-044 §UI must
+RUN, not be deferred — Cycle 20's deferral (operator's dev server held
+:3000) is a one-time exception driven by the "killing user processes"
+hard-stop; future UI slices need either operator-coordinated dev-
+server restart or orchestrator-owned dev-server lifecycle.
 
-**Carry-overs (still in force):** S96-1..S96-102; S95-1..S95-50;
+**S96-105. Q-5 Path D found and confirmed: CBOE daily JSON endpoint
+at `cdn.cboe.com/data/us/options/market_statistics/daily/{YYYY-MM-DD}_daily_options`.**
+`Why:` Operator rejected paid CBOE DataShop (Path A) and asked for
+free reliable data. Research probe across 9 candidates verified a
+free, anonymous, daily JSON endpoint that has been live continuously
+since 2019-10-07 (the first trading day after the legacy `totalpc.csv`
+froze on 2019-10-04). It returns TOTAL/EQUITY/INDEX/ETP P/C ratios +
+raw volume + OI; it's CBOE-direct (cdn.cboe.com); no API key; no rate
+limit observed; 6KB per file. Per data-source policy this is pre-
+authorized (anonymous CDN-served JSON). Like-for-like with the dead
+feed — same CBOE-computed scalar; no methodology amendment required.
+`How to apply:` (1) Cycle 21+ implementation candidate: Data-Ingest +
+Infra worker pair; ~400-500 LOC + ADR-050; backfill 2019-10-07 →
+today (~1,640 fetches, ~5 min wall-clock); daemon step 1b'' for
+forward-cadence; schema-validation pin (catches CBOE renaming "TOTAL
+PUT/CALL RATIO" → something else); drop Q-5 quarantine row once
+classifier produces non-corrupted-input output. (2) Operator decision
+no longer required for Q-5 resolution — orchestration ships per
+data-source policy authorization. (3) Optional future upgrade
+(separate cycle): the JSON publishes EQUITY P/C separately; could
+refine `sentiment_extreme` to use equity-only P/C ("dumb money"
+framing) instead of TOTAL. Not a Q-5 blocker. (4) Future research
+agents tasked with finding free public sources for blocked feeds
+should follow this slice 2 pattern: probe the canonical primary site
+first (CBOE's own JSON in this case), then aggregators / derivatives,
+then GitHub references — the canonical primary is almost always
+strictly better than any third-party derivative.
+
+**S96-106. Phase B statistical-validation campaigns for the nine
+Layer-0 informational composites are orchestration-owned; only Phase C
+promotion of a composite to `phase1_v3+` classifier input is operator-
+gated.** `Why:` Operator question 2026-05-24 surfaced a prior bundling
+that conflated two unrelated meanings of "Phase B" in SignalForge:
+(a) the nine Layer-0 composites' offline statistical validation
+(DSR / PBO / HLZ deflation pipeline per AFML §11 + Bailey-LdP 2014 +
+Harvey-Liu-Zhu 2016, runs against `bt_runs_regime` + historical price
+panels, NO broker integration, NO real-money exposure); (b) C-12
+"Phase B AlpacaAdapter" broker integration for one specific strategy
+(IS real-money path). The s96 HANDOFF previously bucketed both as
+operator-gated, incorrectly extending (b)'s gating to (a)'s offline
+work. Operator framing "no real-money trading while system is
+incomplete" makes the cost of this conflation explicit: foundational
+validation work was unnecessarily paused. `How to apply:`
+(1) Orchestration may now spawn Layer-0 Phase B campaigns
+autonomously per `docs/architecture/multi-agent-orchestration.md` §7.3
+update. cycle_v1 has Phase B explicitly scoped in
+`docs/specs/market-cycle-position.md` §Phase B and is the first
+candidate. (2) Phase C promotion (adding a category to `phase1_v3+`
+that affects live firing behavior + downstream trade decisions) is a
+methodology amendment per §7.1 item 8 — operator-gated. (3) C-12
+Phase B AlpacaAdapter remains operator-gated as it always was
+(unrelated to Layer-0 Phase B). (4) Phase B SPEC drafting for the 8
+remaining Layer-0 composites without an explicit Phase B section is
+orchestration's call (the cycle_v1 template applies).
+
+**S96-107. "No real-money trading while system is incomplete and other
+segments are set" framing pinned; Q-1 + Q-2 are indefinitely deferred.**
+`Why:` Operator stated this explicitly 2026-05-24. The implications:
+(a) Q-1 first real-capital deployment + Q-2 capital-deployment-ramp
+ADR ratification are deferred-indefinite, not near-term. (b)
+Orchestration should not press on Q-1 or Q-2 in HANDOFFs or in
+conversation. (c) Real-money-readiness ramp is NOT the priority;
+foundational work (gaps, drift, UI completeness, OOS validation,
+health domain) is. (d) The Phase B unbundling (S96-106) becomes more
+load-bearing under this framing — validation work continues without
+needing Q-1 / Q-2 resolution. (e) Orchestration may still draft a
+`PROPOSED` capital-deployment-ramp ADR when convenient (the draft
+sits at `Status: PROPOSED` indefinitely; ratification waits until
+operator engages). `How to apply:` (1) Future HANDOFFs lead with
+foundational-work priorities, not Q-1 / Q-2 reminders. (2) "How much
+work is left" framings should describe the foundational queue first,
+real-money queue last. (3) Q-3 + Q-5 + Q-7 are the actually-actionable
+operator queue items (Q-5 is now orchestration-owned per S96-105;
+Q-3 + Q-7 stay operator-gated).
+
+**Carry-overs (still in force):** S96-1..S96-103; S95-1..S95-50;
 S94-1..S94-33; S93-1..S93-54; all prior s73-s92 lock-ins.
 
 ---
 
 ## Open questions
 
+### NEW this cycle
+
+- **OQ-C20-1** — Browser-smoke for slice 1 Q-6 UI fix deferred to
+  operator dev-server restart. Operator's dev server holds :3000 with
+  the pre-Cycle-20 binary; orchestrator declined to restart per
+  "killing user processes" hard-stop. Operator action: `npm run dev`
+  restart + refresh `/#/etf-flow`. Expected DOM per slice 1 deliverable.
+  If render diverges from expected, surface as Cycle 21 first-task.
+  Low-priority informational; the slice's tests + probe + JSX reading
+  substitute for the visual.
+
 ### CARRIED from earlier cycles
 
 - **OQ-C17-1** — VOO source quality issue. stockanalysis.com publishes
   `sharesOut: 2.36B` for VOO that doesn't reconcile with current
   `aum: $973.41B` + `close: $686.53` (implied shares = 1.418B; 39.9%
-  delta). Cycle 18 confirmed this is NOT a transient — same exact
-  failure mode reproduces day-over-day. Hypotheses: (a) SA pulls
-  sharesOut from a different vendor than aum/close and that vendor's
-  data is stale for VOO specifically; (b) Vanguard reports sharesOut
-  in a different unit/basis. Verifying requires either a paid feed
-  comparison OR waiting for SEC N-PORT-P quarterly cross-check (next
-  filing ~late-Aug 2026 with ~Feb 2026 data). Status: operator-gated;
-  covered in Q-6 row.
+  delta). Confirmed structural in Cycle 18 day-2 observation. Status:
+  operator-gated; covered in Q-6 row.
 - **OQ-C18-1** — SPY-specific SSGA freshness lag. SSGA's `max_date`
   across all 15 tickers in CH is 2026-05-22, but SPY-specific data
-  only reaches 2026-05-21. Could indicate per-ticker freshness lag on
-  the SSGA refresh, or could be a one-time skip on Thursday. Not
-  actionable this cycle; surface in a future cycle if it persists for
-  >1 trading day.
-- **OQ-C19-1 (NEW)** — inputs_missing UInt8 truncation at bits 8+.
+  only reaches 2026-05-21. Not actionable; surface in a future cycle
+  if it persists for >1 trading day.
+- **OQ-C19-1** — inputs_missing UInt8 truncation at bits 8+.
   `quantlab.macro_regimes.inputs_missing` is `UInt8` (cap 0-255) but
   bitmask constants in macro_regime_v3.ts go up to bit 9 (512). Bits
-  8+ (TLT = 256, PUT_CALL = 512) would silently truncate at storage.
-  Hasn't fired in practice yet (T10Y3M bit 6 + BREADTH bit 4 dominate
-  observed values). Independent of Q-7 but related (would tighten the
-  inputs_missing column's reliability as a debug signal). Resolution:
+  8+ (TLT, PUT_CALL) would silently truncate at storage. Resolution:
   ALTER COLUMN to UInt16 + add convention pin test. Tier-1
-  mechanical-ish but touches a calc-adjacent column → defer to
-  Composite + Infra workers, NOT an orchestrator self-edit. Cycle 21+
-  candidate.
-- **OQ-C16-1** — RESOLVED in Cycle 19 by `d65d4d3` (S96-103). Cycle
-  16's hypothesis was falsified; the surface symptom turned out to be
-  a real Tier-2 correctness issue surfaced as Q-7.
+  mechanical-ish but touches a calc-adjacent column — defer to
+  Composite + Infra workers. Cycle 22+ candidate.
+- **OQ-C16-1** — RESOLVED Cycle 19 (`d65d4d3`, S96-103).
 - **OQ-SMP-1** — closed in Cycle 9 by `b65afd4`.
 - **OQ-RECON-1..OQ-RECON-19** — closed by orchestration §2 classifications.
 - **OQ-G9-4** — v3.1 arc continuation for non-SSGA issuers — CLOSED
   Cycle 17 by ADR-049.
-- **OQ-XD13-1/2/3** — Phase B independence + filer-reputation + aggregate slicing.
-- **OQ-G9-1** — issuer-specific schema mappers — CLOSED Cycle 17 by ADR-049.
+- **OQ-XD13-1/2/3** — Phase B independence + filer-reputation +
+  aggregate slicing (now NEWLY UNBLOCKED per S96-106 — these become
+  Cycle 21+ candidates).
+- **OQ-G9-1** — issuer-specific schema mappers — CLOSED Cycle 17 by
+  ADR-049.
 
 ### CARRIED (long-running)
 
-- C-12 Phase B Alpaca onboarding — paused (operator-gated).
-- CBOE DataShop subscription — Q-5 path (A).
-- Capital-deployment-ramp ADR — Q-2.
+- C-12 Phase B Alpaca onboarding — paused (operator-gated; per S96-106
+  this is unrelated to Layer-0 Phase B unbundling).
+- Capital-deployment-ramp ADR — Q-2 (indefinitely deferred per S96-107).
 - ML meta-labeling (ADR-017, deferred ≥4 weeks).
 - Sharadar SF1 subscription — Q-3 adjacent (operator-call).
 - Phase 2 v2 — deferred per S96-71.
-- Root cause of `bt_runs.trades > 0` AND `bt_trades` empty divergence.
 
 ---
 
 ## Next stage
 
-### Default on `continue` — Cycle 20 candidate (recommended day-3 stockanalysis observation)
+### Default on `continue` — Cycle 21 candidate (recommended day-3 stockanalysis observation IF Monday EOD or later)
 
 Today is still 2026-05-24 (Sunday). Day-3 needs Monday 2026-05-25 EOD
 data. If `continue` is invoked Monday EOD or later, day-3 is the
-meaningful freshness test. Expected:
-
-1. **shares**: should shift day-over-day for at least some tickers
-   (creates/redeems happen daily on trading days; SSGA's history shows
-   day-over-day shifts of ~3M shares for SPY are typical for large
-   liquid ETFs).
-2. **close**: should advance to Monday's EOD value (not Friday's).
-3. **aum (persisted)**: should grow consistent with both shares and
-   close shifts.
-4. **VOO**: should reproduce the 39.9% consistency failure if it's
-   truly structural; if it suddenly passes, that's signal SA fixed
-   their VOO sharesOut feed.
-5. **SPY cross-check**: SSGA should also refresh Monday EOD (SSGA's
-   daemon-cadence runs post-close); compare SA's SPY values to SSGA's
-   fresh date=2026-05-25 row.
+meaningful freshness test. If invoked before Monday EOD, pivot to an
+alternative.
 
 Procedure (same as Cycle 18, takes ~5 min):
 
@@ -380,60 +473,62 @@ Procedure (same as Cycle 18, takes ~5 min):
 6. Verify: re-probe + diff vs day-2.
 7. Commit + HANDOFF rewrite.
 
-**Failure handling:** unchanged from Cycle 18.
+### NEWLY UNLOCKED Cycle 21 alternatives (in priority order)
 
-### Alternative Cycle 20 candidates (in priority order if operator engaged)
+- **Q-5 Path D implementation** — ship the CBOE JSON ingest per
+  `docs/analysis/q5-path-d-cboe-json-2026-05-24.md`. Data-Ingest +
+  Infra worker pair; ~400-500 LOC + ADR-050. Closes Q-5 + GAP-3
+  simultaneously. **Top recommendation** if operator returns and isn't
+  pressing for the Monday observation specifically.
+- **Phase B campaign for cycle_v1** — newly unblocked per S96-106.
+  Spec already exists at `docs/specs/market-cycle-position.md` §Phase B.
+  Composite worker + Health worker pair (DSR / PBO / HLZ deflation
+  pipeline run + verdict surface). First Layer-0 statistical-validation
+  campaign — would establish the pattern for the 8 remaining composites.
+- **If operator picks Q-7 path:** orchestration executes the chosen path
+  (Path 1 / Path 2 / Path 3 / hybrid).
 
-- **If operator picks Q-7 path:** orchestration executes the chosen
-  path in a dedicated cycle. Path 1 (narrow re-classify post-ADR-041
-  dates only) is the lowest-blast-radius option and is the
-  orchestration's recommendation for immediate cleanup. Path 2
-  (daemon refresh-stale loop) is a follow-up architectural cycle that
-  closes the root cause; recommendation is to do this AFTER Path 1.
-  Path 3 (daemon timing shift) is a partial fix to one of two
-  mechanisms and is the weakest standalone option.
-- **N-PORT quarterly cross-check scaffolding.** Authoritative truth-
-  check for ALL secondary-table sources. Substantial scope (~300-500
-  LOC for EDGAR fetcher + reconciliation logic). Better deferred until
-  the 5-day window completes + Q-7 path picked.
-- **OQ-C19-1 inputs_missing UInt8 → UInt16.** Tier-1 mechanical
-  schema widening + convention pin. NOT an orchestrator self-edit
-  because it touches a calc-adjacent column under a quarantine-eligible
-  ADR scope; defer to Composite + Infra worker pair.
-- **Phase 2 v2 spec drafting.** Implementation deferred per S96-71.
-- **Drift remediation.** Reactive.
+### Other Cycle 21 alternatives (lower priority)
+
+- **OQ-C19-1 inputs_missing UInt8 → UInt16** — Tier-1 mechanical
+  schema widening; Composite + Infra worker pair.
+- **N-PORT quarterly cross-check scaffolding** — for ALL secondary-
+  table sources. Better deferred until 5-day stockanalysis observation
+  completes + Q-7 path picked.
+- **Phase 2 v2 spec drafting** — implementation deferred per S96-71.
+- **Drift remediation** — reactive.
 
 ---
 
 ## Files / code state
 
-### New / modified this cycle (s96 #18 Cycle 19)
+### New / modified this cycle (s96 #19 Cycle 20)
 
 | Path | Change | Notes |
 | --- | --- | --- |
-| `scripts/_probe_fred_t10y3m_alignment.ts` | new (+91) | Slice 1 `d65d4d3` — re-runnable FRED→T10Y3M alignment probe |
-| `scripts/_probe_t10y2y_compare.ts` | new (+38) | Slice 1 `d65d4d3` — T10Y2Y comparison + ingested_at metadata probe |
-| `docs/analysis/fred-t10y3m-alignment-2026-05-24.md` | new (+191) | Slice 1 `d65d4d3` — full finding (TL;DR, evidence, root cause, three resolution paths, side observation) |
+| `src/server/etf_flow_dashboard.ts` | +166/-25 | Slice 1 `8c6caa7` — 3-mode dispatch + types + `buildSecondaryLatest` |
+| `src/components/etfFlow/EtfFlowApp.tsx` | +197/-14 | Slice 1 `8c6caa7` — banner + secondary-only dashboard components + formatters |
+| `scripts/tests/etfFlowDashboard.test.ts` | new (+154) | Slice 1 `8c6caa7` — 6 tests covering all 3 modes |
+| `scripts/_probe_etf_flow_dashboard_response.ts` | new (+47) | Slice 1 `8c6caa7` — re-runnable smoke probe |
+| `docs/analysis/q5-path-d-cboe-json-2026-05-24.md` | new (+160) | Slice 2 `81e7382` — full Q-5 Path D finding |
+| `docs/architecture/multi-agent-orchestration.md` | +25/-0 | Slice 3 `3819814` — §7.1 item 8 + §7.3 Phase B exclusion + §11 revision log |
 | `.claude/HANDOFF.md` | rewrite | This file |
 
-Total: **+320/-0 across 3 files (slice 1) + 1 HANDOFF rewrite**. No
-ADR changes. No DDL changes. No real-money path touched. No production
-code changed. No npm scripts added.
+Total: **+749/-39 across 6 files (3 slices) + 1 HANDOFF rewrite**.
+No ADR changes (ADR-050 deferred to Cycle 21+ Q-5 Path D
+implementation). No DDL changes. No real-money path touched. No npm
+scripts added.
 
 ### DB-state changes this cycle
 
 NONE. All operations were read-only.
 
-| Table | Operation | Volume | Notes |
-| --- | --- | --- | --- |
-| `quantlab.macro_indicators_fred` | (read-only probe) | n/a | Probed T10Y3M + T10Y2Y for 2026-05-15..2026-05-21 |
-| `quantlab.candles` | (read-only probe) | n/a | Probed SPY_USD recent trading dates |
-| `quantlab.macro_regimes` | (read-only probe) | n/a | Probed phase1_v3 rows for 2026-05-15..2026-05-22 incl. ingested_at |
-| `quantlab.health_quarantine` | (no change) | 2 rows (Q-5 + Q-6 unchanged) | Q-7 surfaced to HANDOFF queue, NOT to quarantine table — operator-pick gate per ADR-044 + Q-7 row above |
-
 ### Test + tsc state
 
+- `etfFlowDashboard.test.ts`: **6/6 pass** (new this cycle)
 - `healthCheck.test.ts`: **37/37 pass**
+- `etfFlow.test.ts + etfFlowCrossValidation.test.ts + etfFlowRepository.test.ts + daemonEtfFlowV1PrimaryRefresh.test.ts`: **146/146 pass**
+- `regimeDashboard.test.ts`: **37/37 pass**
 - `npx tsc --noEmit`: **13 baseline errors unchanged**
 
 ### Untouched-but-relevant for next session
@@ -443,62 +538,62 @@ NONE. All operations were read-only.
 - `quantlab.executive_departures` + `quantlab.finra_short_interest`
   raw source tables still missing (carry-overs).
 - `bt_runs_regime` has full `phase1_v3` attribution coverage (Cycle 10).
-- `quantlab.macro_indicators_cboe`: 4,018 rows, max=2019-10-04, source
-  frozen per S96-88.
+- `quantlab.macro_indicators_cboe`: 4,018 rows, max=2019-10-04;
+  **Q-5 Path D ingest will fill the 2019-10-07 → today gap (Cycle 21+)**.
 - `quantlab.macro_indicators_fred`: T10Y3M last=2026-05-21; T10Y2Y
-  last=2026-05-21; FRED 3.5d stale per health:check.
+  last=2026-05-21; FRED 3.6d stale per health:check.
 - `quantlab.macro_regimes` phase1_v3: 6 recent rows carry T10Y2Y on 4
   of them + null+bit-64 on 2 of them; ADR-041-conformance gap per Q-7.
 - `quantlab.etf_shares_outstanding`: 0 rows, v1 yfinance source dead
   per S96-89; adapter does NOT write here.
-- `quantlab.etf_shares_outstanding_secondary`: 3,766 rows / 20 tickers
+- `quantlab.etf_shares_outstanding_secondary`: 956 rows / 20 tickers
   (15 SSGA + 5 stockanalysis at 2 dates; VOO absent).
 - yfinance pinned `>=0.2,<2.0`; current 1.4.0.
 - `.github/workflows/ci.yml` staged for first CI run on push (Q-4).
+- **Operator dev server (:3000) running pre-Cycle-20 binary** — needs
+  `npm run dev` restart to pick up slice 1's etf-flow changes. Until
+  restart, `/#/etf-flow` still renders the old empty-state.
 
 ---
 
 ## Watch-outs
 
-### NEW from this cycle (s96 #18 Cycle 19)
+### NEW from this cycle (s96 #19 Cycle 20)
 
-- **The classifier-today daemon is one-shot — code changes to the
-  loader silently leave historical rows under the old source.** This
-  is the architectural root cause behind Q-7 mechanism (1). Any future
-  swap of an upstream series (T10Y2Y → T10Y3M was the latest; future
-  examples could be a yield-curve series swap, a CBOE put/call URL
-  swap that changes the canonical series name, a breadth-source
-  fallback chain change) requires either an explicit re-backfill OR
-  the architectural fix from Q-7 Path 2 (refresh-stale loop). Until
-  Path 2 ships, ALL code changes to the macro classifier's loaders
-  MUST be paired with an explicit re-backfill of post-ADR-acceptance
-  rows OR the new-source intent must be flagged in the cycle's HANDOFF
-  and docs/analysis for operator awareness.
-- **The classifier-today daemon races FRED's EOD publish.** Mechanism
-  (2) behind Q-7: daemon runs after NYSE close (~16:00 ET) but FRED
-  publishes EOD T10Y3M / T10Y2Y at ~18:00 ET. Any morning-of-next-day
-  classifier run will see the prior day's FRED data; any same-day
-  evening classifier run could miss the same-day FRED publish. The
-  Q-7 Path 3 (daemon timing shift after 18:00 ET) addresses this
-  specific mechanism. Until then, the 2026-05-20 null+bit-64 row is
-  the canonical example of this race.
-- **Probe scripts in `scripts/_probe_*.ts` are reusable.** Two new
-  ones added Cycle 19 (`_probe_fred_t10y3m_alignment.ts` +
-  `_probe_t10y2y_compare.ts`). Cycle 18 added one
-  (`_probe_stockanalysis_day_over_day.ts`). The pattern of writing
-  small re-runnable read-only probes for investigation cycles is
-  load-bearing — future cycles SHOULD continue this pattern rather
-  than ad-hoc CH queries in conversation that vanish at cycle close.
-- **Side observation OQ-C19-1 (inputs_missing UInt8 truncation).**
-  The macro_regimes.inputs_missing column is UInt8 but bitmask
-  constants go up to bit 9 (512). Bits 8+ would silently truncate.
-  Hasn't fired but would silently corrupt the debug signal. A Tier-1
-  schema widening + convention pin is the fix; defer to Composite +
-  Infra worker pair when surfaced (Cycle 21+).
+- **Browser-smoke deferral pattern is a one-time exception, not a new
+  norm.** Slice 1 declined to restart operator's dev server because
+  "killing user processes" is on the hard-stop list. ADR-044 §UI's
+  "validate every UI-touching slice in the browser before declaring
+  it shipped" still stands. Future UI slices need either (a)
+  operator-coordinated dev-server restart, (b) orchestrator-owned
+  dev-server lifecycle (start in a worktree on a different port, run
+  the smoke, tear down), or (c) Playwright against a separately-
+  hosted server instance.
+- **The 3-mode dispatch pattern is the canonical fix for any cross-
+  validation UI panel where one side could go structurally dead.**
+  When primary goes dead, the panel MUST surface that via an honest
+  banner — not silently fall back to secondary. Slice 1's
+  `PrimaryDarkBanner` is the template.
+- **`hasData` semantics shifted in mode-1 (cross-validation, totalCompared
+  === 0).** Was `false` (rendered empty-state); now `true` (renders
+  "0 pairs compared, 0 divergences"). More honest, no test breaks, but
+  a behavior shift any downstream consumer reading the JSON directly
+  should be aware of.
+- **The free-source research pattern (slice 2) is canonical for any
+  blocked feed.** Probe the canonical primary site first (CBOE's own
+  JSON in this case), then aggregators / derivatives, then GitHub
+  references. The canonical primary is almost always strictly better
+  than any third-party derivative.
+- **Phase B unbundling (S96-106) opens Layer-0 statistical validation
+  to autonomous spawning.** Orchestration may now spawn a Composite
+  worker for the cycle_v1 Phase B campaign (or any of the other 8
+  Layer-0 composites once their Phase B section is drafted). The
+  verdict feeds the operator-gated Phase C promotion decision per
+  §7.1 item 8.
 
 ### Carried from earlier sessions
 
-All prior watch-outs (s96 #1-#18 + Cycle 19 carry-overs) preserved.
+All prior watch-outs (s96 #1-#19 + Cycle 20 carry-overs) preserved.
 
 ---
 
@@ -525,249 +620,157 @@ npm run brief:morning
 npm run health:check
 ```
 
-### ETF flow ingest (post-Cycle-18 — Q-6 PARTIAL via ADR-049 + day-2 obs PASS)
+### ETF flow ingest (post-Cycle-20 — Q-6 PARTIAL-WITH-UI-FIX via ADR-049 + 3-mode dispatch)
 
 ```text
 # v1 primary panel (yfinance) — STILL DEAD per Q-6 / S96-89
-# Do NOT run this — kept for path-D re-activation if Yahoo restores
-npm run etf:flow:ingest                                    # APPLY — 0/21 OK + S96-89 diagnostic + exit 1
 
 # v3.1 SSGA secondary (15 tickers: SPY+DIA+11 sector XL*+JNK+GLD)
 npm run etf:flow:ssga-spdr:refresh                         # APPLY — adapter + ingest with --source-file filter
 
 # v3.1 stockanalysis secondary (5 tickers: IVV+QQQ+IWM+HYG+TLT)
-npm run etf:flow:stockanalysis:fetch                       # adapter only (writes data/etf_flow_issuer_csv/stockanalysis.csv)
+npm run etf:flow:stockanalysis:fetch                       # adapter only
 npm run etf:flow:stockanalysis:fetch:dry                   # dry-run, same
-npm run etf:flow:stockanalysis:refresh                     # APPLY — adapter + ingest chain with --source-file filter
-# Cycle 18 day-2 observation PASS — 5-day window now at day 2/5.
-# Day-3 (Monday 2026-05-25) is the meaningful freshness test.
+npm run etf:flow:stockanalysis:refresh                     # APPLY — adapter + ingest chain
+# Day-2 observation PASS (Cycle 18); day-3 (Monday 2026-05-25) is the next meaningful test.
+
+# UI fix shipped Cycle 20 (8c6caa7):
+# - /#/etf-flow now renders v3.1 secondary as source-of-truth when v1 primary is dark
+# - PrimaryDarkBanner explains the source-swap per ADR-044 §UI
+# - Cross-validation sub-panels hidden when primary is empty
+# Operator MUST restart `npm run dev` for the dev server to pick up the change.
+
+# Re-runnable smoke probe (slice 1):
+npx tsx scripts/_probe_etf_flow_dashboard_response.ts      # dumps mode + hasData + counts + secondaryLatest
 ```
 
-### CBOE put/call ingest (post-Cycle-11)
+### CBOE put/call ingest (post-Cycle-20 Q-5 Path D research)
 
 ```text
-npm run cboe:ingest                                                                  # fetches both totalpc.csv + totalpcarchive.csv
-# S96-88 note: public file ends 2019-10-04; re-running does NOT advance max(observation_date).
+# Existing CSV ingest (covers 2003-10-17 → 2019-10-04; source FROZEN per S96-88):
+npm run cboe:ingest
+
+# Q-5 Path D implementation candidate (Cycle 21+):
+# - New ingest at scripts/cboe_putcall_json_ingest.py (or --json mode on existing)
+# - URL: https://cdn.cboe.com/data/us/options/market_statistics/daily/{YYYY-MM-DD}_daily_options
+# - Live 2019-10-07 → today; ~1,640 fetches to backfill; ~5 min wall-clock
+# - GAP-3 daemon hook resolves alongside
+# - Full plan in docs/analysis/q5-path-d-cboe-json-2026-05-24.md
 ```
 
-### Quartz docs site
-
-```text
-npm run docs:install                                    # ONE-TIME per clone
-npm run docs:build
-npm run docs:serve                                      # http://localhost:8080
-npm run dev:all                                         # dashboard (:3000) + Quartz (:8080)
-```
-
-### bt_runs_regime diagnostics + attribution
-
-```text
-npm run backfill:bt-regime
-npm run backfill:bt-regime -- --classifier-version=phase1_v3                  # S96-78 CLOSED Cycle 10
-```
-
-### Cross-source probes (Cycle 17 + Cycle 18 + Cycle 19)
+### Cross-source probes (Cycles 17-20)
 
 ```text
 npx tsx scripts/_probe_sho_source_labels.ts             # post-OPTIMIZE source label counts in CH
 npx tsx scripts/_probe_stockanalysis_day_over_day.ts    # per-ticker per-date stockanalysis rows (Cycle 18)
 npx tsx scripts/_probe_fred_t10y3m_alignment.ts         # FRED T10Y3M + SPY alignment + macro_regimes rows (Cycle 19)
 npx tsx scripts/_probe_t10y2y_compare.ts                # T10Y2Y comparison + ingested_at metadata (Cycle 19)
-```
-
-### SPY cross-check command (Cycle 17/18 pattern)
-
-```text
-.venv/Scripts/python.exe scripts/etf_flow_stockanalysis_adapter.py --tickers SPY --dry-run
-# Compare output to SSGA latest SPY in CH:
-#   SELECT ticker, date, shares, close, aum FROM quantlab.etf_shares_outstanding_secondary
-#   FINAL WHERE ticker = 'SPY' AND source = 'ssga-spdr' ORDER BY date DESC LIMIT 3
-```
-
-### CI (Cycle 8 baseline)
-
-```text
-npx tsc --noEmit                                        # baseline ≤13 errors
-npm test
-pytest scripts/tests
-# Workflow: .github/workflows/ci.yml (first CI run on push — Q-4)
+npx tsx scripts/_probe_etf_flow_dashboard_response.ts   # etf-flow dashboard builder output shape (Cycle 20)
 ```
 
 ### Tests + dev
 
 ```text
 npm test                                                                                              # 3319/3338 pass + 19 skip + 0 fail
-.venv/Scripts/python.exe -m pytest scripts/tests/test_etf_flow_stockanalysis_adapter.py -v             # 16/16 pass
-.venv/Scripts/python.exe -m pytest scripts/tests/test_etf_flow_issuer_csv_ingest.py -v                # 21/21 pass
-.venv/Scripts/python.exe -m pytest scripts/tests/test_etf_flow_ssga_spdr_adapter.py -v                # 18/18 pass
 node --import tsx --test scripts/tests/healthCheck.test.ts                                            # 37/37 pass
-npm run dev                                                                                           # http://localhost:3000
+node --import tsx --test scripts/tests/etfFlowDashboard.test.ts                                       # 6/6 pass (NEW Cycle 20)
+npm run dev                                                                                           # http://localhost:3000 (operator restart needed to pick up Cycle 20 etf-flow fix)
 npx tsc --noEmit                                                                                      # 13 baseline errors
 ```
-
-### npm scripts touched this cycle
-
-- (no changes — Cycle 19 added probe scripts only, no npm-script wiring)
 
 ---
 
 ## For the next session — priority order
 
-**Default on `continue`:** Cycle 20 candidate — **recommended day-3
+**Default on `continue`:** Cycle 21 candidate — **recommended day-3
 stockanalysis observation (Monday 2026-05-25, first trading day in
-the window)**. Use the same procedure as Cycle 18; the meaningful test
-is whether shares + close move appropriately for a trading day.
+the window)** IF invoked Monday EOD or later. If invoked before Monday
+EOD, pivot to one of the NEWLY UNLOCKED alternatives below.
 
-**Alternative Cycle 20 candidates:**
+**NEWLY UNLOCKED Cycle 21 alternatives (in priority order):**
 
-- **Day-3 stockanalysis observation** — see above (recommended).
-- **If operator engaged Q-7 with a pick:** orchestration executes the
-  chosen path (Path 1 / 2 / 3 / hybrid).
+- **Q-5 Path D implementation** (Data-Ingest + Infra worker pair; ~400-500
+  LOC + ADR-050). Closes Q-5 + GAP-3. Top recommendation if operator
+  isn't pressing for the Monday observation.
+- **Phase B campaign for cycle_v1** (Composite + Health worker pair).
+  First Layer-0 statistical-validation campaign — establishes the
+  pattern for the 8 remaining composites.
+- **If operator picks Q-7 path:** orchestration executes the chosen
+  path (Path 1 / 2 / 3 / hybrid).
+
+**Other Cycle 21 alternatives (lower priority):**
+
 - **OQ-C19-1 inputs_missing UInt8 → UInt16** — Tier-1 mechanical
   schema widening; Composite + Infra worker pair.
-- **N-PORT quarterly cross-check scaffolding** — for ALL
-  secondary-table sources.
+- **N-PORT quarterly cross-check scaffolding** — for ALL secondary-
+  table sources. Better deferred until 5-day window completes + Q-7
+  path picked.
 - **Phase 2 v2 spec drafting** — implementation deferred per S96-71.
 - **Drift remediation** — reactive.
 
-**Calendar-gated (unchanged):**
-
-- All Phase B campaigns.
-- Form 4 CMP classifier v2 ADR — earliest ~2026-11-20.
-- Event-driven cadence v2 ADR — earliest ~2026-08-20.
-- Schedule 13D/G Phase B independence test — earliest ~2026-07-20.
-
 **Operator queue items (Q-1 through Q-7):**
 
-- Q-1 first real-capital deployment.
-- Q-2 capital-deployment-ramp ADR.
+- Q-1 first real-capital deployment — **INDEFINITELY DEFERRED** per
+  S96-107.
+- Q-2 capital-deployment-ramp ADR — **INDEFINITELY DEFERRED** per
+  S96-107.
 - Q-3 Stooq apikey gate decision.
-- Q-4 push 55 commits to origin/main.
-- Q-5 phase1_v3 CBOE methodology — A/B/C.
-- Q-6 PARTIAL (orchestration-resolved via ADR-049; closes on read-path
-  flip in Cycle 23+; VOO residual gap is operator-gated; Cycle 18
-  day-2 obs PASS).
-- **Q-7 NEW — phase1_v3 yield-curve source persistence — operator
-  picks Path 1 / Path 2 / Path 3 (or hybrid). Recommendation: Path 1
-  immediate cleanup + Path 2 architectural follow-up.**
+- Q-4 push 59 commits to origin/main.
+- Q-5 **PATH D ORCHESTRATION-OWNED** — operator no longer needed for
+  resolution; Cycle 21+ implementation per Q-5 row.
+- Q-6 PARTIAL-WITH-UI-FIX (orchestration-resolved data + UI via
+  ADR-049 + slice 1; closes on read-path flip in Cycle 23+; operator
+  should `npm run dev` restart + visually verify `/#/etf-flow`).
+- Q-7 — phase1_v3 yield-curve source persistence — operator picks
+  Path 1 / Path 2 / Path 3 (or hybrid).
 
 **Do NOT auto-open without operator green-light:**
 
-- C-12 Phase B AlpacaAdapter (real-money path).
-- Phase B campaigns.
+- C-12 Phase B AlpacaAdapter (real-money path; distinct from Layer-0
+  Phase B per S96-106).
+- Phase C promotion of any Layer-0 composite to phase1_v3+ classifier
+  input (methodology amendment per §7.1 item 8).
 - Playwright dep adoption.
 - ALTER DROP / DROP TABLE / ALTER ... DELETE migrations.
 - `git push` (Q-4).
-- Q-5-blocked work: phase1_v3 re-classify (Q-7 Path 1 is a NARROWER
-  re-classify on post-ADR-041 dates only; still operator-gated).
-- Phase 2 v2 plausibility-band probes.
+- Q-7 Path 1 / 2 / 3 execution (operator-pick gate).
 - **v1 primary read path flip** — operator-gated via the 5-day
   observation window completing successfully.
 - VOO-specific paid feed or alternative source.
-- **Q-7 Path 1 / 2 / 3 execution** — operator-pick gate.
 
 ---
 
 ## Important framing for the next chat
 
-**Cycle 19 is closed.** Two commits: slice 1 (`d65d4d3`, +320/-0)
-added two probe scripts + a full analysis doc; this HANDOFF rewrite is
-the 55th unpushed commit.
+**Cycle 20 is closed.** Four commits: slice 1 (`8c6caa7`, +553/-25) UI
+fix; slice 2 (`81e7382`, +160/-0) Q-5 Path D research; slice 3
+(`3819814`, +25/-0) Phase B unbundling docs; this HANDOFF rewrite is
+the 59th unpushed commit.
 
-**Q-6 stays PARTIAL** (no change this cycle; the day-3 stockanalysis
-observation is the next default).
+**Q-5 transformed from operator-pick to orchestration-owned.** Path D
+(CBOE daily JSON endpoint) was found and verified. Cycle 21+ ships
+the implementation per `docs/analysis/q5-path-d-cboe-json-2026-05-24.md`.
+No operator decision needed.
 
-**Q-7 is NEW.** The probe falsified Cycle 16's hypothesis and surfaced
-a real Tier-2 correctness issue on phase1_v3's yield-curve source
-persistence. Orchestration recommends Path 1 immediate + Path 2
-follow-up. Operator decision required before resolution cycle ships.
+**Q-6 PARTIAL-WITH-UI-FIX.** The data side was already resolved Cycle
+17 via ADR-049; the UI side is now resolved via slice 1's 3-mode
+dispatch. Closes on read-path flip in Cycle 23+. Operator action:
+restart `npm run dev` + refresh `/#/etf-flow` to visually verify.
 
-**One new open question of LOW priority:** OQ-C19-1 — inputs_missing
-UInt8 truncation at bits 8+. Hasn't fired in practice. Defer to
-Composite + Infra worker pair.
+**Phase B statistical-validation campaigns unbundled.** Orchestration
+may now spawn Layer-0 Phase B campaigns autonomously (cycle_v1 is the
+first candidate). Phase C promotion stays operator-gated. C-12 Phase B
+AlpacaAdapter (unrelated naming-collision) stays operator-gated as it
+always was.
 
-**OQ-C16-1 is CLOSED** — but the closure outcome was "Cycle 16's
-prediction was wrong, this IS a real issue." The smoke-test
-interpretation rule for future cycles updates to: a null + bit 64
-suspicious until cross-checked against FRED max(observation_date) AND
-row ingested_at vs current loader-code commit time.
+**Q-1 + Q-2 indefinitely deferred** per operator framing. Orchestration
+will not press on them. Foundational work continues.
 
-**S96-103 is the new lock-in.** Future cycles encountering a
-yield_curve_value anomaly on a macro_regimes row follow the
-S96-103 cross-check pattern (FRED max + ingested_at vs commit time)
-before assuming graceful-degradation.
+**One new open question of LOW priority:** OQ-C20-1 — browser-smoke
+deferred to operator dev-server restart for slice 1 Q-6 UI fix.
 
-**Cycle 20 recommended path: day-3 stockanalysis observation (Monday
-trading day)** — this is the meaningful freshness test the entire
-ADR-049 path depends on, originally Cycle 19's default but
-calendar-blocked to Cycle 20.
+**S96-104, S96-105, S96-106, S96-107 are the new lock-ins.**
 
-**Backward compat preserved this cycle:**
-
-1. **CH:** No DDL change. No row writes. Only reads.
-2. **Type:** No type-system changes. tsc baseline 13 errors unchanged.
-3. **Brief:** No render-side changes.
-4. **Tests:** All previously-passing suites still pass; no new tests
-   this cycle (probe scripts are read-only one-shots).
-5. **Code behavior on existing surfaces:** No code changes other than
-   the new probe scripts (read-only).
-6. **Operator UX:**
-   - `/#/etf-flow` unchanged.
-   - `/#/health` quarantine queue still shows 2 rows.
-   - `/#/regime` TodayPanel still renders `yield_curve_value` from
-     macro_regimes — this is the surface where Q-7's wrong-source
-     values appear today. Until operator picks Q-7 path, the panel
-     shows T10Y2Y values labeled as the T10Y3M column.
-   - `npm run health:check` output unchanged from Cycle 18.
-   - **NEW:** operator can run `npx tsx
-     scripts/_probe_fred_t10y3m_alignment.ts` to see the per-row
-     source-mix table. Or `npx tsx
-     scripts/_probe_t10y2y_compare.ts` to confirm the T10Y2Y match
-     and see ingested_at metadata.
-
-**The chain through s96 #19:**
-
-```text
-ALL S41-S96#18 WORK                                       ✓ as documented
-S96 #18 Cycle 18 (day-2 stockanalysis obs PASS)           ✓ as documented (S96-102)
-S96 #18 Cycle 19:
-  • Slice 1 — OQ-C16-1 probe + Tier-2 finding surface
-    AUTO-APPROVE  → +320/-0 (2 probe scripts + 1 analysis doc);
-                    NO db writes; NO code changes; NO methodology
-                    committed.
-       PROBE
-       FINDINGS   → (a) FRED T10Y3M max in CH = 2026-05-21 (FRED 3.5d
-                    stale per health:check). (b) macro_regimes
-                    yield_curve_value for 2026-05-15..2026-05-21 carries
-                    T10Y2Y values; ADR-041 mandates T10Y3M; conformance
-                    gap. (c) 2026-05-20 row null+bit64 even though FRED
-                    has both T10Y3M=0.92 + T10Y2Y=0.53 — daemon ran
-                    08:02 MDT before FRED's ~18:00 ET publish, never
-                    refreshed. (d) 2026-05-22 row null+bit64 IS genuine
-                    graceful-degradation. (e) Root cause: T10Y2Y →
-                    T10Y3M code change shipped commit 4406674 on
-                    2026-05-21 21:42 MDT, AND classifier-today daemon
-                    is one-shot per latest date — rows never refresh
-                    after a code change OR after late-arriving data.
-       RESOLUTION → Q-7 NEW operator queue row with three paths
-                    (narrow re-classify / refresh-stale loop / timing
-                    shift); orchestration recommends Path 1 immediate +
-                    Path 2 follow-up. NO auto-fix per ADR-044 ("never
-                    auto-fix calc logic ... ADR-ratified design").
-       SIDE
-       OBS        → inputs_missing UInt8 truncation at bits 8+ tracked
-                    as OQ-C19-1.
-  + S96-103 (OQ-C16-1 resolved with falsified Cycle 16 hypothesis;
-    real finding surfaced as Q-7 + tightened smoke-test interpretation
-    rule for future cycles) lock-in
-  + 2 commits: slice 1 (d65d4d3) + this HANDOFF rewrite
-  + Zero downstream consumer behavior change on existing surfaces
-  + Q-6 stays at PARTIAL (no change this cycle); Q-4 count 53 → 55
-  + Q-7 NEW (phase1_v3 yield-curve source persistence)
-  + OQ-C16-1 CLOSED; OQ-C19-1 (inputs_missing UInt8) NEW low-priority
-  → DEFAULT NEXT: Cycle 20 candidate — RECOMMENDED day-3 stockanalysis
-    observation (Monday 2026-05-25 — first trading day in the window),
-    originally Cycle 19's default but calendar-blocked to Cycle 20.
-    If operator returned in the interim with a Q-7 path pick,
-    orchestration executes the chosen path instead.
-```
+**Cycle 21 default path: day-3 stockanalysis observation (Monday
+2026-05-25)** IF invoked Monday EOD or later; otherwise pivot to Q-5
+Path D implementation OR Phase B campaign for cycle_v1.
