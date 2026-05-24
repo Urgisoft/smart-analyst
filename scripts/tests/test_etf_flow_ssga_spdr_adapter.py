@@ -137,15 +137,18 @@ def test_ssga_navhist_url_uses_lowercase_ticker():
 
 # ── T-SSGA-2: DEFAULT_TICKERS includes all 13 SPDRs ──────────────────────────
 
-def test_default_tickers_has_13_spdr_universe():
-    """SPY + DIA + 11 sector XL* funds = 13. Anchor here so a mistaken
-    addition/removal during a future refactor fails loudly."""
+def test_default_tickers_has_15_ssga_served_universe():
+    """SPY + DIA + 11 sector XL* funds + JNK + GLD = 15 (Cycle 13 expansion).
+    Anchor here so a mistaken addition/removal during a future refactor fails
+    loudly. The remaining 6 F-UNIVERSE tickers (IVV/IWM/HYG/TLT/VOO/QQQ) are
+    served by other issuers and excluded by design — see DEFAULT_TICKERS comment."""
     assert ssga.DEFAULT_TICKERS == (
         "SPY", "DIA",
         "XLK", "XLF", "XLE", "XLV", "XLY", "XLP",
         "XLU", "XLI", "XLB", "XLRE", "XLC",
+        "JNK", "GLD",
     )
-    assert len(ssga.DEFAULT_TICKERS) == 13
+    assert len(ssga.DEFAULT_TICKERS) == 15
 
 
 # ── T-SSGA-3: parse_navhist_xlsx — happy path ────────────────────────────────
@@ -175,6 +178,21 @@ def test_parse_navhist_xlsx_rejects_ticker_anchor_mismatch():
     assert "R2.B ticker anchor mismatch" in errors[0]
     assert "SPY" in errors[0]
     assert "XLK" in errors[0]
+
+
+# ── T-SSGA-4b: trademark glyph on R2.B accepted (GLD® → GLD) ─────────────────
+
+def test_parse_navhist_xlsx_accepts_trademark_glyph_in_r2_ticker():
+    """SSGA writes 'GLD®' in R2.B for the SPDR Gold Trust navhist XLSX (and
+    likely other trademarked products). The anchor check normalizes trailing
+    ®/™/© before comparing, so a request for 'GLD' parses cleanly. Without
+    this, the entire GLD file is rejected even though the data rows are valid.
+    Regression guard for Cycle 13 expansion."""
+    body = _build_xlsx(ticker="GLD®")
+    rows, errors = ssga.parse_navhist_xlsx(body, "GLD")
+    assert errors == []
+    assert len(rows) == 3
+    assert all(r.ticker == "GLD" for r in rows)
 
 
 # ── T-SSGA-5: R4 header drift — file rejected ────────────────────────────────

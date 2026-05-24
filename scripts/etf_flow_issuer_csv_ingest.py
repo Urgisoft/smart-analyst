@@ -342,6 +342,15 @@ def ingest_directory(
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def main() -> int:
+    # Force UTF-8 on stdout/stderr so per-file summary (which uses →) does not
+    # crash with UnicodeEncodeError under PowerShell's default cp1252 codec.
+    # Mirrors the same fix in etf_flow_ssga_spdr_adapter.py main().
+    for _stream in (sys.stdout, sys.stderr):
+        try:
+            _stream.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
+        except (AttributeError, OSError):
+            pass
+
     args = parse_args()
     apply_mode = bool(args.apply) and not bool(args.dry_run)
     input_dir = Path(args.input_dir)

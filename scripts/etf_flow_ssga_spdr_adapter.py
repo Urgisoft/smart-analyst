@@ -96,14 +96,23 @@ from typing import Callable, Sequence
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
-# The 13 SSGA-managed SPDR ETFs in the F-UNIVERSE (etf_flow_ingest.py:
-# BROAD_INDEX_ETFS + SECTOR_ETFS, restricted to SPDR family). HYG/JNK/TLT/GLD
-# are NOT SSGA-managed; IVV/VOO are iShares/Vanguard; QQQ is Invesco; IWM is
-# iShares. SPY + DIA + 11 sector XL* funds = 13 in scope here.
+# The 15 SSGA-served ETFs in the F-UNIVERSE whose navhist XLSX SSGA's CDN
+# returns 200 with a parseable file:
+#   * SPY + DIA + 11 sector XL* funds  → SPDR equity index family.
+#   * JNK                              → SPDR Bloomberg High Yield Bond (added Cycle 13).
+#   * GLD                              → SPDR Gold Trust (added Cycle 13 — R2.B is 'GLD®';
+#                                        anchor normalization strips trailing ®/™/©).
+# Out of scope here (HTTP 404 on the navhist endpoint — different issuer):
+#   IVV, IWM, HYG, TLT          → iShares / BlackRock      (own adapter, TBD)
+#   VOO                         → Vanguard                  (own adapter, TBD)
+#   QQQ                         → Invesco                   (own adapter, TBD)
+# Cycle 13 expansion takes coverage from 13/21 → 15/21; the remaining 6 still
+# block on per-issuer adapters tracked under Q-6 path (B) in HANDOFF.
 DEFAULT_TICKERS: tuple[str, ...] = (
     "SPY", "DIA",
     "XLK", "XLF", "XLE", "XLV", "XLY", "XLP",
     "XLU", "XLI", "XLB", "XLRE", "XLC",
+    "JNK", "GLD",
 )
 
 NAVHIST_URL_TEMPLATE = (
@@ -352,9 +361,16 @@ def parse_navhist_xlsx(
         indexed[r] = _index_row(row, strings)
 
     # ── Header-anchor checks (R2 ticker + R4 column headers) ────────────────
+    # SSGA writes 'GLD®' in R2.B for the SPDR Gold Trust XLSX; other SSGA
+    # funds use the bare ticker. Strip trailing ®/™/© glyphs before compare
+    # so we don't reject the file over a trademark symbol.
     r2 = indexed.get("2", {})
     r2_ticker_raw = r2.get("B2")
-    if not isinstance(r2_ticker_raw, str) or r2_ticker_raw.strip().upper() != expected_upper:
+    r2_ticker_norm = (
+        r2_ticker_raw.strip().upper().rstrip("®™©").strip()
+        if isinstance(r2_ticker_raw, str) else None
+    )
+    if r2_ticker_norm != expected_upper:
         errors.append(
             f"{expected_upper}: R2.B ticker anchor mismatch "
             f"(expected {expected_upper!r}, got {r2_ticker_raw!r})"
@@ -564,6 +580,16 @@ def ingest_all(
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def main(argv: Sequence[str] | None = None) -> int:
+    # Force UTF-8 on stdout/stderr so the per-ticker summary (which uses → and
+    # any future non-ASCII chars from SSGA fund names) does not crash with
+    # UnicodeEncodeError under PowerShell's default cp1252 codec. The daemon
+    # runs under a UTF-8 shell, but interactive runs default to cp1252.
+    for _stream in (sys.stdout, sys.stderr):
+        try:
+            _stream.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
+        except (AttributeError, OSError):
+            pass  # non-reconfigurable stream (test capture, redirect) — ignore.
+
     args = parse_args(argv)
     apply_mode = bool(args.apply) and not bool(args.dry_run)
     tickers = tuple(t.strip().upper() for t in args.tickers.split(",") if t.strip())
