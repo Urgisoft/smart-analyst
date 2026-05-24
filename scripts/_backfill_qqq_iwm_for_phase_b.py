@@ -10,6 +10,17 @@ SPEC's benchmark universe (SPY + QQQ + IWM) needs both ETFs to land at
 the same `<TICKER>_USD` / interval='1d' / source='yfinance' convention
 as SPY so the campaign harness can resolve them uniformly.
 
+Note on worker-domain: this is technically `scripts/*_backfill.py` and
+Data-Ingest domain per orchestration §1 (the multi-agent partition map).
+Treated as Tier-1 'stale-or-missing-data-from-failed-scheduled-job'
+auto-fix per ADR-044 because the ingest never fired for QQQ/IWM
+(analogous to F3 Form 4 first-apply from prior cycles). Critic-reviewed
++ approved Cycle 23. One-shot only; NOT promoted to daemon-cadence
+(Phase B is offline statistical validation, not live trading). Future
+cycles that need daily QQQ/IWM refresh should route via the existing
+`fetch_daily_yfinance.py --tickers QQQ,IWM` path, OR a proper
+Data-Ingest worker spawn to wire a daemon step.
+
 Convention pinned per yfinance_backfill.py:
   token_address := f"{TICKER}_USD"   (yfinance_backfill.py:145)
   interval      := "1d"              (yfinance_backfill.py:157)

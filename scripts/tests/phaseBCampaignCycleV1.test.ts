@@ -98,6 +98,13 @@ describe('SPEC-pinned constants — ADR-051 + phase-b-cycle-v1.md', () => {
 describe('benchmarkTokenAddress — convention pin per SPEC §8', () => {
   // This is the named test SPEC §8 calls for: future drift in the
   // `<TICKER>_USD` convention in yfinance_backfill.py surfaces here loudly.
+  //
+  // Note: this test pins the FORMULA. The LIVE CH-state convention check
+  // ("are SPY_USD + QQQ_USD + IWM_USD actually present in quantlab.candles
+  // at interval='1d' with sufficient history?") lives in the pre-flight
+  // probe at scripts/_probe_phase_b_cycle_v1_inputs.ts. The probe is run
+  // as Step 0 of every campaign invocation and exits non-zero on missing
+  // benchmark — that's the live convention pin per critic's Fix 6 (Cycle 23).
   it('SPY -> SPY_USD', () => {
     assert.equal(benchmarkTokenAddress('SPY'), 'SPY_USD');
   });

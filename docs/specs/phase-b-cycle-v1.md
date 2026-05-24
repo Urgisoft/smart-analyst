@@ -132,10 +132,16 @@ const validatorRequest: ValidatorRequest = {
   nObservations: bestTrial.is_days,            // ~3270
   trialSharpes,                                 // length 19
 
-  // Bootstrap DSR per-asset (here: per-θ-trial; SignalForge's "asset" axis is
-  // the trial, since cycle_v1 has one benchmark per validator call)
-  // NOTE: bootstrap path REQUIRES ≥4 elements; we have 19 → fires.
-  perAssetSharpes: trialSharpes,
+  // DSR path = parametric Mertens (NOT bootstrap). Rationale:
+  // `bootstrapDSR()` in `src/lib/psr.ts:185-186` requires that
+  // `observedSharpe ≈ median(perTokenSharpes)` (cross-sectional aggregation
+  // of per-asset Sharpes). Here `observedSharpe = bestTrial.is_sharpe` is
+  // the ARGMAX of trialSharpes, not the median — feeding `trialSharpes` as
+  // `perAssetSharpes` would resample the trial axis (which IS the selection-
+  // bias axis) and produce a meaningless SE. For "composite-as-signal"
+  // Phase B campaigns there is no cross-sectional asset panel; parametric
+  // Mertens (PSR Eq.3, Bailey-LdP 2014 §3; AFML §11.4) is the correct path.
+  // perAssetSharpes intentionally omitted → validator runs parametric DSR.
 
   // Per-slice IS Sharpes for PBO via CSCV
   sliceSharpesByConfig: trialsForBenchmark.map(t => JSON.parse(t.is_slice_sharpes)),

@@ -607,13 +607,14 @@ export function gateOutcomesToVerdictRow(
   const hlzPass = gates.hlz.status === 'pass';
   const oosIsPass = gates.oosIs.status === 'pass';
 
-  const allRanOrAllPassed =
+  // Any 'na' status forces 'insufficient' regardless of pass/fail mix.
+  const allGatesRan =
     gates.dsr.status !== 'na' &&
     gates.pbo.status !== 'na' &&
     gates.hlz.status !== 'na' &&
     gates.oosIs.status !== 'na';
   let verdict: PhaseBVerdict;
-  if (!allRanOrAllPassed) {
+  if (!allGatesRan) {
     verdict = 'insufficient';
   } else if (dsrPass && pboPass && hlzPass && oosIsPass) {
     verdict = 'pass-all';
@@ -937,7 +938,11 @@ export function renderMarkdownReport(result: CampaignResult): string {
   lines.push('| Benchmark | θ* | IS SR | OOS SR | DSR | PBO | HLZ-t | OOS/IS | Verdict | PhaseC? |');
   lines.push('| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |');
   for (const v of result.verdicts) {
-    const fmt = (x: number | null) => x === null ? 'n/a' : x.toFixed(3);
+    // Guard against NaN/Infinity sneaking through from a degenerate gate
+    // (e.g. Mertens variance collapse on extreme moments) — render honest
+    // 'n/a' instead of polluting the dashboard with 'NaN' / 'Infinity'.
+    const fmt = (x: number | null) =>
+      x === null || !Number.isFinite(x) ? 'n/a' : x.toFixed(3);
     lines.push(
       `| ${v.benchmark} | ${v.bestTrialTheta.toFixed(2)} | ` +
       `${v.bestIsSharpe.toFixed(3)} | ${v.bestOosSharpe.toFixed(3)} | ` +
@@ -1056,7 +1061,11 @@ export async function main(): Promise<number> {
 
   console.log('Per-benchmark verdicts:');
   for (const v of result.verdicts) {
-    const fmt = (x: number | null) => x === null ? 'n/a' : x.toFixed(3);
+    // Guard against NaN/Infinity sneaking through from a degenerate gate
+    // (e.g. Mertens variance collapse on extreme moments) — render honest
+    // 'n/a' instead of polluting the dashboard with 'NaN' / 'Infinity'.
+    const fmt = (x: number | null) =>
+      x === null || !Number.isFinite(x) ? 'n/a' : x.toFixed(3);
     console.log(
       `  ${v.benchmark}: verdict=${v.verdict} ` +
       `(θ*=${v.bestTrialTheta.toFixed(2)}, ` +
