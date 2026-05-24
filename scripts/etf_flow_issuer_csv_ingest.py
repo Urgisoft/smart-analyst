@@ -102,6 +102,15 @@ def parse_args() -> argparse.Namespace:
              f"per-issuer CSVs.",
     )
     p.add_argument(
+        "--source-file",
+        type=str,
+        default="",
+        help="When set, only process the named file in --input-dir (e.g. "
+             "'stockanalysis.csv') instead of every *.csv. Use to avoid "
+             "cross-labeling when a directory contains multiple source-tagged "
+             "CSVs. Defaults to all *.csv (back-compat).",
+    )
+    p.add_argument(
         "--dry-run",
         action="store_true",
         help="Parse + count; no CH write (default if --apply not set).",
@@ -290,8 +299,15 @@ def ingest_directory(
     apply_mode: bool,
     source_label: str,
     client=None,
+    source_file: str = "",
 ) -> dict:
-    """Walk `input_dir`, parse all `*.csv` files, optionally write to CH.
+    """Walk `input_dir`, parse matching `*.csv` files, optionally write to CH.
+
+    If `source_file` is set, only that filename is processed (no glob). This
+    prevents the cross-labeling pitfall when the directory contains multiple
+    source-tagged CSVs (e.g. ssga-spdr.csv + stockanalysis.csv) — running with
+    `--source-label stockanalysis` without `--source-file stockanalysis.csv`
+    would silently relabel the SSGA rows as 'stockanalysis' on merge.
 
     Returns a summary dict with per-file row-counts + the error list. Per-file
     errors do NOT abort the loop (matches the v1 ingest's T-EFI-8 partial-
@@ -315,7 +331,15 @@ def ingest_directory(
     if not input_dir.is_dir():
         summary["errors"].append(f"input path is not a directory: {input_dir}")
         return summary
-    files = sorted(input_dir.glob("*.csv"))
+    if source_file:
+        target = input_dir / source_file
+        files = [target] if target.exists() else []
+        if not files:
+            summary["errors"].append(
+                f"--source-file {source_file!r} not found in {input_dir}"
+            )
+    else:
+        files = sorted(input_dir.glob("*.csv"))
     summary["files_seen"] = len(files)
     for path in files:
         rows, errors = parse_csv_file(path)
@@ -355,10 +379,13 @@ def main() -> int:
     apply_mode = bool(args.apply) and not bool(args.dry_run)
     input_dir = Path(args.input_dir)
     source_label = args.source_label.strip() or DEFAULT_SOURCE_LABEL
+    source_file = args.source_file.strip()
+    source_file_display = repr(source_file) if source_file else "*.csv"
 
     print(
         f"[etf-flow-issuer-csv] input_dir={input_dir} "
         f"| source_label={source_label!r} "
+        f"| source_file={source_file_display} "
         f"| {'APPLY' if apply_mode else 'DRY-RUN'}"
     )
 
@@ -368,7 +395,8 @@ def main() -> int:
         ensure_etf_shares_outstanding_secondary_table(client)
 
     summary = ingest_directory(
-        input_dir, apply_mode=apply_mode, source_label=source_label, client=client,
+        input_dir, apply_mode=apply_mode, source_label=source_label,
+        client=client, source_file=source_file,
     )
 
     print()

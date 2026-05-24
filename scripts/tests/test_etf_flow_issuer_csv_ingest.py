@@ -238,6 +238,42 @@ def test_ingest_directory_missing_dir_surfaces_error(tmp_path: Path):
     assert "does not exist" in summary["errors"][0]
 
 
+def test_ingest_directory_source_file_filter_isolates_one_file(tmp_path: Path):
+    """`source_file='stockanalysis.csv'` must process ONLY that file, even when
+    other CSVs exist in the dir. Prevents the Cycle 17 cross-labeling pitfall
+    where a `--source-label stockanalysis` run silently relabeled ssga-spdr.csv
+    rows on merge (ReplacingMergeTree on (ticker, date) — same key, last-merge
+    wins)."""
+    _write_csv(tmp_path, "ssga-spdr.csv", CANONICAL_CSV)
+    second = (
+        "ticker,date,shares,close\n"
+        "QQQ,2026-05-23,663800000,719.030000\n"
+    )
+    _write_csv(tmp_path, "stockanalysis.csv", second)
+    summary = iss.ingest_directory(
+        tmp_path, apply_mode=False, source_label="stockanalysis", client=None,
+        source_file="stockanalysis.csv",
+    )
+    assert summary["files_seen"] == 1
+    assert summary["files_parsed_ok"] == 1
+    assert summary["rows_total"] == 1  # only the QQQ row
+    assert "stockanalysis.csv" in summary["rows_per_file"]
+    assert "ssga-spdr.csv" not in summary["rows_per_file"]
+    assert summary["errors"] == []
+
+
+def test_ingest_directory_source_file_filter_missing_file_surfaces_error(tmp_path: Path):
+    """`source_file` names a file that doesn't exist → error, no silent
+    fallback to glob."""
+    _write_csv(tmp_path, "ssga-spdr.csv", CANONICAL_CSV)
+    summary = iss.ingest_directory(
+        tmp_path, apply_mode=False, source_label="stockanalysis", client=None,
+        source_file="stockanalysis.csv",
+    )
+    assert summary["files_seen"] == 0
+    assert any("stockanalysis.csv" in e for e in summary["errors"])
+
+
 def test_ingest_directory_partial_failure_logs_but_continues(
     tmp_path: Path, capsys,
 ):

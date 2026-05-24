@@ -1,6 +1,17 @@
 # ADR-048 — ETF flow universe amendment: drop 6 non-SSGA tickers + promote v3.1 secondary to v1 primary; sunset yfinance ETF SHO ingest
 
-**Status:** PROPOSED (orchestration-drafted 2026-05-24 in session 96 #17 Cycle 15
+**Status:** **Superseded** by [ADR-049](adr-049-q6-stockanalysis-free-feed.md)
+(operator-ratified 2026-05-24 in session 96 #17 Cycle 17 — operator picked
+path-A but rejected the paid Sharadar/Polygon framing; the orchestration's
+empirical search surfaced stockanalysis.com as a free aggregator with
+parseable static-HTML SHO data for 5 of 6 non-SSGA tickers; F-UNIVERSE
+remains at 21 with VOO observationally absent until source repair). This
+ADR is preserved as a fallback specification: if stockanalysis.com proves
+unreliable in the 5-day observation window OR fails over time, ADR-048
+path-B can be reactivated by flipping its status back to PROPOSED + operator
+re-ratifying.
+
+**Status was:** PROPOSED (orchestration-drafted 2026-05-24 in session 96 #17 Cycle 15
 per `docs/architecture/multi-agent-orchestration.md` §8.4; awaiting operator
 ratification per Q-6 path selection — see §"Operator decision" below).
 **Date:** 2026-05-24
