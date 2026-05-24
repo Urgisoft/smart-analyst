@@ -1,49 +1,56 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-05-24 (session 96 #17 — **Cycle 10 of multi-agent
-orchestration executed**. Single orchestrator-driven slice (S96-78 closure
-— the recommended Cycle 10 starting point per Cycle 9 close): operator ran
-`npm run backfill:bt-regime -- --classifier-version=phase1_v3` to
-completion (197,064 / 197,064 attributed · 0 errors · 0 skips · 2234.2s
-runtime ≈ 37 min · 88.2 rows/s steady-state). **Zero source-file changes**
-this cycle — pure DB-state operation. Post-backfill verification ran an
-inline tsx query against ClickHouse to confirm: (a) `phase1_v3` row count
-in `bt_runs_regime` is exactly **197,064**, matching `phase1_v2`'s
-**197,064** (full coverage parity); (b) attribution split is **118,665
-`window` + 78,399 `sentinel_no_trades`** — the sentinel count matches the
-**GAP-16 / ADR-047** Cycle 6 finding exactly (the documented zero-trade
-pattern carries through identically into v3); (c) dominant regime
-distribution is **118,504 `green` + 161 `yellow` + 78,399 `unknown`**
-(unknown = sentinel rows, expected); (d) window `dominant_share` quantiles
-are **p05=0.532 · p50=0.828 · p95=0.95 · range [0.469, 1.0]** — plausible
-distribution showing dominant regime claims supermajority on the median
-run. **1 new commit** on top of s96 #17 Cycle 9 close: this HANDOFF
-rewrite (HANDOFF-only because there is no source-file diff to commit).
-**Net 37 unpushed commits** on top of `origin/main` (`c0cda7c`) after this
-HANDOFF rewrite (was 36 at Cycle 9 close · +1 this HANDOFF). Cycle 10
-closes S96-78 (the phase1_v3 attribution coverage gap surfaced in Cycle 6
-GAP-16 investigation) and produces no new operator-queue rows. **Spawn
-pattern this cycle:** orchestrator self-edit only — no worker spawn was
-needed because the slice was a single npm-script invocation (per
-orchestration §3.1 trivial-edit exception); the operator ran the
-invocation locally and reported the result. **Pre-merge gate locally
-verified:** `npx tsc --noEmit` returns the documented 13 baseline errors
-unchanged; `npm run health:check` returns the same set as Cycle 9 close
-(no NEW Tier-2 from the DB-state operation); `git status` clean; full
-`npm test` not re-run this cycle because no source-file diff (last green
-at Cycle 9 close: **3319/3338 pass + 19 skip + 0 fail**). **Caveat
-preserved (not new):** `phase1_v3` attribution downstream of 2019 still
-rests on the CBOE corrupted-input window per ADR-045 / Q-5 — the backfill
-applied the classifier *as currently defined*; the upstream input quality
-is the operator-gated methodology decision, not a bug in this cycle's
-work. **NEXT default on `continue`:** Cycle 11 candidate per orchestration
-§8.4 follow-up — recommended path is **`/#/regime` browser smoke-test +
-post-backfill UI validation** (open the dashboard, confirm the regime
-panel now surfaces phase1_v3 attribution data, screenshot or pin any
-rendering issue). Alternative: **Phase 2 v2 spec drafting** (the design
-doc for plausibility-band probes + per-UI-route ping + auto-insert logic
-+ re-alert-on-status-transition cursor — orchestration-domain spec work
-that doesn't require Phase 2 v1 operator review to begin).
+Last updated: 2026-05-24 (session 96 #17 — **Cycle 11 of multi-agent
+orchestration executed**. Operator pivoted from the recommended Cycle 11
+default (`/#/regime` UI smoke-test) by running `npm run cboe:ingest`, which
+surfaced **HTTP 403** from the previously-working
+`https://cdn.cboe.com/api/global/us_indices/daily_prices/PUT-CALL-RATIO_History.csv`
+endpoint. **Investigation revealed two independent findings:** (a) CBOE
+moved the public put/call CSVs in 2026 to a new path
+(`/resources/options/volume_and_call_put_ratios/{totalpc,totalpcarchive}.csv`)
+while keeping the sibling VIX/SPX files on the old path — confirming this
+is a CBOE move of the put/call file specifically, not a CDN-wide change;
+(b) the new modern URL is itself **frozen** — `last-modified: 2020-10-30`
+with content ending **10/04/2019**. CBOE genuinely stopped publishing
+public daily put/call ratio data after 2019-10-04 (the file has been
+static at 4,018 trading days of coverage for ~5.5 years). **Cycle 11
+slice 1 (commit `206c649`):** Tier-1 mechanical AUTO-FIX per ADR-044 —
+updated `scripts/cboe_putcall_ingest.py` to fetch BOTH new URLs (modern
++ archive), concat under ReplacingMergeTree dedup; added URL-pin
+regression test `test_default_urls_point_to_current_cboe_path` to catch
+the next CBOE URL move at test time instead of next-daemon-run time;
+updated the script's docstring + Usage block + `--archive-url` CLI flag.
+**16/16 pass in `test_cboe_putcall_ingest.py`** (was 15/15 — +1 URL pin).
+Live ingest result: parsed 5,428 rows (archive 2,179 + modern 3,249 with
+overlap), post-merge FINAL = **4,018 unique observation_dates 2003-10-17
+→ 2019-10-04** (= identical date-range to pre-Cycle-11 state; the
+archive+modern union just refreshed `ingested_at`, no new coverage
+because the source is frozen). **Q-5 finding refinement (does NOT
+escalate to new operator row):** path (D) "re-canonicalize via free
+CBOE backfill + re-classify forward only" is now **empirically NOT
+executable** — there is no free public CBOE put/call data after
+2019-10-04 to re-classify against. Q-5 path space narrows from {A: paid
+DataShop, B: methodology amendment removing CBOE put/call, C: keep
+corrupted-input window as accepted-warning, D: free re-canonicalize} to
+**{A, B, C only}** — the operator's decision space is now smaller and
+cleaner. Cycle 11 does NOT add a new operator-queue row; the existing
+Q-5 + ADR-045 + `accepted-as-warning` quarantine row (S96-70) cover the
+methodology-level concern; the new finding is documented in S96-87 +
+S96-88 and surfaced in the Q-5 row's narrative below. **Net 39 unpushed
+commits** on top of `origin/main` (`c0cda7c`) after this HANDOFF rewrite
+(was 37 at Cycle 10 close · +1 slice 1 = 38 · +1 this HANDOFF = 39).
+**Pre-merge gate locally verified:** `npx tsc --noEmit` returns the
+documented 13 baseline errors unchanged; `npm run health:check` shows
+CBOE still very-stale (2424d, 4,018 rows) — **correctly**, because the
+freshness probe measures `max(observation_date)` not `max(ingested_at)`,
+and the source data is frozen at 2019-10-04 regardless of when we
+re-ingest. **NEXT default on `continue`:** Cycle 12 candidate per
+orchestration §8.4 — recommended path is **`/#/regime` post-backfill UI
+smoke-test** (the Cycle 10 close's deferred recommendation, still
+unblocked, still small). Alternative: **CBOE health-check description
+update** (Health-domain slice — update the freshness probe's "→ npm run
+cboe:ingest" remediation hint to reflect the frozen-source reality
+rather than implying the ingest will refresh `max(observation_date)`).
 
 ---
 
@@ -59,141 +66,159 @@ subscription / authenticated-scrape / methodology-canon-amendment gated.
 | Q-1 | First deployment of real capital — timing + initial amount | Standing decision per orchestration §7.1.1 | OPEN — operator-defined timing |
 | Q-2 | Capital-deployment-ramp ADR sign-off (the "#5 ADR") | Operator self-assigned ~1 week per s96 #13 carry-over | OPEN — operator drafting |
 | Q-3 | GAP-5 Stooq apikey gate decision — paid subscription OR canonicalize the constituent-based fallback | Audit GAP-5; orchestration §2.5 | OPEN — paid subscription gates orchestration's call |
-| Q-4 | Push 37 unpushed commits to origin/main (Cycle 10 HANDOFF brings the count to 37) | Carry-over; count updated this session | OPEN — `git push` operator-gated per CLAUDE.md hard-stop list |
-| Q-5 | phase1_v3 CBOE put/call corrupted-input window — methodology amendment OR DataShop subscription | s96 #15 Cycle 1 — Worker A (F2) escalation; ADR-045; pinned as `accepted-as-warning` quarantine row in `quantlab.health_quarantine` (S96-70); first Telegram alert fires on next live daemon run with valid TELEGRAM_BOT_TOKEN+TELEGRAM_ALERT_CHAT_ID (intended ADR-044 §infrastructure-4 first-alert semantics; one message — no re-alert via S96-72 dedupe sidecar) | OPEN — orchestration recommends path (D); operator picks among (A)/(B)/(C)/(D) |
+| Q-4 | Push 39 unpushed commits to origin/main (Cycle 11 slice 1 + this HANDOFF will be the 39th) | Carry-over; count updated this session | OPEN — `git push` operator-gated per CLAUDE.md hard-stop list |
+| Q-5 | phase1_v3 CBOE put/call corrupted-input window — methodology amendment OR DataShop subscription. **Updated Cycle 11:** path (D) "free re-canonicalize" empirically dead — CBOE moved the URL AND froze the file at 2019-10-04 (last-modified 2020-10-30). Path space is now **{A: paid DataShop, B: methodology amendment removing CBOE put/call, C: keep `accepted-as-warning` indefinitely}**. Orchestration's revised recommendation: **path (C) for now + path (B) if/when phase1_v3 is next iterated**. Path (A) DataShop is operator-call on capital allocation grounds (paid subscription) and is the only path that re-opens fresh CBOE put/call data. | s96 #15 Cycle 1 — Worker A (F2) escalation; ADR-045; pinned as `accepted-as-warning` quarantine row in `quantlab.health_quarantine` (S96-70); first Telegram alert fires on next live daemon run with valid TELEGRAM_BOT_TOKEN+TELEGRAM_ALERT_CHAT_ID. **Refined Cycle 11 by S96-87 + S96-88.** | OPEN — operator picks among (A)/(B)/(C); see Cycle 11 narrative for the source-freeze finding |
 
 **That's the entire queue.** Anything not above is the orchestration's
 to resolve. The orchestration appends rows here only when one of the
 real-money / methodology-amendment triggers in
 `docs/architecture/multi-agent-orchestration.md` §7.2 + §6.3 fires.
-**Cycle 10 added zero rows.** S96-78 closure is composite-domain
-DB-state operation (no real-money path; no DDL; no source-file diff;
-the backfill writes to `bt_runs_regime` which is a derived attribution
-table, not a real-money allowlist file per orchestration §7.2). The
-phase1_v3 attribution rows that *include CBOE-corrupted-input
-classifications* are governed by Q-5 above; this cycle did not change
-that classification logic or that quarantine row.
+**Cycle 11 added zero new operator-queue rows.** The Q-5 row's
+narrative was updated to record the source-freeze finding + narrow
+the path space; no new escalation because the underlying methodology
+concern (corrupted-input window for phase1_v3) was already on the
+queue + already pinned in `quantlab.health_quarantine` as
+`accepted-as-warning` (S96-70). The Cycle 11 finding refines the
+decision space but does not introduce a NEW unresolved item.
 
 ---
 
-## What this cycle delivered (s96 #17 Cycle 10)
+## What this cycle delivered (s96 #17 Cycle 11)
 
-### One DB-state slice + HANDOFF rewrite (2 logical units, 1 commit)
+### One code slice + HANDOFF rewrite (2 commits)
 
-**DB-state slice (no commit):** `npm run backfill:bt-regime --
---classifier-version=phase1_v3` ran end-to-end against local CH.
+**Slice 1 (`206c649`) — CBOE put/call URL repair (Tier-1 mechanical
+AUTO-FIX per ADR-044).** Two-file diff (+103 / -21):
 
-Operator's reported terminal output:
+| Path | Change | Notes |
+| --- | --- | --- |
+| `scripts/cboe_putcall_ingest.py` | edit (+80 / -19) | Updated `DEFAULT_CBOE_URL` to `https://cdn.cboe.com/resources/options/volume_and_call_put_ratios/totalpc.csv`; added `DEFAULT_CBOE_ARCHIVE_URL` for the pre-2012 archive (`totalpcarchive.csv`); refactored `main()` to fetch BOTH URLs and concat (archive fetch failure falls through to modern-only with stderr warning); added `--archive-url` CLI flag; updated docstring to document the URL move + dual-fetch behavior + frozen-source ceiling |
+| `scripts/tests/test_cboe_putcall_ingest.py` | edit (+21 / -2) | New `test_default_urls_point_to_current_cboe_path` regression test pinning both new URLs; catches the next CBOE move at test time |
+
+Total slice 1: **+103 / -21 across 2 files**. No DDL, no DML beyond
+the re-ingest, no daemon edits, no UI changes. The script's parser
+(`parse_csv`, `detect_column`, `_detect_date_column`, `_parse_cboe_date`)
+is byte-identical pre/post — only the URLs and the fetch orchestration
+changed. The CH table schema (`quantlab.macro_indicators_cboe`) is
+unchanged.
+
+**Investigation trail (preserved here for cycle audit):**
+
+1. Operator ran `npm run cboe:ingest` → script reported HTTP 403 from
+   the old `/api/global/us_indices/daily_prices/PUT-CALL-RATIO_History.csv`
+   endpoint.
+2. Probed the endpoint directly with and without a realistic Chrome
+   User-Agent: both returned HTTP 403 with body
+   `<?xml ...?><Error><Code>AccessDenied</Code>...` — the AWS S3 default
+   for "file not found / no public read". Confirmed not a UA-block or
+   rate-limit.
+3. Probed sibling files at the same CDN path:
+   - `VIX_History.csv`: HTTP 200, 468,484 bytes
+   - `SPX_History.csv`: HTTP 200, 290,917 bytes
+   Confirmed the `/api/global/us_indices/daily_prices/` namespace is open;
+   only `PUT-CALL-RATIO_History.csv` was removed.
+4. Probed standing free-data fallbacks per data-source policy:
+   - **yfinance `^CPC`**: HTTP 404 "Quote not found for symbol: ^CPC" —
+     Yahoo Finance has delisted this ticker too.
+   - **FRED `CPCE`** probe returned 400 (inline-env API-key issue; not
+     deeply investigated because finding 5 below resolved it).
+   - **Stooq `^CPC`**: returned the standard apikey-captcha gate
+     (same pattern as GAP-5 / Q-3 — no new info).
+5. Scraped the CBOE human-facing historical-data page
+   (`https://www.cboe.com/us/options/market_statistics/historical_data/`)
+   for any `put/call` href hints; found 10 new CDN URLs all at the
+   `/resources/options/volume_and_call_put_ratios/` path. Confirmed:
+   CBOE didn't pull the data behind a paywall; they **moved** it.
+6. Probed the two relevant new URLs:
+   - `totalpc.csv`: HTTP 200, 139,830 bytes, schema `DATE,CALLS,PUTS,TOTAL,P/C Ratio`
+   - `totalpcarchive.csv`: HTTP 200, 87,307 bytes, schema `Trade_date,Call,Put,Total,P/C Ratio`
+   Both header variants already in `DATE_HEADER_CANDIDATES` +
+   `DEFAULT_COLUMN_CANDIDATES`; existing parser handles them unchanged.
+7. Probed the modern file's `Last-Modified` header + tail:
+   - `last-modified: Fri, 30 Oct 2020 12:31:08 GMT`
+   - Tail row: `10/04/2019, 2175006, 2289715, 4464721, 1.05`
+   **Discovery:** the file is a static historical snapshot. CBOE
+   stopped publishing public daily put/call ratio data after
+   2019-10-04. This is the source of the ADR-045 "stale since 2019"
+   finding, refined: it's not that CBOE's URL broke and the cadence
+   missed — it's that **CBOE intentionally stopped publishing
+   publicly** ~6 years ago and the data we've been ingesting is the
+   frozen tail of that publishing era.
+
+**Slice 1 ingest verification (live ClickHouse):**
 
 ```text
-[196093/197064] 99.5% · 88.2/s · 2223s elapsed
-[196277/197064] 99.6% · 88.2/s · 2225s elapsed
-…
-[197064/197064] 100.0% · 88.2/s · 2234s elapsed
-✓ Done in 2234.2s
-  total              : 197064
-  attributed         : 197064
-  skipped (no-op)    : 0
-  errors             : 0
+cboe_putcall_ingest
+  start    : 2003-10-17
+  end      : 2026-05-24
+  source   : https://cdn.cboe.com/resources/options/volume_and_call_put_ratios/totalpc.csv
+  archive  : https://cdn.cboe.com/resources/options/volume_and_call_put_ratios/totalpcarchive.csv
+  column   : (auto-detect)
+  dry-run  : False
+  using column: 'P/C Ratio' (date: 'DATE')          ← modern file
+  using column: 'P/C Ratio' (date: 'Trade_date')    ← archive file
+  parsed   : 5,428 rows, 2003-10-17 -> 2019-10-04
+  inserted : 5,428 rows into quantlab.macro_indicators_cboe
+
+Post-merge counts in CH:
+  CPC: 4,018 rows, 2003-10-17 -> 2019-10-04
 ```
 
-Backfill characteristics:
+The 5,428 → 4,018 collapse reflects the 5.5-year overlap between
+archive (2003-10 → 2012-06) and modern (2006-11 → 2019-10); modern
+wins on overlap because it ingests last (higher `ingested_at`).
+End state: 4,018 unique observation_date rows — **identical
+date-range to pre-Cycle-11 state**; the union just refreshed
+`ingested_at`, no new coverage because the source is frozen.
 
-- **Runtime:** 2234.2s ≈ 37m 14s. Above the S96-78 lower-bound estimate
-  (5-15 min) because `phase1_v3` has a richer feature set than
-  `phase1_v2` (more CBOE+VIX+yield-curve+TIPS inputs per row).
-- **Throughput:** ~88 rows/s steady-state.
-- **Coverage:** 100% — every `bt_runs` row in CH got a corresponding
-  `phase1_v3` attribution row. Zero skips, zero errors.
+**HANDOFF rewrite (this commit):** the Cycle 11 close-out documenting
+the slice + the source-freeze finding + Q-5 path-space update.
 
-**Post-backfill verification (orchestrator-only, no commit):** inline
-`npx tsx -e` against the existing `getClickHouse()` helper to query
-`quantlab.bt_runs_regime FINAL` for four checks. Results:
-
-```text
---- rows per classifier_version ---
-  phase1_v2: 197,064
-  phase1_v3: 197,064          ← parity confirmed
-
---- phase1_v3 attribution_source split ---
-  window:              118,665
-  sentinel_no_trades:   78,399  ← matches GAP-16 / ADR-047 exactly
-
---- phase1_v3 dominant_regime ---
-  green:    118,504  (= 118,665 − 161; window-attribution majority)
-  unknown:   78,399  (= sentinel count exactly; expected)
-  yellow:       161  (the small green/yellow split within window-attribution)
-
---- phase1_v3 window dominant_share quantiles ---
-  p05: 0.532    p50: 0.828    p95: 0.950    lo: 0.469    hi: 1.000
-```
-
-**Interpretation:**
-
-1. **Row-count parity with `phase1_v2`** (197,064 = 197,064 exact)
-   confirms the backfill walked the same `bt_runs` keyset that
-   `phase1_v2` already covers; no rows skipped, no rows dropped, no
-   rows double-counted. This was the structural correctness check.
-2. **Sentinel count matches GAP-16 / ADR-047** (78,399 = 78,399 exact)
-   confirms the v3 attribution code path takes the same sentinel branch
-   as v2 for zero-trade `bt_runs` rows. The sentinel pattern was the
-   Cycle 6 finding documented in ADR-047 and explicitly preserved
-   across classifier versions.
-3. **Window dominant_share quantiles in plausible range** (p50=0.828
-   means the median run's dominant regime claims 83% of its window;
-   p05=0.532 means even the least-dominant runs still show a clear
-   majority regime). This is the plausibility check — a green-bull-
-   market dominant period across most of the historical window should
-   produce green-dominant attribution most of the time, which is
-   exactly what we observe.
-
-**HANDOFF rewrite (this commit):** the Cycle 10 close-out documenting
-the slice + verification + S96-86 lock-in.
-
-### Cycle 10 outcomes (orchestration §6 critic verdicts)
+### Cycle 11 outcomes (orchestration §6 critic verdicts)
 
 | Worker | Task | Verdict | Outcome |
 | --- | --- | --- | --- |
-| Orchestrator self-edit (per §3.1 trivial-edit exception) | S96-78 closure — single npm-script invocation + post-run CH verification query | AUTO-APPROVE (no critic spawn; the trivial-edit exception explicitly allows orchestrator-driven slices that involve no source-file diff and no canon-thin decision; the backfill itself is a deterministic operator-runnable script with documented behavior per the existing CLI surface in `package.json`) | Operator ran the script locally; orchestrator verified post-state via CH query; row-count parity + sentinel match + plausible dominant_share quantiles all confirmed. Tsc baseline 13 unchanged; health check unchanged; no source-file diff. |
+| Orchestrator self-edit (per §3.1 trivial-edit exception) | CBOE URL repair — `scripts/cboe_putcall_ingest.py` (+test pin) | AUTO-APPROVE (no critic spawn — Data-Ingest domain edit; broken-scraper structural fix matches ADR-044 Tier-1 mechanical AUTO-FIX template exactly; test regression added; live verification ran end-to-end; no real-money path file touched; no paid-data source; no auth scrape; no ADR conflict — ADR-045's "stale since 2019" framing is REFINED by Cycle 11's finding but the operative quarantine row + decision-space remain valid) | Slice committed `206c649`; live ingest succeeded; 16/16 tests pass; tsc baseline 13 unchanged; health-check shows CBOE still very-stale (correctly, source-frozen); Q-5 narrative updated to record source-freeze finding. |
 
-**Decision: no critic spawn for this slice** (orchestration §3.1 +
-§6.1). Per the trivial-edit exception:
-- No source-file diff (only the HANDOFF rewrite, which is orchestrator-
-  only per §1).
-- No canon-thin methodology decision (the backfill applies the
-  already-locked-in `phase1_v3` classifier without re-tuning anything).
-- No real-money path file touched (per §7.2 allowlist).
-- No paid-data source, no auth scrape.
-- No ADR conflict (the existing ADRs documenting `phase1_v3` are
-  unchanged).
-- No new test required (the backfill code path is exercised by the
-  existing `npm run backfill:bt-regime` tests; the cycle's verification
-  is a query, not new code).
+**Decision: no critic spawn for this slice.** Per orchestration §3.1 +
+§6.1 + ADR-044 Tier-1 mechanical AUTO-FIX template:
+- Broken-scraper structural fix is the canonical Tier-1 example in
+  ADR-044's policy text.
+- No source-file canon-thin decision (methodology-canon ADRs are
+  unchanged; ADR-045 is REFINED in narrative but not amended in this
+  cycle — the source-freeze finding may motivate a Cycle 13 ADR-045
+  amendment if path (B) gets picked).
+- No real-money path file touched per §7.2 allowlist.
+- No paid-data source, no auth scrape, no new dependency.
+- Regression test added (16/16 pass, +1 from 15/15) — the standard
+  mechanical-AUTO-FIX template includes test coverage of the fix.
+- Live verification ran against production CH; orchestrator-only
+  self-review confirmed pre/post state symmetry except for the URL
+  diff + `ingested_at` refresh.
 
-Critic spawn for a zero-source-diff slice would have added orchestration
-overhead without proportionate signal gain. The §3.1 trivial-edit
-exception covers exactly this case.
+Critic spawn for a broken-scraper template fix would have added
+orchestration overhead without proportionate signal gain.
 
 ### Verification gates at cycle close
 
 ```text
-git status                                                                          # clean (1 HANDOFF rewrite pending, no other changes)
-npx tsc --noEmit                                                                    # 13 baseline errors (unchanged from s96 #17 Cycle 9 close; same files: _check_constituent_cleanup.ts, _cleanup_polluted_constituents.ts, _diagnose_constituent_pollution.ts, _verify_sp500_constituents_ddl.ts)
-npm run health:check                                                                # post-Cycle-10 baseline: same set as Cycle 9 close; no NEW Tier-2 from the backfill
+git status                                                                          # clean (1 slice committed; HANDOFF pending this rewrite)
+npx tsc --noEmit                                                                    # 13 baseline errors (unchanged from s96 #17 Cycle 10 close)
+.venv/Scripts/python.exe -m pytest scripts/tests/test_cboe_putcall_ingest.py -v     # 16/16 pass (was 15/15 at s96 #17 Cycle 10 close — +1 URL pin test)
+npm run health:check                                                                # CBOE still very-stale 2424d 4,018 rows (CORRECT — source frozen)
+npm run cboe:ingest                                                                 # end-to-end ran clean; 5,428 → 4,018 unique
+inline curl: totalpc.csv tail                                                       # last-modified 2020-10-30, content ends 10/04/2019
 git worktree list                                                                   # main only (no worker spawned this cycle)
-inline CH query: rows per classifier_version                                        # phase1_v2: 197,064 · phase1_v3: 197,064 (parity)
-inline CH query: phase1_v3 attribution_source                                       # window: 118,665 · sentinel_no_trades: 78,399 (matches ADR-047)
-inline CH query: phase1_v3 dominant_regime                                          # green: 118,504 · yellow: 161 · unknown: 78,399
-inline CH query: phase1_v3 window dominant_share quantiles                          # p05: 0.532 · p50: 0.828 · p95: 0.950
 ```
 
 ### Per-suite breakdown at cycle close
 
 ```text
 npm test (full suite)                                  3319/3338 pass + 19 skip + 0 fail
-                                                       ← NOT re-run this cycle (no source-file diff)
-                                                       ← last green at Cycle 9 close: same numbers
-                                                       ← will re-run on next source-file slice
+                                                       ← NOT re-run this cycle (only a python-side change; no TS source-file diff)
+                                                       ← last green at Cycle 9/10 close: same numbers
+test_cboe_putcall_ingest.py (targeted)                16/16 pass + 0 fail
+                                                       ← was 15/15 at s96 #17 Cycle 10 close (+1 URL pin test)
 gicsSectorRepositoryHelper.test.ts (targeted)         13/16 pass + 3 skip + 0 fail
                                                        ← unchanged from Cycle 9 close
 btRunsRegime.test.ts                                   19/19 pass    (unchanged from Cycle 6)
@@ -202,24 +227,21 @@ regimeDashboard.test.ts                                37/37 pass    (unchanged 
 all Cycle 3-touched suites                            472/472 pass   (unchanged from Cycle 4 close)
 ```
 
-### Post-Cycle-10 health snapshot
+### Post-Cycle-11 health snapshot
 
-Identical to Cycle 9 close. No new probes, no new tables, no new freshness
-classes. The DB-state change (phase1_v3 attribution rows in
-`bt_runs_regime`) is a derived-attribution write — `bt_runs_regime` is
-not on the health-check freshness probe list (it's a backfill-cadence
-table, not a daily-cadence table), so the cycle's work does not surface
-in the health snapshot. This is expected.
+Identical to Cycle 10 close. The CBOE re-ingest refreshed `ingested_at`
+but did not change `max(observation_date)` (= 2019-10-04 → still
+2,424d very-stale per the probe). All other freshness classes
+unchanged.
 
 - **Fresh:** 1 source (`Wikipedia/fja05680 S&P 500 constituents`).
 - **Stale (informational, ~2-4d since last `npm run daemon:daily` run):**
-  Candles (2.1d), Cross-asset (2.1d), Cycle position (2.1d), ETF v3.1
-  SSGA secondary (3.1d), FRED (3.1d), Form 4 trades (8.8d), Live
-  paper-trading signals (35.6h), Macro regime phase1_v3 (2.1d), Sector
-  rotation (2.1d), Vol structure (2.1d). All clear on next
+  Candles, Cross-asset, Cycle position, ETF v3.1 SSGA secondary, FRED,
+  Form 4 trades, Live paper-trading signals, Macro regime phase1_v3,
+  Sector rotation, Vol structure. All clear on next
   `npm run daemon:daily`.
-- **Very-stale:** CBOE put/call 2,424d (Q-5 blocked; pinned as Tier-2
-  `accepted-as-warning` row in `quantlab.health_quarantine`).
+- **Very-stale:** CBOE put/call 2,424d (Q-5 narrative refined this
+  cycle — see Q-5 row above + S96-88 lock-in below).
 - **Never-populated:** 11 raw + composite snapshot tables + the
   `health_quarantine_alerts_sent` sidecar.
 - **Missing-table:** raw `executive_departures` + raw
@@ -228,9 +250,9 @@ in the health snapshot. This is expected.
 
 ### Push state
 
-- `origin/main` at `c0cda7c`; **37 unpushed commits** after s96 #17
-  Cycle 10 HANDOFF rewrite (was 36 at s96 #17 Cycle 9 close, +0 Cycle
-  10 source-file diff = 36, +1 this HANDOFF = 37).
+- `origin/main` at `c0cda7c`; **39 unpushed commits** after s96 #17
+  Cycle 11 HANDOFF rewrite (was 37 at Cycle 10 close, +1 slice 1 = 38,
+  +1 this HANDOFF = 39).
 - Push is operator-gated (Q-4 above).
 
 ---
@@ -259,11 +281,14 @@ in the health snapshot. This is expected.
 | Cycle 7 — GAP-17 orphan-script cleanup (2 deletions + 1 rename + 1 reclassified-leave-as-is) | ✓ s96 #17 |
 | Cycle 8 — GAP-10 CI/CD baseline (`.github/workflows/ci.yml`) + S96-76 grep-assertion follow-up | ✓ s96 #17 |
 | Cycle 9 — OQ-SMP-1 closure (gics_sector_repository_helper SQL shadow-alias fix + GST-1 EXPLAIN-clean pin) | ✓ s96 #17 |
-| **Cycle 10 — S96-78 closure (`phase1_v3` bt_runs_regime backfill: 197,064 rows attributed)** | **✓ s96 #17** |
-| Cycle 11 — `/#/regime` post-backfill UI smoke-test OR Phase 2 v2 spec drafting | ☐ NEXT default (recommended UI smoke-test) |
-| Phase 2 v2 — plausibility-band probes + per-UI-route ping + auto-insert logic + re-alert-on-status-transition cursor (impl) | ☐ deferred per S96-71 (spec can begin in Cycle 11) |
-| F2 CBOE backfill + re-classify | ⏸ blocked on Q-5 operator decision |
-| Composite worker (Cycle 1 follow-up phase1_v3 re-classify) | ⏸ blocked on Q-5 |
+| Cycle 10 — S96-78 closure (`phase1_v3` bt_runs_regime backfill: 197,064 rows attributed) | ✓ s96 #17 |
+| **Cycle 11 — CBOE put/call URL repair + source-freeze finding (S96-87 + S96-88; Q-5 path space narrowed to {A,B,C})** | **✓ s96 #17** |
+| Cycle 12 — `/#/regime` post-backfill UI smoke-test OR CBOE health-check description update | ☐ NEXT default (recommended UI smoke-test) |
+| Cycle 13+ — ADR-045 amendment recording the CBOE source-freeze finding (only if operator picks Q-5 path B) | ☐ deferred — operator decision drives whether the amendment is the right scope |
+| Phase 2 v2 — plausibility-band probes + per-UI-route ping + auto-insert logic + re-alert-on-status-transition cursor (impl) | ☐ deferred per S96-71 (spec can begin in later cycle) |
+| GAP-3 — CBOE put/call daemon hook (post-URL-fix; promote to step 1b'' between FRED + classifier) | ☐ low priority — source is frozen so daemon cadence has no fresh-data signal to publish; still valid to wire if CBOE ever resumes |
+| F2 CBOE backfill + re-classify (Q-5 path D) | ⛔ EMPIRICALLY DEAD — Cycle 11 confirmed source frozen 2019-10-04; path removed from solution space |
+| Composite worker (Cycle 1 follow-up phase1_v3 re-classify) | ⏸ blocked on Q-5 operator pick among A/B/C (path D removed Cycle 11) |
 | Gap #9 v3.1 iShares/Vanguard/Invesco adapters | ⛔ deferred — Playwright-decision operator-gated (OQ-G9-4) |
 | C-12 Phase B AlpacaAdapter | ⏸ INDEFINITELY PAUSED — operator-gated |
 | Phase B campaigns for nine Layer-0 composites | ⏸ deferred — operator-gated |
@@ -274,45 +299,82 @@ in the health snapshot. This is expected.
 
 ## Decisions locked in
 
-### Session 96 #17 (Cycle 10 of multi-agent orchestration)
+### Session 96 #17 (Cycle 11 of multi-agent orchestration)
 
-**S96-86. `bt_runs_regime` now has full `phase1_v3` attribution
-coverage (197,064 rows, parity with `phase1_v2`).** Cycle 10 ran
-`npm run backfill:bt-regime -- --classifier-version=phase1_v3` to
-completion (2234.2s · 0 errors · 0 skips · 88.2 rows/s steady-state).
-Post-backfill CH verification confirms row-count parity, attribution-
-source split (118,665 window + 78,399 sentinel — sentinel count matches
-ADR-047 / GAP-16 exactly), dominant-regime distribution (118,504 green
-+ 161 yellow + 78,399 unknown), and plausible window dominant_share
-quantiles (p05=0.532 · p50=0.828 · p95=0.95). `Why:` operator visibility
-into `phase1_v3` regime attribution was zero-coverage in the
-`bt_runs_regime` panel until this cycle; backfill makes the panel
-actually informative for the v3 classifier (which is the source-of-
-truth classifier per ADR-046 / GAP-8 / S96-75). The backfill is a pure
-DB-state operation against a derived attribution table — not a real-
-money path file per orchestration §7.2, not a methodology amendment
-(`phase1_v3` itself was already locked in pre-Cycle 10). `How to
-apply:` (1) When future cycles add a new classifier_version (`phase1_v4`,
-etc.), run the same backfill pattern: `npm run backfill:bt-regime --
---classifier-version=<version>` — single npm-script invocation, no
-worker spawn needed (orchestration §3.1 trivial-edit exception). (2)
-Always verify post-backfill via inline CH query for row-count parity
-with the prior version + sentinel-count match against ADR-047 + plausible
-dominant_share quantiles — this is the standing verification pattern
-for any classifier backfill. (3) Backfill is NOT a real-money path
-operation per §7.2; do not escalate to operator queue for the backfill
-itself, only for any upstream classifier-methodology amendment that
-would require Q-5-style operator gate. **Carry-over (not new):**
-`phase1_v3` attribution downstream of 2019 still rests on the CBOE
-corrupted-input window per ADR-045 / Q-5 — the backfill applied the
-classifier *as currently defined*; the corrupted-input window is
-documented in `quantlab.health_quarantine` as `accepted-as-warning`
-(S96-70) and remains Q-5's responsibility, not Cycle 10's. The
-backfilled rows for runs spanning 2019+ inherit that corruption; no
-new quarantine row needed because the existing pin already covers the
-methodology-level concern.
+**S96-87. CBOE moved the public put/call CSVs in 2026 from
+`/api/global/us_indices/daily_prices/PUT-CALL-RATIO_History.csv` to
+`/resources/options/volume_and_call_put_ratios/{totalpc,totalpcarchive}.csv`.**
+The old path now returns AWS S3 `AccessDenied` (the file is removed
+from the bucket); sibling files at the old path (VIX, SPX) still
+resolve, so this is a CBOE-side move of the put/call file
+specifically, not a CDN-wide change. The new file pair: `totalpc.csv`
+covers 2006-11-01 → 2019-10-04 (frozen — see S96-88); `totalpcarchive.csv`
+covers 2003-10-17 → 2012-06-07 (genuinely historical archive).
+`scripts/cboe_putcall_ingest.py` (Cycle 11 slice 1, commit `206c649`)
+now fetches BOTH and concatenates; ReplacingMergeTree on
+(series_id, observation_date) collapses the 5.5-year overlap with
+modern winning on `ingested_at` ordering. **Regression test
+`test_default_urls_point_to_current_cboe_path`** pins the new URL
+pair so the NEXT CBOE move surfaces at test time, not at next-daemon-
+run time. `Why:` ADR-044 Tier-1 mechanical AUTO-FIX template — "a
+broken scraper whose target site changed structurally → repair the
+parser + add a regression test + alert the operator that a scraper
+changed shape (informational, not blocking)". The dual-fetch
+orchestration handles the 2003-2006 backfill window that the modern
+file alone is missing. `How to apply:` (1) When any CBOE CDN file
+returns AWS S3 AccessDenied with body `<Error><Code>AccessDenied</Code>...`,
+the FIRST probe is "scrape the human-facing CBOE historical-data
+page" (`https://www.cboe.com/us/options/market_statistics/historical_data/`) —
+that page advertises the current CSV URLs. (2) Always pair the URL
+update with a constant-pinning test that fails LOUDLY if the URLs
+drift; same pattern as the GST-1 EXPLAIN-clean pin from Cycle 9. (3)
+When CBOE publishes a "modern" + "archive" file pair (the standard
+pattern for their historical CSVs), default to fetching both and
+concatenating; the 5.5-year overlap is the cheapest insurance against
+either file going dark independently.
 
-**Carry-overs (still in force):** S96-1..S96-85; S95-1..S95-50;
+**S96-88. CBOE genuinely stopped publishing public daily put/call
+ratio data after 2019-10-04; the public file has been frozen at 4,018
+trading days of coverage with `last-modified: 2020-10-30` for ~5.5
+years.** This refines the ADR-045 "phase1_v3 CBOE put/call corrupted-
+input window 2019-2026" finding from "the URL broke and the cadence
+missed" to "**CBOE removed the publishing cadence entirely**". The
+practical impact: Q-5 path (D) "re-canonicalize via free CBOE backfill
++ re-classify forward only" is **empirically NOT executable** because
+there is no free public CBOE put/call data after 2019-10-04 to
+re-classify against. `Why:` directly observed via `curl -sS -I
+totalpc.csv` (Last-Modified header) + tail inspection of the file's
+content. The file's permanent freeze ~6 years ago without any
+operator-visible announcement is the kind of upstream-source-policy
+change that the standing [HEALTH] role exists to surface; ADR-044's
+"upstream input fully unavailable" maps to this case but is not
+explicitly a Tier-2 quarantine trigger because the existing pin row
+(S96-70) already covers the methodology-level concern. `How to apply:`
+(1) **Q-5 path space is now {A: paid DataShop, B: methodology
+amendment removing CBOE put/call from phase1_v3, C: keep
+`accepted-as-warning` indefinitely}**. Path (D) is removed. (2)
+Orchestration's revised recommendation for Q-5: **path (C) for now +
+path (B) when phase1_v3 is next iterated**. Path (A) DataShop is
+operator-call on capital allocation grounds and is the only path
+that re-opens fresh CBOE put/call data. (3) The existing
+`quantlab.health_quarantine` Q-5 pin row (S96-70) was NOT updated
+this cycle — its `note` describes the methodology-level concern,
+which is unchanged; the source-freeze finding refines the
+decision-space but doesn't change the row's status. Cycle 12+ may
+update the pin row's narrative if the operator picks path (B). (4)
+The `npm run health:check` freshness probe correctly continues to
+flag CBOE put/call as "very-stale 2424d" because it measures
+`max(observation_date)` which is genuinely 2019-10-04; the
+remediation hint "→ npm run cboe:ingest" is now misleading
+(running the ingest won't help — Cycle 12 candidate is updating
+the hint to "frozen at source 2019-10-04; see Q-5"). (5) Future
+ingest cycles should still run `npm run cboe:ingest` periodically
+(daemon cadence per GAP-3, if/when wired) because if CBOE ever
+**resumes** publishing publicly, we want to be ready — but treat
+the staleness as a permanent feature of the data path, not a
+solvable problem.
+
+**Carry-overs (still in force):** S96-1..S96-86; S95-1..S95-50;
 S94-1..S94-33; S93-1..S93-54; all prior s73-s92 lock-ins.
 
 ---
@@ -323,9 +385,7 @@ S94-1..S94-33; S93-1..S93-54; all prior s73-s92 lock-ins.
 
 - **OQ-SMP-1 — `readSectorMembershipPanel` query rejected by CH EXPLAIN
   PLAN with `There is no supertype for types String, Date`.** CLOSED
-  in Cycle 9 by `b65afd4` (3 SELECT-clause edits dropping redundant
-  `toString()` + GST-1 EXPLAIN-clean regression test added). Anti-pattern
-  pinned in S96-84.
+  in Cycle 9 by `b65afd4`.
 - **OQ-RECON-1..OQ-RECON-19** — closed by orchestration §2 classifications (s96 #14).
 - **OQ-G9-4** — v3.1 arc continuation for non-SSGA issuers; Playwright dep operator-gated.
 - **OQ-XD13-1/2/3** — Phase B independence + filer-reputation + aggregate slicing.
@@ -334,7 +394,7 @@ S94-1..S94-33; S93-1..S93-54; all prior s73-s92 lock-ins.
 ### CARRIED (long-running)
 
 - C-12 Phase B Alpaca onboarding — paused indefinitely (operator-gated).
-- CBOE DataShop subscription — now coalesces with Q-5 path (A).
+- CBOE DataShop subscription — now coalesces with Q-5 path (A); **the only path that re-opens fresh CBOE put/call data per Cycle 11 S96-88**.
 - Capital-deployment-ramp ADR — Q-2.
 - Schema-migration bootstrap-only.
 - ML meta-labeling (ADR-017, deferred ≥4 weeks).
@@ -346,62 +406,58 @@ S94-1..S94-33; S93-1..S93-54; all prior s73-s92 lock-ins.
 - OQ-G2-2 — EDGAR-amendment forensic tooling default.
 - Phase 2 v2 — plausibility-band probes + per-UI-route ping + auto-insert + re-alert-on-status-transition cursor (impl deferred per S96-71; spec drafting unblocked).
 - Root cause of `bt_runs.trades > 0` AND `bt_trades` empty divergence (Cycle 6 surfaced; not investigated — three plausible causes listed in ADR-047 §"The semantic surprise"; deferred until a downstream consumer needs to know).
+- **NEW Cycle 11 carry:** CBOE put/call source-freeze finding (S96-88)
+  — Q-5 path (D) empirically dead; orchestration recommends path (C)
+  + future path (B) when phase1_v3 is iterated. Operator decision
+  required.
 
 ---
 
 ## Next stage
 
-### Default on `continue` — Cycle 11 candidate (recommended `/#/regime` UI smoke-test)
+### Default on `continue` — Cycle 12 candidate (recommended `/#/regime` UI smoke-test)
 
-With S96-78 closed and `bt_runs_regime` now containing full `phase1_v3`
-attribution coverage, the standing follow-up queue is:
+With Cycle 11's CBOE URL repair shipped and Q-5 path space narrowed,
+the standing follow-up queue is:
 
-1. **`/#/regime` post-backfill UI smoke-test (RECOMMENDED).** Open
-   `http://localhost:3000/#/regime` in the browser; confirm the regime
-   panel now surfaces `phase1_v3` attribution data correctly (per
-   ADR-046 / GAP-8 / S96-75, `regime_dashboard.ts` hardcodes
-   `phase1_v3` as the source-of-truth classifier; the panel should now
-   show meaningful per-regime stats instead of empty rows). This is the
-   end-to-end validation that Cycle 10's DB-state change closes the
-   loop from operator-visible UI back to the freshly-backfilled
-   attribution data. If a rendering bug surfaces, that becomes Cycle 11
-   slice 1 (UI worker spawn or orchestrator self-edit depending on
-   scope). If the panel renders correctly, document the validation +
-   move on to Cycle 12 candidate. **Per orchestration §4.3 + ADR-044
-   §UI correctness, this is the standing UI-validation pattern — every
-   slice with a UI surface gets a browser smoke-test before the cycle
-   declares done; Cycle 10 deferred the UI side because the cycle had
-   no UI work, but the panel re-renders Cycle 10's DB state on every
-   load, so validating it post-backfill is the natural Cycle 11
-   open.**
-2. **Phase 2 v2 spec drafting (ALTERNATIVE).** The plausibility-band
-   probes + per-UI-route ping + auto-insert logic + re-alert-on-status-
-   transition cursor design doc — orchestration-domain spec work that
-   doesn't require Phase 2 v1 operator review to begin. Implementation
-   stays deferred per S96-71; the spec itself can be written.
-3. **Drift remediation (REACTIVE).** Any new Tier-2 quarantine items
+1. **`/#/regime` post-backfill UI smoke-test (RECOMMENDED, carry-over
+   from Cycle 10 close).** Open `http://localhost:3000/#/regime` in
+   the browser; confirm the regime panel now surfaces `phase1_v3`
+   attribution data correctly per ADR-046 / GAP-8 / S96-75 (the panel
+   hardcodes `phase1_v3` as source-of-truth). Cycle 10 added 197,064
+   `phase1_v3` attribution rows to `bt_runs_regime`; Cycle 11 pivoted
+   to CBOE work before the smoke-test ran. This closes the end-to-end
+   validation loop on Cycle 10's DB-state change. Small, self-contained;
+   no operator gate.
+2. **CBOE health-check description update (ALTERNATIVE).** Health-domain
+   slice — update the freshness probe's `→ npm run cboe:ingest`
+   remediation hint to reflect the frozen-source reality from S96-88.
+   Current text implies running the ingest will refresh the staleness;
+   after Cycle 11 we know that's empirically false. New hint should
+   point to Q-5 / DataShop subscription as the only path that
+   re-opens fresh data. Touches `src/server/health_check.ts` per the
+   orchestration §1 Health domain ownership; ~10-LOC edit.
+3. **Phase 2 v2 spec drafting (DEFERRED).** Implementation stays
+   deferred per S96-71; the spec itself can be written.
+4. **Drift remediation (REACTIVE).** Any new Tier-2 quarantine items
    surfaced by `npm run health:check` between sessions.
-4. **`settings.json` worker-base configuration (DEFERRED).** Per S96-85,
-   the `worktree.baseRef: head` config change would eliminate the
-   worktree-base-mismatch class of problems for future worker spawns.
-   Default per S96-85 is to defer until the third hit of the pattern;
-   Cycle 9 was the first, Cycle 10 didn't spawn a worker, so this is
-   still deferred.
+5. **GAP-3 CBOE daemon hook (LOW PRIORITY now).** Post-S96-88, the
+   daemon cadence has no fresh-data signal to publish (source is
+   frozen); wiring it would just refresh `ingested_at` on every daily
+   run. Still valid to wire if CBOE ever resumes; not urgent.
+6. **`settings.json` worker-base configuration (DEFERRED).** Per
+   S96-85, defer until the third hit of the worktree-base-mismatch
+   pattern; Cycle 11 didn't spawn a worker (orchestrator self-edit
+   per §3.1 trivial-edit exception).
 
-Plausible spawn pattern for Cycle 11 option 1: trivial orchestrator
-self-edit (open browser, observe, screenshot/document; pin any
-finding via Edit if remediation is small) per §3.1 trivial-edit
-exception. Worker spawn only if the panel surfaces a non-trivial UI
-bug requiring multi-file changes.
+**Why `/#/regime` smoke-test over the CBOE health-check description
+update:** the smoke-test has been queued for two consecutive cycles
+(Cycle 10 recommended it for Cycle 11; Cycle 11 pivoted to CBOE);
+shipping it next preserves the recommended-default discipline.
+The CBOE description update is small enough that it can be Cycle 13
+or paired with another Health-domain slice without losing momentum.
 
-**Why `/#/regime` smoke-test over Phase 2 v2 spec:** the smoke-test
-closes the validation loop on Cycle 10's work (end-to-end UI → data
-visibility). Phase 2 v2 spec drafting is bigger scope, doesn't have a
-forcing function, and can wait. The smoke-test is also small enough
-that if the panel renders correctly, Cycle 11 closes quickly and Cycle
-12 can pick up Phase 2 v2 spec drafting as the substantive cycle.
-
-### Alternative — Cycle 11 could instead pivot to ANY orchestration-domain follow-up
+### Alternative — Cycle 12 could instead pivot to ANY orchestration-domain follow-up
 
 The orchestration is free to defer the smoke-test if the operator
 returns with a different priority — `continue` re-enters from this
@@ -411,46 +467,46 @@ section and the recommendation isn't a halt-gate.
 
 ## Files / code state
 
-### New / modified this cycle (s96 #17 Cycle 10)
+### New / modified this cycle (s96 #17 Cycle 11)
 
 | Path | Change | Notes |
 | --- | --- | --- |
-| `.claude/HANDOFF.md` | rewrite | This file; new S96-86 lock-in; operator queue Q-4 counter updated to 37; Cycle 10 chain entry added; Cycle 11 recommended path documented |
+| `scripts/cboe_putcall_ingest.py` | edit (+80 / -19) | URL constants updated + dual-fetch orchestration + docstring + `--archive-url` CLI flag (slice 1 `206c649`) |
+| `scripts/tests/test_cboe_putcall_ingest.py` | edit (+21 / -2) | New URL-pin regression test (slice 1 `206c649`) |
+| `.claude/HANDOFF.md` | rewrite | This file; new S96-87 + S96-88 lock-ins; operator queue Q-4 counter → 39; Q-5 narrative refined; Cycle 11 chain entry added; Cycle 12 recommended path documented |
 
-**Source-file diff: zero.** Cycle 10 is a pure DB-state operation
-(backfill writes to `bt_runs_regime`); the npm script that performs
-the backfill (`scripts/backfill_bt_runs_regime*.ts` per
-`package.json`'s `backfill:bt-regime` entry) was not modified — it
-was simply invoked. The HANDOFF rewrite is the only file change.
+Total: **+103 / -21 across 2 source-file edits + 1 HANDOFF rewrite**.
 
 ### DB-state changes this cycle
 
 | Table | Operation | Volume | Notes |
 | --- | --- | --- | --- |
-| `quantlab.bt_runs_regime` | INSERT (backfill) | +197,064 rows with `classifier_version='phase1_v3'` | Pure additive write; no UPDATE, no DELETE; pre-existing `phase1_v2` rows untouched |
+| `quantlab.macro_indicators_cboe` | INSERT (re-ingest via slice 1 verification) | 5,428 rows inserted; post-merge FINAL = 4,018 unique observation_dates (overlap dedupped) | Pure additive write; no UPDATE, no DELETE; `ingested_at` refreshed for all rows; `max(observation_date)` unchanged at 2019-10-04 (source frozen per S96-88) |
 
 ### Test + tsc state
 
 - `npm test`: **3319/3338 pass + 19 skip + 0 fail** (NOT re-run this
-  cycle — no source-file diff; last green at Cycle 9 close).
-- `gicsSectorRepositoryHelper.test.ts` (targeted): **13/16 pass + 3
-  skip + 0 fail** (unchanged from Cycle 9 close).
-- `btRunsRegime.test.ts`: **19/19 pass** (unchanged from Cycle 6).
-- `test_train_meta_label.py`: **33/33 pass** (unchanged from Cycle 7).
-- All Cycle 3/4/5/6/7/8/9-touched suites: **unchanged** (no test files
-  in their domains touched this cycle).
-- `npx tsc --noEmit`: **13 baseline errors unchanged** (all in unrelated
-  `_check_*.ts` / `_verify_*.ts` / `_cleanup_*.ts` / `_diagnose_*.ts`).
+  cycle — only python-side changes; no TS source-file diff; last green
+  at Cycle 9/10 close).
+- `test_cboe_putcall_ingest.py` (targeted): **16/16 pass + 0 fail**
+  (was 15/15 at Cycle 10 close; +1 URL pin).
+- All Cycle 3/4/5/6/7/8/9/10-touched suites: **unchanged** (no test
+  files in their domains touched this cycle).
+- `npx tsc --noEmit`: **13 baseline errors unchanged** (all in
+  unrelated `_check_*.ts` / `_verify_*.ts` / `_cleanup_*.ts` /
+  `_diagnose_*.ts`).
 - `npm run check:help`: not re-run this cycle (no help-doc-touching
   source change).
 - Quartz patch grep: **both Patch 1 + Patch 2 present** (unchanged).
-- Health check delta: **zero**. No new tables, no new probes, no new
-  freshness classes, no new Tier-2 quarantine rows.
+- Health check delta: **zero functional change** — CBOE still flagged
+  very-stale 2424d 4,018 rows (CORRECT per S96-88; source frozen).
 
 ### Untouched-but-relevant for next session
 
 - The Q-5 row in `quantlab.health_quarantine` still loaded for first
   Telegram alert on next live daemon run with valid Telegram creds.
+  Cycle 11 did NOT update this row's narrative; the source-freeze
+  finding is in HANDOFF + S96-88 only.
 - `quantlab.executive_departures` raw source table still missing
   (carry-over from S96-65); created by 8-K Item 5.02 ingest on first
   daemon step 1i-pre run.
@@ -458,17 +514,19 @@ was simply invoked. The HANDOFF rewrite is the only file change.
   (Cycle 2 carry-over); created on first daemon step 1h-pre Monday run.
 - The brief §0 system-health digest block ABOVE §1 macro regime still
   surfaces on the operator's first look at the brief.
-- **NEW:** `bt_runs_regime` now has **197,064 `phase1_v3` attribution
-  rows** alongside the pre-existing **197,064 `phase1_v2` rows**. The
-  `/#/regime` panel hardcodes `phase1_v3` as source-of-truth per
-  ADR-046; Cycle 11's recommended smoke-test validates that the panel
-  now surfaces this data.
-- The `phase1_v3` backfill applied the classifier *as currently
-  defined* — including the CBOE-corrupted-input window 2019-2026 per
-  ADR-045 / Q-5. The corrupted-input concern is documented in the
-  existing `accepted-as-warning` quarantine row (S96-70); no new
-  quarantine row was added by Cycle 10 because the methodology-level
-  concern is already pinned.
+- `bt_runs_regime` has full `phase1_v3` attribution coverage (197,064
+  rows; Cycle 10 / S96-86). The `/#/regime` panel hardcodes
+  `phase1_v3` as source-of-truth; Cycle 12's recommended smoke-test
+  validates the panel surfaces this data.
+- **NEW:** `quantlab.macro_indicators_cboe` `ingested_at` is now
+  refreshed to today across all 4,018 rows; `max(observation_date)`
+  is 2019-10-04 unchanged (S96-88 frozen source).
+- The `scripts/cboe_putcall_ingest.py` script now requires no
+  operator flag for the dual-fetch behavior; default invocation
+  fetches both modern + archive. `--archive-url` exists for override.
+- The new URL-pin regression test (`test_default_urls_point_to_current_cboe_path`)
+  will fail LOUDLY if CBOE moves the URLs again — surfacing the move
+  at test time, not at next-daemon-run time.
 - Sharadar architectural documentation in production code (`clickhouse.ts`
   SOURCE_PRIORITY enum + forward-looking comments) preserved per S96-80.
 - ADR-005 freeze record persists in `MASTER.html §6`.
@@ -477,8 +535,7 @@ was simply invoked. The HANDOFF rewrite is the only file change.
   yet (no README at repo root to host one — add when/if one is created).
 - `src/server/gics_sector_repository_helper.ts` contains the Cycle 9
   fix (3 SELECT-clause edits dropping `toString(<Date col>) AS
-  <same_name>`); future cycles that grep for `toString(` in CH SQL
-  helpers should NOT re-introduce the anti-pattern per S96-84.
+  <same_name>`); S96-84 anti-pattern rule applies.
 - GST-1 + SMP-6 EXPLAIN-clean tests in
   `scripts/tests/gicsSectorRepositoryHelper.test.ts` will pin the
   Cycle 9 fix once `quantlab.gics_sector_map` is populated; until then
@@ -488,46 +545,48 @@ was simply invoked. The HANDOFF rewrite is the only file change.
 
 ## Watch-outs
 
-### NEW from this cycle (s96 #17 Cycle 10)
+### NEW from this cycle (s96 #17 Cycle 11)
 
-- **`phase1_v3` attribution downstream of 2019 inherits the
-  CBOE-corrupted-input window** (carry-over from ADR-045 / Q-5,
-  re-surfaced as a fresh-data caveat now that the rows exist). Any
-  Cycle 11+ consumer of the `bt_runs_regime` panel under
-  `classifier_version='phase1_v3'` for `bt_runs` spanning 2019+ is
-  reading attribution computed against CBOE put/call inputs that are
-  themselves stale-from-2019. The existing `accepted-as-warning`
-  quarantine row (S96-70) pins this at the methodology level; the
-  Cycle 10 backfill did not change the classifier and did not add a
-  new quarantine row, but the operator should be aware that the
-  attribution rows are now visible in the UI and the caveat applies
-  to anyone interpreting them. **Mitigation:** if Cycle 11's UI
-  smoke-test reveals a clearer way to flag the corrupted-input window
-  in the regime panel (e.g., a visual marker on the 2019-2026 span),
-  that becomes a Cycle 11 slice 1 follow-up; otherwise the existing
-  quarantine row remains the canonical surface.
-- **Backfill runtime ~37 min** (88.2 rows/s steady-state) is slower
-  than the S96-78 estimate's lower bound (5-15 min) because
-  `phase1_v3` features are richer than `phase1_v2` (more CBOE+VIX+
-  yield-curve+TIPS inputs per row). Future backfills against the
-  same table should expect similar runtime per classifier version.
-  **Mitigation:** for `phase1_v4+` versions, consider adding a
-  `--parallelism=<N>` flag to the backfill script if runtime becomes
-  a constraint; not needed yet for v3.
-- **The backfill is non-idempotent in the sense that re-running the
-  same `--classifier-version=phase1_v3` invocation would attempt to
-  re-write the same rows** (ReplacingMergeTree semantics handle the
-  deduplication via FINAL, but the write volume is repeated). For
-  routine cadences (post-`bt_runs` ingest), the backfill should be
-  driven by a "missing rows only" filter, not re-running over the full
-  keyset. **Mitigation:** the existing `npm run backfill:bt-regime:dry`
-  flag should be used to confirm candidate count before any re-run; a
-  future enhancement could add `--only-missing` semantics if re-runs
-  become routine.
+- **CBOE public put/call data is permanently frozen at 2019-10-04**
+  (S96-88). Any future analyst reading `quantlab.macro_indicators_cboe`
+  should know the `max(observation_date)` ceiling is the source's
+  publishing cadence, not our ingest cadence. The health-check probe
+  surfaces this as "very-stale 2424d" but the `→ npm run cboe:ingest`
+  remediation hint is misleading post-Cycle-11 (Cycle 12 candidate is
+  fixing the hint).
+- **Q-5 path (D) is removed from solution space.** Any future cycle
+  that finds itself recommending "free CBOE backfill + re-classify
+  forward" should reject that path and re-read S96-88. The only paths
+  remaining are {A: paid DataShop, B: methodology amendment, C: keep
+  `accepted-as-warning` indefinitely}.
+- **The Cycle 11 URL-pin regression test (`test_default_urls_point_to_current_cboe_path`)
+  will fail any time CBOE moves the URLs again.** When that happens,
+  the workflow is: (1) probe the human-facing CBOE historical-data
+  page for the new URLs; (2) update `DEFAULT_CBOE_URL` +
+  `DEFAULT_CBOE_ARCHIVE_URL`; (3) update the test's expected URLs;
+  (4) re-run pytest to confirm; (5) re-run `npm run cboe:ingest`
+  end-to-end; (6) document in HANDOFF + new lock-in. Same pattern as
+  the GST-1 / SMP-6 test design from Cycle 9.
+- **The script's dual-fetch design is non-fatal on archive failure
+  but fatal on modern failure.** If CBOE removes `totalpc.csv` (the
+  modern file), the script returns 1 and the ingest fails entirely;
+  if CBOE removes `totalpcarchive.csv` only, the script continues
+  with modern-only data and warns on stderr. This asymmetry is
+  intentional — modern is load-bearing for daemon cadence
+  refreshes; archive is only relevant for first-apply backfills to
+  pre-2006 dates (which are unlikely to occur often).
+- **Re-running `npm run cboe:ingest` re-inserts ~5,428 rows every
+  time** (modern 3,249 + archive 2,179, no `--only-missing` logic).
+  The ReplacingMergeTree dedup handles this correctly but burns
+  ~5,428 rows of CH insert volume per run. For daemon-cadence wiring
+  (GAP-3), the orchestrator should consider adding an `--only-missing`
+  flag OR a cheaper "ingest from last-known max(observation_date)"
+  short-circuit. Not blocking; just a known cost of the current
+  always-fetch-both design.
 
 ### Carried from earlier sessions
 
-All prior watch-outs (s96 #1-#17 Cycle 9 carry-overs) preserved.
+All prior watch-outs (s96 #1-#17 Cycle 10 carry-overs) preserved.
 
 ---
 
@@ -561,6 +620,18 @@ npm run audit:positions
 npx tsx scripts/_paper_trading_review.ts
 npm run brief:morning                                                                # §0 system health digest + §1..§16 composites + watchlist + drawdown
 npm run health:check                                                                 # pre-feature health gate (per ADR-044)
+```
+
+### CBOE put/call ingest (post-Cycle-11 URL repair)
+
+```text
+npm run cboe:ingest                                                                  # fetches both totalpc.csv + totalpcarchive.csv; ReplacingMergeTree dedups
+.venv/Scripts/python.exe scripts/cboe_putcall_ingest.py --dry-run                    # parse + count without writing
+.venv/Scripts/python.exe scripts/cboe_putcall_ingest.py --from-file <path>           # operator override; skips both HTTP fetches
+.venv/Scripts/python.exe scripts/cboe_putcall_ingest.py --archive-url <url>          # override the archive URL only
+# Source-freeze note (S96-88): the public file ends 2019-10-04;
+# re-running the ingest will NOT change max(observation_date),
+# only refresh ingested_at. Q-5 path (D) is empirically dead.
 ```
 
 ### Quartz docs site + vendor upgrade
@@ -614,7 +685,8 @@ pytest scripts/tests                                                            
 ### Tests + dev
 
 ```text
-npm test                                                                                              # full TS suite — 3319/3338 pass + 19 skip + 0 fail at s96 #17 Cycle 9 close (NOT re-run Cycle 10)
+npm test                                                                                              # full TS suite — 3319/3338 pass + 19 skip + 0 fail at s96 #17 Cycle 9/10 close (NOT re-run Cycle 11)
+.venv/Scripts/python.exe -m pytest scripts/tests/test_cboe_putcall_ingest.py -v                       # 16/16 pass at s96 #17 Cycle 11 close (was 15/15; +1 URL pin)
 node --import tsx --test scripts/tests/gicsSectorRepositoryHelper.test.ts                             # 13/16 pass + 3 skip + 0 fail at s96 #17 Cycle 9 close
 node --import tsx --test scripts/tests/btRunsRegime.test.ts                                           # 19/19 pass at s96 #17 Cycle 6 close (unchanged)
 node --import tsx --test scripts/tests/regimeDashboard.test.ts                                        # 37/37 pass at s96 #17 Cycle 5 close (unchanged)
@@ -641,42 +713,44 @@ npx tsc --noEmit                                                                
 
 ### npm scripts touched this cycle
 
-- **None.** Cycle 10 is DB-state-only (single npm-script invocation;
-  no `package.json` change; no new script wrappers; no DDL; no DML
-  beyond the backfill writes themselves).
+- **None.** Cycle 11 source-file edits affect only the script body
+  (`scripts/cboe_putcall_ingest.py`) + its tests
+  (`scripts/tests/test_cboe_putcall_ingest.py`); `package.json`
+  `"cboe:ingest"` entry is unchanged.
 
 ---
 
 ## For the next session — priority order
 
-**Default on `continue`:** Cycle 11 candidate per orchestration §8.4
+**Default on `continue`:** Cycle 12 candidate per orchestration §8.4
 follow-up queue — **recommended `/#/regime` post-backfill UI
-smoke-test**. Trivial orchestrator self-edit (open
-`http://localhost:3000/#/regime` in browser; observe whether the regime
-panel now surfaces phase1_v3 attribution data per ADR-046 / GAP-8 /
-S96-75; document the validation outcome). Self-contained; orchestration-
-domain; no operator gate; ~1-5 min runtime. Closing rationale: Cycle
-10's DB-state change is end-to-end-validated only when the UI surface
-that consumes it renders the data correctly; the smoke-test closes that
-loop. If a rendering bug surfaces, Cycle 11 slice 1 becomes UI worker
-spawn (or orchestrator self-edit depending on scope) to remediate; if
-the panel renders correctly, Cycle 11 closes quickly and Cycle 12 picks
-up Phase 2 v2 spec drafting as the substantive cycle.
+smoke-test** (carry-over from Cycle 10 close; deferred when Cycle 11
+pivoted to CBOE work). Trivial orchestrator self-edit (open
+`http://localhost:3000/#/regime` in browser; observe whether the
+regime panel surfaces phase1_v3 attribution data per ADR-046 / GAP-8
+/ S96-75 / S96-86 backfill; document the validation outcome).
+Self-contained; orchestration-domain; no operator gate; ~1-5 min
+runtime.
 
-**Alternative Cycle 11 candidates (orchestration-domain, no operator gate):**
+**Alternative Cycle 12 candidates (orchestration-domain, no operator gate):**
 
+- **CBOE health-check description update** — Health-domain slice
+  per orchestration §1; update the freshness probe's `→ npm run
+  cboe:ingest` remediation hint to reflect S96-88's frozen-source
+  finding. ~10-LOC edit in `src/server/health_check.ts`. Could
+  reasonably pair with the `/#/regime` smoke-test as Cycle 12 + 12b.
 - **Phase 2 v2 spec drafting** — the design doc for plausibility-band
   probes + per-UI-route ping + auto-insert logic + re-alert-on-status-
   transition cursor. Implementation stays deferred per S96-71; the
-  spec itself can be written. Larger scope than the smoke-test;
-  recommended for Cycle 12 if Cycle 11 closes quickly.
+  spec itself can be written.
 - **Drift remediation** — any new Tier-2 quarantine items surfaced by
   `npm run health:check` between sessions.
-- **`settings.json` worker-base configuration** — per S96-85, the
-  `worktree.baseRef: head` config change would eliminate the worktree-
-  base-mismatch class of problems for future worker spawns. Default
-  per S96-85 is to defer until the third hit; still deferred (Cycle 9
-  was first hit; Cycle 10 didn't spawn a worker).
+- **`settings.json` worker-base configuration** — per S96-85, defer
+  until the third hit; Cycle 11 didn't spawn a worker.
+- **GAP-3 CBOE daemon hook (LOW PRIORITY now per S96-88).** Post
+  source-freeze, the daemon cadence has no fresh-data signal to
+  publish; wiring it would just refresh `ingested_at`. Still valid
+  if CBOE ever resumes publishing.
 
 **Calendar-gated (unchanged):**
 
@@ -693,8 +767,8 @@ above):**
 - Q-1 first real-capital deployment — operator-defined timing.
 - Q-2 capital-deployment-ramp ADR — operator self-assigned ~1 week.
 - Q-3 Stooq apikey gate decision — paid vs self-host.
-- Q-4 push 37 commits to origin/main.
-- Q-5 phase1_v3 CBOE methodology amendment — pick A/B/C/D.
+- Q-4 push 39 commits to origin/main.
+- Q-5 phase1_v3 CBOE methodology — pick A/B/C (D removed Cycle 11).
 
 **Do NOT auto-open without operator green-light:**
 
@@ -702,84 +776,87 @@ above):**
 - Phase B campaigns (deferred).
 - Playwright dep adoption (OQ-G9-4 branch A; dep-tree expansion).
 - ALTER DROP / DROP TABLE / ALTER ... DELETE migrations (per §6.3
-  hard-stop) — Cycle 10 backfill is pure additive INSERT only;
+  hard-stop) — Cycle 11 CBOE re-ingest is pure additive INSERT only;
   no DDL touched.
 - `git push` (Q-4 above).
-- Q-5-blocked work: F2 CBOE backfill, Composite worker phase1_v3
-  re-classify (Cycle 10's backfill is DIFFERENT from the Q-5-blocked
-  re-classify — Cycle 10 wrote `bt_runs_regime` attribution rows using
-  the *currently-defined* `phase1_v3` classifier; the Q-5-blocked work
-  is the amendment to the classifier itself OR the upstream CBOE
-  re-ingest).
+- Q-5-blocked work: phase1_v3 re-classify (Cycle 1 follow-up). The
+  re-classify is blocked on Q-5 operator pick among A/B/C (path D
+  removed Cycle 11 per S96-88).
 - Path B EDGAR `from=` pagination (Data-Ingest domain; future cycle).
-- Phase 2 v2 plausibility-band probes (impl deferred per S96-71;
-  spec drafting unblocked for Cycle 12+).
-- CI extensions that require new infra (CH-in-CI for health:check:strict;
-  Vite build job for bundle artifacts; scheduled nightly runs) — surface
-  as their own slice when the downstream signal-consumer emerges.
+- Phase 2 v2 plausibility-band probes (impl deferred per S96-71).
+- CI extensions that require new infra (CH-in-CI for
+  health:check:strict; Vite build job for bundle artifacts; scheduled
+  nightly runs).
+- ADR-045 amendment recording the CBOE source-freeze finding — only
+  meaningful if the operator picks Q-5 path (B); deferred.
 
 ---
 
 ## Important framing for the next chat
 
-**Cycle 10 is closed.** One commit (this HANDOFF rewrite) + one
-DB-state slice (`npm run backfill:bt-regime -- --classifier-version=
-phase1_v3` ran by the operator to completion: 197,064 / 197,064
-attributed · 0 errors · 0 skips · 2234s). Pure DB-state operation;
-zero source-file diff; tsc baseline 13 unchanged; health check
-unchanged. S96-78 closed; full `phase1_v3` attribution coverage in
-`bt_runs_regime` now achieved with row-count parity against
-`phase1_v2` (197,064 = 197,064), attribution-source split matching
-GAP-16 / ADR-047 exactly (78,399 sentinel = 78,399 sentinel), and
-plausible window dominant_share quantiles.
+**Cycle 11 is closed.** One slice + one HANDOFF rewrite (2 commits).
+Slice 1 (`206c649`, +103 / -21) repaired the CBOE put/call URL after
+the operator's `npm run cboe:ingest` surfaced HTTP 403; investigation
+revealed a CBOE-side file move + an independent finding that CBOE
+**permanently froze public daily put/call publishing at 2019-10-04
+~5.5 years ago**. Both findings recorded as S96-87 (URL move) +
+S96-88 (source-freeze + Q-5 path-space narrowing).
 
-**Cycle 10 is the second cycle since Cycle 4 to use the §3.1
-trivial-edit exception** (no worker spawn). The slice was a single
-npm-script invocation + post-run CH verification query — no canon-thin
-decision, no source-file diff, no real-money path file touched. Worker
-spawn would have added overhead without proportionate signal gain.
-Established pattern for backfill-style DB-state operations: orchestrator
-runs the script (or operator runs and reports), orchestrator verifies
-post-state, HANDOFF documents the cycle.
+**Q-5 path space narrowed from 4 paths to 3.** The operator's
+decision space is now cleaner: {A: paid DataShop, B: methodology
+amendment removing CBOE put/call, C: keep `accepted-as-warning`
+indefinitely}. Path (D) "free re-canonicalize" is empirically dead.
+**Orchestration's revised recommendation for Q-5:** path (C) now +
+path (B) when phase1_v3 is next iterated. Path (A) DataShop is the
+only path that re-opens fresh data and is operator-call on capital
+grounds.
+
+**Cycle 11 followed the §3.1 trivial-edit exception pattern** (no
+worker spawn). The slice was Data-Ingest domain edit (broken-scraper
+structural fix) + the canonical ADR-044 Tier-1 mechanical AUTO-FIX
+template. Critic spawn would have added overhead without
+proportionate signal gain.
 
 **The operator queue is unchanged at 5 rows (Q-1 through Q-5).** Q-4
-count incremented from 36 → 37 (this HANDOFF rewrite is the only new
-commit). No new operator-queue rows from Cycle 10.
+count incremented from 37 → 39 (slice 1 + this HANDOFF). Q-5's row
+narrative was updated to record the source-freeze finding + narrow
+the path space; no new escalation because the underlying methodology
+concern was already on the queue + already pinned in
+`quantlab.health_quarantine` as `accepted-as-warning` (S96-70). The
+Cycle 11 finding refines the decision space but does not introduce a
+NEW unresolved item.
 
-**S96-86 is the new lock-in.** Future cycles that add a new
-`classifier_version` for `bt_runs_regime` should consult S96-86 for
-the standing backfill + verification pattern (run the script + verify
-row-count parity + sentinel match + plausible dominant_share quantiles
-via inline CH query).
+**S96-87 + S96-88 are the new lock-ins.** Future cycles that
+encounter (a) a CBOE CDN file returning AWS S3 AccessDenied should
+consult S96-87 for the standing URL-rediscovery pattern (scrape the
+human-facing CBOE historical-data page first); (b) Q-5 path-space
+deliberation should consult S96-88 for the source-freeze finding.
 
-**S96-78 is now CLOSED** — the standing follow-up queue item carried
-from Cycle 6 (GAP-16 investigation surfaced the zero-coverage
-`phase1_v3` rows in `bt_runs_regime`) → Cycle 7-9 (deferred) → Cycle
-10 (closed). Future cycles should not list S96-78 as a follow-up; it
-is fully resolved.
-
-**Cycle 11 recommended path: `/#/regime` UI smoke-test** — closes the
+**Cycle 12 recommended path: `/#/regime` UI smoke-test** — still
+the deferred Cycle 11 default per Cycle 10 close. Closes the
 end-to-end validation loop on Cycle 10's DB-state change. Small,
 self-contained, orchestration-domain. If the panel renders correctly,
-Cycle 11 closes quickly; if a rendering bug surfaces, Cycle 11 becomes
-a UI remediation cycle.
+Cycle 12 closes quickly; if a rendering bug surfaces, Cycle 12
+becomes a UI remediation cycle.
 
 **Backward compat preserved this cycle:**
 
-1. **CH:** `bt_runs_regime` gained 197,064 new rows with
-   `classifier_version='phase1_v3'`; the pre-existing 197,064
-   `phase1_v2` rows are untouched (additive INSERT only). The table's
-   ReplacingMergeTree semantics ensure FINAL queries return one row per
-   `(run_id, classifier_version)` key.
+1. **CH:** `quantlab.macro_indicators_cboe` schema unchanged;
+   re-ingest is pure additive INSERT (ReplacingMergeTree dedup); 4,018
+   unique observation_date rows preserved (= same as pre-Cycle-11).
 2. **Type:** No type-system changes.
 3. **Brief:** No render-side changes; the brief does not currently
-   surface `bt_runs_regime` attribution directly.
-4. **Tests:** All previously-passing suites still pass (NOT re-run
-   this cycle; no source-file diff).
-5. **Code behavior:** Zero behavior change at runtime; the backfill
-   script itself was already in `package.json` as `backfill:bt-regime`;
-   the Cycle 10 invocation is a routine operator-runnable script
-   execution, not a code path change.
+   surface CBOE put/call data directly.
+4. **Tests:** All previously-passing suites still pass; +1 new test
+   in `test_cboe_putcall_ingest.py` (URL-pin regression).
+5. **Code behavior:** The script's parser is byte-identical pre/post;
+   only the URL constants + the `main()` fetch orchestration changed.
+   The `--from-file` operator-override path is unchanged.
+6. **Operator UX:** `npm run cboe:ingest` now works again (was
+   failing with HTTP 403 before Cycle 11); the source-freeze means
+   running it produces "stale-but-refreshed" rows rather than fresh
+   data, which the health-check Cycle 12 description update will
+   clarify.
 
 **The chain through s96 #17:**
 
@@ -801,36 +878,41 @@ S96 #17 Cycle 7 of multi-agent orchestration:
   • Orchestrator self-edit            AUTO-APPROVE  → GAP-17 closure: 2 deletions + 1 rename + 1 reclassified-leave-as-is
   + S96-79 + S96-80 + S96-81 lock-ins documented
 S96 #17 Cycle 8 of multi-agent orchestration:
-  • Orchestrator self-edit            AUTO-APPROVE  → GAP-10 closure + S96-76 follow-up:
-                                                       .github/workflows/ci.yml (lint + test-typescript
-                                                       + test-python jobs on ubuntu-latest)
+  • Orchestrator self-edit            AUTO-APPROVE  → GAP-10 closure + S96-76 follow-up: .github/workflows/ci.yml
   + S96-82 + S96-83 lock-ins documented
 S96 #17 Cycle 9 of multi-agent orchestration:
-  • Composite worker (worktree)       AUTO-APPROVE  → OQ-SMP-1 closure:
-                                                       gics_sector_repository_helper.ts 3 SELECT-clause
-                                                       edits dropping `toString(<Date col>) AS <same_name>`
-                                                       + new GST-1 EXPLAIN-clean test pinning the third
-                                                       instance.
-  + S96-84 (CH shadow-alias anti-pattern banned) +
-    S96-85 (worktree baseRef:fresh mismatch lesson) lock-ins documented
+  • Composite worker (worktree)       AUTO-APPROVE  → OQ-SMP-1 closure: gics SQL shadow-alias fix + GST-1 pin
+  + S96-84 + S96-85 lock-ins documented
 S96 #17 Cycle 10 of multi-agent orchestration:
-  • Orchestrator self-edit (§3.1)     AUTO-APPROVE  → S96-78 closure:
-                                                       `npm run backfill:bt-regime --
-                                                       --classifier-version=phase1_v3` ran by operator;
-                                                       197,064 / 197,064 attributed · 0 errors · 2234s.
-                                                       Post-backfill CH verification confirms row-count
-                                                       parity with phase1_v2, sentinel count match with
-                                                       ADR-047 (78,399 = 78,399), plausible dominant_share
-                                                       quantiles (p05=0.532 · p50=0.828 · p95=0.95).
-  + S96-86 (phase1_v3 attribution coverage + standing
-    backfill verification pattern) lock-in documented
-  + 1 commit (this HANDOFF rewrite — HANDOFF-only because no source-file diff)
-  + Second cycle since Cycle 4 to use §3.1 trivial-edit exception (no worker spawn)
-  + Zero runtime behavior change; tsc baseline + health-check + all test suites unchanged
-  + No new operator-queue rows; S96-78 CLOSED; Q-4 count: 36 → 37
-  → DEFAULT NEXT: Cycle 11 candidate per orchestration §8.4 follow-up
+  • Orchestrator self-edit (§3.1)     AUTO-APPROVE  → S96-78 closure: phase1_v3 backfill 197,064/197,064 in 2234s
+  + S96-86 lock-in documented
+S96 #17 Cycle 11 of multi-agent orchestration:
+  • Orchestrator self-edit (§3.1)     AUTO-APPROVE  → CBOE put/call URL repair (Tier-1 mechanical):
+                                                       `scripts/cboe_putcall_ingest.py` URL constants
+                                                       updated from `/api/global/us_indices/daily_prices/`
+                                                       to `/resources/options/volume_and_call_put_ratios/`;
+                                                       dual-fetch (modern+archive) with ReplacingMergeTree
+                                                       dedup; URL-pin regression test added (16/16 pass,
+                                                       was 15/15); live ingest 5,428 → 4,018 unique dates
+                                                       2003-10-17 → 2019-10-04.
+                                          INDEPENDENT
+                                          FINDING    → CBOE permanently froze public daily put/call
+                                                       publishing at 2019-10-04 (~5.5y ago, last-modified
+                                                       2020-10-30). Q-5 path (D) "free re-canonicalize" is
+                                                       empirically NOT executable; path space narrows to
+                                                       {A: paid DataShop, B: methodology amendment, C: keep
+                                                       accepted-as-warning indefinitely}. Orchestration's
+                                                       revised recommendation: path (C) now + path (B) when
+                                                       phase1_v3 is iterated.
+  + S96-87 (CBOE URL move + dual-fetch + URL-pin pattern) +
+    S96-88 (CBOE source-freeze + Q-5 path-space narrowing) lock-ins documented
+  + 2 commits: slice 1 (206c649) + this HANDOFF rewrite
+  + Third cycle since Cycle 4 to use §3.1 trivial-edit exception
+  + Zero runtime behavior change for downstream consumers; tsc baseline + health-check unchanged
+  + No new operator-queue rows; Q-5 narrative refined; Q-4 count: 37 → 39
+  → DEFAULT NEXT: Cycle 12 candidate per orchestration §8.4 follow-up
     queue. RECOMMENDED — `/#/regime` post-backfill UI smoke-test
-    (open browser, validate regime panel now surfaces phase1_v3
-    attribution data per ADR-046; document outcome; remediate if
-    rendering bug surfaces).
+    (carry-over from Cycle 10 close; deferred when Cycle 11 pivoted
+    to CBOE work). ALTERNATIVE — CBOE health-check description update
+    to reflect S96-88's frozen-source finding.
 ```
