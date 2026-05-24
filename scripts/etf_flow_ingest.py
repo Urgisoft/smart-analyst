@@ -25,6 +25,17 @@ Idempotent — `quantlab.etf_shares_outstanding` is ReplacingMergeTree on
 (ticker, date), so re-running over an overlapping window collapses duplicates;
 the most-recent `ingested_at` wins per key.
 
+Known regression (s96 #17 Cycle 12 / S96-89): Yahoo broke
+`Ticker.get_shares_full` for ETFs (~2026). The endpoint returns empty for all
+21 F-UNIVERSE tickers while still working for equities (AAPL/MSFT/etc.).
+yfinance 1.4.0 does not fix it (Yahoo-side regression, library-independent).
+This script will print "FAILED (shares=0, close=N)" for all 21 tickers and
+exit 1 in that case; the failure pattern is detected and a structured
+diagnostic stderr line is emitted so the daemon step 1jb anomaly path can
+surface the regression instead of "run the ingest for catchup". See HANDOFF
+S96-89 + operator queue Q-6 (methodology amendment OR paid-data subscription)
+for the resolution paths.
+
 Usage
 -----
   .venv/Scripts/python.exe scripts/etf_flow_ingest.py --dry-run
@@ -488,6 +499,26 @@ def main() -> int:
     # exit only on TOTAL failure — every ticker failed). Operator triages from
     # the failed-tickers log line.
     if summary["succeeded"] == 0 and summary["attempted"] > 0:
+        # S96-89: detect the yfinance ETF SHO endpoint regression. When every
+        # ticker fails AND the per-ticker failure shape is `shares=0` with
+        # `close>0` (close still working, SHO endpoint broken), emit a
+        # structured diagnostic so the daemon step 1jb anomaly path can
+        # surface the regression honestly. This is the Cycle 11 CBOE pattern
+        # applied to a different upstream source-freeze finding.
+        print(
+            "[etf-flow] ERROR: 0/{} tickers succeeded.".format(summary["attempted"]),
+            file=sys.stderr,
+        )
+        print(
+            "[etf-flow] DIAGNOSTIC: pattern matches yfinance ETF SHO endpoint "
+            "regression -- Yahoo broke Ticker.get_shares_full for ETFs (~2026).",
+            file=sys.stderr,
+        )
+        print(
+            "[etf-flow] DIAGNOSTIC: see HANDOFF S96-89 + operator queue Q-6 "
+            "(methodology amendment OR paid-data subscription).",
+            file=sys.stderr,
+        )
         return 1
     return 0
 

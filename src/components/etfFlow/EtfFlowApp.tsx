@@ -361,22 +361,84 @@ npm run migrate:create-etf-shares-outstanding-secondary:apply
 # 2. Populate the SSGA panel + ingest to CH:
 npm run etf:flow:ssga-spdr:refresh`;
   } else {
-    title = 'Awaiting first SSGA refresh';
-    body = (
-      <>
-        Both panels need rows for cross-validation. Primary panel has{' '}
-        <span className="text-amber-300 font-bold">{counts.primaryRows.toLocaleString()}</span> rows;
-        secondary panel has{' '}
-        <span className="text-amber-300 font-bold">{counts.secondaryRows.toLocaleString()}</span> rows
-        in the last {data.lookbackDays}d window. Run the v3.1 SSGA refresh to populate.
-      </>
-    );
-    commands = `# Populate the SSGA panel + ingest to CH:
+    // Both tables exist. At least one panel is empty in the window. Cycle 12
+    // (s96 #17) refactored this branch to distinguish primary-empty vs
+    // secondary-empty vs both — the prior single message ("Run the v3.1 SSGA
+    // refresh") was misleading when the SSGA secondary was healthy and the
+    // yfinance primary was the empty side.
+    const primaryEmpty = counts.primaryRows === 0;
+    const secondaryEmpty = counts.secondaryRows === 0;
+    if (primaryEmpty && !secondaryEmpty) {
+      // S96-89: Yahoo broke `Ticker.get_shares_full` for ETFs (~2026); the
+      // endpoint returns empty for all 21 F-UNIVERSE tickers while still
+      // working for equities (AAPL/MSFT). yfinance 1.4.0 doesn't fix it
+      // (Yahoo-side regression). The v1 primary panel cannot be backfilled
+      // from yfinance until Yahoo restores the endpoint OR the operator
+      // resolves Q-6 (methodology amendment OR paid-data subscription).
+      title = 'Primary panel empty — yfinance ETF SHO endpoint regression';
+      body = (
+        <>
+          Primary panel (<code className="text-amber-200">quantlab.etf_shares_outstanding</code>) has{' '}
+          <span className="text-amber-300 font-bold">0</span> rows; secondary panel has{' '}
+          <span className="text-amber-300 font-bold">{counts.secondaryRows.toLocaleString()}</span> rows
+          in the last {data.lookbackDays}d window. Yahoo broke{' '}
+          <code className="text-amber-200">Ticker.get_shares_full</code> for ETFs (~2026
+          regression) — the endpoint returns empty for all 21 F-UNIVERSE tickers while
+          still working for equities. Running the ingest will not help; the cross-validation
+          comparator is blocked on operator queue <span className="text-fuchsia-300 font-bold">Q-6</span>
+          {' '}(methodology amendment OR paid-data subscription). See HEALTH dashboard for the quarantine row.
+        </>
+      );
+      commands = `# Yahoo ETF SHO endpoint regression — informational only.
+# Running the ingest will print "FAILED (shares=0, close=N)" for all 21 ETFs
+# and exit 1. The v3.1 SSGA secondary covers SPY + 11 SPDR sectors (12 of 21);
+# the remaining 9 (IVV/VOO/QQQ/IWM/DIA/HYG/JNK/TLT/GLD) have no v3.1 alternative.
+#
+# Resolution paths — operator queue Q-6:
+#   (A) paid Sharadar / Polygon ETF SHO subscription
+#   (B) methodology amendment: promote v3.1 secondary to primary,
+#       drop the 9 non-SPDR tickers from F-UNIVERSE
+#   (C) keep "accepted-as-warning" indefinitely (cross-validation degraded)
+#
+# Diagnostic (will fail but surfaces the regression pattern):
+npm run etf:flow:ingest:dry`;
+    } else if (!primaryEmpty && secondaryEmpty) {
+      title = 'Awaiting first SSGA refresh';
+      body = (
+        <>
+          Primary panel has{' '}
+          <span className="text-amber-300 font-bold">{counts.primaryRows.toLocaleString()}</span> rows;
+          secondary panel (<code className="text-amber-200">quantlab.etf_shares_outstanding_secondary</code>)
+          {' '}has <span className="text-amber-300 font-bold">0</span> rows in the last{' '}
+          {data.lookbackDays}d window. Run the v3.1 SSGA refresh to populate.
+        </>
+      );
+      commands = `# Populate the SSGA panel + ingest to CH:
 npm run etf:flow:ssga-spdr:refresh
 
 # Or wait for the next daemon:daily cycle — step 1ja
 # auto-refreshes the panel (s96 #9):
 npm run daemon:daily`;
+    } else {
+      title = 'Both panels empty';
+      body = (
+        <>
+          Primary panel has{' '}
+          <span className="text-amber-300 font-bold">{counts.primaryRows.toLocaleString()}</span> rows;
+          secondary panel has{' '}
+          <span className="text-amber-300 font-bold">{counts.secondaryRows.toLocaleString()}</span> rows
+          in the last {data.lookbackDays}d window. Bootstrap both panels.
+        </>
+      );
+      commands = `# Populate the SSGA secondary panel:
+npm run etf:flow:ssga-spdr:refresh
+
+# Attempt v1 primary ingest (may fail per S96-89 Yahoo regression):
+npm run etf:flow:ingest
+
+# Or wait for the next daemon:daily cycle (steps 1ja + 1jb):
+npm run daemon:daily`;
+    }
   }
   return (
     <div className="border border-amber-500/30 bg-amber-500/5 rounded p-6">

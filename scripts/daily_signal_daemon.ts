@@ -1565,9 +1565,19 @@ async function main() {
       console.log(`[etf-flow-v1-primary-refresh] OK | ${r.seconds.toFixed(1)}s`);
     } else {
       console.warn(`[etf-flow-v1-primary-refresh] failed (non-fatal): ${r.error}`);
+      // S96-89 (Cycle 12): when the script's stderr contains the regression-
+      // pattern diagnostic, point the operator at the Q-6 resolution paths
+      // instead of suggesting `npm run etf:flow:ingest` for catchup (which
+      // will fail with the same regression). The catchup hint is preserved
+      // for non-regression failures (HTTP timeout, transient yfinance error).
+      const isShoRegression =
+        typeof r.error === 'string' &&
+        r.error.includes('yfinance ETF SHO endpoint regression');
       anomalies.push({
         severity: 'warning',
-        message: `ETF v1 primary refresh failed: ${r.error}. Run \`npm run etf:flow:ingest\` for catchup.`,
+        message: isShoRegression
+          ? `ETF v1 primary refresh blocked by S96-89 yfinance ETF SHO regression. See HANDOFF Q-6 (methodology amendment OR paid-data subscription).`
+          : `ETF v1 primary refresh failed: ${r.error}. Run \`npm run etf:flow:ingest\` for catchup.`,
       });
     }
   }

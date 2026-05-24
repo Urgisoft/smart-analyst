@@ -155,6 +155,16 @@ export function runEtfFlowV1PrimaryRefresh(dryRun: boolean): { ok: boolean; seco
  *     timeout + warn-and-continue posture mean the daemon stays up;
  *     the operator-catchup nudge in the daemon's anomaly message
  *     points at `npm run etf:flow:ingest` for diagnosis.
+ *
+ *     UPDATE Cycle 12 / S96-89: this hit on 2026-05-24. Yahoo broke
+ *     `Ticker.get_shares_full` for ETFs (not equities — equities still
+ *     work). yfinance 1.4.0 doesn't fix it. The Python script now emits
+ *     a structured "yfinance ETF SHO endpoint regression" diagnostic on
+ *     stderr when 0/21 tickers succeed; the daemon orchestrator at
+ *     `scripts/daily_signal_daemon.ts` step 1jb pattern-matches that
+ *     diagnostic and rewrites the anomaly message to point at operator
+ *     queue Q-6 (methodology amendment OR paid-data subscription)
+ *     instead of the now-misleading catchup hint.
  *   - The `--apply` / `--dry-run` flag set is symmetric to FINRA's
  *     pattern. If the Python script flips its default to apply-mode,
  *     the daemon would silently write under operator-dry-run mode.
