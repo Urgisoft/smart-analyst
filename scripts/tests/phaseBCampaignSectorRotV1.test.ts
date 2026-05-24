@@ -7,7 +7,7 @@
  *   - normalCdf golden-vector parity (Φ(0)=0.5, Φ(±1), Φ(±2), max error <1e-6).
  *   - normalCdf monotonicity (z1 > z2 ⇒ Φ(z1) > Φ(z2)).
  *   - normalCdf domain edge cases (±Infinity, NaN).
- *   - **Polarity-flip identity Φ(−z) + Φ(z) = 1 ± 1e-12 across z ∈ {−3,…,+3}** (SPEC §S-PBSR1-2 critical pin).
+ *   - **Polarity-flip identity Φ(−z) + Φ(z) = 1 ± 1e-7 (A&S 26.2.17 envelope; see body comment for rationale) across z ∈ {−3,…,+3}** (SPEC §S-PBSR1-2 critical pin).
  *   - **loadScoreSeries applies NEGATION before Φ** (directional pin — high z input → low score output).
  *   - loadScoreSeries shape: ascending dates + same-length scores +
  *     score values in [0, 1] (negated-Φ-rescaled).

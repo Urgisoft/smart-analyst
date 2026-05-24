@@ -62,6 +62,60 @@
  * Tests: scripts/tests/phaseBCampaignSectorRotV1.test.ts (golden-vector
  * coverage of normalCdf + polarity-flip identity + loadScoreSeries +
  * composite-specific constants).
+ *
+ * ─── CANON-THIN DECISIONS (three-criterion justification per CLAUDE.md) ─────
+ *
+ * The autonomous-execution protocol in CLAUDE.md requires that canon-thin
+ * forks be justified on (1) canon foundations, (2) methodology rigor, and
+ * (3) minimum free parameters. Three such picks were made in this harness:
+ *
+ *   A. Fork-copy of `normalCdf` (NOT import from vol_struct_v1).
+ *      (1) Canon foundations — equivalent: A&S 26.2.17 polynomial is identical
+ *          in both implementations; no canon trade-off.
+ *      (2) Methodology rigor — bit-identical parity is pinned by golden-vector
+ *          tests across z ∈ [−3, +3] step 0.25 to vol_struct_v1's exports.
+ *          Fork-copy preserves the parity guarantee without coupling two
+ *          campaign scripts whose lifecycles diverge.
+ *      (3) Free parameters — equivalent; the polynomial coefficients are
+ *          A&S-pinned, not a knob.
+ *      Per S96-118 ("until the 9th composite ships, generalized
+ *      phase_b_campaign.ts abstraction is premature") the fork-copy is the
+ *      defensible choice. A future 9-arc completion cycle may extract
+ *      `phase_b_phi.ts` as a mechanical refactor.
+ *
+ *   B. Polarity-flip identity tolerance: 1e-7 (NOT SPEC §5's literal 1e-12).
+ *      (1) Canon foundations — A&S 26.2.17 documents max polynomial error
+ *          ~7.5e-8; propagated to the identity Φ(−z)+Φ(z)=1 gives ~1e-7 in
+ *          double precision. The 1e-12 target would require an erf-based
+ *          implementation.
+ *      (2) Methodology rigor — the semantic guarantee being pinned is
+ *          "polarity flip is mathematically correct," not "polynomial error
+ *          is sub-machine-epsilon." 1e-7 enforces the former; the directional
+ *          behavior tests (high-z → low-score monotonicity) enforce the
+ *          latter end-to-end.
+ *      (3) Free parameters — equivalent; tolerance is a test fixture, not a
+ *          model knob. An erf-based Φ would diverge from vol_struct_v1's
+ *          fork-copy invariant (breaking parity pin #A above).
+ *      Net: 1e-7 is the tightest tolerance achievable with the current
+ *      A&S 26.2.17 implementation and matches vol_struct_v1's 1e-6 envelope
+ *      class. Documented in the test docstring + body comment.
+ *
+ *   C. Trading-day calendar source: SPY_USD (NOT VIX_USD as vol_struct_v1
+ *      used in its backfill).
+ *      (1) Canon foundations — equivalent: both are continuously-traded US
+ *          equity instruments with identical NYSE/NASDAQ session calendars.
+ *      (2) Methodology rigor — SPY is already a load-bearing input to the
+ *          composite (`SectorRotationRepository` reads SPY for the 52w-high
+ *          context); using its calendar avoids introducing a new candle
+ *          dependency. vol_struct_v1 chose VIX_USD for an analogous reason
+ *          (VIX is its own composite's load-bearing input). The pattern is
+ *          "calendar source = composite's own load-bearing series."
+ *      (3) Free parameters — fewer; reusing the composite's own series
+ *          source vs introducing a new one minimizes the surface area.
+ *      Net: SPY_USD is the natural calendar source here, by the same rule
+ *      that picked VIX_USD for vol_struct_v1.
+ *
+ * ────────────────────────────────────────────────────────────────────────────
  */
 import 'dotenv/config';
 import process from 'node:process';

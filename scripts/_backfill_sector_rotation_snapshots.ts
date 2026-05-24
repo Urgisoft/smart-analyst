@@ -41,10 +41,18 @@
  *
  * Trading-day calendar:
  *   - We use the SPY_USD candle index as the canonical trading-day
- *     calendar (SPY trades on every US equity trading day; identical
- *     calendar to VIX_USD used by the vol_struct_v1 backfill). For each
- *     date a SPY candle exists in the campaign window, compute and persist
- *     one snapshot.
+ *     calendar for two reasons:
+ *     (1) SPY is already a load-bearing input to the composite
+ *         (`SectorRotationRepository.readInputsForCycle` reads SPY for the
+ *         52w-high context); using its calendar avoids introducing a new
+ *         candle dependency in the backfill scope.
+ *     (2) SPY provides the identical US equity NYSE/NASDAQ trading-day
+ *         calendar as VIX_USD which vol_struct_v1 used for its backfill.
+ *         Equivalent calendars; reason (1) makes SPY_USD the preferred
+ *         choice here. The pattern is "calendar source = composite's own
+ *         load-bearing series" (vol_struct_v1 picked VIX_USD by the same
+ *         rule). For each date a SPY candle exists in the campaign window,
+ *         compute and persist one snapshot.
  *   - Per SPEC §S-PBSR1-5 note on regimeFlag pre-XLC/XLRE: snapshots
  *     before 2018-09-24 will have `regimeFlag='unknown'` (XLC missing) and
  *     `inputsPresent` bit 2 = 0, BUT `defensive_cyclical_spread_z` (the
