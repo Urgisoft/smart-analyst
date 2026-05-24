@@ -1,23 +1,21 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-05-24 (session 96 #20 — **Cycle 22 of multi-agent
-orchestration executed**. Operator typed `continue` on Sunday 2026-05-24;
-day-3 stockanalysis observation is calendar-blocked (needs Monday EOD —
-first trading day of the 5-day window is 2026-05-25), so pivoted to the
-second-priority `continue` default: **Layer-0 Phase B deflation-pipeline
-pattern + cycle_v1 first-instance SPEC**. Cycle 22 shipped RESEARCH+SPEC
-only: new ADR-051 locking the canonical DSR/PBO/HLZ/Pardo four-gate
-campaign pattern that applies to all 9 Layer-0 informational composites,
-plus the per-composite SPEC for cycle_v1 (the first instance). No code
-changes; no DDL applied; tsc 13 baseline preserved; commit `adc27e4`
-(slice) + this HANDOFF will be the 65th unpushed commit. **Net 65 unpushed
-commits** on top of `origin/main` (`c0cda7c`) after this HANDOFF rewrite
-(was 63 at Cycle 21 close · +1 Cycle 22 slice 1 ADR+SPEC (adc27e4) = 64 ·
-+1 HANDOFF = 65). **NEXT default on `continue`:** Cycle 23 candidate —
-recommended **day-3 stockanalysis observation (Monday 2026-05-25)** IF
-invoked Monday EOD or later; otherwise spawn **Composite worker to
-execute the cycle_v1 Phase B campaign per the new SPEC** (Cycle 23 =
-first CODE slice of the 9-composite Phase B arc).
+Last updated: 2026-05-24 (session 96 #20 — **Cycle 23 of multi-agent
+orchestration executed end-to-end**. First CODE slice of the 9-composite
+Phase B deflation-pipeline arc — `cycle_v1` Phase B shipped + executed.
+Verdict: **PARTIAL on all three benchmarks (SPY/QQQ/IWM); NO Phase-C
+candidate**. Consistent with cycle_v1's prior NBER-backtest closure as
+"informational permanently" per §S-MCP-Q5 — anti-shopping rule per
+ADR-051 §Decision 5 honored via the `composite_version='cycle_v1'`
+pin in CH. Cycle 23 produced 4 commits (slice 1 harness Composite worker
++ slice 2 critic fixes + slice 3 verdict report + this HANDOFF) on top
+of Cycle 22's 2. **Net 70 unpushed commits** on top of `origin/main`
+(`c0cda7c`) after this HANDOFF rewrite. **NEXT default on `continue`:**
+Cycle 24 candidate — recommended **day-3 stockanalysis observation
+(Monday 2026-05-25)** IF invoked Monday EOD or later; otherwise **Health
+worker spawn for `/#/phase-b` UI dashboard + morning brief §0c**
+(per ADR-051 §Decision 7; blocked-out had cycle_v1 verdict rows landed —
+now landed; UI scope ready).
 
 ---
 
@@ -36,124 +34,146 @@ validation, health domain) — not real-money-readiness ramp.
 
 | # | Item | Source | Status |
 | --- | --- | --- | --- |
-| Q-1 | First deployment of real capital — timing + initial amount | Standing decision per orchestration §7.1.1 | **INDEFINITELY DEFERRED** per s96 #19 operator framing — orchestration will not press on this |
-| Q-2 | Capital-deployment-ramp ADR sign-off (the "#5 ADR") | Operator self-assigned ~1 week per s96 #13 carry-over | **INDEFINITELY DEFERRED** per s96 #19 operator framing — orchestration can draft `PROPOSED` whenever; ratification (Accepted status) waits until operator engages |
-| Q-3 | GAP-5 Stooq apikey gate decision — paid subscription OR canonicalize the constituent-based fallback | Audit GAP-5; orchestration §2.5 | OPEN — paid subscription gates orchestration's call |
-| Q-4 | Push 65 unpushed commits to origin/main (Cycle 21 slices 1+2+4 + Cycle 21 HANDOFF + Cycle 22 ADR+SPEC slice + this HANDOFF = 65) | Carry-over; count updated this session | OPEN — `git push` operator-gated per CLAUDE.md hard-stop list |
-| Q-5 | phase1_v3 CBOE put/call corrupted-input window. **CLOSED as orchestration-resolved Cycle 21 — Path D shipped via ADR-050.** Quarantine row remains pinned `accepted-as-warning` until ≥5 consecutive fresh CBOE days land + orchestrator drops it (a follow-up cycle's task, no operator action). | s96 #15 Cycle 1 / s96 #19 Cycle 20 research / s96 #20 Cycle 21 implementation | **CLOSED — orchestration-resolved via ADR-050** |
-| Q-6 | ETF v1 yfinance primary panel — Cycle 17 resolved data side via ADR-049; Cycle 20 fixed UI side. **Status: PARTIAL-WITH-UI-FIX.** Closes on 5-day stockanalysis observation completing successfully + v1-primary read-path flip. | s96 #17 Cycle 12-17; Cycle 18; Cycle 20 | PARTIAL-WITH-UI-FIX — orchestration-resolved; closes on read-path flip |
-| Q-7 | phase1_v3 yield-curve source persistence — macro_regimes.yield_curve_value carries T10Y2Y while ADR-041 mandates T10Y3M. Three resolution paths (1/2/3 — see `docs/analysis/fred-t10y3m-alignment-2026-05-24.md`) | s96 #18 Cycle 19; Tier-2 per ADR-044 + ADR-041 conformance gap | **OPEN — operator picks among Path 1 / Path 2 / Path 3 (or hybrid)** |
-| Q-8 | **NEW Cycle 22:** Phase C promotion of any Layer-0 composite to phase1_v3+ classifier input. Only fires when a composite's Phase B campaign returns PASS-ALL + PBO < 0.2 on ≥1 benchmark (mechanically defined per ADR-051 §Decision 5). Cycle 22 ships only the pattern + cycle_v1 SPEC; no verdict yet (Cycle 23+ executes). This row is a forward-pointer the operator should expect to see populated once Phase B campaigns produce eligible composites. | Cycle 22 ADR-051 ratification; orchestration §7.1 item 8 | **DORMANT** — no eligible composites yet; will activate when first PASS-ALL verdict lands |
+| Q-1 | First deployment of real capital — timing + initial amount | Standing decision per orchestration §7.1.1 | **INDEFINITELY DEFERRED** per s96 #19 |
+| Q-2 | Capital-deployment-ramp ADR sign-off | Operator self-assigned ~1 week per s96 #13 | **INDEFINITELY DEFERRED** per s96 #19 |
+| Q-3 | GAP-5 Stooq apikey gate decision | Audit GAP-5 | OPEN — paid subscription gates orchestration's call |
+| Q-4 | Push 70 unpushed commits to origin/main (Cycle 21..23 + handoffs) | Carry-over; count updated this session | OPEN — `git push` operator-gated |
+| Q-5 | phase1_v3 CBOE put/call corrupted-input window | Cycle 21 ADR-050 | **CLOSED — orchestration-resolved via ADR-050** |
+| Q-6 | ETF v1 yfinance primary panel — Cycle 17 data fix + Cycle 20 UI fix | s96 #17/18/20 | PARTIAL-WITH-UI-FIX — closes on 5-day observation completion + read-path flip |
+| Q-7 | phase1_v3 yield-curve source persistence — Path 1/2/3 pick | s96 #18 Cycle 19; ADR-041 conformance gap | **OPEN — operator picks among Path 1 / Path 2 / Path 3 (or hybrid)** |
+| Q-8 | Phase C promotion of any Layer-0 composite to phase1_v3+ classifier input | Cycle 22 ADR-051 §Decision 5 | **DORMANT** — no PASS-ALL verdict yet; cycle_v1 returned PARTIAL Cycle 23; remains dormant pending future composite returning PASS-ALL + PBO<0.2 |
 
-**That's the entire queue.** Q-4 count 63 → 65. Q-8 NEW this cycle
-(dormant pre-emptive row; no operator action). Q-1, Q-2, Q-3, Q-5, Q-6,
-Q-7 unchanged.
+**That's the entire queue.** Q-4 count 65 → 70 (Cycle 23 added 4 commits
+incl. HANDOFF). Q-8 status unchanged — cycle_v1's PARTIAL verdict does
+NOT activate Q-8 (only PASS-ALL + PBO<0.2 does). Q-1, Q-2, Q-3, Q-5,
+Q-6, Q-7 unchanged.
 
 ---
 
-## What this cycle delivered (s96 #20 Cycle 22)
+## What this cycle delivered (s96 #20 Cycle 23)
 
-**Cycle 22 = RESEARCH + SPEC for the Layer-0 Phase B deflation-pipeline
-pattern**, plus the per-composite SPEC for `cycle_v1` as the first
-instance. Orchestrator self-edit per orchestration §3.1 trivial-edit
-exception (pure-docs class). No worker spawn this cycle (the Composite-
-worker CODE arc is Cycle 23+). Total +856 LOC across 2 new files.
+**Cycle 23 = first CODE slice of the 9-composite Phase B arc.** Composite
+worker spawned in worktree → critic returned RESOLVE-IN-PLACE with 5
+small fixes → fixes applied → fast-forward merged → `--apply` executed
+end-to-end → 57 trial rows + 3 verdict rows + verdict report landed.
+Total +4,050 LOC across 12 new + 1 modified files + 1 markdown report.
 
-### Slice 1 (orchestrator-written) — ADR-051 + phase-b-cycle-v1 SPEC
+### Slice 1 (Composite worker, `7c43b54`, +4,034/-0) — Phase B harness
 
-**Goal:** Lock in the methodology pattern for the 9-composite Phase B
-campaign arc + draft the first-instance executable SPEC for Composite-
-worker pickup in Cycle 23.
+Worker spawn pattern per orchestration §4.1 with `isolation: "worktree"`.
+Self-contained prompt with ADR-051 + phase-b-cycle-v1.md SPEC as
+constraint envelope. Worker delivered all of SPEC §1 builds 1-4:
 
-**Procedure:**
+| Deliverable | Output |
+| --- | --- |
+| D1 Migrations | `migrate_create_phase_b_trials.ts` + `migrate_create_phase_b_verdicts.ts` (DDL applied to live CH) |
+| D2 Harness | `phase_b_campaign_cycle_v1.ts` (+1,101 LOC) — `backtestTrial` pure function + four-gate validator integration + CLI |
+| D3 Repository | `src/server/phase_b_repository.ts` — typed insert+read helpers |
+| D4 Tests | 142 tests (≥62 target met by 2.3×); all green |
+| Probe | `_probe_phase_b_cycle_v1_inputs.ts` (Step 0 pre-flight); fails loud on missing benchmark |
 
-1. Spawned Explore subagent to map existing infrastructure
-   (DSR/PBO/HLZ libraries, batch_backtest pipeline,
-   bt_runs/bt_runs_slices/bt_runs_regime schemas, cycle_position_snapshots
-   row count + earliest date, SPY/QQQ/IWM benchmark availability, prior
-   Phase B precedent). Returned a clean map with three key findings:
-   (a) `bt_runs_regime` is a regime-attribution sidecar for `phase1_v3`,
-   NOT a place to put cycle_v1 trials; the real strategy tables are
-   `bt_runs` + `bt_runs_slices`. (b) Full DSR/PBO/HLZ pipeline already
-   exists in `src/lib/validator.ts`. (c) No prior precedent for
-   "composite-as-signal" DSR/PBO/HLZ on a Layer-0 composite — this
-   cycle is the pattern-setter.
+**Worker-flagged scope deviation (resolved by critic):** Worker
+backfilled QQQ + IWM into `quantlab.candles` via
+`_backfill_qqq_iwm_for_phase_b.py` (9,566 rows; yfinance pre-authorized).
+Treated as Tier-1 missing-ingest-never-fired auto-fix per ADR-044
+(analogous to F3 Form 4 first-apply). Critic judged sound; documented
+in script docstring + here.
 
-2. RESEARCH: locked the methodology design. Three-criterion test
-   (canon foundations / methodology rigor / minimum free parameters per
-   CLAUDE.md autonomous-execution protocol) selected:
-   - **Strategy template:** long-only threshold on a benchmark
-     (`position(t) = LONG if score(t-1) > θ, else FLAT`). Single
-     parameter θ; smallest defensible N for selection-bias correction.
-   - **Per-composite benchmark universe:** ≤3 economically-distinct
-     benchmarks. For cycle_v1: SPY + QQQ + IWM.
-   - **Walk-forward:** 70/30 fixed split (not rolling). For cycle_v1:
-     IS = 2008-01-02 → 2020-12-31; OOS = 2021-01-01 → today.
-   - **Four-gate validator:** existing `validator.ts` stack with
-     pinned thresholds (DSR > 0.95; PBO < 0.5 floor + PBO < 0.2 for
-     Phase-C eligibility; HLZ BHY one-sided alpha=0.05; OOS-IS Pardo
-     ratio > 0.5).
-   - **Verdict semantics:** three terminal outcomes (PASS-ALL / PARTIAL
-     / FAIL); anti-shopping rule (failed Phase B closes v1 composite
-     permanently; v2 redesign requires independent evidence, not
-     result-driven retuning).
+**Worker methodology choices (all in-canon, all OK):**
+1. **DSR path = parametric Mertens, NOT bootstrap.** Worker rationale:
+   `bootstrapDSR` requires `observedSharpe ≈ median(perTokenSharpes)`;
+   `bestTrial.is_sharpe` is argmax not median; bootstrap path would
+   resample the trial axis (= selection-bias axis) and produce
+   meaningless SE.
+2. HLZ rank computed globally across M=57 trials per SPEC §S-PBC1-6.
+3. Verdict + Phase-C eligibility as separate columns (cleaner audit
+   trail than baking PBO<0.2 into verdict label).
+4. Forward-fill on score-benchmark alignment with 4-trading-day cap.
+5. IS/OOS split via lexical string comparison on ISO `YYYY-MM-DD` dates.
+6. Benchmarks clipped to score.dates[0] before backtesting.
 
-3. Wrote `docs/specs/adr-051-layer0-phase-b-deflation-pipeline.md`
-   (Status: Accepted, orchestration-authored per orchestration §6.4 —
-   routine methodology-canon-application; no operator sign-off
-   required). Eight decisions pinned; canon foundations cited;
-   consequences + risks + mitigations documented; implementation plan
-   outlined for Cycles 23+.
+### Slice 2 (orchestrator-applied critic fixes, `bf0a2f6`, +41/-8)
 
-4. Wrote `docs/specs/phase-b-cycle-v1.md` (the per-composite SPEC —
-   inherits ADR-051; pins only the cycle_v1-specific overlay).
-   Includes: exact strategy-harness signature with `backtestTrial()`
-   pure function; CH insert patterns for `phase_b_trials` +
-   `phase_b_verdicts`; test plan (≥62 tests across migration + campaign
-   + repository); integration gates for Cycle 23 Composite worker.
+Critic returned **RESOLVE-IN-PLACE** with 5 fixes; orchestrator applied
+in worktree without worker re-spawn (per orchestration §6.2):
 
-5. Verified integration gate: `git status` clean prior to add; `npx tsc
-   --noEmit` → 13 baseline errors unchanged; no real-money path file
-   touched; no DDL applied; no paid-data subscription; no authenticated
-   scrape. Per orchestration §3.1 trivial-edit exception ALL six gates
-   green → orchestrator self-edit is in-scope.
-
-6. Committed `adc27e4` (slice 1).
-
-**Files in slice 1:**
-
-| Path | Change | Notes |
+| Fix | Target | Change |
 | --- | --- | --- |
-| `docs/specs/adr-051-layer0-phase-b-deflation-pipeline.md` | new (+466) | Pattern lock-in for all 9 Layer-0 composites |
-| `docs/specs/phase-b-cycle-v1.md` | new (+390) | Per-composite SPEC; Composite-worker brief for Cycle 23 |
+| 1 (HIGH) | `phase-b-cycle-v1.md` §S-PBC1-6 | Replaced bootstrap pseudocode with parametric Mertens documentation; aligns SPEC with worker's correct in-canon choice |
+| 2 | `phase_b_campaign_cycle_v1.ts:610` | Renamed `allRanOrAllPassed` → `allGatesRan` + comment |
+| 3 | `phase_b_campaign_cycle_v1.ts` (both `fmt` lambdas) | Added `Number.isFinite` guard (GAP-12 hygiene pattern) |
+| 5 | `_backfill_qqq_iwm_for_phase_b.py` docstring | Added scope-deviation note (Data-Ingest domain, treated as Tier-1) |
+| 6 | `phaseBCampaignCycleV1.test.ts` convention pin | Doc comment pointing at probe as live-CH convention check |
 
-### Cycle 22 outcomes (orchestration §3.1 trivial-edit exception)
+Fix 4 (markdown caveat) struck — already present.
 
-| Worker | Task | Verdict | Outcome |
-| --- | --- | --- | --- |
-| Orchestrator (self-edit per §3.1 pure-docs class) | Slice 1 — ADR-051 + cycle_v1 SPEC | n/a (orchestrator-only; no critic needed) | Integration gate green (tsc 13 baseline preserved) |
-| Explore subagent | Backtest infrastructure map | informational-only (no diff) | Used to scope ADR-051 §Decision 6 (persistence shape) |
+### Slice 3 (end-to-end `--apply`, `11fcf77`)
+
+Ran `npm run phase_b:cycle_v1:apply` from worktree (cwd had shifted):
+
+```text
+Per-benchmark verdicts:
+  SPY: verdict=partial (θ*=0.40, DSR=0.933✗, PBO=0.023✓, HLZ=fail, OOS/IS=1.024✓)
+  QQQ: verdict=partial (θ*=0.40, DSR=0.976✓, PBO=0.011✓, HLZ=fail, OOS/IS=0.781✓)
+  IWM: verdict=partial (θ*=0.40, DSR=0.812✗, PBO=0.055✓, HLZ=fail, OOS/IS=0.499✗)
+No primary Phase-C candidate.
+Persisted: 57 trial rows; 3 verdict rows; markdown report written.
+```
+
+θ* = 0.40 consistent across all three benchmarks — economically sensible.
+PBO very strong (0.01-0.06, well below 0.2 Phase-C threshold) — IS
+selection generalizes. **HLZ fails everywhere** due to the M=57 multiple-
+testing correction (the canonically strict gate when testing 57 trials
+across 3 benchmarks). OOS-IS Pardo: SPY pass, QQQ pass, IWM fail.
+DSR mixed (SPY fail, QQQ pass, IWM fail).
+
+**Composite verdict = PARTIAL** per ADR-051 §Decision 5 (≥1 gate passes,
+≥1 gate fails). cycle_v1 stays informational at Layer-0 — the per-gate
+breakdown documents which evidence is present and missing. **No Phase-C
+candidate.**
+
+This is **consistent with cycle_v1's prior s85 §S-MCP-Q5 closure** as
+"informational permanently" via NBER backtest — different methodology
+(NBER lead-time vs DSR/PBO/HLZ/Pardo deflation), same direction. The
+anti-shopping rule per ADR-051 §Decision 5 + composite_version pin
+prevents a "cycle_v2" redesign in response to this PARTIAL without
+independent canon-cited evidence justifying the redesign.
+
+### Cycle 23 outcomes per orchestration §6
+
+| Worker / step | Verdict | Outcome |
+| --- | --- | --- |
+| Composite worker (general-purpose, worktree-isolated) | Slice 1 — Phase B harness | RESOLVE-IN-PLACE (5 small fixes) |
+| Critic (general-purpose) | Slice 1 review | Verdict: RESOLVE-IN-PLACE; methodology sound; scope deviation acceptable |
+| Orchestrator (self-edit per §6.2) | Slice 2 — critic fixes | Integration gate green |
+| Orchestrator (campaign --apply) | Slice 3 — end-to-end execution | 57 trials + 3 verdicts persisted; report written |
 
 ### Verification gates at cycle close
 
 ```text
-git status                                                          # clean (1 slice + HANDOFF rewrite)
-git log origin/main..HEAD                                            # 65 commits ahead (was 63)
-npx tsc --noEmit                                                     # 13 baseline errors unchanged (delta 0)
-# No test runs this cycle — pure-docs slice
+git status                                                          # clean
+git log origin/main..HEAD                                            # 70 commits ahead
+npx tsc --noEmit                                                     # 13 baseline errors unchanged
+node --import tsx --test scripts/tests/phaseB*.test.ts \
+  scripts/tests/migrateCreatePhaseB*.test.ts                          # 142/142 pass
+npm test                                                             # 3477/3496 pass + 19 skip + 0 fail (was 3319; +158 new)
+npm run health:check                                                  # no NEW Tier-2 items
+git worktree list                                                    # main only (Cycle 23 worktree fully cleaned up)
 ```
 
-### Post-Cycle-22 health snapshot
+### Post-Cycle-23 DB state
 
-No DB changes; no daemon changes; no UI changes. Health-check status
-unchanged from Cycle 21 (Sunday-weekend-normal staleness on all
-daemon-cadence sources; 2 pinned quarantine rows for Q-5 + Q-6 both
-`accepted-as-warning`). Composite + Health worker work for Cycle 23+
-will produce DB + UI changes.
+| Table | Change |
+| --- | --- |
+| `quantlab.phase_b_trials` | **NEW** — 57 rows inserted (composite_version='cycle_v1' × 3 benchmarks × 19 θ trials) |
+| `quantlab.phase_b_verdicts` | **NEW** — 3 rows inserted (SPY/QQQ/IWM PARTIAL; phase_c_eligible=false on all) |
+| `quantlab.candles` | +9,566 rows for QQQ_USD + IWM_USD (2007-05-21 → 2026-05-22 at 1d; pre-authorized yfinance source) |
+
+Forward-only additive DDL; no destructive ops. All within data-source policy.
 
 ### Push state
 
-- `origin/main` at `c0cda7c`; **65 unpushed commits** after this HANDOFF
+- `origin/main` at `c0cda7c`; **70 unpushed commits** after this HANDOFF
   rewrite.
 - Push operator-gated (Q-4).
 
@@ -168,113 +188,132 @@ will produce DB + UI changes.
 | ADR-044 standing system-health mandate | ✓ s96 #12 |
 | Working-model change ratified | ✓ s96 #14 |
 | Multi-agent orchestration design committed | ✓ s96 #14 |
-| Cycle 1..15 (s96 #17) | ✓ as documented (S96-70..S96-96) |
-| Cycle 16 — `/#/regime` UI smoke-test + §3.1 codified | ✓ s96 #17 (S96-97 + S96-98) |
-| Cycle 17 — Q-6 resolved via ADR-049 stockanalysis adapter | ✓ s96 #17 (S96-99..S96-101) |
-| Cycle 18 — day-2 stockanalysis observation (PASS) | ✓ s96 #18 (S96-102) |
-| Cycle 19 — OQ-C16-1 probe → Q-7 surfaced | ✓ s96 #18 (S96-103) |
-| Cycle 20 — Q-6 UI fix + Q-5 Path D found + Phase B unbundled | ✓ s96 #19 (S96-104..S96-107) |
-| Cycle 21 — Q-5 Path D shipped end-to-end (ingest + daemon + backfill + ADR-050) | ✓ s96 #20 (S96-108..S96-111) |
-| **Cycle 22 — ADR-051 Layer-0 Phase B pattern + cycle_v1 SPEC (RESEARCH+SPEC only)** | **✓ s96 #20 (S96-112..S96-114)** |
-| Cycle 23 — day-3 stockanalysis observation (Monday — first trading day) | ☐ NEXT default (recommended IF Monday EOD or later) |
-| Cycle 23-alt — **Composite worker: cycle_v1 Phase B campaign implementation** per phase-b-cycle-v1.md SPEC | ☐ NEWLY UNLOCKED alternative this cycle |
-| Cycle 23-alt — Q-7 Path 1/2/3 execution (operator-gated) | ☐ alternative once operator picks Q-7 path |
-| Cycle 23-alt — Q-5 quarantine row drop (after ≥5 fresh CBOE days post-Path-D) | ☐ orchestrator-owned follow-up |
-| Cycle 24+ — Health worker: `/#/phase-b` dashboard + morning brief §0c | ⏸ blocked on Cycle 23 (needs phase_b_verdicts rows) |
-| Cycles 25+ — Phase B campaigns for the 8 remaining Layer-0 composites (vol_struct_v1, sector_rot_v1, cross_asset_v1, short_interest_v1, + 4 gap composites) | ☐ pattern from cycle_v1 generalized; one per-composite SPEC + execution per cycle |
-| Cycle 24+ — v1 primary read path flip (after 5-day window passes) | ⏸ blocked on 5-day observation completion |
-| Daemon step 1jc (stockanalysis post-close refresh) | ⏸ blocked on 5-day observation completion |
+| Cycle 1..21 | ✓ as documented |
+| Cycle 22 — ADR-051 Layer-0 Phase B pattern + cycle_v1 SPEC | ✓ s96 #20 (S96-112..S96-114) |
+| **Cycle 23 — cycle_v1 Phase B harness shipped + executed; verdict PARTIAL** | **✓ s96 #20 (S96-115..S96-118)** |
+| Cycle 24 — day-3 stockanalysis observation (Monday) | ☐ NEXT default IF Monday EOD or later |
+| Cycle 24-alt — **Health worker: `/#/phase-b` dashboard + morning brief §0c** | ☐ NEWLY UNLOCKED (verdict rows exist now) |
+| Cycle 24-alt — Q-7 Path 1/2/3 execution | ☐ alternative once operator picks |
+| Cycle 24-alt — Q-5 quarantine row drop (after ≥5 fresh CBOE days) | ☐ orchestrator-owned follow-up |
+| Cycles 25+ — Phase B campaigns for the 8 remaining Layer-0 composites | ☐ pattern + harness proven Cycle 23; next likely: vol_struct_v1 |
+| Cycle 24+ — v1 primary read path flip | ⏸ blocked on 5-day observation |
+| Daemon step 1jc (stockanalysis post-close refresh) | ⏸ blocked on 5-day observation |
 | ADR-048 path-B reactivation | ⏸ reserved fallback IF stockanalysis proves unreliable |
-| Phase 2 v2 — plausibility-band probes + per-UI-route ping + auto-insert + re-alert cursor | ☐ deferred per S96-71 |
-| GAP-3 CBOE put/call daemon hook | ✓ CLOSED Cycle 21 (side-effect of step 1b'') |
+| Phase 2 v2 — plausibility-band probes | ☐ deferred per S96-71 |
+| GAP-3 CBOE put/call daemon hook | ✓ CLOSED Cycle 21 |
 | F2 CBOE backfill + re-classify (Q-5 path D) | ✓ BACKFILL DONE Cycle 21 |
-| Composite worker (Q-5-blocked phase1_v3 re-classify) | ⏸ ADR-050 §Phase 2 — DEFAULT no counterfactual rewrite |
-| Composite worker (Q-6-blocked etf-flow read-path flip) | ⏸ blocked on 5-day observation completion |
-| Q-7-blocked phase1_v3 yield-curve source persistence resolution | ⏸ blocked on Q-7 pick |
-| C-12 Phase B AlpacaAdapter (broker integration, real-money path) | ⏸ INDEFINITELY PAUSED — operator-gated; distinct from Layer-0 Phase B per S96-106 |
-| **Layer-0 Phase B statistical validation campaigns (9 composites)** | **☐ PATTERN LOCKED Cycle 22 (ADR-051); cycle_v1 SPEC written; 9 campaigns to execute starting Cycle 23+** |
-| Phase C promotion of any Layer-0 composite to phase1_v3+ classifier input | ⏸ operator-gated per Q-8 (DORMANT until first PASS-ALL verdict) |
-| Capital-deployment-ramp ADR (Q-2) | ☐ INDEFINITELY DEFERRED per s96 #19 framing |
+| **Layer-0 Phase B statistical validation campaigns (9 composites)** | **☐ Pattern proven Cycle 23 with cycle_v1 (verdict: informational permanently); 8 more campaigns to execute** |
+| Phase C promotion of any Layer-0 composite to phase1_v3+ classifier input | ⏸ operator-gated per Q-8 (DORMANT — cycle_v1's PARTIAL doesn't activate) |
+| C-12 Phase B AlpacaAdapter (real-money path) | ⏸ INDEFINITELY PAUSED per s96 #19 |
+| Capital-deployment-ramp ADR (Q-2) | ☐ INDEFINITELY DEFERRED |
 | Drawdown framework §12 90d empirical retune | ☐ scheduled — earliest 2026-08-29 |
 
 ---
 
 ## Decisions locked in
 
-### Session 96 #20 (Cycle 22 of multi-agent orchestration)
+### Session 96 #20 (Cycle 23 of multi-agent orchestration)
 
-**S96-112. ADR-051 ratified — Layer-0 Phase B deflation-pipeline pattern
-applies to all 9 informational composites.** `Why:` Orchestration §7.3
-specified "Phase B statistical validation campaigns for the nine Layer-0
-informational composites... DSR / PBO / HLZ deflation-pipeline validation
-per AFML §11 / Bailey-LdP 2014 / Harvey-Liu-Zhu 2016" as orchestration-
-owned but no prior pattern existed in the codebase. The cycle_v1 NBER
-backtest from s85 was a domain-specific Phase B (recession lead-time
-prediction), fundamentally different from the canonical four-gate
-deflation pipeline. ADR-051 locks in the pattern so all 9 campaigns
-share methodology + code paths + verdict semantics + audit trail.
-`How to apply:` (1) Every Layer-0 composite gets its own per-composite
-SPEC at `docs/specs/phase-b-<composite>.md` that inherits ADR-051 and
-pins only the per-composite overlay (score-rescaling, benchmark
-universe, θ grid density). (2) Per-composite SPECs MUST NOT relax any
-ADR-051 §Decision 4 threshold; relaxing → escalates per orchestration
-§7.1.5. (3) PASS-ALL + PBO < 0.2 is the mechanical Phase-C eligibility
-gate (operator decision still required per orchestration §7.1 item 8).
-(4) Anti-shopping rule (§Decision 5): failed v1 Phase B closes the
-composite permanently; a v2 requires independent evidence justifying
-the redesign before the v2 Phase B campaign starts. (5) The 8 future
-Layer-0 Phase B campaigns reuse the cycle_v1 harness (built Cycle 23+)
-with per-composite SPEC overlays — net cycle cost per future composite
-should be much lower than cycle_v1 because the pattern + harness is
-shared.
+**S96-115. cycle_v1 Phase B verdict = PARTIAL on all 3 benchmarks
+(SPY/QQQ/IWM); NO Phase-C candidate; composite stays informational at
+Layer-0 permanently.** `Why:` Per ADR-051 §Decision 5: a composite passes
+Phase B iff ≥1 (composite × benchmark) cell has all four gates pass AND
+PBO < 0.2. cycle_v1's three cells all have HLZ-haircut fail at M=57
+(SPY t=2.919 / QQQ t=3.502 / IWM t=2.218 — none clear the BHY threshold
+at rank 1 of 57 with α=0.05 one-sided). QQQ passed DSR + PBO + OOS-IS
+but HLZ blocks promotion. SPY + IWM also fail DSR. So no benchmark has
+PASS-ALL → verdict is PARTIAL. Consistent with cycle_v1's prior s85
+§S-MCP-Q5 closure as "informational permanently" via NBER backtest
+(different methodology, same direction). **The anti-shopping rule per
+ADR-051 §Decision 5 + composite_version='cycle_v1' pin in
+`quantlab.phase_b_verdicts` prevents a `cycle_v2` redesign in response
+to this PARTIAL without independent canon-cited evidence motivating
+the redesign.** `How to apply:` (1) cycle_v1 stays as a Layer-0/Layer-5
+LLM-context informational signal (operator-brief sparkline + dashboard
+panel + morning brief mention); does NOT fire as `phase1_v3+` category.
+(2) Q-8 remains DORMANT — only ANY future composite returning PASS-ALL +
+PBO<0.2 activates it. (3) Future composite Phase B campaigns reuse the
+harness pattern from this cycle exactly — `vol_struct_v1`, `sector_rot_v1`,
+`cross_asset_v1`, `short_interest_v1`, and the 4 remaining gap composites
+each get a per-composite SPEC inheriting ADR-051 + cycle_v1 harness.
 
-**S96-113. Strategy template for Layer-0 Phase B = long-only threshold
-on a benchmark (`position(t) = LONG if score(t-1) > θ, else FLAT`).**
-`Why:` Three-criterion test per CLAUDE.md autonomous-execution protocol
-selected this over alternatives (dual-threshold long/flat/short;
-phase-label categorical; continuous score-weighted exposure). Long-only
-wins on: (a) canon foundations — simplest strategy form per Pardo §1
-+ AFML §1 + Aronson §3; (b) methodology rigor — single-parameter sweep
-is the smallest possible trial space → minimal selection-bias inflation;
-(c) minimum free parameters — single θ vs the alternatives. Short-side
-testing requires sister-campaign instantiation (e.g., `cycle_v1_inverse`)
-with its own Phase B run, not bundling into the v1 trial grid which
-would inflate DSR's noise floor without adding evidence the signal
-works. `How to apply:` (1) Every per-composite SPEC instantiates the
-same template with a per-composite score-rescaling if the composite's
-output isn't already in [0,1]-with-"high=bullish" semantics. (2) If
-a composite's claim is bidirectional and the orchestration wants to
-test both directions, the SPEC adds a sister `<composite>_inverse`
-campaign — it counts as a separate composite version for HLZ purposes.
-(3) Long-only template is the canonical default; per-composite SPECs
-override only with explicit canon-cited rationale.
+**S96-116. DSR path for Layer-0 Phase B campaigns = parametric Mertens
+(not bootstrap); SPEC §S-PBC1-6 updated to document.** `Why:` The
+phase-b-cycle-v1.md §S-PBC1-6 pseudocode originally showed
+`perAssetSharpes: trialSharpes` which would route to the bootstrap DSR
+path in `src/lib/psr.ts` `bootstrapDSR()`. The Composite worker
+deliberately did NOT pass `perAssetSharpes`, correctly recognizing that:
+(a) `bootstrapDSR` requires `observedSharpe ≈ median(perTokenSharpes)`
+(cross-sectional aggregation per Bailey-LdP 2014 §11.5); (b) here
+`observedSharpe = bestTrial.is_sharpe` is the ARGMAX of trialSharpes,
+not the median; (c) feeding trialSharpes as `perAssetSharpes` would
+resample the trial axis (which IS the selection-bias axis) and produce
+a meaningless SE. For "composite-as-signal" Phase B campaigns there is
+no cross-sectional asset panel; parametric Mertens (PSR Eq.3, Bailey-LdP
+2014 §3; AFML §11.4) is the correct path. Critic confirmed worker's
+reasoning sound + flagged the SPEC pseudocode as needing update; Fix 1
+(orchestrator-applied) updated `phase-b-cycle-v1.md` §S-PBC1-6 with
+documentation of why parametric is correct. `How to apply:` (1) Future
+per-composite SPECs (for the 8 remaining composites) MUST inherit this
+choice — parametric Mertens unless the composite genuinely has a
+cross-sectional asset panel (e.g., a sector-by-sector composite where
+each sector IS an independent sampling unit). (2) Per-composite SPEC
+authors should reference this S96-116 lock-in. (3) bootstrap DSR is
+appropriate ONLY for backtests where `observedSharpe = median across
+multiple independent assets/tokens` (the original SignalForge
+`score_strategies.ts` use case); not for composite-as-signal Phase B.
 
-**S96-114. cycle_v1 Phase B SPEC = SPY + QQQ + IWM benchmarks, θ ∈
-{0.05..0.95} step 0.05 (19 trials), 2008-2020 IS / 2021-now OOS, M=57
-for HLZ.** `Why:` Per S96-113 strategy template + ADR-051 §Decision 2
-benchmark-universe rule (≤3 economically distinct US equity benchmarks
-spanning the business-cycle exposure surface). SPY captures broad
-market; QQQ captures tech-heavy growth-cycle sensitivity; IWM captures
-small-cap business-cycle sensitivity. Step 0.05 θ grid covers the
-empirical cycle_v1 score distribution (mass in [0.30, 0.70] per
-`docs/analysis/cycle-position-validation-2026-05.md`) with 19 trials —
-well below the regime where DSR's expected-max-of-19-IID-normals
-(≈ 1.86σ at N=19, Embrechts-Klüppelberg-Mikosch / Bailey-LdP §3
-approximation) noise floor dominates. IS = 13 years / 3270 trading
-days → CSCV S=16 (above the 1024 auto-downshift threshold per
-`cscv.ts:115`); OOS = 5 years / 1370 trading days. M=57 = 19 × 3 for
-HLZ haircut leaderboard. `How to apply:` (1) Cycle-23 Composite worker
-takes `docs/specs/phase-b-cycle-v1.md` + ADR-051 as constraint
-envelope; ships per §3-§5 of the SPEC (harness + persistence + tests).
-(2) Worker MUST resolve SPY/QQQ/IWM `token_address` in
-`quantlab.candles` at campaign-start and FAIL LOUDLY if any benchmark
-cannot be resolved (no silent benchmark drops; convention-pin test
-guards this). (3) Verdict-aggregation rule: composite passes Phase B
-iff ≥1 benchmark has `verdict='pass-all'` AND `pbo_value < 0.2` — that
-benchmark becomes the primary Phase-C-eligible candidate (operator
-queue Q-8 populates).
+**S96-117. Composite worker is authorized to invoke `scripts/*_backfill.py`
+Data-Ingest helpers when Step 0 reveals missing input data, treating it
+as Tier-1 missing-ingest-never-fired auto-fix per ADR-044.** `Why:` Cycle
+23 Composite worker found QQQ + IWM absent from `quantlab.candles` at
+Step 0 pre-flight probe. The worker's domain per orchestration §1 is
+Composite, not Data-Ingest. Strict reading would have stopped + spawned
+a Data-Ingest worker for the backfill. Worker instead authored
+`_backfill_qqq_iwm_for_phase_b.py` (144-line wrapper reusing canonical
+`yfinance_backfill.py` helpers) + ran it. Critic judged this sound:
+(a) data-source policy pre-authorizes yfinance freely; (b) ADR-044 Tier-1
+explicitly covers "stale or missing data caused by a failed scheduled
+job → re-run the job"; (c) "missing-ingest-never-fired" is mechanically
+equivalent (analogous to F3 Form 4 first-apply, which orchestration §2.1
+also classifies as one-off run); (d) backfill is forward-only additive
+(ReplacingMergeTree(timestamp)); (e) script reuses canonical helpers;
+(f) NOT a real-money path file. **Not an ESCALATE trigger per
+orchestration §6.3 (none of the 8 triggers fire).** `How to apply:`
+(1) Future Composite workers facing similar Step 0 data-missing gaps
+may invoke pre-authorized backfill helpers IF: the missing data is from
+a pre-authorized free source (yfinance/SEC EDGAR/FRED/FINRA/CBOE/etc.);
+the gap is "never-fired" not "broken-ingest"; the backfill script reuses
+canonical helpers (does not re-implement schema). (2) Cleaner long-run
+path: spawn a Data-Ingest worker for the backfill + the Composite worker
+for the consumer. Cycle 23's borderline call was tractable given the
+tight cycle loop; future cycles should split when uncertain. (3) The
+critic remains the gate — any Composite worker invoking Data-Ingest
+helpers MUST be reviewed by the critic before merge.
 
-**Carry-overs (still in force):** S96-1..S96-111; S95-1..S95-50;
+**S96-118. Layer-0 Phase B campaign harness is proven; reusable for the
+8 remaining composites with per-composite SPEC overlays.** `Why:` Cycle
+23 shipped the full pattern end-to-end: pre-flight probe → backtest
+harness → four-gate validator integration → trial+verdict persistence
+→ markdown report. 142 tests pin the harness. 4,034 LOC across 12 files.
+The 8 remaining composites (vol_struct_v1, sector_rot_v1, cross_asset_v1,
+short_interest_v1, executive_departure_v1, eight_k_classifier_v1,
+form_4_insider_v1, schedule_13d_g_v1) need ONLY: (a) per-composite SPEC
+overlay at `docs/specs/phase-b-<composite>.md` (5-10 minutes per SPEC);
+(b) a small fork of `phase_b_campaign_cycle_v1.ts` parameterized to read
+the right composite snapshots table + the right benchmark universe (mostly
+copy + ~50 LOC of differences per composite); (c) re-use of all other
+infra (migrations, repository, tests-as-templates). **Net cycle cost per
+future composite estimated at ~25% of Cycle 23's effort** (most of the
+harness work generalizes). `How to apply:` (1) Cycle 25+ next composite
+likely = vol_struct_v1 (simplest input shape: VIX/VIX3M term structure).
+(2) Each per-composite SPEC must reference S96-115 + S96-116 +
+ADR-051 as canon. (3) After the 9th composite ships, evaluate whether
+a generalized "phase_b_campaign.ts" abstraction is warranted (likely yes;
+each per-composite script will mostly be config). The abstraction is
+NOT premature optimization to attempt before all 9 are shipped.
+
+**Carry-overs (still in force):** S96-1..S96-114; S95-1..S95-50;
 S94-1..S94-33; S93-1..S93-54; all prior s73-s92 lock-ins.
 
 ---
@@ -283,63 +322,65 @@ S94-1..S94-33; S93-1..S93-54; all prior s73-s92 lock-ins.
 
 ### NEW this cycle
 
-- **OQ-C22-1** — Bootstrap DSR vs Mertens parametric choice for
-  cycle_v1 Phase B trials. ADR-051 §Decision 4 says "Bootstrap path
-  (Bailey-LdP §11.5) preferred when per-day equity-curve resamples
-  are feasible; otherwise Mertens parametric." For cycle_v1 the
-  long-only daily-rebalance Sharpe is computable from daily returns
-  AND the trial-Sharpe vector is 19 elements (≥4 minimum for bootstrap
-  path), so EITHER path runs. Cycle 23 Composite worker decides at
-  SPEC-§6 ValidatorRequest packaging time: SPEC §6 shows
-  `perAssetSharpes: trialSharpes` which triggers bootstrap. Mertens
-  parametric is the fallback if bootstrap returns 0 (degenerate SE).
-  Logged here for worker visibility; not blocking.
-- **OQ-C22-2** — Cross-composite meta-HLZ pass deferred. ADR-051
-  §Consequences says "the BEST of all 9 composites — is it really
-  significant given we tested 9?" requires a meta-HLZ pass that is
-  NOT implemented in v1. If a future operator wants this rigor, it's
-  a separate ADR; v1 Phase B campaigns are per-composite-self-
-  contained. Logged for future cycle pickup, not blocking.
+- **OQ-C23-1** — HLZ M=N reduction warning for partial dev runs. Critic
+  observation #4: the harness's `runValidatorGatesForBenchmark` passes
+  `THETA_GRID.length * benchmarks.length` to HLZ, so a single-benchmark
+  dev run via `--benchmark SPY` produces a DIFFERENT HLZ verdict (M=19)
+  than the full campaign (M=57). Mathematically correct for a partial
+  run, but operator-confusing if they don't realize the gate shifted.
+  Suggested follow-up (non-blocking): add a console warning when
+  `benchmarks.length < BENCHMARKS.length` saying "HLZ M reduced for
+  partial dev run; full-campaign verdict uses M=57." Logged for a future
+  cycle's pickup, not blocking.
+- **OQ-C23-2** — CSCV all-zero / sparse-filter edge cases on Phase B
+  trials. The current tests cover golden vectors + standard cases but
+  not: 0-trade trial (e.g., θ=0.99 forcing flat-throughout); empty
+  `is_slice_sharpes` array passed to `computePboGateFromSlices`. Low-
+  priority; if it's a real defect, the next composite's Phase B will
+  surface it as a tsc / test failure. Logged for awareness.
+- **OQ-C23-3** — Verdict report's primary-candidate selection rule
+  when multiple benchmarks tie on highest DSR. The harness's
+  `pickPrimaryPhaseCCandidate` documentation says "highest DSR" but
+  doesn't specify the tiebreaker. For cycle_v1's PARTIAL across all 3,
+  there IS no primary (no candidate). For a future composite returning
+  PASS-ALL on multiple benchmarks, a tie on DSR would be ambiguous. Add
+  tiebreaker rule (e.g., highest OOS Sharpe, then alphabetical benchmark)
+  in a future cycle.
 
 ### CARRIED from earlier cycles
 
-- **OQ-C21-1** — Q-5 quarantine row drop timing (per OQ-C21-1 in prior
-  HANDOFF; gated on ≥5 fresh CBOE days landing via daemon step 1b'';
-  orchestrator drops in follow-up cycle).
+- **OQ-C22-1** — Bootstrap-vs-Mertens DSR choice → **RESOLVED Cycle 23**
+  per S96-116. Mertens parametric chosen; SPEC updated.
+- **OQ-C22-2** — Cross-composite meta-HLZ pass — deferred per ADR-051
+  §Consequences. Still open; not blocking.
+- **OQ-C21-1** — Q-5 quarantine row drop timing (per OQ-C21-1; gated
+  on ≥5 fresh CBOE days landing via daemon step 1b'').
 - **OQ-C21-2** — Equity vs Total P/C methodology refinement (future
   RESEARCH→DESIGN cycle; ingest is ready).
 - **OQ-C20-1** — Browser-smoke for Cycle 20 Q-6 UI fix deferred to
   operator dev-server restart.
-- **OQ-C17-1** — VOO source quality issue (sharesOut delta 39.9%);
-  covered in Q-6 row.
+- **OQ-C17-1** — VOO source quality issue.
 - **OQ-C18-1** — SPY-specific SSGA freshness lag.
 - **OQ-C19-1** — inputs_missing UInt8 truncation at bits 8+.
-- **OQ-C16-1** — RESOLVED Cycle 19.
-- **OQ-SMP-1** — closed in Cycle 9.
-- **OQ-RECON-1..OQ-RECON-19** — closed by orchestration §2 classifications.
-- **OQ-G9-4** — v3.1 arc continuation for non-SSGA issuers — CLOSED
-  Cycle 17 by ADR-049.
-- **OQ-XD13-1/2/3** — Phase B independence + filer-reputation +
-  aggregate slicing (these are 8-K composite Phase B campaigns — they
-  become Cycle 25+ candidates once the cycle_v1 pattern is
-  generalized).
-- **OQ-G9-1** — issuer-specific schema mappers — CLOSED Cycle 17 by
-  ADR-049.
+- **OQ-G9-4** — CLOSED Cycle 17 by ADR-049.
+- **OQ-XD13-1/2/3** — 8-K composite Phase B campaigns (become Cycle 25+
+  candidates once vol_struct_v1 / sector_rot_v1 / cross_asset_v1 /
+  short_interest_v1 ship).
+- **OQ-G9-1** — CLOSED Cycle 17 by ADR-049.
 
 ### CARRIED (long-running)
 
-- C-12 Phase B Alpaca onboarding — paused (operator-gated; unrelated
-  to Layer-0 Phase B per S96-106).
-- Capital-deployment-ramp ADR — Q-2 (indefinitely deferred per S96-107).
+- C-12 Phase B Alpaca onboarding — paused.
+- Capital-deployment-ramp ADR — Q-2 indefinitely deferred.
 - ML meta-labeling (ADR-017, deferred ≥4 weeks).
-- Sharadar SF1 subscription — Q-3 adjacent (operator-call).
+- Sharadar SF1 subscription — Q-3 adjacent.
 - Phase 2 v2 — deferred per S96-71.
 
 ---
 
 ## Next stage
 
-### Default on `continue` — Cycle 23 candidate
+### Default on `continue` — Cycle 24 candidate
 
 **Recommended IF Monday EOD or later:** day-3 stockanalysis
 observation (Monday 2026-05-25 is the first trading day in the 5-day
@@ -356,147 +397,143 @@ window). Procedure same as Cycle 18 (takes ~5 min):
 **If invoked before Monday EOD or operator pivots, alternatives (in
 priority order):**
 
-- **Composite worker: cycle_v1 Phase B campaign implementation** per
-  the new `docs/specs/phase-b-cycle-v1.md` SPEC. First CODE slice of
-  the 9-composite Phase B arc. Spawn pattern (orchestration §4.1):
+- **Health worker: `/#/phase-b` UI dashboard + morning brief §0c
+  renderer** per ADR-051 §Decision 7. Now unblocked — cycle_v1 verdict
+  rows exist in `quantlab.phase_b_verdicts`. Spawn pattern (per
+  orchestration §4.1):
 
   ```text
   Agent({
-    description: "cycle_v1 Phase B campaign harness + persistence + tests",
+    description: "Phase B verdict UI dashboard + brief renderer",
     subagent_type: "general-purpose",
     isolation: "worktree",
-    prompt: <self-contained brief per orchestration §3.2 worker-output
-            contract; constraint envelope per ADR-051 + phase-b-cycle-v1
-            SPEC §1; deliverable per SPEC §1 builds 1-4; test gate per
-            SPEC §6; return contract per orchestration §3.2>
+    prompt: <self-contained brief; constraint envelope = src/components/
+            phase_b/* + src/server/phase_b_dashboard.ts + brief
+            renderer §0c; deliverable per ADR-051 §Decision 7; test gate
+            includes UI browser smoke per ADR-044>
   })
   ```
 
-  After worker returns: spawn critic per orchestration §6 (this work
-  touches composite-adjacent files + canon-cited methodology — §3.1
-  says critic does NOT bypass for canon-cited methodology). Then run
-  the end-to-end campaign: `npx tsx
-  scripts/phase_b_campaign_cycle_v1.ts --apply` (orchestrator-executed;
-  produces phase_b_verdicts rows + the markdown report).
-
+- **Composite worker: vol_struct_v1 Phase B campaign** — second
+  composite in the 9-composite arc. Per S96-118 estimated ~25% of
+  Cycle 23 effort. First write `docs/specs/phase-b-vol_struct_v1.md`
+  per-composite SPEC (orchestrator), then spawn Composite worker.
 - **Q-5 quarantine row drop** — per OQ-C21-1, gated on ≥5 fresh CBOE
-  days landing. Calendar-likely Cycle 26+ earliest.
-- **If operator picks Q-7 path:** orchestration executes the chosen
-  path (Path 1 / Path 2 / Path 3 / hybrid).
+  days landing.
+- **If operator picks Q-7 path:** orchestration executes chosen path.
 
-### Lower-priority Cycle 23+ alternatives
+### Lower-priority Cycle 24+ alternatives
 
-- **OQ-C19-1 inputs_missing UInt8 → UInt16** — Tier-1 mechanical
-  schema widening; Composite + Infra worker pair.
-- **N-PORT quarterly cross-check scaffolding** — better deferred
-  until 5-day stockanalysis observation completes + Q-7 path picked.
+- **OQ-C19-1 inputs_missing UInt8 → UInt16** — Tier-1 mechanical schema.
+- **N-PORT quarterly cross-check scaffolding** — defer until 5-day
+  window completes + Q-7 path picked.
 - **OQ-C21-2 equity vs total P/C methodology refinement** — future
-  RESEARCH→DESIGN cycle; ingest is ready.
-- **Phase 2 v2 spec drafting** — implementation deferred per S96-71.
+  RESEARCH→DESIGN cycle.
+- **OQ-C23-1 HLZ M-reduction warning** — single-line addition.
 
 ---
 
 ## Files / code state
 
-### New / modified this cycle (s96 #20 Cycle 22)
+### New / modified this cycle (s96 #20 Cycle 23)
 
 | Path | Change | Notes |
 | --- | --- | --- |
-| `docs/specs/adr-051-layer0-phase-b-deflation-pipeline.md` | new (+466) | Slice 1 — pattern lock-in for all 9 Layer-0 composites |
-| `docs/specs/phase-b-cycle-v1.md` | new (+390) | Slice 1 — per-composite SPEC; Composite-worker brief for Cycle 23 |
+| `scripts/phase_b_campaign_cycle_v1.ts` | new (+1,110) | Slice 1 — campaign harness with `backtestTrial` pure function + four-gate validator integration |
+| `scripts/migrate_create_phase_b_trials.ts` | new (+254) | Slice 1 — DDL migration; applied to live CH |
+| `scripts/migrate_create_phase_b_verdicts.ts` | new (+251) | Slice 1 — DDL migration; applied to live CH |
+| `src/server/phase_b_repository.ts` | new (+364) | Slice 1 — typed insert+read helpers |
+| `scripts/_probe_phase_b_cycle_v1_inputs.ts` | new (+252) | Slice 1 — Step 0 pre-flight probe; live-CH convention check |
+| `scripts/_backfill_qqq_iwm_for_phase_b.py` | new (+155) | Slice 1/2 — one-shot yfinance backfill (Tier-1 auto-fix) |
+| `scripts/tests/phaseBCampaignCycleV1.test.ts` | new (+865) | Slice 1/2 — 82 tests |
+| `scripts/tests/migrateCreatePhaseBTrials.test.ts` | new (+221) | Slice 1 — 23 tests |
+| `scripts/tests/migrateCreatePhaseBVerdicts.test.ts` | new (+211) | Slice 1 — 21 tests |
+| `scripts/tests/phaseBVerdictRepository.test.ts` | new (+322) | Slice 1 — 16 tests |
+| `docs/analysis/phase-b-cycle-v1-deflation-2026-05.md` | new (+29) | Slice 3 — verdict report (--apply output) |
+| `docs/specs/phase-b-cycle-v1.md` | modified (+14/-4) | Slice 2 — Fix 1 SPEC §S-PBC1-6 DSR-path doc update |
+| `package.json` | modified (+6) | Slice 1 — 6 npm scripts (migrate × 4 + campaign × 2) |
 | `.claude/HANDOFF.md` | rewrite | This file |
 
-Total: **+856 LOC across 2 new files + 1 HANDOFF rewrite**. No code
-changes; no DDL applied; no real-money path touched; no paid-data
-subscription; no authenticated scrape.
+Total: **+4,050 LOC across 12 new + 2 modified files (3 slices) + 1 HANDOFF rewrite**. DDL applied to live CH (additive only). yfinance backfill ran (Tier-1). No real-money path touched. No paid-data. No authenticated scrape.
 
 ### DB-state changes this cycle
 
-None. Cycle 22 is RESEARCH+SPEC only. Cycle 23 Composite worker will
-create `quantlab.phase_b_trials` + `quantlab.phase_b_verdicts` tables
-per ADR-051 §Decision 6 DDL.
+- `quantlab.phase_b_trials`: 57 rows (composite_version='cycle_v1', 3 benchmarks × 19 θ-trials each)
+- `quantlab.phase_b_verdicts`: 3 rows (composite_version='cycle_v1' × {SPY, QQQ, IWM})
+- `quantlab.candles`: +9,566 rows (QQQ_USD + IWM_USD, 2007-05-21 → 2026-05-22, 1d, yfinance)
 
 ### Test + tsc state
 
-- No new tests this cycle (pure-docs slice).
-- `npx tsc --noEmit`: **13 baseline errors unchanged**.
+- `phaseBCampaignCycleV1.test.ts`: **82/82 pass** (NEW)
+- `migrateCreatePhaseBTrials.test.ts`: **23/23 pass** (NEW)
+- `migrateCreatePhaseBVerdicts.test.ts`: **21/21 pass** (NEW)
+- `phaseBVerdictRepository.test.ts`: **16/16 pass** (NEW)
+- Aggregate Cycle 23: **142 new tests pass**
+- Full `npm test`: **3477/3496 pass + 19 skip + 0 fail** (was 3319; +158 new tests overall)
+- `npx tsc --noEmit`: **13 baseline errors unchanged**
 
 ### Untouched-but-relevant for next session
 
-- Q-5 quarantine row still pinned `accepted-as-warning` (drop is a
-  follow-up cycle's task; per OQ-C21-1).
+- Q-5 quarantine row still pinned `accepted-as-warning`.
 - Q-7 quarantine + tracking rows still loaded.
-- `quantlab.macro_indicators_cboe` carries 5,685 rows (cboe + cboe_json
-  from Cycle 21).
-- `quantlab.cycle_position_snapshots` carries ~6700 rows
-  (2008-01-02 → today) — this is the input the Cycle 23 Phase B
-  campaign reads from.
-- `quantlab.candles` carries SPY/QQQ/IWM at 1d interval (the
-  benchmark assets the Phase B campaign trades against).
-- yfinance pinned `>=0.2,<2.0`; current 1.4.0.
-- `src/lib/{psr,cscv,hlzHaircut,validator}.ts` are READY for Cycle 23
-  Composite-worker integration — zero changes needed.
-- `.github/workflows/ci.yml` staged for first CI run on push (Q-4).
+- `quantlab.macro_indicators_cboe` 5,685 rows (cboe + cboe_json).
+- `quantlab.cycle_position_snapshots` 4,626 rows; 2008-01-02 → 2026-05-22.
+- `quantlab.phase_b_trials` 57 rows; `quantlab.phase_b_verdicts` 3 rows (cycle_v1).
+- yfinance pinned `>=0.2,<2.0`.
+- `src/lib/{psr,cscv,hlzHaircut,validator}.ts` battle-tested Cycle 23.
 - Operator dev server (:3000) still running pre-Cycle-20 binary —
-  needs `npm run dev` restart for the Cycle 20 etf-flow fix to render.
-  Cycle 22 added no UI surface; no additional restart needed.
+  needs `npm run dev` restart to see Cycle 20 etf-flow fix AND any
+  future Cycle 24 /#/phase-b UI work.
 
 ---
 
 ## Watch-outs
 
-### NEW from this cycle (s96 #20 Cycle 22)
+### NEW from this cycle (s96 #20 Cycle 23)
 
-- **The cycle_v1 Phase B campaign's "no-result-shopping" rule is
-  load-bearing.** Per ADR-051 §Decision 5 + S96-114: if the campaign
-  returns FAIL or PARTIAL, cycle_v1 stays informational permanently.
-  Redesigning the composite (cycle_v2 with different weights /
-  different bucket aggregation / different thresholds) in response to
-  an unflattering Phase B result is FORBIDDEN without independent
-  evidence the redesign would predict the benchmark. The independent
-  evidence must be motivated by a canon paper or methodology source
-  that did NOT see the v1 backtest. This rule is the same as
-  cycle_v1's own §S-MCP-Q5 (s85), generalized to all Layer-0
-  composites.
-- **Per-composite SPECs are NOT permitted to relax ADR-051 §Decision 4
-  thresholds.** A per-composite SPEC may override strategy template
-  (Decision 1), benchmark universe (Decision 2), or score-rescaling.
-  A SPEC that proposes a relaxed DSR / PBO / HLZ / Pardo threshold
-  escalates to operator per orchestration §7.1.5 (this is a
-  methodology amendment). Cycle 23+ workers must verify this against
-  the SPEC they inherit.
-- **The Composite-worker spawn for Cycle 23 needs `isolation:
-  "worktree"`.** Per orchestration §4.1 the worker will create ≥4 new
-  files; per §3.2 the work is composite-adjacent + canon-cited
-  methodology → the critic does NOT bypass per §3.1. Worktree
-  isolation prevents collision risk and lets the orchestrator's
-  integration gate run against the worktree branch before
-  fast-forwarding to main.
-- **Benchmark token-address resolution in `quantlab.candles` is
-  convention-fragile.** Per phase-b-cycle-v1.md §8 watch-out: equity
-  ETFs are ingested under `<SYMBOL>_USD` convention per
-  `scripts/yfinance_backfill.py` but the convention is not pinned in
-  schema. Cycle 23 Composite worker MUST resolve at campaign-start
-  and FAIL LOUDLY if any benchmark cannot be resolved (NO silent
-  benchmark drops). The SPEC requires a convention-pin test
-  (`test_benchmark_token_address_convention`).
-- **2008-2020 IS window contains two large drawdowns (GFC + COVID).**
-  If cycle_v1's score went very low during both, the long-only
-  strategy was flat through both and its IS Sharpe will be flattered
-  relative to buy-and-hold. The validator gates don't compare to
-  buy-and-hold (they compare to a noise floor + selection-bias
-  correction + OOS collapse), so this isn't a methodology bug. But
-  the verdict markdown report MUST mention IS-window drawdown
-  coverage as context.
-- **OOS window (2021-2026) is regime-mixed.** Includes 2022 bear,
-  2023-2024 AI rally, 2025-2026 consolidation. OOS-IS Pardo gate
-  catches signals that work only in one regime — this is by design,
-  not a bug.
+- **Bash cwd silently shifted to the worktree mid-cycle.** During Cycle
+  23 execution the Bash tool's persistent cwd shifted from the main
+  checkout into the agent worktree path, causing `git merge` to act on
+  the worktree (no-op fast-forward) instead of main, and `npm run
+  phase_b:cycle_v1:apply` to write the report to the worktree path. The
+  cwd shift was invisible until `pwd` was explicitly queried. **Lesson
+  for future cycles:** when running ANY git or npm operation that must
+  target the main checkout after spawning a worktree-isolated worker,
+  explicitly use `cd "C:/.../signalforge..."` OR `git -C "C:/.../"`. Do
+  NOT trust the Bash tool's persistent cwd to remain at the main
+  checkout. Recover via `pwd` + explicit re-cd.
+- **The Composite worker took a Tier-1 backfill action (S96-117).**
+  Critical to surface for future cycles: the worker authored a Data-
+  Ingest-domain script (`_backfill_qqq_iwm_for_phase_b.py`) when it
+  found Step 0 pre-flight data missing. Critic judged sound per
+  ADR-044's missing-ingest-never-fired carve-out. Future Composite
+  workers may follow this pattern within the same constraints (free
+  source, never-fired ingest, canonical-helper reuse, critic review).
+  Cleaner option: split into Data-Ingest worker + Composite worker;
+  Cycle 23's borderline call was tractable given the tight loop.
+- **HLZ at M=57 is genuinely strict.** cycle_v1's QQQ trial passed DSR
+  (0.976), PBO (0.011), OOS-IS (0.781) but failed HLZ (t=3.502, needs
+  ~3.8-4.0 at rank 1 of 57 with BHY α=0.05 one-sided). This is the
+  correct gate behavior — testing 57 trial cells legitimately requires
+  high t-stat to claim signal. **For future composites, expect HLZ to
+  be the most-frequent failure mode.** A composite needs IS Sharpe
+  high enough to clear the haircut threshold; cycle_v1's IS Sharpes
+  (0.039-0.061 on a daily-return basis) are below that bar.
+- **The harness's `pickPrimaryPhaseCCandidate` tiebreaker is
+  undocumented.** Per OQ-C23-3: future composite returning PASS-ALL on
+  multiple benchmarks with tied DSR would have ambiguous primary
+  selection. Add tiebreaker rule (highest OOS Sharpe, then alphabetical)
+  in a follow-up cycle.
+- **Anti-shopping rule is now operational on cycle_v1.** Per S96-115 +
+  ADR-051 §Decision 5: a `cycle_v2` redesign in response to this
+  PARTIAL verdict requires independent canon-cited evidence justifying
+  the redesign (not result-driven retuning). The `composite_version`
+  pin in `quantlab.phase_b_verdicts` makes a `cycle_v2` row surface
+  immediately as a version proliferation event — orchestrator-auditable.
 
 ### Carried from earlier sessions
 
-All prior watch-outs (s96 #1-#19 + Cycle 20 + Cycle 21 + Cycle 22
-carry-overs) preserved.
+All prior watch-outs (s96 #1-#22 + Cycle 23 carry-overs) preserved.
 
 ---
 
@@ -509,7 +546,6 @@ npm run health:check                   # Phase 1 text output (run at every sessi
 npm run health:check:json              # Phase 1 JSON payload
 npm run health:check:strict            # Phase 1 strict — exit 1 if any non-green
 npm run system-health:check            # Phase 2 v1 dispatcher
-npm run system-health:check -- --json  # Phase 2 v1 JSON payload
 # UI surface: http://localhost:3000/#/health
 ```
 
@@ -523,78 +559,68 @@ npm run brief:morning
 npm run health:check
 ```
 
-### ETF flow ingest (post-Cycle-20 — Q-6 PARTIAL-WITH-UI-FIX)
+### Phase B campaign (post-Cycle-23 — cycle_v1 shipped, harness proven)
 
 ```text
-# v1 primary panel (yfinance) — STILL DEAD per Q-6 / S96-89
+# Pre-flight probe (Step 0 — must pass before --apply):
+npx tsx scripts/_probe_phase_b_cycle_v1_inputs.ts
 
-# v3.1 SSGA secondary (15 tickers: SPY+DIA+11 sector XL*+JNK+GLD)
-npm run etf:flow:ssga-spdr:refresh                         # APPLY
+# Apply migrations (one-shot; idempotent CREATE TABLE IF NOT EXISTS):
+npm run migrate:create-phase-b-trials:apply
+npm run migrate:create-phase-b-verdicts:apply
 
-# v3.1 stockanalysis secondary (5 tickers: IVV+QQQ+IWM+HYG+TLT)
-npm run etf:flow:stockanalysis:fetch                       # adapter only
-npm run etf:flow:stockanalysis:fetch:dry                   # dry-run
-npm run etf:flow:stockanalysis:refresh                     # APPLY
+# Backfill QQQ+IWM (one-shot; ReplacingMergeTree idempotent):
+.venv/Scripts/python.exe scripts/_backfill_qqq_iwm_for_phase_b.py
 
-# Re-runnable smoke probe (Cycle 20):
-npx tsx scripts/_probe_etf_flow_dashboard_response.ts
+# Run campaign:
+npm run phase_b:cycle_v1:dry                     # dry-run; prints summary, no CH writes
+npm run phase_b:cycle_v1:apply                   # writes 57 trial rows + 3 verdicts + markdown report
+npx tsx scripts/phase_b_campaign_cycle_v1.ts --benchmark SPY --dry-run  # single-benchmark dev run
+                                                                          # (NB: HLZ M shifts to 19, not 57 — per OQ-C23-1)
+
+# Read verdicts:
+clickhouse-client --query "SELECT * FROM quantlab.phase_b_verdicts FINAL WHERE composite_version='cycle_v1' ORDER BY benchmark"
 ```
 
 ### CBOE put/call ingest (post-Cycle-21 — Q-5 CLOSED via ADR-050)
 
 ```text
-# Legacy CSV ingest (covers 2003-10-17 → 2019-10-04; source=cboe):
-npm run cboe:ingest
-npm run cboe:ingest:dry
-
-# JSON ingest (Cycle 21 Path D; covers 2019-10-07 → today; source=cboe_json):
-npm run cboe:ingest:json
+npm run cboe:ingest:json                                   # daemon-default
 npm run cboe:ingest:json:dry
 .venv/Scripts/python.exe scripts/cboe_putcall_json_ingest.py --start 2019-10-07 --sleep-ms 300
-.venv/Scripts/python.exe scripts/cboe_putcall_json_ingest.py --start 2026-05-19 --end 2026-05-22 --dry-run
-
-# Re-runnable smoke probe (Cycle 21):
 npx tsx scripts/_probe_cboe_putcall_json.ts
 ```
 
-### Phase B campaign reminders (post-Cycle-22 — pattern locked, awaits Cycle 23)
+### ETF flow ingest (post-Cycle-20 — Q-6 PARTIAL-WITH-UI-FIX)
 
 ```text
-# Read the canon first:
-docs/specs/adr-051-layer0-phase-b-deflation-pipeline.md
-docs/specs/phase-b-cycle-v1.md
-
-# The four-gate validator stack (call from harness; do NOT modify):
-src/lib/{psr,cscv,hlzHaircut,validator,validator_request}.ts
-
-# Input data sources (read-only for Cycle 23 worker):
-quantlab.cycle_position_snapshots             # ~6700 rows; 2008-01-02 → today
-quantlab.candles WHERE symbol IN ('SPY','QQQ','IWM') AND interval='1d'
-
-# New tables Cycle 23 worker creates per ADR-051 §Decision 6:
-quantlab.phase_b_trials                       # one row per (composite × benchmark × θ)
-quantlab.phase_b_verdicts                     # one row per (composite × benchmark) summary
+npm run etf:flow:ssga-spdr:refresh                         # 15-ticker SSGA secondary
+npm run etf:flow:stockanalysis:refresh                     # 5-ticker stockanalysis secondary
+npx tsx scripts/_probe_etf_flow_dashboard_response.ts
 ```
 
-### Cross-source probes (Cycles 17-21)
+### Cross-source probes (Cycles 17-23)
 
 ```text
-npx tsx scripts/_probe_sho_source_labels.ts             # post-OPTIMIZE source label counts
-npx tsx scripts/_probe_stockanalysis_day_over_day.ts    # per-ticker per-date stockanalysis rows
-npx tsx scripts/_probe_fred_t10y3m_alignment.ts         # FRED T10Y3M + SPY alignment + macro_regimes rows
-npx tsx scripts/_probe_t10y2y_compare.ts                # T10Y2Y comparison + ingested_at metadata
-npx tsx scripts/_probe_etf_flow_dashboard_response.ts   # etf-flow dashboard builder output shape
-npx tsx scripts/_probe_cboe_putcall_json.ts             # CBOE daily JSON endpoint reference fetches
+npx tsx scripts/_probe_sho_source_labels.ts             # FINRA short-interest source labels
+npx tsx scripts/_probe_stockanalysis_day_over_day.ts    # ETF day-over-day shares-out
+npx tsx scripts/_probe_fred_t10y3m_alignment.ts         # FRED + SPY + macro_regimes alignment
+npx tsx scripts/_probe_t10y2y_compare.ts                # T10Y2Y vs T10Y3M comparison
+npx tsx scripts/_probe_etf_flow_dashboard_response.ts   # ETF-flow dashboard builder output
+npx tsx scripts/_probe_cboe_putcall_json.ts             # CBOE daily JSON endpoint
+npx tsx scripts/_probe_phase_b_cycle_v1_inputs.ts       # Phase B cycle_v1 inputs (Cycle 23)
 ```
 
 ### Tests + dev
 
 ```text
-npm test                                                                                              # 3319/3338 pass + 19 skip + 0 fail (Cycle 21 state; Cycle 22 added 0 tests)
+npm test                                                                                              # 3477/3496 pass + 19 skip + 0 fail (post-Cycle-23)
+node --import tsx --test scripts/tests/phaseBCampaignCycleV1.test.ts                                  # 82/82 pass (NEW Cycle 23)
+node --import tsx --test scripts/tests/migrateCreatePhaseBTrials.test.ts                              # 23/23 pass (NEW Cycle 23)
+node --import tsx --test scripts/tests/migrateCreatePhaseBVerdicts.test.ts                            # 21/21 pass (NEW Cycle 23)
+node --import tsx --test scripts/tests/phaseBVerdictRepository.test.ts                                # 16/16 pass (NEW Cycle 23)
 node --import tsx --test scripts/tests/healthCheck.test.ts                                            # 37/37 pass
-node --import tsx --test scripts/tests/daemonCboePutCallFetch.test.ts                                 # 10/10 pass (Cycle 21)
-.venv/Scripts/python.exe -m pytest scripts/tests/test_cboe_putcall_json_ingest.py -v                  # 23/23 pass (Cycle 21)
-npm run dev                                                                                           # http://localhost:3000 (operator restart needed for Cycle 20 etf-flow fix)
+npm run dev                                                                                           # http://localhost:3000 (operator restart needed for Cycle 20 etf-flow + Cycle 24 /#/phase-b)
 npx tsc --noEmit                                                                                      # 13 baseline errors
 ```
 
@@ -602,34 +628,30 @@ npx tsc --noEmit                                                                
 
 ## For the next session — priority order
 
-**Default on `continue`:** Cycle 23 candidate — **recommended day-3
+**Default on `continue`:** Cycle 24 candidate — **recommended day-3
 stockanalysis observation (Monday 2026-05-25, first trading day in
 the window)** IF invoked Monday EOD or later. If invoked before
-Monday EOD, pivot to **Composite worker spawn for cycle_v1 Phase B
-campaign implementation** per the Cycle 23 spawn-pattern in §Next
-stage.
+Monday EOD, pivot to one of the NEWLY UNLOCKED alternatives below.
 
-**NEWLY UNLOCKED Cycle 23+ alternatives:**
+**NEWLY UNLOCKED Cycle 24+ alternatives:**
 
-- **Composite worker: cycle_v1 Phase B campaign** (per
-  `docs/specs/phase-b-cycle-v1.md`). First CODE slice of the
-  9-composite Phase B arc. Establishes the harness pattern that
-  Cycles 25+ reuse for the 8 remaining composites.
-- **Health worker: `/#/phase-b` dashboard + morning brief §0c** —
-  blocked on Cycle 23 (needs ≥1 verdict row in `phase_b_verdicts`).
+- **Health worker: `/#/phase-b` UI dashboard + morning brief §0c
+  renderer** per ADR-051 §Decision 7. Verdict rows exist (3 cycle_v1
+  rows in `quantlab.phase_b_verdicts`). Spawn pattern in §Next stage.
+- **Composite worker: vol_struct_v1 Phase B campaign** — second
+  composite in the 9-composite arc. Per S96-118 estimated ~25% of
+  Cycle 23 effort. Write `docs/specs/phase-b-vol_struct_v1.md` first.
 - **Q-5 quarantine row drop** — per OQ-C21-1, gated on ≥5 fresh CBOE
   days landing.
-- **If operator picks Q-7 path:** orchestration executes the chosen
-  path (Path 1 / 2 / 3 / hybrid).
+- **If operator picks Q-7 path:** orchestration executes chosen path.
 
-**Other Cycle 23+ alternatives (lower priority):**
+**Other Cycle 24+ alternatives (lower priority):**
 
-- **OQ-C19-1 inputs_missing UInt8 → UInt16** — Tier-1 mechanical
-  schema widening.
+- **OQ-C19-1 inputs_missing UInt8 → UInt16** — Tier-1 mechanical.
+- **OQ-C23-1 HLZ M-reduction warning** — single-line addition.
+- **OQ-C23-3 primary-candidate tiebreaker** — small SPEC update.
 - **N-PORT quarterly cross-check scaffolding** — defer until 5-day
   window completes + Q-7 path picked.
-- **OQ-C21-2 equity vs total P/C methodology refinement** — future
-  RESEARCH→DESIGN cycle.
 - **Phase 2 v2 spec drafting** — implementation deferred per S96-71.
 
 **Operator queue items (Q-1 through Q-8):**
@@ -637,53 +659,61 @@ stage.
 - Q-1 first real-capital deployment — **INDEFINITELY DEFERRED**.
 - Q-2 capital-deployment-ramp ADR — **INDEFINITELY DEFERRED**.
 - Q-3 Stooq apikey gate decision.
-- Q-4 push 65 commits to origin/main.
+- Q-4 push 70 commits to origin/main.
 - Q-5 **CLOSED via ADR-050** Cycle 21.
 - Q-6 PARTIAL-WITH-UI-FIX (operator `npm run dev` restart needed).
-- Q-7 phase1_v3 yield-curve source persistence — operator picks
-  Path 1 / Path 2 / Path 3 (or hybrid).
-- Q-8 **NEW Cycle 22:** Phase C promotion of Layer-0 composites
-  to phase1_v3+ — DORMANT until first PASS-ALL Phase B verdict lands.
+- Q-7 phase1_v3 yield-curve source persistence — operator picks Path.
+- Q-8 Phase C promotion — **DORMANT** (cycle_v1 PARTIAL doesn't activate).
 
 **Do NOT auto-open without operator green-light:**
 
 - C-12 Phase B AlpacaAdapter (real-money path).
-- Phase C promotion of any Layer-0 composite to phase1_v3+ classifier
-  input (methodology amendment per orchestration §7.1 item 8 + Q-8).
+- Phase C promotion of any Layer-0 composite to phase1_v3+.
 - Playwright dep adoption.
 - ALTER DROP / DROP TABLE / ALTER ... DELETE migrations.
 - `git push` (Q-4).
-- Q-7 Path 1 / 2 / 3 execution (operator-pick gate).
-- v1 primary read path flip (operator-gated via 5-day observation).
-- VOO-specific paid feed or alternative source.
-- Counterfactual rewrite of historical macro_regimes (would require new ADR).
-- **Cycle 23 Composite worker proposing relaxed Phase B thresholds**
-  (per ADR-051 §Decision 4 + S96-112: relaxing thresholds is methodology
-  amendment, escalates per orchestration §7.1.5).
+- Q-7 Path 1 / 2 / 3 execution.
+- v1 primary read path flip.
+- VOO-specific paid feed.
+- Counterfactual rewrite of historical macro_regimes.
+- **cycle_v2 redesign in response to cycle_v1's PARTIAL** (per S96-115 +
+  ADR-051 §Decision 5 anti-shopping rule — requires independent
+  canon-cited evidence first).
+- **Relaxed Phase B thresholds** for any future per-composite SPEC
+  (escalates per orchestration §7.1.5).
+- **Alpaca / IBKR broker integration of any kind** (operator explicitly
+  ruled out "no v1 changes" this session; v1.5 / v2 territory).
 
 ---
 
 ## Important framing for the next chat
 
-**Cycle 22 is closed.** One slice (orchestrator self-edit per §3.1
-pure-docs class). Two new docs: ADR-051 (pattern for all 9 Layer-0
-composites) + phase-b-cycle-v1 SPEC (first instance executable brief).
-No code. No DDL. tsc 13 baseline preserved.
+**Cycle 23 is closed.** Three slices: slice 1 Composite worker (harness
++ migrations + repository + 142 tests + Tier-1 backfill) → slice 2
+orchestrator-applied critic fixes (5 small edits) → slice 3 end-to-end
+--apply (57 trial + 3 verdict rows persisted; report written). Plus this
+HANDOFF rewrite as commit #4. Net 70 unpushed commits.
 
-**Layer-0 Phase B pattern is now LOCKED canon.** Future composite
-Phase B campaigns reuse the same template + same code paths + same
-verdict semantics + same audit trail. The 8 remaining composites each
-get a per-composite SPEC inheriting ADR-051; the campaign harness from
-Cycle 23+ generalizes.
+**cycle_v1's Phase B verdict is PARTIAL on all 3 benchmarks; no
+Phase-C eligibility.** Consistent with prior NBER-backtest closure as
+informational permanently. **Anti-shopping rule operational** —
+`composite_version='cycle_v1'` pin in CH; a future `cycle_v2` row
+would surface as version proliferation event requiring independent
+canon-cited evidence to justify.
 
-**Q-8 is the new operator queue row** (pre-emptive DORMANT placeholder
-for future Phase C promotion decisions). It activates only when a
-composite's Phase B verdict comes back PASS-ALL + PBO < 0.2. No action
-required from operator unless/until that happens.
+**The harness pattern is proven** — the 8 remaining Layer-0 composites
+each get a per-composite SPEC + small harness fork (~25% cost of
+cycle_v1). Cycle 25+ likely starts with vol_struct_v1.
 
-**S96-112, S96-113, S96-114 are the new lock-ins.**
+**S96-115, S96-116, S96-117, S96-118 are the new lock-ins.**
 
-**Cycle 23 default path: day-3 stockanalysis observation (Monday
+**Cycle 24 default path: day-3 stockanalysis observation (Monday
 2026-05-25)** IF invoked Monday EOD or later; otherwise spawn the
-**Composite worker for cycle_v1 Phase B campaign implementation** per
-the Cycle 23 spawn-pattern in §Next stage.
+**Health worker for `/#/phase-b` UI dashboard + morning brief §0c
+renderer** (verdict rows now exist).
+
+**Worktree-cwd-drift watch-out** (NEW per Cycle 23): when running git/npm
+operations that must target the main checkout after spawning a
+worktree-isolated worker, explicitly use `cd "C:/.../signalforge..."`
+OR `git -C "C:/.../"`. Do NOT trust the Bash tool's persistent cwd to
+remain at the main checkout. Recover via `pwd` + explicit re-cd.
