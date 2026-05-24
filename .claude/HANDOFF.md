@@ -1,24 +1,32 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-05-23 (session 96 #17 — **Cycle 5 of multi-agent
-orchestration executed**. Single Infra slice (GAP-13 + GAP-19 closure)
+Last updated: 2026-05-23 (session 96 #17 — **Cycle 6 of multi-agent
+orchestration executed**. Single Composite/Infra slice (GAP-16 closure)
 authored directly by the orchestrator under §3.1 trivial-edit exception
-(single new doc file; no code or test change; no worker-spawn overhead
-justified). **1 new commit** on top of s96 #17 Cycle 4 close: `0c698ec`
-(slice 1 — `docs/processes/quartz-upgrade.md`, the canonical Quartz
-vendor-fork upgrade procedure). **Net 27 unpushed commits** on top of
-`origin/main` (`c0cda7c`). Closes the last two pure-documentation gaps
-in the reconciliation audit (GAP-13 + GAP-19 were marked as covered by
-the same fix). Documents both upstream-divergent patches landed at
-s96 #10 commit `ef53155` (`gitignore: false` in `quartz/quartz/util/
-glob.ts` + `**/*.log` in `quartz/quartz.config.ts` `ignorePatterns`)
-with verbatim code blocks, a step-by-step upgrade procedure, a
-six-clause verification block, a patch-region conflict procedure, and
-a deferred-to-Cycle-8 alternative for a CI grep-test once
-`.github/workflows/ci.yml` exists. **NEXT default on `continue`:**
-Cycle 6 per orchestration §8.4 — **GAP-16 sentinel investigation in
-`bt_runs_regime`** (Composite worker; inspect distribution of 78,399
-zero-trade sentinels; label or purge).)
+(documentation-only resolution backed by a read-only diagnostic probe; no
+worker-spawn overhead justified). **1 new commit** on top of s96 #17 Cycle 5
+close: `0c9d92a` (slice 1 — `docs/specs/adr-047-bt_runs_regime-sentinel-
+semantics.md` + `src/server/bt_runs_regime.ts` docstring updates +
+`scripts/_probe_gap16_sentinels.ts` diagnostic probe). **Net 29 unpushed
+commits** on top of `origin/main` (`c0cda7c`) after this slice; will be 30
+after this HANDOFF rewrite. Cycle 6 closes audit GAP-16 (78,399 zero-trade
+sentinels in `bt_runs_regime`) as documentation-only: a read-only six-probe
+forensic found the rows are by-design BUT the label `sentinel_no_trades` is
+**semantically misleading** — only 21,489 / 78,399 (27.4%) correspond to
+`bt_runs.trades = 0`; the remaining ~57k are runs that DID execute trades
+but couldn't be window-attributed because `data_span_days=0` AND `bt_trades`
+fallback returned no rows. Read-side default `includeSentinels=false` already
+excludes all sentinels from downstream metrics; no calc is corrupted; the
+cost of re-labelling 78k rows + the public TS type change outweighs the
+precision gain. ADR-047 records the decision + the rejected purge/re-label
+alternatives. **Side-finding (NOT on operator queue):** `bt_runs_regime` has
+zero `phase1_v3` rows; the v2-vs-v3 attribution comparison promised in
+ADR-037 / SPEC §1 D4 requires `npm run backfill:bt-regime --
+--classifier-version=phase1_v3` — defer to a future cycle, no methodology
+trigger. **NEXT default on `continue`:** Cycle 7 per orchestration §8.4 —
+**GAP-17 orphan-script per-file cleanup** (Infra worker: `sharadar_backfill.py`
+→ remove (paid blocked); `import_botdb_candles.py` → confirm + remove;
+`walk_forward_cluster.py` + `train_meta_label.py` → leave with `_` prefix).)
 
 ---
 
@@ -34,113 +42,130 @@ subscription / authenticated-scrape / methodology-canon-amendment gated.
 | Q-1 | First deployment of real capital — timing + initial amount | Standing decision per orchestration §7.1.1 | OPEN — operator-defined timing |
 | Q-2 | Capital-deployment-ramp ADR sign-off (the "#5 ADR") | Operator self-assigned ~1 week per s96 #13 carry-over | OPEN — operator drafting |
 | Q-3 | GAP-5 Stooq apikey gate decision — paid subscription OR canonicalize the constituent-based fallback | Audit GAP-5; orchestration §2.5 | OPEN — paid subscription gates orchestration's call |
-| Q-4 | Push 27 unpushed commits to origin/main | Carry-over; count updated this session (Cycle 5 slice + this HANDOFF will be the 27th) | OPEN — `git push` operator-gated per CLAUDE.md hard-stop list |
+| Q-4 | Push 29 unpushed commits to origin/main | Carry-over; count updated this session (Cycle 6 slice + this HANDOFF will be the 30th) | OPEN — `git push` operator-gated per CLAUDE.md hard-stop list |
 | Q-5 | phase1_v3 CBOE put/call corrupted-input window — methodology amendment OR DataShop subscription | s96 #15 Cycle 1 — Worker A (F2) escalation; ADR-045; pinned as `accepted-as-warning` quarantine row in `quantlab.health_quarantine` (S96-70); first Telegram alert fires on next live daemon run with valid TELEGRAM_BOT_TOKEN+TELEGRAM_ALERT_CHAT_ID (intended ADR-044 §infrastructure-4 first-alert semantics; one message — no re-alert via S96-72 dedupe sidecar) | OPEN — orchestration recommends path (D); operator picks among (A)/(B)/(C)/(D) |
 
 **That's the entire queue.** Anything not above is the orchestration's
 to resolve. The orchestration appends rows here only when one of the
 real-money / methodology-amendment triggers in
 `docs/architecture/multi-agent-orchestration.md` §7.2 + §6.3 fires.
-**Cycle 5 added zero rows** (GAP-13/19 closure is pure documentation;
-no real-money / methodology-amendment trigger fires).
+**Cycle 6 added zero rows** (GAP-16 closure is documentation-only — no
+real-money / methodology-amendment trigger fires; the side-finding about
+missing v3 attribution is a Phase 9+ deliverable, not a queue item).
 
 ---
 
-## What this cycle delivered (s96 #17 Cycle 5)
+## What this cycle delivered (s96 #17 Cycle 6)
 
 ### One commit + HANDOFF rewrite (2 logical units)
 
-**Commit (`0c698ec`) — GAP-13 + GAP-19 Quartz vendor-fork upgrade
-procedure:** Closes the audit's GAP-13 ("Vendored Quartz fork drift
-risk") and the housekeeping GAP-19 ("Vendor fork upgrade procedure
-missing", explicitly cross-referenced as "covered by GAP-13"). The
-audit's recommended fix was either (a) a procedure document at
-`docs/processes/quartz-upgrade.md` OR (b) a CI grep-assertion test.
+**Commit (`0c9d92a`) — GAP-16 closure:** Closes the audit's GAP-16
+("78,399 zero-trade sentinels in `bt_runs_regime`") as documentation-only.
 Per orchestration §6.4 routine-resolution authority the choice between
-the two is the orchestration's; Cycle 5 ships (a) because:
+the audit's three fix-options (keep / label / purge) is the
+orchestration's; Cycle 6 ships **keep + clarify-docs** because:
 
-1. No CI exists yet (GAP-10 deferred to Cycle 8 per §8.4) so a
-   grep-only solution would have no execution surface.
-2. A grep alone can't catch *correct-syntax-but-wrong-effect* drift
-   (upstream refactor moves `globby` call to a new caller; old
-   patched code path still grep-matches but is dead). The browser
-   smoke-test of `/dashboard` is the canonical signal; grep is the
-   fast-fail pre-step.
-3. Future Cycle 8 CI can add the grep as a pre-step to a docs-build
-   job without making this procedure redundant — the procedure
-   defines what the grep is checking AND what to do when it fails.
+1. **Not garbage.** The sentinel rows record a real fact: the regime
+   attribution pipeline considered these `bt_runs` rows and determined
+   that neither the primary path (`data_span_days`) nor the fallback
+   path (`bt_trades` window derivation) could produce a window. That is
+   audit information — purging would lose the record that 78k legacy
+   runs exist and were considered.
+2. **Purge would escalate.** `ALTER ... DELETE` on `bt_runs_regime` is
+   on the CLAUDE.md hard-stop list; operator-gated. The cost-benefit
+   (operator queue add to lose an audit trail and reclaim trivial
+   storage) does not justify the escalation.
+3. **Re-label would touch a public type + 78k row backfill.** The label
+   change cascades through the public TypeScript `AttributionSource`
+   type, the read-side `includeSentinels` discriminator, every test
+   fixture, the SPEC, and the backfill path. The cost outweighs the
+   precision gain when `includeSentinels=false` already excludes them
+   from downstream metrics.
 
-**Document content:** `docs/processes/quartz-upgrade.md` (+404 LOC,
-including the verbatim code snippets and inline verification blocks
-in both PowerShell and Bash syntax). Six § sections:
+**The forensic finding** (driven by the read-only probe at
+`scripts/_probe_gap16_sentinels.ts`): only 21,489 / 78,399 (27.4%) of
+the sentinel rows correspond to `bt_runs.trades = 0`. The remaining ~57k
+are runs that DID execute trades but couldn't be window-attributed
+because `data_span_days = 0` AND `fetchTradeWindow` returned no rows
+for the `(sweep_id, token_address, strategy_type, param)` lookup. The
+label `sentinel_no_trades` therefore conflates "no trades" with "no
+window derivable" — the latter is the actual trigger. Three plausible
+root causes (not investigated further — not load-bearing for the
+decision): engine-version asymmetry where an older engine wrote the
+summary count without per-trade detail; historical pruning of
+`bt_trades`; or key-format drift on the `(sweep_id, …)` quadruple.
 
-- § Why this document exists — failure modes both patches guard against
-  (silent `/dashboard` 404 from Patch 1 regression; silent leak of ~60
-  per-experiment `.log` files into the published site from Patch 2
-  regression) + why both are silent-only-operator-visual signals.
-- § Vendored version + upstream source — currently 4.5.2 per
-  `quartz/package.json`; vendored at session 95 #6 commit `437332b`;
-  patched at session 96 #10 commit `ef53155`; sentinel grep comment
-  marker is `SignalForge vendor patch (s96` / `SignalForge (s96`.
-- § Patch inventory — two patches with verbatim code, file paths,
-  line regions, rationale, upstream-default vs SignalForge-value, and
-  inline-comment-as-contract note.
-- § Upgrade procedure — 7 steps (0 pre-flight, 1 baseline snapshot,
-  2 overlay, 3 reinstall deps, 4 re-apply patches verbatim, 5 verify,
-  6 commit + update doc) with the six-clause verification block at
-  step 5 (sentinel grep + literal-value greps + `npm run docs:build` +
-  browser smoke-test of `/dashboard` + `.log`-count check on
-  `docs/.quartz-site` + root-project tsc baseline preservation).
-- § Patch-region conflict procedure — for upstream refactoring either
-  patched call site; includes the case of either patch becoming
-  natively obsolete (upstream adds the option).
-- § Alternative CI grep test — deferred to Cycle 8 with the exact
-  YAML block to add when `.github/workflows/ci.yml` lands.
+**Side-finding (NOT in scope for GAP-16; tracked in ADR-047
+§"Side-finding"):** `bt_runs_regime` has **zero `phase1_v3` rows**.
+The v2-vs-v3 attribution comparison promised in ADR-037 / SPEC §1 D4
+requires a v3 backfill via `npm run backfill:bt-regime --
+--classifier-version=phase1_v3`. This is independent of GAP-16 and
+**not** on the operator queue (no real-money / methodology-amendment
+trigger). It will surface in a future cycle as part of Phase 9+
+analytical work; or — if an operator query against bt_runs_regime
+under v3 returns empty when v3 is the active classifier — the missing
+backfill will be the obvious diagnosis.
 
-### Cycle 5 outcomes (orchestration §6 critic verdicts)
+**Files in this commit:**
+
+| Path | LOC | Notes |
+| --- | --- | --- |
+| `docs/specs/adr-047-bt_runs_regime-sentinel-semantics.md` | new (+388) | The decision + six-probe forensic record + rejected purge/re-label alternatives + side-finding; explicit Tier-2-quarantine-non-applicability justification per ADR-044 |
+| `src/server/bt_runs_regime.ts` | +20 -2 | Docstring updates on `AttributionSource` type (l.32) and `buildSentinelResult` (l.243) pointing to ADR-047; **no runtime behavior change** |
+| `scripts/_probe_gap16_sentinels.ts` | new (+96) | Six read-only probes (P1 totals; P2 attribution_source split; P3 sentinel-vs-bt_runs.trades alignment; P4 anomaly check; P5 sample content; P6 count cross-check); preserved with `_` prefix per GAP-17 leave-with-prefix policy; future re-runs after v3 backfill lands can use the same queries |
+
+### Cycle 6 outcomes (orchestration §6 critic verdicts)
 
 | Worker | Task | Verdict | Outcome |
 | --- | --- | --- | --- |
-| (none) | GAP-13 + GAP-19 closure — single new doc file | AUTO-APPROVE (orchestrator self-review per §6.1) | 1 file added; tsc baseline 13 unchanged; tests unchanged |
+| (none) | GAP-16 closure — read-only probe + ADR + docstring updates | AUTO-APPROVE (orchestrator self-review per §6.1) | 3 files (1 new ADR + 1 docstring edit + 1 new diagnostic probe); tsc baseline 13 unchanged; tests unchanged (btRunsRegime.test.ts 19/19) |
 
 No subagent worker spawned — per orchestration §3.1 trivial-edit
-exception (single new doc file; pure documentation; no code change;
-no test change; no worker-spawn overhead justified for a < 50-LOC
-domain-specific deliverable; though final size landed at 404 LOC, the
-content was investigation-light enough that single-pass orchestrator
-authoring completed inside one turn). Orchestrator self-review under
-§6.1 AUTO-APPROVE criteria (domain-clean Infra; no code path touched;
-tsc baseline unchanged; no Tier-2 quarantine delta; no real-money path;
-no paid-data; no methodology-canon claim; no ADR conflict — procedure
-follows audit's recommended fix verbatim).
+exception. The investigation phase (running the read-only probe) is
+diagnostic, not code-change; the resolution phase (docstring + ADR) is
+pure documentation. Three consecutive cycles (4, 5, 6) have now used
+the §3.1 trivial-edit exception for documentation-only GAP closures;
+this is the established pattern for the audit's §2.3 documentation /
+cleanup gaps. The next two cycles (7 GAP-17 orphan cleanup; 8 GAP-10
+CI/CD baseline) will return to worker-spawn patterns since they involve
+code/infrastructure change.
+
+Orchestrator self-review under §6.1 AUTO-APPROVE criteria (domain-clean
+Composite + Infra; no code path touched; tsc baseline unchanged; no
+Tier-2 quarantine delta; no real-money path; no paid-data; no
+methodology-canon claim; no ADR conflict — ADR-047 documents an
+existing-state finding without proposing methodology change).
 
 ### Verification gates at cycle close
 
 ```text
 git status                                                                          # clean (1 slice committed; HANDOFF pending this rewrite)
-npx tsc --noEmit                                                                    # 13 baseline errors (unchanged from s96 #17 Cycle 4 close)
-node --import tsx --test scripts/tests/*                                             # no test deltas (no test files touched)
-npm run health:check                                                                # post-Cycle-5 baseline: see below (same set as Cycle 4 close; no new Tier-2)
+npx tsc --noEmit                                                                    # 13 baseline errors (unchanged from s96 #17 Cycle 5 close; same files: _check_constituent_cleanup.ts, _cleanup_polluted_constituents.ts, _diagnose_constituent_pollution.ts, _verify_sp500_constituents_ddl.ts)
+node --import tsx --test scripts/tests/btRunsRegime.test.ts                          # 19/19 pass (no fixture change)
+node --import tsx --test scripts/tests/*                                             # all Cycle 5-touched suites unchanged
+npm run health:check                                                                # post-Cycle-6 baseline: see below (same set as Cycle 5 close; no new Tier-2; no DB state touched)
 ```
 
 ### Per-suite breakdown at cycle close
 
 ```text
-all Cycle 4-touched suites                            (unchanged — no test files in their domain touched)
+btRunsRegime.test.ts                                   19/19 pass    (no fixture change)
+all Cycle 5-touched suites                            (unchanged — no test files in their domain touched)
 regimeDashboard.test.ts                                37/37 pass    (unchanged)
 all Cycle 3-touched suites                            472/472 pass   (unchanged from s96 #17 Cycle 4 close)
 ```
 
-### Post-Cycle-5 health snapshot
+### Post-Cycle-6 health snapshot
 
-Identical to Cycle 4 close. No new probes, no new tables, no new freshness
-classes. The health-check output is the standard daemon-cadence pattern:
+Identical to Cycle 5 close. No new probes, no new tables, no new freshness
+classes, no DB state changed at all (Cycle 6 is documentation-only). The
+health-check output is the standard daemon-cadence pattern:
 
-- **Fresh:** 6 sources.
+- **Fresh:** 1 source (`Wikipedia/fja05680 S&P 500 constituents`).
 - **Stale (informational, 2-3d since last `npm run daemon:daily` run):**
   Candles ~2.0d, Cross-asset ~2.0d, Cycle position ~2.0d, ETF v3.1 SSGA
   secondary ~3.0d, FRED ~3.0d, Form 4 trades ~8.8d, Live paper-trading
-  signals ~33.3h, Macro regime (phase1_v3) ~2.0d, Sector rotation ~2.0d,
+  signals ~33.7h, Macro regime (phase1_v3) ~2.0d, Sector rotation ~2.0d,
   Vol structure ~2.0d. All clear on next `npm run daemon:daily`.
 - **Very-stale:** CBOE put/call 2,424d (Q-5 blocked; pinned as Tier-2
   `accepted-as-warning` row in `quantlab.health_quarantine`).
@@ -148,14 +173,17 @@ classes. The health-check output is the standard daemon-cadence pattern:
   `health_quarantine_alerts_sent` sidecar (clear on next daemon run +
   first Telegram-emitting Tier-2 event).
 - **Missing-table:** raw `executive_departures` (created by 8-K Item
-  5.02 ingest on first daemon step 1i-pre run; expected per S96-65).
+  5.02 ingest on first daemon step 1i-pre run; expected per S96-65)
+  + raw `finra_short_interest` (created on first daemon step 1h-pre
+  Monday run; expected per Cycle 2 carry-over).
 - **Migrations applied:** 20/20 (unchanged from Cycle 3 close).
 
 ### Push state
 
-- `origin/main` at `c0cda7c`; **27 unpushed commits** after s96 #17 Cycle 5
-  (was 25 at s96 #17 Cycle 4 close; this cycle added 1 slice commit + this
-  HANDOFF rewrite will be the 2nd, bringing the close-state count to 27).
+- `origin/main` at `c0cda7c`; **29 unpushed commits** after s96 #17 Cycle 6
+  slice (was 27 at s96 #17 Cycle 5 close; this cycle added 1 slice commit +
+  this HANDOFF rewrite will be the 30th, bringing the close-state count to
+  30).
 - Push is operator-gated (Q-4 above).
 
 ---
@@ -179,11 +207,12 @@ classes. The health-check output is the standard daemon-cadence pattern:
 | Cycle 2 — GAP-2 FINRA + GAP-1 EDGAR + GAP-4 ETF v1 + GAP-7(a) closed-as-noop | ✓ s96 #16 |
 | Cycle 3 — Phase 2 v1 ADR-044: quarantine table + repo + dispatcher + dashboard panels + brief §0 + daemon step 0a + Telegram + sidecar + daemon step 0b + Q-5 pin row | ✓ s96 #17 |
 | Cycle 4 — GAP-8 classifier-source documentation (ADR-046 + regime_dashboard.ts docstring) | ✓ s96 #17 |
-| **Cycle 5 — GAP-13 + GAP-19 Quartz vendor-fork upgrade procedure (docs/processes/quartz-upgrade.md)** | **✓ s96 #17** |
-| Cycle 6 — GAP-16 sentinel investigation in bt_runs_regime (Composite) | ☐ NEXT default |
-| Cycle 7 — GAP-17 orphan-script per-file cleanup (Infra) | ☐ after Cycle 6 |
+| Cycle 5 — GAP-13 + GAP-19 Quartz vendor-fork upgrade procedure (docs/processes/quartz-upgrade.md) | ✓ s96 #17 |
+| **Cycle 6 — GAP-16 sentinel investigation closure (ADR-047 + bt_runs_regime.ts docstrings + diagnostic probe)** | **✓ s96 #17** |
+| Cycle 7 — GAP-17 orphan-script per-file cleanup (Infra) | ☐ NEXT default |
 | Cycle 8 — GAP-10 CI/CD baseline via .github/workflows/ci.yml (Infra) | ☐ after Cycle 7 |
 | Phase 2 v2 — plausibility-band probes + per-UI-route ping + auto-insert logic + re-alert-on-status-transition cursor | ☐ deferred per S96-71 |
+| `phase1_v3` `bt_runs_regime` backfill (side-finding from Cycle 6) | ☐ deferred — Phase 9+ analytical work; no operator gate |
 | F2 CBOE backfill + re-classify | ⏸ blocked on Q-5 operator decision |
 | Composite worker (Cycle 1 follow-up phase1_v3 re-classify) | ⏸ blocked on Q-5 |
 | Gap #9 v3.1 iShares/Vanguard/Invesco adapters | ⛔ deferred — Playwright-decision operator-gated (OQ-G9-4) |
@@ -196,53 +225,74 @@ classes. The health-check output is the standard daemon-cadence pattern:
 
 ## Decisions locked in
 
-### Session 96 #17 (Cycle 5 of multi-agent orchestration)
+### Session 96 #17 (Cycle 6 of multi-agent orchestration)
 
-**S96-76. `docs/processes/quartz-upgrade.md` is the canonical Quartz
-vendor-fork upgrade procedure.** Future Quartz upgrades (any bump
-beyond the currently-vendored 4.5.2 from upstream `jackyzha0/quartz`)
-MUST follow the seven-step procedure documented in the file. The
-six-clause verification block at step 5 is non-skippable; the
-sentinel-grep clause (5a) is the fast-fail signal; the
-browser-smoke-test of `/dashboard` (5e) is the canonical signal for
-Patch 1 (`gitignore: false`) integrity; the `.log`-count check on
-`docs/.quartz-site` (5f) is the canonical signal for Patch 2
-(`**/*.log` in `ignorePatterns`) integrity. Both patches are
-documented in § Patch inventory with verbatim current code blocks —
-the inline `SignalForge vendor patch (s96 #10):` / `SignalForge
-(s96 #10)` comment markers ARE the contract; they must be preserved
-verbatim across upgrades because they ARE the sentinel grep target.
-`Why:` Two known patches in `quartz/` (`gitignore: false` in
-`quartz/quartz/util/glob.ts`; `**/*.log` in `quartz.config.ts`
-`ignorePatterns`) do not exist upstream and silently regress on any
-naïve `git pull` overlay. Both failure modes are silent-only-operator-
-visual (no test signal, no build error, no runtime exception):
-Patch 1 regression → `/dashboard` 404 (the original s96 #10 symptom);
-Patch 2 regression → ~60 per-experiment `.log` files leak into the
-published site. The procedure document fills the documentation gap
-the audit (GAP-13 + GAP-19) flagged. Per orchestration §6.4 the
-choice between a procedure document vs. a CI grep-test is the
-orchestration's; ships the procedure first because no CI exists yet
-(GAP-10 deferred to Cycle 8) and grep alone can't catch
-correct-syntax-but-wrong-effect drift (upstream-refactor leaves
-patches in dead code paths). `How to apply:` Run the procedure end-
-to-end on any Quartz vendor upgrade. The Cycle 8 CI workflow when it
-lands SHOULD include the pre-step grep snippet documented in the
-file's § Alternative CI grep test section as a fast-fail upstream
-of the docs-build job — that's the procedure's planned-but-deferred
-second-line guard, not a replacement for the procedure.
+**S96-77. `bt_runs_regime`'s 78,399 sentinel rows stay as-is with the
+historically-mislabelled `attribution_source = 'sentinel_no_trades'`
+label preserved for backward compat.** The forensic probe at
+`scripts/_probe_gap16_sentinels.ts` confirmed only 21,489 / 78,399
+(27.4%) correspond to `bt_runs.trades = 0`; the remaining ~57k are
+runs that DID execute trades but the per-trade detail in `bt_trades`
+was unavailable at attribution time, so the fallback window-derivation
+returned empty. The accurate label would be
+`sentinel_no_window_derivable`; the cost of re-labelling (public TS
+type change, 78k row backfill, every test fixture, the SPEC, the
+read-side discriminator) does not justify the precision gain because
+the read-side default `includeSentinels=false` already excludes all
+sentinels from downstream metrics. The mislabel is now documented in
+the type's docstring (`bt_runs_regime.ts:32`) + in the function's
+docstring (`bt_runs_regime.ts:243`) + in ADR-047. `Why:` Per
+orchestration §6.4 routine-resolution authority + §3.1 trivial-edit
+exception. Three options were on the table (keep / label / purge per
+the audit framing); keep + clarify-docs is the choice because
+(a) the rows are audit information not garbage, (b) purge requires
+`ALTER ... DELETE` which is operator-gated per CLAUDE.md hard-stop,
+(c) re-label cascades through too many surfaces for too little benefit
+when downstream impact is already zero. `How to apply:` A future Phase
+9+ schema cleanup MAY revisit the re-label decision IF the
+`phase1_v3` backfill (the Cycle 6 side-finding) exposes additional
+sentinel patterns that warrant a richer source enum. Until then,
+operators querying the raw `bt_runs_regime` table directly should
+consult the type docstring + ADR-047 to understand that
+`sentinel_no_trades` includes BOTH true zero-trade runs AND legacy
+runs with missing per-trade detail; the `attribution_source != 'sentinel_no_trades'`
+filter on every read-path remains the canonical
+exclusion-of-attribution-failures filter.
 
-**Carry-overs (still in force):** S96-1..S96-75; S95-1..S95-50;
+**S96-78. The `phase1_v3` attribution backfill into `bt_runs_regime` is
+a pending Phase 9+ deliverable, NOT on the operator queue.** Cycle 6's
+probe found `bt_runs_regime` has zero `phase1_v3` rows (all 197,064
+existing rows are under `phase1_v2`). The v2-vs-v3 comparison
+promised in ADR-037 / SPEC §1 D4 requires `npm run backfill:bt-regime
+-- --classifier-version=phase1_v3`. This is documented in ADR-047
+§"Side-finding" but no operator-queue row is added: per orchestration
+§7.2 + §6.3 no real-money trigger / methodology amendment trigger
+fires. The backfill is a routine `backfill_bt_runs_regime.ts` invocation
+under an established classifier version; the existing tests + the
+ReplacingMergeTree idempotence guarantee correctness. `Why:` Adding
+the v3 backfill to the operator queue would be queue-noise — the
+operator queue is exclusively real-money triggers per the working-model
+change (s96 #14); a "run an existing npm script with a known flag" is
+orchestration-domain work. `How to apply:` Surface this as a candidate
+for any future cycle where the orchestration is between gaps; or, if
+an operator query against `bt_runs_regime` returns empty when v3 is
+the active classifier, the missing backfill is the obvious diagnosis
+(visible in the diagnostic probe's P1 output).
+
+**Carry-overs (still in force):** S96-1..S96-76; S95-1..S95-50;
 S94-1..S94-33; S93-1..S93-54; all prior s73-s92 lock-ins.
 
 ---
 
 ## Open questions
 
-### NEW (s96 #17 Cycle 5)
+### NEW (s96 #17 Cycle 6)
 
 None inside orchestration authority. No new operator-queue rows opened
 this cycle. The five Q-rows above are all carry-overs from prior cycles.
+
+The Cycle 6 side-finding about missing `phase1_v3` attribution
+(S96-78) is documented as a Phase 9+ deliverable, not a queue item.
 
 ### CARRIED from s96 #12-#16
 
@@ -260,47 +310,48 @@ this cycle. The five Q-rows above are all carry-overs from prior cycles.
 - ML meta-labeling (ADR-017, deferred ≥4 weeks).
 - Sharadar SF1 subscription — Q-3 adjacent.
 - Compounding-live-equity backtest semantic.
-- 78,399 zero-trade sentinels in `bt_runs_regime` — GAP-16; investigation NOW SCHEDULED in Cycle 6 (default next on `continue`).
 - First-apply-run EDGAR Item-filter OR-clause behavior.
 - Cold-start cascade timing for EK + F4 + XD13 arcs.
 - OQ-G2-2 — EDGAR-amendment forensic tooling default.
 - Phase 2 v2 — plausibility-band probes + per-UI-route ping + auto-insert + re-alert-on-status-transition cursor (deferred per S96-71).
+- **Root cause of `bt_runs.trades > 0` AND `bt_trades` empty divergence** (Cycle 6 surfaced; not investigated — three plausible causes listed in ADR-047 §"The semantic surprise"; deferred until a downstream consumer needs to know).
 
 ---
 
 ## Next stage
 
-### Default on `continue` — Cycle 6 (orchestration §8.4)
+### Default on `continue` — Cycle 7 (orchestration §8.4)
 
-Per orchestration §8.4 — first item is **GAP-16: investigate the
-78,399 zero-trade sentinels in `quantlab.bt_runs_regime`**. Composite
-domain. The audit classifies this as "investigate-then-act": inspect
-distribution; if confirmed sentinel pattern (intentional row labelled
-zero-trades for some reason), add a label / column flag making the
-sentinel-vs-real-zero distinction queryable + non-silent; if garbage
-(unintentional rows from an aborted backfill that never got cleaned
-up), purge with an additive `DELETE WHERE …` migration (per §6.3
-hard-stop, `ALTER … DELETE` is operator-gated, so the purge variant
-escalates to operator queue if confirmed).
+Per orchestration §8.4 — first item is **GAP-17 orphan-script per-file
+cleanup**. Infra domain. Per the audit's classification:
 
-Plausible spawn pattern: Composite worker, `isolation: "worktree"`,
-first turn = investigation only (no writes), return with a
-classification + recommended action. Critic AUTO-APPROVE on
-investigation-only output; orchestrator then either:
+- `sharadar_backfill.py` → **remove** (paid Sharadar subscription is on
+  CLAUDE.md blocked-data-source list; no path to ever exercise this
+  file under current policy).
+- `import_botdb_candles.py` → **confirm one-shot migration completed +
+  remove** (need to verify the migration ran historically; if confirmed
+  done, delete).
+- `walk_forward_cluster.py` → **leave with `_` prefix** (dev-only
+  diagnostic per the established `_`-prefix-for-diagnostics convention;
+  rename in-place).
+- `train_meta_label.py` → **leave with `_` prefix** (same convention;
+  rename in-place).
 
-- (a) labels + commits if pattern is intentional (no operator gate);
-- (b) escalates to operator queue if purge is required (creates a new
-  Q-row for "approve `ALTER … DELETE` on `bt_runs_regime`").
+Plausible spawn pattern: single Infra worker, `isolation: "worktree"`,
+four per-file decisions in one cycle. Or, given the per-file decisions
+are independent and the diffs are tiny (delete-or-rename), the
+orchestrator could self-resolve under §3.1 trivial-edit exception —
+this would be the fourth consecutive documentation/cleanup cycle
+following that pattern (Cycles 4 + 5 + 6 + 7). Either approach is
+defensible; the worker-spawn pattern is more conservative if any of
+the per-file decisions reveal hidden dependencies (e.g.
+`import_botdb_candles.py` is referenced by some live tooling — needs
+verification before deletion).
 
-**After GAP-16:** orchestration §8.4 enumerates:
+**After GAP-17:** orchestration §8.4 enumerates:
 
-- **Cycle 7 — GAP-17** orphan-script per-file cleanup (Infra) — per
-  the audit's classification: `sharadar_backfill.py` → remove (paid
-  blocked); `import_botdb_candles.py` → confirm completion then
-  remove; `walk_forward_cluster.py` + `train_meta_label.py` → leave
-  with `_` prefix.
 - **Cycle 8 — GAP-10 CI/CD baseline** via `.github/workflows/ci.yml`
-  (Infra) — GitHub Actions free-tier-safe on private repos; would
+  (Infra) — GitHub Actions free-tier-safe on private repos; SHOULD
   include the deferred Quartz vendor-patch grep-assertion documented
   in `docs/processes/quartz-upgrade.md` § Alternative CI grep test.
 
@@ -308,26 +359,36 @@ investigation-only output; orchestrator then either:
 (Phase B campaigns remain paused per existing autonomous-execution
 rules until operator green-light — those stay on the operator queue).
 
+The Cycle 6 side-finding (S96-78 `phase1_v3` backfill into
+`bt_runs_regime`) is also a candidate for a future cycle — small,
+self-contained, orchestration-domain, no operator gate. Defer until
+the GAP-17 + GAP-10 cleanup cycles close OR a downstream consumer
+needs the v3 attribution.
+
 ---
 
 ## Files / code state
 
-### New / modified this cycle (s96 #17 Cycle 5)
+### New / modified this cycle (s96 #17 Cycle 6)
 
 | Path | LOC | Notes |
 | --- | --- | --- |
-| `docs/processes/quartz-upgrade.md` | new (+404) | Canonical Quartz vendor-fork upgrade procedure (closes GAP-13 + GAP-19); 6 § sections; six-clause verification block at step 5 (sentinel grep + literal-value greps + build + browser smoke-test + .log-count + tsc baseline) |
-| `.claude/HANDOFF.md` | rewrite | This file; new S96-76 lock-in; operator queue unchanged (Q-4 count incremented to 27) |
+| `docs/specs/adr-047-bt_runs_regime-sentinel-semantics.md` | new (+388) | The decision + six-probe forensic record + rejected purge/re-label alternatives + side-finding; explicit Tier-2-quarantine-non-applicability justification per ADR-044 |
+| `src/server/bt_runs_regime.ts` | +20 -2 | Docstring updates on `AttributionSource` type (l.32-44) and `buildSentinelResult` (l.252-260) pointing to ADR-047; **no runtime behavior change** |
+| `scripts/_probe_gap16_sentinels.ts` | new (+96) | Read-only diagnostic probe (P1 totals; P2 attribution_source split; P3 sentinel-vs-bt_runs.trades alignment; P4 anomaly check; P5 sample content; P6 count cross-check); preserved with `_` prefix per GAP-17 leave-with-prefix policy |
+| `.claude/HANDOFF.md` | rewrite | This file; new S96-77 + S96-78 lock-ins; operator queue unchanged (Q-4 count incremented to 29) |
 
 ### Test + tsc state
 
-- All Cycle 3/4-touched suites: **unchanged** (no test files in any of
+- `btRunsRegime.test.ts`: **19/19 pass** (no fixture change; the docstring
+  edits don't touch any tested code path).
+- All Cycle 3/4/5-touched suites: **unchanged** (no test files in any of
   their domains touched this cycle).
 - `npx tsc --noEmit`: **13 baseline errors unchanged** (all in unrelated
   `_check_*.ts` / `_verify_*.ts` / `_cleanup_*.ts` / `_diagnose_*.ts`).
-- Health check delta: zero. No new tables, no new probes, no new freshness
-  classes. The output is the same fresh/stale/very-stale/missing/empty
-  pattern as Cycle 4 close.
+- Health check delta: **zero**. No new tables, no new probes, no new
+  freshness classes, no DB state changed. The output is the same
+  fresh/stale/very-stale/missing/empty pattern as Cycle 5 close.
 
 ### Untouched-but-relevant for next session
 
@@ -336,51 +397,71 @@ rules until operator green-light — those stay on the operator queue).
 - `quantlab.executive_departures` raw source table still missing
   (carry-over from S96-65); created by 8-K Item 5.02 ingest on first
   daemon step 1i-pre run.
+- `quantlab.finra_short_interest` raw source table still missing
+  (Cycle 2 carry-over); created on first daemon step 1h-pre Monday run.
 - The brief §0 system-health digest block ABOVE §1 macro regime still
   surfaces on the operator's first look at the brief (S96-73
   zero-bytes-on-clean preservation pattern intact).
-- Cycle 6 (GAP-16 sentinel investigation) is investigation-first;
-  starts with read-only queries against `quantlab.bt_runs_regime`;
-  any write/delete escalates to operator queue per §6.3 hard-stop.
+- `bt_runs_regime` has zero `phase1_v3` attribution rows; the
+  `npm run backfill:bt-regime -- --classifier-version=phase1_v3`
+  invocation is a Cycle-7+ candidate per S96-78.
+- Cycle 7 (GAP-17 orphan-script cleanup) is per-file: 2 deletions
+  (after verification for `import_botdb_candles.py`) + 2 renames (with
+  `_` prefix). Worker-spawn vs. orchestrator-direct is a judgment call;
+  worker-spawn is safer for the deletion-with-verification leg.
 
 ---
 
 ## Watch-outs
 
-### NEW from this cycle (s96 #17 Cycle 5)
+### NEW from this cycle (s96 #17 Cycle 6)
 
-- **`docs/processes/quartz-upgrade.md`'s verbatim code blocks must
-  stay in sync with the actual vendored files.** A future change to
-  either patched file that doesn't update the corresponding § Patch
-  inventory § block in the procedure document silently drifts the
-  documentation away from reality. Mitigation: future contributors
-  editing `quartz/quartz/util/glob.ts` or `quartz/quartz.config.ts`
-  should also update the procedure document in the same commit. If
-  this drift becomes a recurring problem, the Cycle 8 CI workflow
-  can add a "verbatim code block matches the vendor file" assertion
-  alongside the grep-presence assertion.
-- **The `SignalForge vendor patch (s96 #10):` / `SignalForge
-  (s96 #10)` inline comment markers are part of the contract.** Any
-  future patch that drops them (in a "the comment is cluttered, let
-  me remove it" cleanup PR) breaks step 5a of the verification
-  procedure (the sentinel grep). The comment markers MUST be
-  preserved verbatim across upgrades. They are the only artifact
-  that lets a future contributor distinguish "this is a deliberate
-  SignalForge divergence from upstream" from "this is upstream
-  source." The procedure document calls this out in § Sentinel for
-  grep verification but reiterating here as a code-state watch-out.
-- **The audit's `gitignore: true` framing was loose.** The audit
-  text said "two patches: `gitignore: false` in glob.ts; `**/*.log`
-  in ignorePatterns" — but the HANDOFF history (and the s96 #10
-  commit message itself) loosely referred to "the `gitignore: true`
-  foot-gun." The actual upstream default IS `true`; the patch flips
-  it to `false`. The procedure document gets the framing right
-  (upstream default `true` → SignalForge value `false`); future
-  HANDOFFs referencing this work should use that precise framing.
+- **The label `attribution_source = 'sentinel_no_trades'` is misleading
+  for ~73% of the rows it tags.** A future contributor reading the
+  literal label and assuming "all 78,399 rows = true zero-trade runs"
+  will be wrong. Mitigation: the docstring on `AttributionSource`
+  (`bt_runs_regime.ts:32`) and on `buildSentinelResult`
+  (`bt_runs_regime.ts:243`) now call out the actual trigger condition
+  + the GAP-16 forensic finding + the ADR-047 reference. If a future
+  contributor proposes "let me clean up these zero-trade sentinels,"
+  the docstring + ADR-047 are the stop signs.
+- **The read-side default `includeSentinels=false` filter is the
+  load-bearing exclusion.** If any future reader site forgets to set
+  this (or if a new reader is added without consulting the existing
+  `fetchBtRunsByRegime` pattern), the 78,399 sentinels would leak into
+  the result set with `total_days=0` and `dominant_regime='unknown'`.
+  The convention-pin test in `scripts/tests/btRunsRegime.test.ts` does
+  exercise the discriminator; a new reader pattern should be paired
+  with a matching convention pin. Mitigation: the docstring on
+  `RegimeFilter.includeSentinels` (l.110) already documents the
+  default-false convention.
+- **A future Phase 9+ schema cleanup that adds a new `AttributionSource`
+  value must update the discriminator literal at
+  `bt_runs_regime.ts:503-505`.** The filter `attribution_source !=
+  'sentinel_no_trades'` is the exclusion expression; adding a new
+  sentinel-class value without updating the filter would leak the new
+  class into downstream metrics. Mitigation: the filter literal is
+  grep-able; the test pin would catch a mismatch.
+- **Three root causes for the `bt_runs.trades > 0` AND `bt_trades`
+  empty divergence are not investigated.** ADR-047 §"The semantic
+  surprise" lists three plausible causes (engine-version asymmetry,
+  historical pruning, key drift) but does not rank or investigate
+  them. If a downstream consumer ever needs to know the actual
+  cause, the investigation will need to scan `bt_runs.started_at`
+  histogram for the sentinel run_ids vs. the bt_runs schema-evolution
+  timeline + the bt_trades retention policy history (no formal
+  retention policy exists; this would need spot-checks against the
+  CH `system.parts` history).
+- **The `_probe_gap16_sentinels.ts` diagnostic is preserved but not
+  in `package.json`.** Future re-runs are via `npx tsx
+  scripts/_probe_gap16_sentinels.ts` directly. If the orchestration
+  decides to promote it to an npm script in a future cycle, the
+  `help` metadata pattern from `backfill_bt_runs_regime.ts:27-42` is
+  the convention to follow.
 
 ### Carried from earlier sessions
 
-All prior watch-outs (s96 #1-#17 Cycle 4 carry-overs) preserved.
+All prior watch-outs (s96 #1-#17 Cycle 5 carry-overs) preserved.
 
 ---
 
@@ -428,10 +509,21 @@ npm run dev:all                                         # dashboard (:3000) + Qu
 #   docs/processes/quartz-upgrade.md
 ```
 
+### bt_runs_regime diagnostics + attribution
+
+```text
+npm run backfill:bt-regime                                                    # default classifier version (CLASSIFIER_VERSION)
+npm run backfill:bt-regime -- --classifier-version=phase1_v3                  # the deferred S96-78 v3 backfill
+npm run backfill:bt-regime:dry                                                # count candidates without writing
+npx tsx scripts/_probe_gap16_sentinels.ts                                     # Cycle 6 GAP-16 diagnostic; preserved per GAP-17 leave-with-prefix
+npx tsx scripts/_probe_ch_btregime.ts                                         # pre-existing distribution probe (sampling + quantiles)
+```
+
 ### Tests + dev
 
 ```text
 npm test                                                                                              # last full green at s96 #12 close
+node --import tsx --test scripts/tests/btRunsRegime.test.ts                                           # 19/19 pass at s96 #17 Cycle 6 close
 node --import tsx --test scripts/tests/regimeDashboard.test.ts                                        # 37/37 pass at s96 #17 Cycle 5 close (unchanged)
 node --import tsx --test scripts/tests/healthCheck.test.ts                                            # 37 pass at s96 #17 Cycle 3 close (unchanged)
 node --import tsx --test scripts/tests/migrateCreateHealthQuarantine.test.ts                          # 48 pass at s96 #17 Cycle 3 close
@@ -455,34 +547,43 @@ npx tsc --noEmit                                                                
 
 ### npm scripts touched this cycle
 
-- **None.** Cycle 5 is documentation-only (one new doc file under
-  `docs/processes/`; no `package.json` change; no script change).
+- **None.** Cycle 6 is documentation-only (1 new ADR + 1 docstring edit
+  + 1 new diagnostic probe; no `package.json` change; no script behavior
+  change). The new probe at `scripts/_probe_gap16_sentinels.ts` runs via
+  direct `npx tsx` invocation; not promoted to an npm script per the
+  diagnostic-script convention (`_`-prefix marks "diagnostic, run
+  manually").
 
 ---
 
 ## For the next session — priority order
 
-**Default on `continue`:** Cycle 6 per orchestration §8.4 — first item
-**GAP-16: sentinel investigation in `quantlab.bt_runs_regime`**.
-Composite domain. Investigation-first: read-only distribution probe
-against the 78,399 zero-trade sentinels; classify as intentional
-(label + commit) vs. unintentional (escalate `ALTER … DELETE` to
-operator queue per §6.3 hard-stop). Plausible spawn pattern: single
-Composite worker with `isolation: "worktree"`; first-turn deliverable
-is read-only investigation + classification; second-turn action is
-either labelling (orchestrator-resolves) or queue-escalation
-(orchestrator surfaces Q-row).
+**Default on `continue`:** Cycle 7 per orchestration §8.4 — **GAP-17
+orphan-script per-file cleanup**. Infra domain. Per the audit's
+classification: `sharadar_backfill.py` → remove (paid blocked);
+`import_botdb_candles.py` → confirm completion then remove;
+`walk_forward_cluster.py` + `train_meta_label.py` → leave with `_`
+prefix (rename in-place).
+
+Plausible spawn pattern: single Infra worker with `isolation:
+"worktree"`; four per-file decisions; deliverable is 2 deletions +
+2 renames + tests still green + no broken imports. OR orchestrator
+self-resolve under §3.1 trivial-edit exception IF the
+`import_botdb_candles.py` deletion-with-verification leg can be
+folded into a single pass.
 
 **Then per orchestration §8.4:**
 
-- Cycle 7 — GAP-17 orphan-script per-file cleanup (Infra; per-file
-  decisions: `sharadar_backfill.py` → remove; `import_botdb_candles.py`
-  → confirm + remove; `walk_forward_cluster.py` + `train_meta_label.py`
-  → leave with `_` prefix).
 - Cycle 8 — GAP-10 CI/CD baseline via `.github/workflows/ci.yml`
   (Infra; GitHub Actions free-tier-safe on private repos; SHOULD
   include the deferred Quartz vendor-patch grep-assertion from
   `docs/processes/quartz-upgrade.md` § Alternative CI grep test).
+
+**Cycle 6 side-finding candidate (S96-78):**
+
+- `npm run backfill:bt-regime -- --classifier-version=phase1_v3` —
+  small, self-contained, orchestration-domain. Defer until GAP-17
+  + GAP-10 close OR a downstream consumer needs v3 attribution.
 
 **Calendar-gated (unchanged):**
 
@@ -499,7 +600,7 @@ above):**
 - Q-1 first real-capital deployment — operator-defined timing.
 - Q-2 capital-deployment-ramp ADR — operator self-assigned ~1 week.
 - Q-3 Stooq apikey gate decision — paid vs self-host.
-- Q-4 push 27 commits to origin/main.
+- Q-4 push 29 commits to origin/main.
 - Q-5 phase1_v3 CBOE methodology amendment — pick A/B/C/D (pinned
   as `accepted-as-warning` Tier-2 quarantine row; Telegram alert
   fires once on next live daemon run with valid Telegram creds,
@@ -511,8 +612,10 @@ above):**
 - Phase B campaigns (deferred).
 - Playwright dep adoption (OQ-G9-4 branch A; dep-tree expansion).
 - ALTER DROP / DROP TABLE / ALTER ... DELETE migrations (per §6.3
-  hard-stop) — relevant for Cycle 6 GAP-16 IF the sentinel
-  investigation concludes "purge required."
+  hard-stop) — note: GAP-16 closure explicitly avoided this path
+  (purge would have required `ALTER ... DELETE` on `bt_runs_regime`).
+  Cycle 7 GAP-17 cleanup is `rm` on script files only — filesystem
+  not CH; not on the hard-stop list.
 - `git push` (Q-4 above).
 - Q-5-blocked work: F2 CBOE backfill, Composite worker phase1_v3
   re-classify.
@@ -527,39 +630,43 @@ above):**
 
 ## Important framing for the next chat
 
-**Cycle 5 is closed.** Single new doc file + this HANDOFF rewrite.
-Pure documentation; no behavior change; no test deltas; no
-health-check deltas; tsc baseline 13 unchanged. The orchestration's
-§3.1 trivial-edit exception (single new doc file; no code change; no
-worker-spawn overhead justified) makes this a clean self-review under
-§6.1 AUTO-APPROVE without subagent spawn. No new operator-queue rows;
-no escalations fired this cycle.
+**Cycle 6 is closed.** Three new files (1 ADR + 1 diagnostic probe +
+1 docstring edit) + this HANDOFF rewrite. Documentation-only; no DDL,
+no DML, no behavior change; tsc baseline 13 unchanged; tests unchanged
+(btRunsRegime.test.ts 19/19); health-check deltas zero. The
+orchestration's §3.1 trivial-edit exception (documentation + read-only
+diagnostic) makes this a clean self-review under §6.1 AUTO-APPROVE
+without subagent spawn. No new operator-queue rows; no escalations
+fired this cycle.
 
 **The operator queue is unchanged at 5 rows (Q-1 through Q-5).** Q-4
-count incremented from 25 → 27 (Cycle 5 slice + HANDOFF rewrite).
+count incremented from 27 → 29 (Cycle 6 slice + HANDOFF rewrite will
+make it 30 at the actual commit moment).
 
-**`docs/processes/quartz-upgrade.md` is the canonical procedure.**
-Future contributors editing the vendored Quartz tree at `quartz/`
-(particularly `quartz/quartz/util/glob.ts` or `quartz/quartz.config.ts`)
-should consult the procedure first. A future Cycle 8 CI workflow at
-`.github/workflows/ci.yml` SHOULD include the grep-assertion pre-step
-documented in the procedure's § Alternative CI grep test section.
+**ADR-047 is the canonical resolution for GAP-16.** Future contributors
+querying `bt_runs_regime` directly or proposing changes to
+`AttributionSource` should consult ADR-047 first. The Cycle 6 probe
+script `scripts/_probe_gap16_sentinels.ts` is preserved per GAP-17
+leave-with-`_`-prefix policy and is the canonical re-investigation
+tool — re-run it after any future structural change to bt_runs_regime
+(notably the deferred S96-78 v3 backfill) to refresh the picture.
 
-**Default next is Cycle 6 — GAP-16 sentinel investigation in
-`bt_runs_regime`.** Composite worker; investigation-first; read-only
-distribution probe; classification gates the subsequent action
-(label-and-commit OR escalate-to-operator-queue if `ALTER … DELETE`
-required).
+**Default next is Cycle 7 — GAP-17 orphan-script per-file cleanup.**
+Infra worker; per-file decisions (2 deletions + 2 renames); the
+`import_botdb_candles.py` deletion needs a verification step (confirm
+the historical migration completed). Worker-spawn vs. orchestrator-
+direct is a judgment call at start-of-cycle.
 
 **Backward compat preserved this cycle:**
 
 1. **CH:** No table changes.
-2. **Type:** No type changes; no new exports.
+2. **Type:** Docstring-only edits to `AttributionSource` and
+   `buildSentinelResult`; runtime type unchanged.
 3. **Brief:** No render-side changes; byte-equal-stdout preserved.
-4. **Tests:** No test deltas; all 472 Cycle 3 affected suites still pass.
-5. **Code behavior:** Zero behavior change; new doc file under
-   `docs/processes/` documents existing vendor-fork patches without
-   modifying them.
+4. **Tests:** btRunsRegime.test.ts 19/19 still pass; no fixture change.
+5. **Code behavior:** Zero behavior change; docstring-only modification
+   on an already-shipped file documents an existing finding without
+   changing any code path.
 
 **The chain through s96 #17:**
 
@@ -586,11 +693,20 @@ S96 #17 Cycle 5 of multi-agent orchestration:
                                                        (canonical Quartz vendor-fork
                                                        upgrade procedure)
   + S96-76 lock-in documented
+S96 #17 Cycle 6 of multi-agent orchestration:
+  • Orchestrator self-edit            AUTO-APPROVE  → GAP-16 closure: ADR-047
+                                                       (sentinel semantics) +
+                                                       bt_runs_regime.ts docstrings
+                                                       + _probe_gap16_sentinels.ts
+                                                       diagnostic
+  + S96-77 + S96-78 lock-ins documented
   + 1 commit + this HANDOFF rewrite = 2 logical units
-  + No subagent worker spawned (§3.1 trivial-edit exception)
+  + No subagent worker spawned (§3.1 trivial-edit exception, third cycle
+    in a row for documentation/cleanup work)
   + Zero behavior change; tsc baseline + tests + health-check all unchanged
   + No new operator-queue rows
-  → DEFAULT NEXT: Cycle 6 per orchestration §8.4
-    GAP-16 sentinel investigation in bt_runs_regime.
-    Composite worker; investigation-first; read-only distribution probe.
+  → DEFAULT NEXT: Cycle 7 per orchestration §8.4
+    GAP-17 orphan-script per-file cleanup (2 deletions + 2 renames).
+    Infra worker (or orchestrator-direct under §3.1 if all four files
+    can be resolved in one pass without hidden-dependency surprises).
 ```
