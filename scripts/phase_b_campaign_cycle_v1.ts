@@ -13,7 +13,9 @@
  * --dry-run (default): compute everything, print summary, write NOTHING.
  * --apply             : write trial rows + verdict rows to CH; write
  *                       markdown report.
- * --benchmark X       : restrict to one benchmark (dev convenience).
+ * --benchmark X       : restrict to one benchmark (dev convenience;
+ *                       NOTE: this triggers OQ-C23-1 — partial-run HLZ M
+ *                       shifts; a full-campaign verdict requires M=57).
  *
  * All decisions are SPEC-pinned per docs/specs/phase-b-cycle-v1.md §2.
  * Relaxing any threshold escalates to operator per orchestration §7.1.5.
@@ -876,11 +878,15 @@ export async function runCampaign(
       b, trials, [...THETA_GRID], resolvedIsDays, rank,
       THETA_GRID.length * benchmarks.length,
     );
+    const partialRunNote =
+      benchmarks.length < BENCHMARKS.length
+        ? ` (PARTIAL RUN: HLZ M=${THETA_GRID.length * benchmarks.length}, full-campaign M=${HLZ_TOTAL_TRIALS})`
+        : '';
     const notes =
       `IS=${resolvedIsStart}..${IS_END_DATE} (${resolvedIsDays}d); ` +
       `OOS=${resolvedOosStart}..${resolvedOosEnd} (${resolvedOosDays}d). ` +
       `IS window covers GFC 2008-09 + COVID 2020-03 drawdowns; ` +
-      `OOS covers 2022 bear + 2023-26 AI rally — SPEC §8.`;
+      `OOS covers 2022 bear + 2023-26 AI rally — SPEC §8.${partialRunNote}`;
     verdicts.push(gateOutcomesToVerdictRow(gates, notes));
   }
 
@@ -1049,6 +1055,13 @@ export async function main(): Promise<number> {
   console.log(`Phase B cycle_v1 campaign — ${apply ? 'APPLY' : 'DRY-RUN'}`);
   console.log(`  benchmarks: ${benchmarks.join(', ')}`);
   console.log(`  θ grid:     ${THETA_GRID.length} trials per benchmark`);
+  if (benchmarks.length < BENCHMARKS.length) {
+    // Per OQ-C23-1 (carried from Cycle 23): partial dev runs shift HLZ M.
+    console.log(
+      `  [warn] HLZ M=${THETA_GRID.length * benchmarks.length} reduced for partial dev run; ` +
+      `full-campaign verdict uses M=${HLZ_TOTAL_TRIALS}.`,
+    );
+  }
   console.log('');
 
   const tStart = Date.now();
