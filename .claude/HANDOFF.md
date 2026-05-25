@@ -1,18 +1,19 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-05-24 (session 96 #20 — **Cycle 25 executed end-to-end
-with single Composite worker spawn**. Third instance of the ADR-051
-Layer-0 Phase B pattern: `sector_rot_v1` campaign shipped + executed.
+Last updated: 2026-05-24 (session 96 #20 — **Cycle 26 executed end-to-end
+with single Composite worker spawn**. Fourth instance of the ADR-051
+Layer-0 Phase B pattern: `cross_asset_v1` campaign shipped + executed.
 Verdict: **PARTIAL on all 3 benchmarks (SPY/QQQ/IWM); NO Phase-C
 candidate** — same shape as cycle_v1 (Cycle 23) + vol_struct_v1
-(Cycle 24): HLZ blocks at M=57 on every cell. 3 of 9 Layer-0 composites
-now have shipped Phase B verdicts; all 3 PARTIAL; all 3 informational
-permanently. Cycle 25 produced 4 slice commits + this HANDOFF →
-**Net 80 unpushed commits** on top of `origin/main` (`c0cda7c`) after
-this HANDOFF rewrite. **NEXT default on `continue`:** Cycle 26
-candidate — recommended `cross_asset_v1` Phase B campaign (4th of 9 in
-Layer-0 arc) OR Thursday 2026-05-28 stockanalysis day-3 observation
-(day 3 of post-Memorial-Day window).
+(Cycle 24) + sector_rot_v1 (Cycle 25): HLZ blocks at M=57 on every
+cell. **4 of 9 Layer-0 composites now have shipped Phase B verdicts;
+all 4 PARTIAL; all 4 informational permanently. HLZ M=57 is the
+universal blocker across the arc.** Cycle 26 produced 4 slice commits
++ this HANDOFF → **Net 84 unpushed commits** on top of `origin/main`
+(`c0cda7c`) after this HANDOFF rewrite. **NEXT default on `continue`:**
+Cycle 27 candidate — recommended `short_interest_v1` Phase B campaign
+(5th of 9 in Layer-0 arc) OR Thursday 2026-05-28 stockanalysis day-3
+observation (day 3 of post-Memorial-Day window).
 
 ---
 
@@ -33,159 +34,189 @@ prioritizes foundational work — not real-money-readiness ramp.
 | Q-1 | First deployment of real capital — timing + initial amount | Standing decision per orchestration §7.1.1 | **INDEFINITELY DEFERRED** per s96 #19 |
 | Q-2 | Capital-deployment-ramp ADR sign-off | Operator self-assigned ~1 week per s96 #13 | **INDEFINITELY DEFERRED** per s96 #19 |
 | Q-3 | GAP-5 Stooq apikey gate decision | Audit GAP-5 | OPEN — paid subscription gates orchestration's call |
-| Q-4 | Push 80 unpushed commits to origin/main (Cycle 21..25 + handoffs) | Carry-over; count +5 this cycle | OPEN — `git push` operator-gated |
+| Q-4 | Push 84 unpushed commits to origin/main (Cycle 21..26 + handoffs) | Carry-over; count +4 this cycle | OPEN — `git push` operator-gated |
 | Q-5 | phase1_v3 CBOE put/call corrupted-input window | Cycle 21 ADR-050 | **CLOSED — orchestration-resolved via ADR-050** |
-| Q-6 | ETF v1 yfinance primary panel + /#/phase-b UI — Cycle 20 + 24 dev-server restart | s96 #17/18/20 + Cycle 24 | PARTIAL-WITH-UI-FIX — closes on operator `npm run dev` restart (will then auto-surface sector_rot_v1 verdict alongside cycle_v1 + vol_struct_v1) |
+| Q-6 | ETF v1 yfinance primary panel + /#/phase-b UI — Cycle 20 + 24 dev-server restart | s96 #17/18/20 + Cycle 24 | PARTIAL-WITH-UI-FIX — closes on operator `npm run dev` restart (will then auto-surface cycle_v1 + vol_struct_v1 + sector_rot_v1 + cross_asset_v1 PARTIAL verdicts) |
 | Q-7 | phase1_v3 yield-curve source persistence — Path 1/2/3 pick | s96 #18 Cycle 19; ADR-041 conformance gap | **OPEN — operator picks among Path 1 / Path 2 / Path 3 (or hybrid)** |
-| Q-8 | Phase C promotion of any Layer-0 composite to phase1_v3+ classifier input | Cycle 22 ADR-051 §Decision 5 | **DORMANT** — 3 of 9 composites now PARTIAL (cycle_v1, vol_struct_v1, sector_rot_v1); no PASS-ALL + PBO<0.2 yet; remains dormant pending future PASS-ALL |
+| Q-8 | Phase C promotion of any Layer-0 composite to phase1_v3+ classifier input | Cycle 22 ADR-051 §Decision 5 | **DORMANT** — 4 of 9 composites now PARTIAL (cycle_v1, vol_struct_v1, sector_rot_v1, cross_asset_v1); no PASS-ALL + PBO<0.2 yet; remains dormant pending future PASS-ALL |
 
-**That's the entire queue.** Q-4 count 75 → 80 (Cycle 25 added 5
-commits incl. this HANDOFF). Q-6 unchanged — operator dev-server
+**That's the entire queue.** Q-4 count 80 → 84 (Cycle 26 added 4
+commits incl. this HANDOFF). Q-6 broadened — operator dev-server
 restart now unlocks `/#/etf-flow` v1 panel (Cycle 20) AND `/#/phase-b`
-dashboard (will show all 3 PARTIAL cycle_v1/vol_struct_v1/sector_rot_v1
-verdicts) AND brief §0c (Cycle 24). Q-8 status unchanged — 3rd
-consecutive PARTIAL; remains DORMANT. Q-1, Q-2, Q-3, Q-5, Q-7
-unchanged.
+dashboard (will show all 4 PARTIAL verdicts) AND brief §0c (Cycle 24).
+Q-8 status unchanged — 4th consecutive PARTIAL; remains DORMANT.
+Q-1, Q-2, Q-3, Q-5, Q-7 unchanged.
 
 ---
 
-## What this cycle delivered (s96 #20 Cycle 25)
+## What this cycle delivered (s96 #20 Cycle 26)
 
-**Cycle 25 = single Composite worker spawn (UI roster pre-satisfied at
-Cycle 24 by `KNOWN_COMPOSITES` line 72), critic review, 4 sequential
-integration slices.** Pattern confirms single-worker cycles for the
-6 remaining Layer-0 composites where no UI extension is needed.
+**Cycle 26 = single Composite worker spawn (UI roster pre-satisfied at
+Cycle 24 by `KNOWN_COMPOSITES` line 73), critic review, 3 sequential
+integration slices.** Pattern confirmed for fourth consecutive cycle —
+single-worker cycles for the 5 remaining Layer-0 composites where no
+UI extension is needed.
 
-### Slice 1 — orchestrator-drafted SPEC (`efba766`, +604)
+### Slice 1 — orchestrator-drafted SPEC (`f3b010d`, +702)
 
-`docs/specs/phase-b-sector_rot_v1.md`. Third instance of ADR-051
-pattern; ~70% inherited from `phase-b-vol_struct_v1.md`; key delta:
+`docs/specs/phase-b-cross_asset_v1.md`. Fourth instance of ADR-051
+pattern; ~70% inherited from `phase-b-sector_rot_v1.md`; key deltas:
 
-- **S-PBSR1-1 score selection:** `defensiveCyclicalSpreadZ` (NOT
-  regimeFlag). Documents why ADR-051's nominal `sector_rot_v1` would
-  also fail the regimeFlag bucket (5-way categorical → degenerate
-  θ-grid same as vol_struct_v1's 6-way critique from S96-119).
-- **S-PBSR1-2 polarity-flip rescaling:** `score = Φ(−defensiveCyclicalSpreadZ)
-  = 1 − Φ(defensiveCyclicalSpreadZ)`. **First per-composite SPEC in
-  the 9-arc to require polarity inversion** — high defensive_z =
-  defensives leading = late-cycle stress = bearish (opposite of cycle_v1
-  / vol_struct_v1's "high score = bullish" convention). Option B
-  selected (negate BEFORE Φ) over Option A (reverse inequality) to
-  keep validator stack composite-agnostic.
-- **S-PBSR1-3 benchmarks:** SPY + QQQ + IWM (same as predecessors).
-- **S-PBSR1-5 window:** 2013-01-03 → today (~13y; matches vol_struct_v1
-  for cross-composite meta-HLZ parity per OQ-C22-2/C24-1). IS =
-  2013-01-03 → 2022-12-31; OOS = 2023-01-03 → today.
-- **S-PBSR1-7 DSR path:** parametric Mertens per S96-116 lock-in.
+- **S-PBCA1-1 score selection:** `copperGoldRatio20dChangePct` (NOT
+  regimeFlag, NOT creditInternalsDiffZ). Pre-SPEC FRED probe found
+  BAMLH0A0HYM2 (HY-OAS) capped at 788 rows starting 2023-05-19 — the
+  FRED free-endpoint history cap documented in
+  cross_asset_signals_repository.ts:660. The 2y z-score baseline
+  requirement means first valid creditInternalsDiffZ ~2025-05-19,
+  leaving only ~12 months of valid score inside the 13y window
+  (degenerate effectiveS=0). copperGoldRatio is the strongest single-
+  domain continuous signal with full coverage (GLD 2008-01-02+, COPX
+  covers; Ilmanen 2011 ch. 14 + Erb & Harvey 2006 canon).
+- **S-PBCA1-2 score-rescaling:** straight `Φ(x)` — NO negation;
+  polarity-ALIGNED with cycle_v1 / vol_struct_v1 (high copper/gold =
+  bullish via growth thesis). **First per-composite SPEC in the 9-arc
+  where the S96-124 negate-before-Φ pattern does NOT apply.** Simplest
+  possible harness fork (drop the negation provision; use straight
+  normalCdf(x)).
+- **S-PBCA1-3 benchmarks:** SPY + QQQ + IWM (same as predecessors).
+- **S-PBCA1-5 window:** 2013-01-03 → today (~13y; matches all
+  predecessors for cross-composite meta-HLZ parity per OQ-C22-2 /
+  OQ-C24-1 / OQ-C25-1). IS = 2013-01-03 → 2022-12-31; OOS = 2023-01-03
+  → today.
+- **S-PBCA1-7 DSR path:** parametric Mertens per S96-116 lock-in.
 - **§1 build 2:** Step 0 pre-flight + conditional backfill of
-  sector_rotation_snapshots (forward-only at SPEC-write time per
-  S96-117 Tier-1 carve-out).
+  cross_asset_snapshots (forward-only at SPEC-write time: 4 rows
+  2026-05-19 → 2026-05-24).
+- **§5 test plan:** adds the **inverse-of-sector_rot_v1 source-text
+  pin** — REJECT any `normalCdf(-x)` standing alone in loadScoreSeries
+  (would indicate worker mistakenly copied the polarity-flip pattern).
+  Direct-relationship behavioral test: high ratio-change input → high
+  score output.
 
-### Slice 2 — Composite worker (`219bb09`, +2,413)
+### Slice 2 — Composite worker (`93d7b02`, +2,640)
 
-sector_rot_v1 Phase B harness + probe + backfill. Critic verdict:
-**RESOLVE-IN-PLACE** with 3 LOW-severity docstring-only fixes (all 3
-applied).
+cross_asset_v1 Phase B harness + probe + backfill. Critic verdict:
+**AUTO-APPROVE** (orchestration §6.1; HIGH confidence; zero fixes
+required). All 11 MUST-verify items + 9 SHOULD-verify items passed
+critic check.
 
-- `_probe_phase_b_sector_rot_v1_inputs.ts` (NEW, +429) — Step 0
-  pre-flight with refined state classifier (full / empty / ambiguous;
-  ambiguous blocks backfill per SPEC §8).
-- `_backfill_sector_rotation_snapshots.ts` (NEW, +332) — Tier-1
-  backfill per S96-117; reused canonical `SectorRotationRepository`
-  helpers; 3,367 rows landed (2013-01-03 → 2026-05-22). All six
-  S96-117 gates held.
-- `phase_b_campaign_sector_rot_v1.ts` (NEW, +698) — imports cycle_v1
-  pure functions per S96-118; deltas: `loadScoreSeries()` with
-  `normalCdf(-z)` polarity-flip rescaling at line ~268. `composite_version`
-  override on every persisted row (cycle_v1 helpers bake in 'cycle_v1';
-  override is load-bearing, pinned by convention tests).
-- 100 new tests across 3 test files (target ≥40; 2.5× over). Polarity-
-  flip critical pins: identity `Φ(−z)+Φ(z)=1±1e-7` + directional
-  behavior (high z → low score; monotonically decreasing scores as z
-  increases) + source-text pin rejecting bare `normalCdf(z)` standing
-  alone.
-- NPM scripts: `phase_b:sector_rot_v1:dry` + `:apply` + probe + backfill.
+- `_probe_phase_b_cross_asset_v1_inputs.ts` (NEW, +440) — Step 0
+  pre-flight with state classifier (empty / forward-only / ambiguous /
+  full / unknown).
+- `_backfill_cross_asset_snapshots.ts` (NEW, +362) — Tier-1 backfill
+  per S96-117 + critic-pinned 1-arg `writeSnapshot(snapshot)` signature
+  (NOT the 2-arg sector_rot pattern).
+- `phase_b_campaign_cross_asset_v1.ts` (NEW, +789) — harness; deltas:
+  - `loadScoreSeries()` at line 308-345: reads
+    `copper_gold_ratio_20d_change_pct` from `cross_asset_snapshots
+    FINAL`; **`scores.push(normalCdf(x))` at line 339** (straight Φ,
+    polarity-aligned, NO negation; the polarity-aligned source-text
+    pin's positive verification target).
+  - `composite_version='cross_asset_v1'` override on every persisted
+    trial + verdict row.
+- 102 new tests across 3 test files (target ≥40; 2.5× over). Tests
+  include critical regression pins:
+  - Polarity-aligned positive pin (`scores.push(normalCdf(x))` must
+    appear in source).
+  - Polarity-aligned negative pin (loadScoreSeries body, with line
+    comments stripped, must NOT contain `normalCdf(-`).
+  - Direct-relationship behavioral test (high x → high score).
+  - Anti-copy-paste pins (REJECT `defensive_cyclical_spread_z` /
+    `sector_rotation_snapshots` / `curve_steepness_z` /
+    `vol_structure_snapshots` literals in harness).
+  - writeSnapshot 1-arg pin (REJECT 2-arg form in backfill).
+  - CANON-THIN DECISIONS block presence pin (per S96-125).
+- NPM scripts: `phase_b:cross_asset_v1:dry` + `:apply` + probe + backfill.
 
-### Slice 3 — critic fixes inline (`799bbca`, +67/-5)
+Worker also ran the backfill `--apply` from its worktree (idempotent
+under ReplacingMergeTree): 3,367 rows written into
+cross_asset_snapshots. Post-backfill probe: state=FULL, 3,368 rows
+(includes 1 pre-existing 2026-05-24 daemon-trace row; benign — SPY
+calendar ends 2026-05-22).
 
-All 3 critic-flagged LOW-severity docstring fixes applied:
-1. Test file header tolerance updated `1e-12 → 1e-7` to match assertion
-   body (A&S 26.2.17 envelope rationale already documented at the
-   assertion site).
-2. Harness top-docstring CANON-THIN DECISIONS block added enumerating
-   the three canon-thin picks the worker made on the three-criterion
-   test (fork-copy normalCdf per S96-118; identity tolerance 1e-7 per
-   A&S envelope; SPY_USD trading-day calendar per "composite's own
-   load-bearing series" rule that picked VIX_USD for vol_struct_v1).
-3. Backfill trading-day-calendar docstring expanded to document the
-   "calendar source = composite's own load-bearing series" pattern.
+### Slice 3 — orchestrator integration
 
-### Slice 4 — `--apply` end-to-end (`bca6158`, +32)
+No critic fixes required (AUTO-APPROVE). Orchestrator fast-forward
+merged `worktree-agent-a88cba3ad824aa14d` into `main` at `93d7b02` +
+deleted the worker branch. Worktree directory itself failed to delete
+(permission denied; the orphan directory was eventually removed by OS).
 
-Ran from main checkout with explicit `cd` (per Cycle 23/24 watch-out
-— markdown report written to correct `docs/analysis/` path).
+### Slice 4 — `--apply` end-to-end (`539a048`, +33)
+
+Ran from main checkout post-integration:
 
 ```text
-campaign compute completed in 312ms
+campaign compute completed in 215ms
 IS=2013-01-03..2022-12-31 (2517d)
 OOS=2023-01-03..2026-05-22 (850d)
 
 Per-benchmark verdicts:
-  SPY: PARTIAL (θ*=0.10, DSR=0.942✗, PBO=0.195✓, HLZ=fail, OOS/IS=1.589✓)
-  QQQ: PARTIAL (θ*=0.25, DSR=0.941✗, PBO=0.261✓, HLZ=fail, OOS/IS=1.268✓)
-  IWM: PARTIAL (θ*=0.20, DSR=0.846✗, PBO=0.709✗, HLZ=fail, OOS/IS=1.352✓)
+  SPY: PARTIAL (θ*=0.45, DSR=0.805✗, PBO=0.137✓, HLZ=fail, OOS/IS=1.775✓)
+  QQQ: PARTIAL (θ*=0.45, DSR=0.746✗, PBO=0.089✓, HLZ=fail, OOS/IS=1.923✓)
+  IWM: PARTIAL (θ*=0.45, DSR=0.740✗, PBO=0.259✓, HLZ=fail, OOS/IS=1.423✓)
 
 No primary Phase-C candidate.
 Persisted: 57 trial rows; 3 verdict rows; markdown report written.
 ```
 
 **Verdict pattern identical to predecessors:** PARTIAL on all
-benchmarks with HLZ blocking at M=57 (the canonically strict gate at
-rank-1-of-57 with α=0.05 one-sided BHY). DSR fails on all three (SPY
-0.942 narrowly under the 0.95 threshold, QQQ 0.941, IWM 0.846).
-**IWM PBO=0.709 is the highest cross-composite cell yet** across 9
-cells (3 composites × 3 benchmarks) — worst overfitting signature in
-the arc so far. θ* values are LOW (0.10/0.25/0.20) — under negated-Φ
-this means "go long unless defensives are strongly leading," consistent
-with a long-only strategy that prefers staying in market with occasional
-flat episodes.
+benchmarks with HLZ blocking at M=57. **θ* uniform at 0.45 across all
+3 benchmarks** (a stable "go long unless copper/gold ratio change
+strongly negative" preference). Striking deltas from predecessors:
 
-### Cycle 25 outcomes per orchestration §6
+- **QQQ PBO=0.089 is the LOWEST cross-composite cell PBO across all
+  12 cells shipped to date** (4 composites × 3 benchmarks). SPY=0.137
+  also comfortably below 0.2 Phase-C floor. IWM=0.259 is mid-pack.
+  Strongest PBO signature across the arc so far.
+- **OOS/IS Pardo ratio passes on all 3** (1.42 - 1.92 range) —
+  **strongest cross-composite Pardo signature of the 4-cycle arc**:
+  cycle_v1 1.04-1.39; vol_struct_v1 1.10-1.45; sector_rot_v1 1.27-1.59;
+  **cross_asset_v1 1.42-1.92** ← highest. Suggests the copper/gold
+  ratio signal carries forward to OOS more cleanly than the
+  predecessors. Plausibly because the growth-thesis link (commodity
+  factor structure per Ilmanen ch. 14 / Erb & Harvey 2006) is more
+  economically stable than the equity-internal signals in the
+  predecessor composites.
+- **DSR fails on all 3** (highest SPY=0.805 vs 0.95 threshold;
+  consistent with predecessors).
+- **HLZ M=57 blocks on all 3** — the dominant failure mode.
+
+### Cycle 26 outcomes per orchestration §6
 
 | Worker / step | Verdict | Outcome |
 | --- | --- | --- |
-| Composite worker (general-purpose, worktree-isolated) | Slice 2 — sector_rot_v1 harness + backfill | Critic RESOLVE-IN-PLACE (3 LOW docstring-only fixes applied) |
-| Critic (general-purpose) | Composite worker review | RESOLVE-IN-PLACE — 3 LOW-severity fixes documented |
+| Composite worker (general-purpose, worktree-isolated) | Slice 2 — cross_asset_v1 harness + backfill | Critic **AUTO-APPROVE** (HIGH confidence; ZERO fixes required) |
+| Critic (general-purpose) | Composite worker review | AUTO-APPROVE — first AUTO-APPROVE of the 9-arc Phase B work (predecessors all returned RESOLVE-IN-PLACE) |
 | Orchestrator (campaign --apply) | Slice 4 — end-to-end execution | 57 trials + 3 verdicts persisted; report written |
 
 ### Verification gates at cycle close
 
 ```text
 git status                                                          # clean
-git log origin/main..HEAD                                            # 80 commits ahead
+git log origin/main..HEAD                                            # 84 commits ahead (after this HANDOFF)
 npx tsc --noEmit                                                     # 13 baseline errors unchanged (all pre-existing in _* scripts)
-npm test                                                             # 3689/3706 pass + 17 skip + 0 fail (was 3589 + 17 skip; +100 new tests)
+npm test                                                             # 3791/3808 pass + 17 skip + 0 fail (was 3689 + 17 skip; +102 new tests)
 node --import tsx --test \
-  scripts/tests/phaseBCampaignSectorRotV1.test.ts \
-  scripts/tests/_probe_phase_b_sector_rot_v1_inputs.test.ts \
-  scripts/tests/_backfill_sector_rotation_snapshots.test.ts          # 100/100 pass
+  scripts/tests/phaseBCampaignCrossAssetV1.test.ts \
+  scripts/tests/_probe_phase_b_cross_asset_v1_inputs.test.ts \
+  scripts/tests/_backfill_cross_asset_snapshots.test.ts              # 102/102 pass
 npm run health:check                                                  # no NEW Tier-2 items (only carry-over staleness Sun 2026-05-24)
 git worktree list                                                    # main only (worker worktree cleaned)
 ```
 
-### Post-Cycle-25 DB state
+### Post-Cycle-26 DB state
 
 | Table | Change |
 | --- | --- |
-| `quantlab.phase_b_trials` | +57 rows (composite_version='sector_rot_v1' × 3 benchmarks × 19 θ trials) → 171 total (cycle_v1 + vol_struct_v1 + sector_rot_v1) |
-| `quantlab.phase_b_verdicts` | +3 rows (sector_rot_v1 × {SPY,QQQ,IWM} PARTIAL; phase_c_eligible=false) → 9 total |
-| `quantlab.sector_rotation_snapshots` | +3,367 rows (Tier-1 backfill 2013-01-03 → 2026-05-22, 1d, via canonical helpers; ReplacingMergeTree idempotent) |
+| `quantlab.phase_b_trials` | +57 rows (composite_version='cross_asset_v1' × 3 benchmarks × 19 θ trials) → 228 total (cycle_v1 + vol_struct_v1 + sector_rot_v1 + cross_asset_v1) |
+| `quantlab.phase_b_verdicts` | +3 rows (cross_asset_v1 × {SPY,QQQ,IWM} PARTIAL; phase_c_eligible=false) → 12 total |
+| `quantlab.cross_asset_snapshots` | +3,367 rows (Tier-1 backfill 2013-01-03 → 2026-05-22, 1d, via canonical helpers; ReplacingMergeTree idempotent) → 3,368 total |
 
 Forward-only additive only; no destructive ops. All within data-source policy.
 
 ### Push state
 
-- `origin/main` at `c0cda7c`; **80 unpushed commits** after this HANDOFF
+- `origin/main` at `c0cda7c`; **84 unpushed commits** after this HANDOFF
   rewrite.
 - Push operator-gated (Q-4).
 
@@ -202,18 +233,19 @@ Forward-only additive only; no destructive ops. All within data-source policy.
 | Multi-agent orchestration design committed | ✓ s96 #14 |
 | Cycle 1..23 | ✓ as documented |
 | Cycle 24 — vol_struct_v1 Phase B (2nd instance) | ✓ s96 #20; verdict PARTIAL |
-| **Cycle 25 — sector_rot_v1 Phase B (3rd instance) + polarity-flip pattern** | **✓ s96 #20 (S96-123..S96-125); verdict PARTIAL** |
-| Cycle 26 — Composite worker for cross_asset_v1 (4th of 9) OR Thursday stockanalysis day-3 | ☐ NEXT default; market dependence dictates |
+| Cycle 25 — sector_rot_v1 Phase B (3rd instance) + polarity-flip pattern | ✓ s96 #20 (S96-123..S96-125); verdict PARTIAL |
+| **Cycle 26 — cross_asset_v1 Phase B (4th instance) + first AUTO-APPROVE + data-coverage-constrained score selection** | **✓ s96 #20 (S96-126..S96-128); verdict PARTIAL** |
+| Cycle 27 — Composite worker for short_interest_v1 (5th of 9) OR Thursday stockanalysis day-3 | ☐ NEXT default; market dependence dictates |
 | Thursday 2026-05-28 stockanalysis day-3 observation (day 3 of post-Memorial-Day window) | ☐ first trading day after Memorial Day = Tue 2026-05-26 |
-| Cycles 27+ — Phase B campaigns for the 6 remaining Layer-0 composites | ☐ per-composite SPEC + harness fork (~25% of Cycle 23-25 effort each per S96-118) |
-| Cycle 26+ — v1 primary read path flip | ⏸ blocked on 5-day observation |
+| Cycles 28+ — Phase B campaigns for the 4 remaining Layer-0 composites (exec_departure, etf_flow, eight_k_classifier, form_4_insider) | ☐ per-composite SPEC + harness fork (~25% of Cycle 23-26 effort each per S96-118) |
+| Cycle 27+ — v1 primary read path flip | ⏸ blocked on 5-day observation |
 | Daemon step 1jc (stockanalysis post-close refresh) | ⏸ blocked on 5-day observation |
 | ADR-048 path-B reactivation | ⏸ reserved fallback IF stockanalysis proves unreliable |
 | Phase 2 v2 — plausibility-band probes | ☐ deferred per S96-71 |
 | GAP-3 CBOE put/call daemon hook | ✓ CLOSED Cycle 21 |
 | F2 CBOE backfill + re-classify (Q-5 path D) | ✓ BACKFILL DONE Cycle 21 |
-| **Layer-0 Phase B statistical validation campaigns (3 of 9 done)** | **✓ cycle_v1 (Cycle 23 PARTIAL) + vol_struct_v1 (Cycle 24 PARTIAL) + sector_rot_v1 (Cycle 25 PARTIAL); 6 remaining** |
-| Phase C promotion of any Layer-0 composite to phase1_v3+ classifier input | ⏸ operator-gated per Q-8 (DORMANT — 3 of 3 shipped composites PARTIAL; HLZ M=57 is the dominant cross-arc failure mode) |
+| **Layer-0 Phase B statistical validation campaigns (4 of 9 done)** | **✓ cycle_v1 + vol_struct_v1 + sector_rot_v1 + cross_asset_v1 (all PARTIAL); 5 remaining** |
+| Phase C promotion of any Layer-0 composite to phase1_v3+ classifier input | ⏸ operator-gated per Q-8 (DORMANT — 4 of 4 shipped composites PARTIAL; HLZ M=57 is the universal failure mode) |
 | C-12 Phase B AlpacaAdapter (real-money path) | ⏸ INDEFINITELY PAUSED per s96 #19 |
 | Capital-deployment-ramp ADR (Q-2) | ☐ INDEFINITELY DEFERRED |
 | Drawdown framework §12 90d empirical retune | ☐ scheduled — earliest 2026-08-29 |
@@ -222,96 +254,107 @@ Forward-only additive only; no destructive ops. All within data-source policy.
 
 ## Decisions locked in
 
-### Session 96 #20 (Cycle 25 of multi-agent orchestration)
+### Session 96 #20 (Cycle 26 of multi-agent orchestration)
 
-**S96-123. sector_rot_v1 Phase B verdict = PARTIAL on all 3 benchmarks
-(SPY/QQQ/IWM); NO Phase-C candidate; composite stays informational at
-Layer-0 permanently.** `Why:` Per ADR-051 §Decision 5: a composite
-passes Phase B iff ≥1 (composite × benchmark) cell has all four gates
-pass AND PBO<0.2. sector_rot_v1's three cells all have HLZ-haircut fail
-at M=57 (same canonically strict gate that blocked cycle_v1 Cycle 23 +
-vol_struct_v1 Cycle 24) AND DSR fail on all 3 (SPY 0.942 narrowly
-under the 0.95 threshold, QQQ 0.941, IWM 0.846). SPY + QQQ clear PBO
-(0.195/0.261; both above the 0.2 Phase-C threshold) and OOS-IS Pardo
-(1.589/1.268). IWM additionally fails PBO at 0.709 — **highest
-cross-composite cell PBO seen yet across the 9-cell arc**, worst
-overfitting signature in the campaign so far. No benchmark has
-PASS-ALL → verdict is PARTIAL. The anti-shopping rule per ADR-051
-§Decision 5 + composite_version='sector_rot_v1' pin in CH prevents a
-`sector_rot_v2` redesign in response to this PARTIAL without
-independent canon-cited evidence motivating the redesign. `How to
-apply:` (1) sector_rot_v1 stays as a Layer-0/Layer-5 LLM-context
-informational signal (the existing daemon-hook regime-flag in the
-operator brief + dashboard panel + morning brief §0c mention); does
-NOT fire as `phase1_v3+` category. (2) Q-8 remains DORMANT — no
-PASS-ALL across cycle_v1, vol_struct_v1, or sector_rot_v1; only ANY
-future composite returning PASS-ALL + PBO<0.2 activates it. (3) Future
-composite Phase B campaigns (6 remaining) reuse the cycle_v1 + vol_struct_v1
-+ sector_rot_v1 harness + SPEC pattern. (4) **3 of 3 PARTIAL with HLZ
-as the universal blocker** strongly suggests M=57 is too strict for
-per-composite-self-contained Phase B — the cross-composite meta-HLZ
-pass deferred per ADR-051 §Consequences would aggregate trials across
-composites and could either tighten further (M_meta=513) OR provide a
-pooled-power frame where individual composite cells contribute to a
-joint pass; the right interpretation needs the full arc shipped before
-making a call. Flagged for after the 9th composite ships per OQ-C24-1
-+ this cycle's reinforcement.
+**S96-126. cross_asset_v1 Phase B verdict = PARTIAL on all 3
+benchmarks (SPY/QQQ/IWM); NO Phase-C candidate; composite stays
+informational at Layer-0 permanently. The 4-of-4 arc-wide PARTIAL
+pattern with HLZ M=57 as universal blocker is now confirmed.**
+`Why:` Per ADR-051 §Decision 5: a composite passes Phase B iff ≥1
+(composite × benchmark) cell has all four gates pass AND PBO<0.2.
+cross_asset_v1's three cells all have HLZ-haircut fail at M=57 (the
+same canonically strict gate that blocked all three predecessors)
+AND DSR fail on all 3 (SPY 0.805, QQQ 0.746, IWM 0.740). Notably,
+SPY + QQQ + IWM ALL clear PBO comfortably (0.137 / 0.089 / 0.259;
+QQQ's 0.089 is the lowest cross-composite cell PBO across 12 shipped
+cells) AND OOS-IS Pardo on ALL 3 benchmarks (1.775 / 1.923 / 1.423 —
+strongest cross-composite Pardo signature of the 4-cycle arc). No
+benchmark has PASS-ALL → verdict is PARTIAL. The anti-shopping rule
+per ADR-051 §Decision 5 + composite_version='cross_asset_v1' pin in
+CH prevents a `cross_asset_v2` redesign in response to this PARTIAL
+without independent canon-cited evidence motivating the redesign.
+`How to apply:` (1) cross_asset_v1 stays as a Layer-0/Layer-5
+LLM-context informational signal (existing daemon hook +
+regime-flag in operator brief + dashboard panel + morning brief §0c
+mention); does NOT fire as `phase1_v3+` category. (2) Q-8 remains
+DORMANT — no PASS-ALL across any of the 4 shipped composites; only
+ANY future composite returning PASS-ALL + PBO<0.2 activates it.
+(3) Future composite Phase B campaigns (5 remaining) reuse the
+cycle_v1 + vol_struct_v1 + sector_rot_v1 + cross_asset_v1 harness
++ SPEC pattern. (4) **4 of 4 PARTIAL with HLZ as universal blocker
+strongly reinforces OQ-C25-1's "M=57 too strict for per-composite-
+self-contained Phase B"** — the cross-composite meta-HLZ pass
+deferred per ADR-051 §Consequences becomes more urgent at 9-arc
+completion. Flagged for after the 9th composite ships per OQ-C24-1
++ OQ-C25-1 + this cycle's reinforcement.
 
-**S96-124. Polarity-flip pattern: negated-Φ rescaling (Option B) is
-the locked default for per-composite SPECs facing polarity inversion;
-documented at SPEC §S-PBSR1-2.** `Why:` ADR-051 §Decision 1
-last-paragraph permits per-composite SPECs to apply rescaling +
-inequality reversal. sector_rot_v1 was the first 9-arc composite to
-face polarity inversion (`defensiveCyclicalSpreadZ` has high z =
-defensives leading = bearish; the inverse of cycle_v1 + vol_struct_v1's
-"high score = bullish" convention). Two implementation options were
-weighed: Option A (reverse inequality: `LONG if score < θ`; keep
-`score = Φ(z)`) and Option B (negate first: `score = Φ(−z)`; keep
-standard `LONG if score > θ`). Option B selected because it (a) keeps
-the validator stack + backtest harness composite-agnostic (no
-`polarityFlipped` flag propagation), (b) preserves θ-grid
-interpretability ("θ=0.84 means long when cyclicals lead by >+1σ"),
-(c) makes the per-composite delta confined to `loadScoreSeries` (3
-LOC change vs harness-wide flag plumbing). The identity `Φ(−z) =
-1 − Φ(z)` is exact (A&S 26.2 symmetry); harness tests pin both the
-identity (tolerance 1e-7 per A&S 26.2.17 envelope) and the directional
-behavior (high z input → low score output; monotonically decreasing).
-`How to apply:` (1) Future per-composite SPECs (6 remaining) that face
-polarity inversion MUST cite S96-124 + select Option B (negate before
-Φ). Deviation requires explicit per-composite SPEC justification with
-canon-cited rationale. (2) The negation site in `loadScoreSeries` is
-the critic's #1 verification target for any polarity-inverted
-composite; tests must pin the identity AND directional behavior. (3)
-Source-text pin convention: critics should grep for the literal
-`normalCdf(-z)` (or semantically equivalent `1 - normalCdf(z)`) in
-the harness; a bare `normalCdf(z)` standing alone for a polarity-
-inverted composite is a defect.
+**S96-127. Score selection rule for data-coverage-constrained
+composites: pick the strongest CONTINUOUS COVERED single-domain
+signal over the "natural-first-choice" z-scored signal when the
+z-score's underlying baseline data has insufficient history.**
+Documented at SPEC §S-PBCA1-1 with the BAMLH0A0HYM2 FRED-free-endpoint
+case as the precedent. `Why:` cross_asset_v1's first-choice candidate
+by direct analogy with sector_rot_v1 was `creditInternalsDiffZ` (a
+continuous z-score with built-in 2y baseline — the closest analog to
+sector_rot_v1's `defensiveCyclicalSpreadZ`). Pre-SPEC FRED probe found
+the FRED HY-OAS series BAMLH0A0HYM2 is capped at ~3y of history on
+the free endpoint (788 rows, earliest 2023-05-19); the 2y baseline
+requirement means first valid z ~2025-05-19, leaving only ~12 months
+of valid score inside the 13y campaign window → degenerate effectiveS
+from CSCV. The selection rule that emerges: when the "natural" z-score
+candidate's underlying baseline is data-coverage-constrained, pick the
+strongest continuous covered single-domain signal that DIRECTLY tests
+the composite's primary canon-cited thesis. For cross_asset_v1 this
+was `copperGoldRatio20dChangePct` (full coverage GLD 2008-01-02+,
+COPX covers; Ilmanen 2011 ch. 14 + Erb & Harvey 2006 canon). The
+verdict report MUST surface the single-axis-vs-composite scope
+explicitly — a PARTIAL/FAIL on the chosen axis condemns that AXIS,
+not the full multi-domain composite (cross_asset_v1 has 5 distinct
+domain signals; this Phase B tested 1). `How to apply:` (1) Future
+per-composite SPECs (5 remaining) MUST cite S96-127 + run a pre-SPEC
+data-coverage probe to verify the chosen score axis has continuous
+coverage across the campaign window. (2) Coverage-constrained signals
+become "informational reserved" candidates — eligible for a future
+v2 SPEC if/when the upstream data source extends OR an alternative
+free-data source becomes available (per data-source policy). (3) The
+single-axis-vs-composite scope note belongs in the SPEC §8
+"Watch-outs" section + the verdict report's "context" line — both
+already added in this cycle's SPEC + report templates.
 
-**S96-125. Three-criterion canon-thin justification block is the
-locked convention for the harness header docstring; critics enforce
-its presence whenever ≥1 canon-thin decision was made in the diff.**
-`Why:` CLAUDE.md autonomous-execution protocol requires that canon-thin
-forks be defended on the three-criterion test (canon foundations /
-methodology rigor / minimum free parameters). The Cycle 25 Composite
-worker made 3 canon-thin picks (fork-copy normalCdf per S96-118;
-identity tolerance 1e-7 per A&S envelope; SPY_USD trading-day calendar
-per "composite's own load-bearing series" rule). The worker initially
-folded the reasoning into individual adjacent docstrings; the critic
-RESOLVE-IN-PLACE consolidated the reasoning into a single
-`// CANON-THIN DECISIONS (three-criterion justification per CLAUDE.md):`
-block near the top of the harness file (lines ~65-115 of the new
-sector_rot_v1 harness). This makes the three-criterion test
-discoverable for future cycles spawning workers that use this script
-as a template. `How to apply:` (1) Future harness diffs that include
-≥1 canon-thin pick MUST include a CANON-THIN DECISIONS block near the
-top of the file enumerating each decision with the three criteria.
-(2) Critics for Cycle 26+ verify the block is present + enumerates
-each pick the worker made. (3) If no canon-thin picks were made
-(rare; only if the SPEC fully pins every detail), the block may be
-omitted; the diff's "Worker output contract" return paragraph 7 must
-say "no canon-thin decisions made this cycle" explicitly.
+**S96-128. First AUTO-APPROVE of the 9-arc Phase B work — pattern
+sufficiency for single-Composite-worker cycles with proven harness
+templates.** `Why:` Cycle 26's Composite worker returned a critic
+AUTO-APPROVE verdict — ZERO fixes required — the first across the
+4-cycle Phase B arc (predecessors Cycle 23 / 24 / 25 all returned
+RESOLVE-IN-PLACE with small docstring or test-tolerance fixes). The
+worker was given (a) a fully-pinned SPEC with the per-composite
+decisions made by the orchestrator, (b) the predecessor template
+(`phase_b_campaign_sector_rot_v1.ts` from Cycle 25), and (c) the
+critical-regression-site source-text pins via the SPEC §5 test plan.
+Result: clean template-fork with comprehensive test coverage
+(102 tests; 2.5× the ≥40 target), full CANON-THIN DECISIONS
+documentation per S96-125, and all 20 critic checks passing on first
+pass. **This validates the orchestration §6.2 "RESOLVE-IN-PLACE
+default" expectation — that the critic finds fixable issues most of
+the time but AUTO-APPROVE is achievable when the SPEC is sufficiently
+pinned + the worker has a strong template + tests pin the
+critical-regression sites.** `How to apply:` (1) The pattern that
+worked Cycle 26 — explicit critical-regression-site source-text
+pinning in the SPEC (e.g. "REJECT bare `normalCdf(-x)` standing
+alone") — should be a standing SPEC convention going forward.
+Predecessor SPECs that did NOT include such pins got fixes added
+in RESOLVE-IN-PLACE; future SPECs that include them are more likely
+to AUTO-APPROVE. (2) For the 5 remaining Layer-0 composites, the
+SPEC drafter (orchestrator) should identify the highest-risk
+regression site relative to the template being forked and add an
+explicit source-text pin in §5 test plan. (3) Critic confidence
+calibration — AUTO-APPROVE is a legitimate verdict and should not
+be confused with "the critic didn't look carefully enough"; the
+Cycle 26 critic returned with 20-item-checklist verification and
+explicit notes on the spot-checked items. AUTO-APPROVE means
+"no fixes needed," not "no scrutiny applied."
 
-**Carry-overs (still in force):** S96-1..S96-122; S95-1..S95-50;
+**Carry-overs (still in force):** S96-1..S96-125; S95-1..S95-50;
 S94-1..S94-33; S93-1..S93-54; all prior s73-s92 lock-ins.
 
 ---
@@ -320,69 +363,77 @@ S94-1..S94-33; S93-1..S93-54; all prior s73-s92 lock-ins.
 
 ### NEW this cycle
 
-- **OQ-C25-1** — 3 of 3 shipped composites returned PARTIAL with HLZ as
-  the dominant cross-arc blocker (M=57 is binding at rank-1). This
-  pattern strongly suggests the per-composite-self-contained HLZ
-  threshold may be too strict for the 9-arc deflation pipeline as
-  designed. Two interpretations: (a) M=57 is correct and the canonical
-  reading is "the Layer-0 composites lack standalone statistical
-  power" → Phase C remains DORMANT permanently and the arc serves
-  exclusively as informational/LLM-context input. (b) M=57 is overly
-  conservative for per-composite-self-contained testing because the
-  trials within each composite probe the SAME θ-axis (not independent
-  composite designs) and a pooled-power frame across composites is the
-  right denominator → meta-HLZ at completion of the 9-arc could
-  re-interpret these PARTIAL results as a pooled PASS. Cannot resolve
-  until the full arc ships (6 remaining campaigns). Flagged in S96-123
-  for revisit at 9-arc completion. Specifically: track whether the
-  remaining 6 composites also block at HLZ M=57; if yes, interpretation
-  (a) is favored; if any of the remaining 6 cleanly clears, that
-  composite's HLZ trial budget within the arc gets attention.
-- **OQ-C25-2** — IWM PBO=0.709 (sector_rot_v1) is the highest
-  cross-composite cell PBO seen across the 9 cells shipped to date.
-  Other cells' PBO range: 0.106-0.436 (vol_struct_v1) and similar
-  (cycle_v1). IWM's 0.709 is well above the 0.5 hard floor for the
-  PBO gate. Worth probing whether sector_rot_v1's defensiveCyclicalSpreadZ
-  has a structural relationship with IWM (small-cap cyclicality) that
-  makes the IWM cell unusually overfitting-prone. The PBO is a CSCV
-  combinatorial statistic; not immediately fixable without re-running
-  with different θ-grid density. Flagged for after 9-arc completion
-  when cross-cell PBO patterns can be aggregated; do NOT silently
-  re-tune θ-grid in response (anti-shopping per ADR-051 §Decision 5
-  / S96-115).
+- **OQ-C26-1** — BAMLH0A0HYM2 (HY-OAS) FRED-free-endpoint history
+  extension. The 788-row cap (earliest 2023-05-19) blocks
+  `creditInternalsDiffZ` as a campaign score axis for cross_asset_v1.
+  Two paths to unblock: (a) FRED's free endpoint accumulates more
+  history naturally over time (in ~1-2 years the cap will be ~5y →
+  baseline 2y leaves 3y of score for an OOS-only test → still
+  marginal but more useful); (b) source HY-OAS from an alternative
+  free endpoint (ICE BofA publishes historical CSVs through SEC EDGAR;
+  the orchestration could pursue this in a Data-Ingest cycle without
+  operator gate per data-source policy). The natural follow-up is a
+  future `cross_asset_v2` SPEC that re-tests with creditInternalsDiffZ
+  once data extends. Reserved per S96-127.
+- **OQ-C26-2** — Cross-composite Pardo ranking interpretation.
+  cross_asset_v1's OOS/IS Pardo range (1.42 - 1.92) is the highest
+  across the 4-cycle arc (cycle_v1 1.04-1.39; vol_struct_v1 1.10-1.45;
+  sector_rot_v1 1.27-1.59). Two interpretations: (a) the
+  copper/gold-ratio signal genuinely carries forward to OOS more
+  cleanly than equity-internal signals (consistent with commodity
+  factor structure's economic stability per Ilmanen ch. 14); (b) the
+  OOS window happens to include a copper-cycle resurgence (post-2023
+  Fed-pivot rally + 2024 grid-investment boom + LME copper move) that
+  randomly favors the composite. Disentangling (a) vs (b) requires
+  the 9-arc completion to see if cross-domain commodity signals also
+  Pardo-rank highly OR if cross_asset_v1's Pardo signature is
+  composite-specific. Flagged for revisit at 9-arc completion.
+- **OQ-C26-3** — QQQ PBO=0.089 cell anomaly investigation. QQQ's
+  cross_asset_v1 cell is the LOWEST-PBO cell across 12 shipped cells.
+  Plausible cause: tech-heavy QQQ's drawdowns historically coincide
+  with commodity-collapse signals (2022 inflation regime drove both
+  copper drop AND multi-quarter QQQ drawdown). The
+  copper/gold-ratio score's information content may be especially
+  non-overfitted for tech-heavy indices because the signal aligns
+  with regime-switching at the macro level rather than the
+  equity-internal level. Cannot resolve standalone; revisit at 9-arc
+  completion when cross-cell PBO patterns can be aggregated. Do NOT
+  silently re-tune θ-grid in response (anti-shopping per ADR-051
+  §Decision 5 / S96-115).
 
 ### CARRIED from earlier cycles
 
+- **OQ-C25-1** — HLZ M=57 universal-blocker pattern is now 4-of-4
+  reinforced this cycle. Still unresolved: is M=57 correct or too
+  strict for per-composite-self-contained Phase B? Cannot resolve
+  until 9-arc completion (now: 5 composites away).
+- **OQ-C25-2** — IWM PBO=0.709 anomaly from sector_rot_v1 — partial
+  context this cycle: cross_asset_v1's IWM cell is mid-pack PBO=0.259,
+  not anomalous. The sector_rot_v1 IWM anomaly remains composite-
+  specific. Revisit at 9-arc completion.
 - **OQ-C24-1** — HLZ M=57 cross-composite meta-HLZ pass — reinforced
-  by S96-123 this cycle (3 of 3 PARTIAL with HLZ blocking); deferred
-  per ADR-051 §Consequences; revisit at 9-arc completion (now: 6
+  by S96-126 this cycle (4 of 4 PARTIAL with HLZ blocking); deferred
+  per ADR-051 §Consequences; revisit at 9-arc completion (now: 5
   composites away).
-- **OQ-C24-2** — KNOWN_COMPOSITES domain placement (S96-121) is
-  currently UI-domain. Sector_rot_v1 was already in the roster at
-  Cycle 24 SPEC-write time so this cycle did NOT need any UI-domain
-  edit; the protocol from Cycle 24 worked cleanly. Pattern holds for
-  Cycle 26+ — if the orchestrator's SPEC-drafting cycle remembers to
-  pre-populate KNOWN_COMPOSITES at SPEC time (cheap orchestrator
-  self-edit), the Composite worker stays single-domain.
+- **OQ-C24-2** — KNOWN_COMPOSITES domain placement (S96-121) — this
+  cycle confirms the protocol works cleanly (cross_asset_v1 was
+  pre-populated at Cycle 24 line 73; no UI-domain edit needed). Pattern
+  holds for Cycle 27+.
 - **OQ-C24-3** — Composite worker's `pickPrimaryPhaseCCandidate`
-  tiebreaker. PARTIALLY ADDRESSED Cycle 24 in UI+Health worker's
-  bestVerdict logic for §0c; campaign harness's own primary-candidate
-  selection still has the original ambiguity. Did not fire this cycle
-  (no benchmark PASS-ALL so no tiebreak needed). Resolution should
-  mirror the UI+Health pattern in a future cycle.
+  tiebreaker. Did not fire this cycle (no benchmark PASS-ALL so no
+  tiebreak needed). Carry-over.
 - **OQ-C23-1** — HLZ M=N reduction warning for partial dev runs.
-  PARTIALLY ADDRESSED Cycle 24 (vol_struct_v1 harness emits `[warn]`
-  console line when `benchmarks.length < BENCHMARKS.length`).
-  Inherited by sector_rot_v1 (same `[warn]` line at lines 581-587 per
-  critic's verification). Not backported to cycle_v1; minor follow-up.
+  Inherited by cross_asset_v1 harness (same `[warn]` line per critic
+  verification). Not backported to cycle_v1; minor follow-up.
 - **OQ-C23-2** — CSCV all-zero / sparse-filter edge cases (carried).
 - **OQ-C22-2** — Cross-composite meta-HLZ pass — deferred per ADR-051
-  §Consequences; revisit at 9-arc completion (reinforced by OQ-C25-1).
+  §Consequences; revisit at 9-arc completion (reinforced by OQ-C25-1
+  + OQ-C26-1).
 - **OQ-C21-1** — Q-5 quarantine row drop timing.
 - **OQ-C21-2** — Equity vs Total P/C methodology refinement.
 - **OQ-C20-1** — Browser-smoke for Cycle 20 Q-6 UI fix + Cycle 24
-  /#/phase-b + Cycle 25 sector_rot_v1 verdict surfacing deferred to
-  operator dev-server restart.
+  /#/phase-b + Cycle 25-26 cross_asset_v1 verdict surfacing deferred
+  to operator dev-server restart.
 - **OQ-C17-1** — VOO source quality issue.
 - **OQ-C18-1** — SPY-specific SSGA freshness lag.
 - **OQ-C19-1** — inputs_missing UInt8 truncation at bits 8+.
@@ -399,32 +450,39 @@ S94-1..S94-33; S93-1..S93-54; all prior s73-s92 lock-ins.
 
 ## Next stage
 
-### Default on `continue` — Cycle 26 candidate
+### Default on `continue` — Cycle 27 candidate
 
 Two roughly-equal-priority paths; orchestrator picks based on day-of-week:
 
 **Path A (recommended if invoked before Thursday 2026-05-28):** Spawn
-Composite worker for **`cross_asset_v1` Phase B campaign** — 4th of 9
-in the Layer-0 arc. Per S96-118 + S96-122 patterns, ~25% of Cycle
-23-25 effort (the harness fork is mostly mechanical; `loadScoreSeries`
-+ benchmark universe + window + polarity-flip-or-not are the only
-substantive deltas).
+Composite worker for **`short_interest_v1` Phase B campaign** — 5th
+of 9 in the Layer-0 arc. Per S96-118 + S96-122 + S96-128 patterns,
+~25% of Cycle 23-26 effort (the harness fork is mostly mechanical;
+`loadScoreSeries` + benchmark universe + window + polarity-flip-or-not
++ data-coverage-probe are the only substantive deltas).
 
-Procedure mirrors Cycle 25:
-1. Orchestrator drafts `docs/specs/phase-b-cross_asset_v1.md` SPEC
+Procedure mirrors Cycle 26:
+
+1. Orchestrator drafts `docs/specs/phase-b-short_interest_v1.md` SPEC
    (uses ADR-051 + phase-b-cycle-v1.md + phase-b-vol_struct_v1.md +
-   phase-b-sector_rot_v1.md as templates). Per S96-121 + OQ-C24-2 pattern
-   that worked cleanly Cycle 25, confirm `cross_asset_v1` is already in
-   KNOWN_COMPOSITES roster (line 72-79 area; should already be present
-   per Cycle 24's pre-population of all 9). If not, orchestrator
-   self-edits as part of SPEC slice.
-2. Pre-SPEC inspection: read `src/server/cross_asset_signals*.ts` (or
-   similar — check Composite worker domain glob) for the composite's
-   actual emission shape. Determine score selection (continuous z?
-   categorical?) and polarity (high z = bullish / bearish / both?).
-3. Orchestrator commits SPEC to main (per S96-122 spawn precedent).
-4. Spawn Composite worker (single worker; UI roster pre-satisfied).
-5. Critic → integrate → `--apply` → HANDOFF.
+   phase-b-sector_rot_v1.md + phase-b-cross_asset_v1.md as templates).
+   Per S96-121 + OQ-C24-2 pattern, confirm `short_interest_v1` is
+   already in KNOWN_COMPOSITES roster at line 74 (per Cycle 24
+   pre-population).
+2. Per S96-127, pre-SPEC inspection: read
+   `src/server/short_interest.ts` (or similar — check Composite worker
+   domain glob) for the composite's actual emission shape. Determine
+   score selection (continuous z? categorical? what continuous covered
+   signal best operationalizes the composite's primary thesis?). Run
+   a data-coverage probe against `quantlab.short_interest_snapshots`
+   AND any FRED/CH dependencies the composite reads.
+3. Per S96-128, identify the highest-risk regression site relative to
+   the template being forked and add an explicit source-text pin in
+   SPEC §5 test plan.
+4. Orchestrator commits SPEC to main (per S96-122 spawn precedent +
+   per S96-122 lesson: SPEC must be ON main BEFORE worker spawn).
+5. Spawn Composite worker (single worker; UI roster pre-satisfied).
+6. Critic → integrate → `--apply` → HANDOFF.
 
 **Path B (recommended if invoked Thursday EOD or later):** Day-3
 stockanalysis observation on **Thursday 2026-05-28** (day 3 of
@@ -446,7 +504,10 @@ post-Memorial-Day window; first trading day post-Memorial-Day = Tue
 - **OQ-C19-1 inputs_missing UInt8 → UInt16** — Tier-1 mechanical.
 - **OQ-C23-1 backport HLZ M-warning to cycle_v1** — single-line.
 - **OQ-C24-3 primary-candidate tiebreaker in campaign harness** — small
-  refactor mirroring UI+Health's §0c logic.
+  refactor.
+- **OQ-C26-1 BAMLH0A0HYM2 alternative-source ingest** — Data-Ingest
+  cycle (research SEC EDGAR or ICE BofA free CSVs; ingest into
+  macro_indicators_fred OR a new table; enables cross_asset_v2 SPEC).
 - **OQ-C25-2 IWM-specific PBO investigation** — defer until 9-arc
   completion when cross-cell aggregation is meaningful.
 
@@ -454,36 +515,37 @@ post-Memorial-Day window; first trading day post-Memorial-Day = Tue
 
 ## Files / code state
 
-### New / modified this cycle (s96 #20 Cycle 25)
+### New / modified this cycle (s96 #20 Cycle 26)
 
 | Path | Change | Notes |
 | --- | --- | --- |
-| `docs/specs/phase-b-sector_rot_v1.md` | new (+604) | Slice 1 SPEC |
-| `scripts/_probe_phase_b_sector_rot_v1_inputs.ts` | new (+429) | Slice 2 probe |
-| `scripts/_backfill_sector_rotation_snapshots.ts` | new (+332) modified (+11/-6) | Slice 2 Tier-1 backfill + slice 3.5 docstring expansion |
-| `scripts/phase_b_campaign_sector_rot_v1.ts` | new (+698) modified (+55) | Slice 2 harness + slice 3.5 CANON-THIN DECISIONS block |
-| `scripts/tests/_probe_phase_b_sector_rot_v1_inputs.test.ts` | new (+117) | Slice 2 — 7 tests |
-| `scripts/tests/_backfill_sector_rotation_snapshots.test.ts` | new (+95) | Slice 2 — 14 tests |
-| `scripts/tests/phaseBCampaignSectorRotV1.test.ts` | new (+738) modified (+1/-1) | Slice 2 — 79 tests + slice 3.5 tolerance fix |
-| `package.json` | modified (+4) | Slice 2 phase_b:sector_rot_v1:dry/apply + probe + backfill NPM scripts |
-| `docs/analysis/phase-b-sector_rot_v1-deflation-2026-05.md` | new (+32) | Slice 4 verdict report |
+| `docs/specs/phase-b-cross_asset_v1.md` | new (+702) | Slice 1 SPEC |
+| `scripts/_probe_phase_b_cross_asset_v1_inputs.ts` | new (+440) | Slice 2 probe |
+| `scripts/_backfill_cross_asset_snapshots.ts` | new (+362) | Slice 2 Tier-1 backfill (1-arg writeSnapshot) |
+| `scripts/phase_b_campaign_cross_asset_v1.ts` | new (+789) | Slice 2 harness; `scores.push(normalCdf(x))` at line 339 (NO negation) |
+| `scripts/tests/_probe_phase_b_cross_asset_v1_inputs.test.ts` | new (+135) | Slice 2 — probe tests |
+| `scripts/tests/_backfill_cross_asset_snapshots.test.ts` | new (+126) | Slice 2 — backfill tests |
+| `scripts/tests/phaseBCampaignCrossAssetV1.test.ts` | new (+784) | Slice 2 — campaign tests (polarity-aligned source-text pins) |
+| `package.json` | modified (+4) | Slice 2 phase_b:cross_asset_v1:dry/apply + probe + backfill NPM scripts |
+| `docs/analysis/phase-b-cross_asset_v1-deflation-2026-05.md` | new (+33) | Slice 4 verdict report |
 | `.claude/HANDOFF.md` | rewrite | Slice 5 — this file |
 
-Total: **+~3,116 LOC across 7 new + 2 modified files (5 slices)**. DDL
-not modified (Cycle 23 migrations cover phase_b_trials + verdicts).
-Tier-1 backfill into sector_rotation_snapshots ran live (3,367 rows).
-No real-money path touched. No paid-data. No authenticated scrape.
+Total: **+~3,375 LOC across 8 new + 2 modified files (4 slice commits
++ this HANDOFF)**. DDL not modified (Cycle 23 migrations cover
+phase_b_trials + verdicts). Tier-1 backfill into cross_asset_snapshots
+ran live (3,367 rows). No real-money path touched. No paid-data. No
+authenticated scrape.
 
 ### DB-state changes this cycle
 
-- `quantlab.phase_b_trials`: +57 rows (composite_version='sector_rot_v1' × 3 × 19) → 171 total
-- `quantlab.phase_b_verdicts`: +3 rows (sector_rot_v1 × {SPY,QQQ,IWM} PARTIAL) → 9 total
-- `quantlab.sector_rotation_snapshots`: +3,367 rows (Tier-1 backfill 2013-01-03 → 2026-05-22, 1d, via canonical helpers)
+- `quantlab.phase_b_trials`: +57 rows (composite_version='cross_asset_v1' × 3 × 19) → 228 total
+- `quantlab.phase_b_verdicts`: +3 rows (cross_asset_v1 × {SPY,QQQ,IWM} PARTIAL) → 12 total
+- `quantlab.cross_asset_snapshots`: +3,367 rows (Tier-1 backfill 2013-01-03 → 2026-05-22, 1d, via canonical helpers) → 3,368 total
 
 ### Test + tsc state
 
-- New Cycle 25 tests: 100 across 3 files; all green
-- Full `npm test`: **3689/3706 pass + 17 skip + 0 fail** (was 3589 + 17 skip)
+- New Cycle 26 tests: 102 across 3 files; all green
+- Full `npm test`: **3791/3808 pass + 17 skip + 0 fail** (was 3689 + 17 skip; +102 new tests; matches expected delta exactly)
 - `npx tsc --noEmit`: **13 baseline errors unchanged** (all pre-existing in `_*`-prefixed scripts)
 
 ### Untouched-but-relevant for next session
@@ -492,59 +554,88 @@ No real-money path touched. No paid-data. No authenticated scrape.
 - Q-7 quarantine + tracking rows still loaded.
 - `quantlab.macro_indicators_cboe` 5,685 rows (cboe + cboe_json).
 - `quantlab.cycle_position_snapshots` 4,626 rows; 2008-01-02 → 2026-05-22.
-- `quantlab.vol_structure_snapshots` 3,367+ rows; 2013-01-03 → 2026-05-22
-  (Cycle 24 backfill + ongoing daemon-cadence forward fill).
-- `quantlab.sector_rotation_snapshots` 3,367+ rows; 2013-01-03 → 2026-05-22
-  (Cycle 25 backfill + ongoing daemon-cadence forward fill).
-- `quantlab.phase_b_trials` 171 rows; `quantlab.phase_b_verdicts` 9 rows
-  (cycle_v1 + vol_struct_v1 + sector_rot_v1).
+- `quantlab.vol_structure_snapshots` 3,367+ rows; 2013-01-03 → 2026-05-22.
+- `quantlab.sector_rotation_snapshots` 3,367+ rows; 2013-01-03 → 2026-05-22.
+- `quantlab.cross_asset_snapshots` 3,368 rows; 2013-01-03 → 2026-05-24
+  (Cycle 26 backfill + ongoing daemon-cadence forward fill).
+- `quantlab.phase_b_trials` 228 rows; `quantlab.phase_b_verdicts` 12
+  rows (cycle_v1 + vol_struct_v1 + sector_rot_v1 + cross_asset_v1).
 - yfinance pinned `>=0.2,<2.0`.
-- `src/lib/{psr,cscv,hlzHaircut,validator}.ts` battle-tested Cycle 23-25.
+- `src/lib/{psr,cscv,hlzHaircut,validator}.ts` battle-tested Cycle 23-26.
 - Operator dev server (:3000) still running pre-Cycle-20 binary — needs
-  `npm run dev` restart to see Cycle 20 etf-flow fix AND Cycle 24 + 25
-  `/#/phase-b` dashboard (will show all 3 PARTIAL verdicts) AND brief
+  `npm run dev` restart to see Cycle 20 etf-flow fix AND Cycle 24-26
+  `/#/phase-b` dashboard (will show all 4 PARTIAL verdicts) AND brief
   §0c renderer output.
 
 ---
 
 ## Watch-outs
 
-### NEW from this cycle (s96 #20 Cycle 25)
+### NEW from this cycle (s96 #20 Cycle 26)
 
-- **3-of-3 PARTIAL with HLZ as universal blocker is a strong pattern
-  signal but not yet a final reading.** The remaining 6 composites
-  must complete the arc before the cross-composite meta-HLZ pass can
-  resolve OQ-C25-1's interpretation question (M=57 too strict vs
-  per-composite power genuinely lacking). Do NOT silently drop the
-  HLZ gate or loosen the threshold mid-arc; this is an anti-shopping
-  trap (the rule per ADR-051 §Decision 5 / S96-115 prohibits
-  result-driven threshold relaxation). The right response is to ship
-  the remaining 6 + revisit at completion.
-- **The polarity-flip pattern (S96-124) is now locked.** Future
-  per-composite SPECs facing polarity inversion follow Option B
-  (negate before Φ). The negation site in `loadScoreSeries` is the
-  critic's #1 verification target; tests must pin the identity AND
-  directional behavior. Watch-out for the next polarity-inverted
-  composite: the critic should also verify there's no double-negation
-  bug (e.g., a worker who reads vol_struct_v1's harness instead of
-  sector_rot_v1's and misses that this composite was polarity-flipped
-  while vol_struct_v1 was not).
-- **The CANON-THIN DECISIONS block convention (S96-125) applies
-  Cycle 26+.** Critics enforce its presence whenever ≥1 canon-thin
-  pick was made. Workers can avoid critic flag by including the block
-  proactively in the harness header.
-- **Worker worktree force-removal pattern.** This cycle, the worker
-  worktree at `.claude/worktrees/agent-a18a8e78cbc0104d1` was locked
-  with reason "claude agent agent-a18a8e78cbc0104d1 (pid 164088)" (the
-  pid was no longer alive). `git worktree remove -f` rejected the
-  removal; required `-f -f` (double-force) per git's documented
-  override. Pattern: post-Agent-tool-spawn worktrees may carry stale
-  locks; double-force is the safe cleanup. Document in the future
-  orchestration §9.2 worktree-cleanup-cost watch-out.
+- **Bash cwd shifts after `cd` and persists across tool calls.** When
+  the orchestrator did `cd ".claude/worktrees/agent-..." && git ...`
+  inside a Bash tool call, the cwd shifted into the worktree directory
+  for SUBSEQUENT Bash calls. Later tests appeared to find zero tests
+  because they ran from the worktree directory (where `package.json`
+  did not exist after worktree removal). **Recommended discipline:**
+  every Bash call that operates on a non-cwd location should use an
+  explicit `cd "<project-root>" && ...` prefix to its target, OR rely
+  on absolute paths and avoid `cd` entirely (per CLAUDE Code's
+  documented Bash-tool guidance). Mitigation: When investigating
+  unexpected test count drops, FIRST verify `pwd` before debugging
+  further.
+
+- **Worktree merge MUST be invoked from main, not from inside the
+  worktree.** This cycle, the orchestrator's `git merge worktree-...
+  --ff-only` command ran INSIDE the worktree (still on the worker's
+  branch) and reported "Already up to date" — the merge appeared
+  successful but did NOT advance main. The lesson: from the project
+  root (main checkout), invoke the merge after the worker commits;
+  do NOT run merge from inside the worktree. The fix this cycle was
+  to `cd "/c/Users/Pejman/Downloads/signalforge---technical-analysis-lab (1)"`
+  then `git branch --show-current` (confirm main) then merge.
+  Recommended discipline: ALWAYS verify branch + cwd before merge.
+
+- **Worktree directory removal may fail with "Permission denied" on
+  Windows even with `git worktree remove -f -f`.** This cycle the
+  worktree branch was successfully removed from git metadata but the
+  filesystem directory persisted briefly (subsequently disappeared on
+  its own; the OS held an exclusive handle from one of the worker's
+  subprocess invocations). Pattern documented Cycle 25; reinforced
+  Cycle 26. Recommendation: after `git worktree remove -f -f` returns
+  "Permission denied," verify via `git worktree list` that the
+  metadata is clean — the directory will eventually be released by
+  the OS. Do NOT manually retry the removal; do NOT try to clobber
+  with `rm -rf` while a process may still hold the handle.
+
+- **The polarity-aligned source-text pin (this cycle) is the inverse
+  of sector_rot_v1's polarity-flip pin (Cycle 25).** Future cycles
+  must check the composite's polarity BEFORE selecting the test pin
+  pattern. A worker who reads sector_rot_v1's test file as a template
+  for a polarity-ALIGNED cycle (this case) would mistakenly include
+  the polarity-flip identity test and miss the direct-relationship
+  test. The SPEC §5 test plan must explicitly call out which pattern
+  applies. Worth flagging in the Cycle 27 SPEC drafting step.
+
+- **First AUTO-APPROVE of the 9-arc Phase B work (S96-128).** This
+  validates the SPEC-pinned + template-forked + critical-regression-
+  site-pinned workflow. Going forward, the orchestrator's SPEC drafting
+  step should proactively identify the highest-risk regression site
+  relative to the template being forked + add an explicit source-text
+  pin in §5. This is now a standing convention.
+
+- **`cross_asset_signals_repository.CrossAssetSignalsRepository.writeSnapshot(snapshot)`
+  is 1-arg, NOT 2-arg.** Worker correctly detected this delta from
+  sector_rot's `SectorRotationRepository.writeSnapshot(snapshot, inputs)`
+  pattern + pinned via source-text test. Worth memorializing as a
+  composite-repository-shape watch-out for the 5 remaining cycles —
+  the worker should verify each composite's writeSnapshot signature
+  BEFORE forking the backfill.
 
 ### Carried from earlier sessions
 
-All prior watch-outs (s96 #1-#24 + Cycle 25 carry-overs) preserved.
+All prior watch-outs (s96 #1-#25 + Cycle 26 carry-overs) preserved.
 
 ---
 
@@ -567,11 +658,11 @@ npm run system-health:check            # Phase 2 v1 dispatcher
 npm run daemon:daily
 npm run audit:positions
 npx tsx scripts/_paper_trading_review.ts
-npm run brief:morning                  # Includes §0c Phase B verdicts (Cycle 24); surfaces all 3 composites' PARTIAL verdicts post-Cycle-25
+npm run brief:morning                  # Includes §0c Phase B verdicts (Cycle 24); surfaces all 4 composites' PARTIAL verdicts post-Cycle-26
 npm run health:check
 ```
 
-### Phase B campaigns (post-Cycle-25 — 3 of 9 shipped; harness pattern triply-proven)
+### Phase B campaigns (post-Cycle-26 — 4 of 9 shipped; harness pattern quadruply-proven)
 
 ```text
 # Cycle 23 cycle_v1 (PARTIAL):
@@ -589,6 +680,12 @@ npx tsx scripts/_probe_phase_b_sector_rot_v1_inputs.ts                 # pre-fli
 npx tsx scripts/_backfill_sector_rotation_snapshots.ts --apply         # one-shot backfill (idempotent ReplacingMergeTree)
 npm run phase_b:sector_rot_v1:dry
 npm run phase_b:sector_rot_v1:apply
+
+# Cycle 26 cross_asset_v1 (PARTIAL):
+npx tsx scripts/_probe_phase_b_cross_asset_v1_inputs.ts                # pre-flight
+npx tsx scripts/_backfill_cross_asset_snapshots.ts --apply             # one-shot backfill (idempotent ReplacingMergeTree)
+npm run phase_b:cross_asset_v1:dry
+npm run phase_b:cross_asset_v1:apply
 
 # Read all verdicts:
 npx tsx -e "import('./src/server/phase_b_repository.js').then(async m => { \
@@ -614,7 +711,7 @@ npm run etf:flow:stockanalysis:refresh                     # 5-ticker stockanaly
 npx tsx scripts/_probe_etf_flow_dashboard_response.ts
 ```
 
-### Cross-source probes (Cycles 17-25)
+### Cross-source probes (Cycles 17-26)
 
 ```text
 npx tsx scripts/_probe_sho_source_labels.ts             # FINRA short-interest source labels
@@ -626,19 +723,21 @@ npx tsx scripts/_probe_cboe_putcall_json.ts             # CBOE daily JSON endpoi
 npx tsx scripts/_probe_phase_b_cycle_v1_inputs.ts       # Phase B cycle_v1 inputs (Cycle 23)
 npx tsx scripts/_probe_phase_b_vol_struct_v1_inputs.ts  # Phase B vol_struct_v1 inputs (Cycle 24)
 npx tsx scripts/_probe_phase_b_sector_rot_v1_inputs.ts  # Phase B sector_rot_v1 inputs (Cycle 25)
+npx tsx scripts/_probe_phase_b_cross_asset_v1_inputs.ts # Phase B cross_asset_v1 inputs (Cycle 26)
 ```
 
 ### Tests + dev
 
 ```text
-npm test                                                                                                  # 3689/3706 pass + 17 skip + 0 fail (post-Cycle-25)
-node --import tsx --test scripts/tests/phaseBCampaignSectorRotV1.test.ts                                  # 79/79 pass (NEW Cycle 25)
-node --import tsx --test scripts/tests/_probe_phase_b_sector_rot_v1_inputs.test.ts                        # 7/7 pass (NEW Cycle 25)
-node --import tsx --test scripts/tests/_backfill_sector_rotation_snapshots.test.ts                        # 14/14 pass (NEW Cycle 25)
+npm test                                                                                                  # 3791/3808 pass + 17 skip + 0 fail (post-Cycle-26)
+node --import tsx --test scripts/tests/phaseBCampaignCrossAssetV1.test.ts                                 # 78/78 pass (NEW Cycle 26)
+node --import tsx --test scripts/tests/_probe_phase_b_cross_asset_v1_inputs.test.ts                       # 7/7 pass (NEW Cycle 26)
+node --import tsx --test scripts/tests/_backfill_cross_asset_snapshots.test.ts                            # 17/17 pass (NEW Cycle 26)
+node --import tsx --test scripts/tests/phaseBCampaignSectorRotV1.test.ts                                  # 79/79 pass (Cycle 25)
 node --import tsx --test scripts/tests/phaseBCampaignVolStructV1.test.ts                                  # 59/59 pass (Cycle 24)
 node --import tsx --test scripts/tests/phaseBCampaignCycleV1.test.ts                                      # 82/82 pass (Cycle 23)
 node --import tsx --test scripts/tests/healthCheck.test.ts                                                # 37/37 pass
-npm run dev                                                                                               # http://localhost:3000 (OPERATOR RESTART NEEDED to see Cycle 20 etf-flow + Cycle 24-25 /#/phase-b verdicts)
+npm run dev                                                                                               # http://localhost:3000 (OPERATOR RESTART NEEDED to see Cycle 20 etf-flow + Cycle 24-26 /#/phase-b verdicts)
 npx tsc --noEmit                                                                                          # 13 baseline errors (all pre-existing in _* scripts)
 ```
 
@@ -646,26 +745,30 @@ npx tsc --noEmit                                                                
 
 ## For the next session — priority order
 
-**Default on `continue` — Cycle 26 candidate:**
+**Default on `continue` — Cycle 27 candidate:**
 
 - **Path A (before Thursday 2026-05-28):** Spawn Composite worker for
-  `cross_asset_v1` Phase B campaign (4th of 9 in Layer-0 arc). First
-  orchestrator drafts `docs/specs/phase-b-cross_asset_v1.md` + commits
-  per S96-122 pattern. Inspect `src/server/cross_asset_signals*.ts`
-  for score selection + polarity (if polarity-inverted, apply S96-124
-  Option B negate-before-Φ; if not, use straight Φ per S96-120).
+  `short_interest_v1` Phase B campaign (5th of 9 in Layer-0 arc).
+  First orchestrator drafts `docs/specs/phase-b-short_interest_v1.md`
+  + commits per S96-122 pattern. Inspect `src/server/short_interest.ts`
+  for score selection + polarity per S96-127 (data-coverage probe
+  REQUIRED before picking score axis). Per S96-128, identify the
+  highest-risk regression site relative to the cross_asset_v1 (or
+  sector_rot_v1) template and add explicit source-text pin in SPEC §5.
 - **Path B (Thursday 2026-05-28 or later):** Day-3 stockanalysis
   observation on Thursday 2026-05-28 (day 3 of post-Memorial-Day
   window; first trading day post-Memorial-Day = Tue 2026-05-26).
   Procedure same as Cycle 18.
 
-**Other Cycle 26+ alternatives (lower priority):**
+**Other Cycle 27+ alternatives (lower priority):**
 
 - Q-7 path execution if operator picks Path.
 - **OQ-C19-1 inputs_missing UInt8 → UInt16** — Tier-1 mechanical.
 - **OQ-C23-1 backport HLZ M-warning to cycle_v1** — single-line.
 - **OQ-C24-3 primary-candidate tiebreaker in campaign harness** — small
-  refactor mirroring UI+Health's §0c bestVerdict logic.
+  refactor.
+- **OQ-C26-1 BAMLH0A0HYM2 alternative-source ingest** — Data-Ingest
+  cycle; enables future cross_asset_v2 with creditInternalsDiffZ.
 - **OQ-C25-2 IWM-specific PBO investigation** — defer until 9-arc
   completion when cross-cell aggregation is meaningful.
 - **N-PORT quarterly cross-check scaffolding** — defer until 5-day
@@ -677,15 +780,15 @@ npx tsc --noEmit                                                                
 - Q-1 first real-capital deployment — **INDEFINITELY DEFERRED**.
 - Q-2 capital-deployment-ramp ADR — **INDEFINITELY DEFERRED**.
 - Q-3 Stooq apikey gate decision.
-- Q-4 push 80 commits to origin/main.
+- Q-4 push 84 commits to origin/main.
 - Q-5 **CLOSED via ADR-050** Cycle 21.
-- Q-6 PARTIAL-WITH-UI-FIX broadened to include /#/phase-b post-Cycle-25
-  (operator restart unlocks both /#/etf-flow + /#/phase-b showing all
-  3 PARTIAL verdicts + brief §0c).
+- Q-6 PARTIAL-WITH-UI-FIX broadened post-Cycle-26 (operator restart
+  unlocks both /#/etf-flow + /#/phase-b showing all 4 PARTIAL verdicts
+  + brief §0c).
 - Q-7 phase1_v3 yield-curve source persistence — operator picks Path.
-- Q-8 Phase C promotion — **DORMANT** (3 of 9 composites PARTIAL; no
-  PASS-ALL yet; HLZ M=57 universally blocking — may be a meta-pattern
-  resolved only at 9-arc completion).
+- Q-8 Phase C promotion — **DORMANT** (4 of 9 composites PARTIAL; no
+  PASS-ALL yet; HLZ M=57 universally blocking — almost certainly a
+  meta-pattern resolved only at 9-arc completion).
 
 **Do NOT auto-open without operator green-light:**
 
@@ -698,73 +801,89 @@ npx tsc --noEmit                                                                
 - v1 primary read path flip.
 - VOO-specific paid feed.
 - Counterfactual rewrite of historical macro_regimes.
-- **cycle_v2 / vol_struct_v2 / sector_rot_v2 redesign** in response
-  to any of the three PARTIAL verdicts (per S96-115 + S96-119 +
-  S96-123 + ADR-051 §Decision 5 anti-shopping rule; requires
-  independent canon-cited evidence).
+- **cycle_v2 / vol_struct_v2 / sector_rot_v2 / cross_asset_v2 redesign**
+  in response to any of the four PARTIAL verdicts (per S96-115 +
+  S96-119 + S96-123 + S96-126 + ADR-051 §Decision 5 anti-shopping
+  rule; requires independent canon-cited evidence).
 - **Relaxed Phase B thresholds** for any future per-composite SPEC
   (escalates per orchestration §7.1.5; particularly important given
-  OQ-C25-1's HLZ-M=57-universally-blocking pattern — do NOT silently
-  loosen).
+  OQ-C25-1's HLZ-M=57-universally-blocking pattern reinforced this
+  cycle — do NOT silently loosen).
 - **Alpaca / IBKR broker integration of any kind** (v1.5/v2 territory).
 
 ---
 
 ## Important framing for the next chat
 
-**Cycle 25 is closed.** Four slice commits + this HANDOFF: slice 1
-orchestrator-drafted SPEC, slice 2 Composite worker (RESOLVE-IN-PLACE;
-3 LOW docstring fixes applied), slice 3.5 critic fixes inline, slice 4
-orchestrator-executed `--apply` end-to-end, slice 5 this HANDOFF. Net
-80 unpushed commits.
+**Cycle 26 is closed.** Four slice commits + this HANDOFF: slice 1
+orchestrator-drafted SPEC, slice 2 Composite worker (**AUTO-APPROVE
+— first of the 9-arc**), slice 4 orchestrator-executed `--apply`
+end-to-end, slice 5 this HANDOFF. Net 84 unpushed commits.
 
-**`sector_rot_v1`'s Phase B verdict is PARTIAL on all 3 benchmarks;
-no Phase-C eligibility.** Same shape as cycle_v1 + vol_struct_v1: HLZ
-blocks at M=57. 3 of 9 Layer-0 composites now have shipped Phase B
-verdicts; all 3 PARTIAL; all 3 stay informational permanently.
-Anti-shopping rule operational on all 3 via composite_version pin.
+**`cross_asset_v1`'s Phase B verdict is PARTIAL on all 3 benchmarks;
+no Phase-C eligibility.** Same shape as cycle_v1 + vol_struct_v1 +
+sector_rot_v1: HLZ blocks at M=57. 4 of 9 Layer-0 composites now have
+shipped Phase B verdicts; all 4 PARTIAL; all 4 stay informational
+permanently. Anti-shopping rule operational on all 4 via
+composite_version pin.
 
 **The 9-composite arc:**
+
 - ✓ cycle_v1 (Cycle 23 PARTIAL)
 - ✓ vol_struct_v1 (Cycle 24 PARTIAL)
 - ✓ sector_rot_v1 (Cycle 25 PARTIAL)
-- ☐ cross_asset_v1
+- ✓ cross_asset_v1 (Cycle 26 PARTIAL; first AUTO-APPROVE)
 - ☐ short_interest_v1
 - ☐ exec_departure_v1
 - ☐ etf_flow_v1
 - ☐ eight_k_classifier_v1
 - ☐ form_4_insider_v1
 
-The harness pattern is triply-proven. Per S96-118 + S96-122 + S96-124
-+ S96-125, each remaining composite is ~25% of Cycle 23-25 effort
-(per-composite SPEC + campaign-harness fork + 5-10 LOC of
-`loadScoreSeries` + score-rescaling deltas + polarity-check per
-S96-124).
+The harness pattern is quadruply-proven. Per S96-118 + S96-122 +
+S96-124 + S96-125 + S96-127 + S96-128, each remaining composite is
+~25% of Cycle 23-26 effort (per-composite SPEC + campaign-harness
+fork + 5-10 LOC of `loadScoreSeries` + score-rescaling deltas +
+polarity-check + data-coverage probe).
 
-**S96-123, S96-124, S96-125 are the new lock-ins.** S96-124 (negated-Φ
-for polarity-inverted composites) and S96-125 (CANON-THIN DECISIONS
-block) are reusable conventions that will speed up remaining cycles.
+**S96-126, S96-127, S96-128 are the new lock-ins.** S96-127
+(data-coverage-constrained score selection rule) is reusable for the
+remaining 5 cycles — orchestrator must run a data-coverage probe in
+SPEC drafting before picking score axis. S96-128 (first AUTO-APPROVE)
+validates the SPEC-pinned + template-forked + critical-regression-
+site-pinned workflow.
 
-**3-of-3 PARTIAL with HLZ as universal blocker** is a strong signal
-that M=57 may be too strict for per-composite-self-contained Phase B
-testing OR that the Layer-0 composites genuinely lack standalone
-power. **Cannot resolve until 9-arc completion** — do NOT silently
-drop HLZ or loosen thresholds mid-arc (anti-shopping trap per
-ADR-051 §Decision 5 + S96-115).
+**4-of-4 PARTIAL with HLZ as universal blocker** is now a near-certain
+signal that the cross-composite meta-HLZ pass at 9-arc completion is
+the primary diagnostic — not per-composite-self-contained Phase B.
+**Cannot resolve until 9-arc completion** — do NOT silently drop HLZ
+or loosen thresholds mid-arc (anti-shopping trap per ADR-051
+§Decision 5 + S96-115).
 
-**Cycle 26 default path:**
+**Cycle 27 default path:**
+
 - Path A (recommended pre-Thursday): spawn Composite worker for
-  `cross_asset_v1` Phase B campaign. Inspect composite's polarity FIRST
-  — if inverted, apply S96-124 Option B; if not, straight Φ per S96-120.
+  `short_interest_v1` Phase B campaign. Inspect composite's score
+  emission + run data-coverage probe FIRST per S96-127. Identify
+  highest-risk regression site relative to template + add SPEC §5
+  source-text pin per S96-128.
 - Path B (Thursday EOD or later): Thursday 2026-05-28 stockanalysis
   day-3 observation (post-Memorial-Day window).
 
 **Worker-spawn order watch-out per S96-122:** commit any SPEC to main
-BEFORE spawning workers — held for Cycle 25 this time (SPEC committed
-as `efba766` before the Composite worker spawned). Pattern holds for
-Cycle 26+.
+BEFORE spawning workers — held for Cycle 26 (SPEC committed as
+`f3b010d` before the Composite worker spawned).
 
-**Worktree-cleanup watch-out (NEW):** post-Agent-tool-spawn worktrees
-may have stale locks. Use `git worktree remove -f -f` (double-force)
-when single `-f` rejects the removal. Document in the next session's
-cleanup step.
+**Worktree-merge watch-out (NEW):** invoke `git merge worktree-... --ff-only`
+from MAIN's working directory, NOT from inside the worktree (running
+from inside the worktree gives "Already up to date" without advancing
+main). Always verify branch + cwd before merge.
+
+**Bash-cwd-shifts watch-out (NEW):** Bash tool `cd` commands persist
+across subsequent calls. When investigating unexpected test count
+drops, FIRST verify `pwd` before deeper debugging.
+
+**Worktree-cleanup watch-out (carried + reinforced):** post-Agent-tool-spawn
+worktrees may have stale locks. Use `git worktree remove -f -f`
+(double-force) when single `-f` rejects the removal; if even double-force
+gets "Permission denied" on the filesystem delete, verify `git worktree list`
+metadata is clean — the OS will eventually release the directory handle.
