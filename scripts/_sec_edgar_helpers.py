@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import json
+import sys
 import time
 import urllib.error
 import urllib.parse
@@ -147,6 +148,76 @@ def fetch_edgar(url: str, user_agent: str, timeout_sec: int = 30) -> bytes:
     if last_err is not None:
         raise last_err
     raise RuntimeError(f"fetch_edgar exhausted retries for {url}")
+
+
+# ── Paginated search fetch (S96-132, Cycle 28) ───────────────────────────────
+
+def fetch_edgar_search_paginated(
+    base_url: str,
+    user_agent: str,
+    *,
+    max_pages: int = 1000,
+    timeout_sec: int = 30,
+) -> list[dict]:
+    """Fetch + parse an EDGAR full-text search response, paginating via `from=`.
+
+    EDGAR's full-text search API (efts.sec.gov/LATEST/search-index) returns a
+    hard cap of 100 hits per response with no `size=` override. To retrieve
+    the full result set, callers must paginate via the `from=` offset
+    parameter — `from=0, 100, 200, …` until the response is short (<100 hits)
+    OR EDGAR's reported `hits.total.value` is reached.
+
+    Discovered 2026-05-25 Cycle 28 (S96-132): the single-shot fetch pattern
+    previously used by `sec_edgar_form4_ingest.py` was silently undercounting
+    by ~98% — EDGAR reports `hits.total.value = 9785` for a 15-day Form 4
+    window while the script consumed only the first 100. The pre-fix Cycle 1
+    F3 142-row state in `quantlab.insider_trades` is the residue of that
+    silent truncation (NOT a wall-clock-timestamp bug — `accepted_at` is
+    correctly read from EDGAR per line 203-207 above).
+
+    Args:
+      base_url:    Pre-built FTS URL (already has forms / dateRange / startdt /
+                   enddt query params). MUST NOT include a `from=` param —
+                   this function appends it per page.
+      user_agent:  EDGAR-required contact-info User-Agent string.
+      max_pages:   Safety cap on the pagination loop. Default 1000 (100K hits).
+      timeout_sec: Per-request HTTP timeout.
+
+    Returns:
+      Concatenated list of filing dicts from `parse_edgar_search_response`
+      across all pages, in EDGAR's default sort order (most-recent-first).
+
+    Raises:
+      The first `urllib.error.HTTPError` or `URLError` propagated from
+      `fetch_edgar`. Retries on 429 are handled inside `fetch_edgar`.
+    """
+    sep = "&" if "?" in base_url else "?"
+    all_filings: list[dict] = []
+    reported_total: int | None = None
+    for page in range(max_pages):
+        from_offset = page * 100
+        url = f"{base_url}{sep}from={from_offset}"
+        json_bytes = fetch_edgar(url, user_agent=user_agent, timeout_sec=timeout_sec)
+        if reported_total is None:
+            try:
+                doc = json.loads(json_bytes.decode("utf-8", errors="replace"))
+                reported_total = int(doc.get("hits", {}).get("total", {}).get("value", 0) or 0)
+            except (ValueError, json.JSONDecodeError):
+                reported_total = -1
+        page_filings = parse_edgar_search_response(json_bytes)
+        all_filings.extend(page_filings)
+        if len(page_filings) < 100:
+            break
+        if reported_total is not None and reported_total > 0 and len(all_filings) >= reported_total:
+            break
+    else:
+        print(
+            f"[edgar-paginate] WARN: hit max_pages={max_pages} cap "
+            f"(reported_total={reported_total}, retrieved={len(all_filings)}). "
+            f"Query may be too broad; consider narrowing dateRange.",
+            file=sys.stderr,
+        )
+    return all_filings
 
 
 # ── Search-response parser ───────────────────────────────────────────────────

@@ -97,6 +97,7 @@ from _sec_edgar_helpers import (  # noqa: E402  (sys.path manipulation above)
     cik10,
     ensure_cik_ticker_map_table,
     fetch_edgar,
+    fetch_edgar_search_paginated,
     filter_by_acceptance_date,
     parse_edgar_search_response,
     parse_submissions_response,
@@ -800,11 +801,22 @@ def main() -> int:
             return 2
         json_bytes = path.read_bytes()
         source_for_log = str(path.name)
+        print(f"[edgar-form4] parsing JSON ({len(json_bytes)} bytes, source={source_for_log})")
+        try:
+            filings = parse_edgar_search_response(json_bytes)
+        except (ValueError, json.JSONDecodeError) as e:
+            print(f"[edgar-form4] FATAL: JSON parse failed: {e}", file=sys.stderr)
+            return 4
     else:
         url = args.url or build_form4_search_url(EDGAR_SEARCH_BASE, start_date, end_date)
-        print(f"[edgar-form4] fetching {url}")
+        # S96-132 (Cycle 28): EDGAR FTS caps responses at 100 hits per page with
+        # no `size=` override. Use the paginated helper to retrieve the full
+        # result set across `from=0, 100, 200, …` pages. Pre-fix single-shot
+        # fetch silently truncated to the first 100 hits (Cycle 1 F3 142-row
+        # residue is the visible artefact).
+        print(f"[edgar-form4] paginated EDGAR search: {url}")
         try:
-            json_bytes = fetch_edgar(url, user_agent=args.user_agent)
+            filings = fetch_edgar_search_paginated(url, user_agent=args.user_agent)
         except urllib.error.HTTPError as e:
             print(
                 f"[edgar-form4] FATAL: HTTP {e.code} fetching {url}. "
@@ -822,13 +834,6 @@ def main() -> int:
             print(f"[edgar-form4] FATAL: URL error fetching {url}: {e}", file=sys.stderr)
             return 3
         source_for_log = url
-
-    print(f"[edgar-form4] parsing JSON ({len(json_bytes)} bytes, source={source_for_log})")
-    try:
-        filings = parse_edgar_search_response(json_bytes)
-    except (ValueError, json.JSONDecodeError) as e:
-        print(f"[edgar-form4] FATAL: JSON parse failed: {e}", file=sys.stderr)
-        return 4
 
     # Restrict to Form 4 (the search URL filters on forms=4, but --from-file
     # responses or --url overrides may include other form types).
