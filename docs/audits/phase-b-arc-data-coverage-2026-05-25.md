@@ -182,22 +182,31 @@ endpoint stable).
 
 ### 3.4 `etf_flow_v1` primary (yfinance)
 
-**Block:** `quantlab.etf_flow_yfinance_v1` MISSING entirely.
-`etf_flow_snapshots` has only 1 row (the Cycle 20 wire-up artifact).
-Per HANDOFF Q-6, Cycle 20 shipped the v1 panel + composite but the
-yfinance-primary ingest table was never created.
+**Block:** The canonical primary table is `quantlab.etf_shares_outstanding`
+(NOT `etf_flow_yfinance_v1` — see Cycle 28 correction §9 below). Table
+exists but has **0 rows**. `etf_flow_snapshots` has only 1 row (Cycle 20
+wire-up artifact). Per HANDOFF Q-6, Cycle 20 shipped the v1 panel +
+composite but the yfinance-primary ingest never landed end-to-end.
 
-**Remediation path:**
-1. **Create + populate `etf_flow_yfinance_v1`** — yfinance is
-   pre-authorized; ingest pattern similar to existing
-   `etf:flow:ingest`. Single-cycle backfill.
-2. **Snapshot daemon-replay** — per 3.1 step 4 pattern.
-3. **Phase B SPEC + campaign** — score-axis: ETF inflow z-score
-   against 2y baseline OR rolling-90d-cumulative-inflow continuous
-   signal. The cycle_v1 / cross_asset_v1 template applies cleanly.
+**Hard block (added Cycle 28):** Yahoo broke `Ticker.get_shares_full`
+for ETFs ~2026; all 21 F-UNIVERSE tickers return empty per
+[etf_flow_ingest.py:28-37](../../scripts/etf_flow_ingest.py#L28-L37).
+yfinance 1.4.0 does not fix it (Yahoo-side regression). Running
+`npm run etf:flow:ingest` today produces "FAILED (shares=0, close=N)"
+for all 21 tickers. **Path 1 is NOT a single-cycle backfill** — it
+requires Q-6 resolution (alternate source OR paid feed OR composite
+v2 redesign) FIRST.
 
-**Effort estimate:** 1-2 cycles. Lowest data-coverage risk of the
-remaining 5.
+**Remediation path (revised Cycle 28):**
+1. **Q-6 path pick** — operator queue item. Options enumerated in
+   HANDOFF: stockanalysis day-3 observation (Thursday 2026-05-28);
+   ADR-048 path-B reactivation; paid Polygon/Bloomberg; composite v2
+   on `etf_shares_outstanding_secondary` (SSGA-only, 4 ETFs of 21).
+2. **Once Q-6 picks a path:** create + populate the chosen primary
+   panel; snapshot daemon-replay; Phase B SPEC + campaign.
+
+**Effort estimate (revised):** 3-5 cycles minimum, depending on Q-6
+path. **NO longer "lowest data-coverage risk."**
 
 ---
 
@@ -337,3 +346,83 @@ running the full backfill. Backfill itself is a follow-up cycle.
 | --- | --- |
 | 2026-05-25 | Initial creation. Triggered by Cycle 27 pre-SPEC
   data-coverage probe per S96-127. |
+| 2026-05-25 (Cycle 28) | §3.4 corrected. Original text claimed
+  yfinance ETF endpoint stable + single-cycle backfill feasible —
+  factually wrong, contradicted by HANDOFF Q-6 / S96-89. §9 added
+  documenting Cycle 28 pivot to Path 2 (`form_4_insider_v1`). |
+
+---
+
+## 9. Cycle 28 pivot — `form_4_insider_v1` data-ingest
+
+**Date:** 2026-05-25 (session 96 #22, Cycle 28)
+**Trigger:** Per S96-130 pre-SPEC data-coverage hard gate, the
+Cycle 27 audit's recommended Path 1 (`etf_flow_v1`) failed the
+pre-cycle probe. Two findings:
+
+1. Canonical primary table is `quantlab.etf_shares_outstanding`
+   (NOT `etf_flow_yfinance_v1` as §3.4 stated). Table exists with
+   0 rows.
+2. Yahoo `Ticker.get_shares_full` broken for ETFs ~2026 per
+   [etf_flow_ingest.py:28-37](../../scripts/etf_flow_ingest.py#L28-L37);
+   running the ingest produces empty results for all 21 F-UNIVERSE
+   tickers. This is HANDOFF Q-6 — already on the operator queue.
+
+The audit doc §3.4 missed both. Cycle 28 corrects §3.4 in place
+(see revision log) and pivots to **Path 2 (`form_4_insider_v1`)**
+per the audit's own §6 ordering, which is the new
+lowest-data-coverage-risk path now that Path 1 is confirmed
+operator-gated.
+
+### Cycle 28 deliverable scope
+
+Per the §3.1 trivial-edit exception clarified by S96-131
+(diagnostic-cycle-pivot pattern), Cycle 28's concrete work is:
+
+1. **This audit §9 + §3.4 in-place correction** (pure-docs;
+   orchestrator-self-edit per §3.1).
+2. **Data-Ingest worker spawn (worktree-isolated)** for
+   `sec_edgar_form4_ingest.py` validation + a near-term backfill
+   covering **2026-01-01 → today** (~5 months recent data, ~10-15 min
+   wall-clock at EDGAR 10 req/s). This is a validated scale-test,
+   NOT the full multi-year backfill — that is deferred to Cycle 29
+   once Cycle 28 confirms the pipeline at scale.
+3. **Critic review** of worker output per §6 of multi-agent design.
+4. **HANDOFF rewrite** closing Cycle 28; flagging next-cycle items
+   (full multi-year backfill, snapshot daemon-replay, Phase B SPEC).
+
+### Pre-cycle state
+
+| Table | Rows | Window |
+|---|---|---|
+| `insider_trades` (raw) | 142 | accepted_at all = 2026-05-15 06:00:00; 67 distinct tickers (anomaly — flagged for worker investigation) |
+| `form_4_insider_snapshots` | 0 | — |
+
+The "142 rows all at single accepted_at second" pattern is suspicious.
+Either: (a) F3 Cycle 1 ran a 1-second window, (b) all 142 filings
+shared an SEC batch-acceptance timestamp at second-precision
+(implausible for 67 distinct tickers), or (c) the script writes
+`accepted_at` as the script-run wall-clock time, not the per-filing
+acceptance time. Worker is asked to confirm (c) is not the case via
+a small probe-and-report of EDGAR Submissions API response timestamps
+vs the CH-stored `accepted_at`.
+
+### Cycle 28 NON-goals
+
+- Full multi-year (2013-01-03 → today) backfill — Cycle 29 scope.
+- Snapshot daemon-replay (`_backfill_form_4_insider_snapshots.ts`)
+  — Cycle 29 scope (depends on multi-year raw data lift).
+- Phase B SPEC + campaign — Cycle 30+ scope (depends on
+  daemon-replay).
+- Q-6 path pick for `etf_flow_v1` — operator queue; not in
+  orchestration's scope.
+
+### Per-S96-131 cycle shape conformance
+
+Cycle 28 fits the diagnostic-cycle-pivot template established Cycle
+27 (S96-131): default-path data-coverage block → cycle pivots to
+"diagnostic + one alternate from the documented audit options +
+HANDOFF rewrite". Cycle 28's "diagnostic" is the §3.4 correction +
+§9 pivot rationale (pure-docs); Cycle 28's "alternate" is the Form 4
+backfill via Data-Ingest worker (NOT orchestrator-self-edit because
+ingest backfills + critic review are full worker scope per §3.2).
