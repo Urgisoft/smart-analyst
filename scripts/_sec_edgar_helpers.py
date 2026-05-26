@@ -111,11 +111,20 @@ def build_search_url(
 # ── HTTP fetch with rate-limit + retry ───────────────────────────────────────
 
 def fetch_edgar(url: str, user_agent: str, timeout_sec: int = 30) -> bytes:
-    """Fetch a URL from SEC EDGAR. Respects rate-limit + retries on 429.
+    """Fetch a URL from SEC EDGAR. Respects rate-limit + retries on transient errors.
 
     SEC requires a contact-info User-Agent on all programmatic access.
-    On 429 (rate limit exceeded), sleeps SEC_RATE_LIMIT_BACKOFF_SEC and retries,
-    doubling each subsequent retry up to SEC_RATE_LIMIT_MAX_RETRIES.
+
+    Retries with exponential backoff on:
+      - HTTP 429 (rate-limit exceeded — SEC-documented response).
+      - HTTP 5xx (transient server errors — observed empirically; Cycle 29
+        S96-135 multi-month backfill kept hitting transient 500s on EDGAR FTS
+        that succeeded on immediate re-probe). Without 5xx retry, a multi-hour
+        backfill cannot survive EDGAR's normal hiccup rate.
+
+    `SEC_RATE_LIMIT_BACKOFF_SEC` seconds initial delay, doubling each subsequent
+    retry up to `SEC_RATE_LIMIT_MAX_RETRIES`. Non-retryable 4xx (404, 403, etc.)
+    propagate immediately.
 
     Gzip responses are handled transparently — some EDGAR endpoints return
     Content-Encoding: gzip regardless of the Accept-Encoding negotiation.
@@ -139,8 +148,15 @@ def fetch_edgar(url: str, user_agent: str, timeout_sec: int = 30) -> bytes:
                     data = gzip.decompress(data)
                 return data
         except urllib.error.HTTPError as e:
-            if e.code == 429:
+            # Retry on rate-limit (429) and transient server errors (5xx).
+            if e.code == 429 or (500 <= e.code < 600):
                 last_err = e
+                print(
+                    f"[edgar-fetch] retryable HTTP {e.code} on {url}; "
+                    f"sleeping {delay:.1f}s (attempt {attempt + 1}/"
+                    f"{SEC_RATE_LIMIT_MAX_RETRIES})",
+                    file=sys.stderr,
+                )
                 time.sleep(delay)
                 delay *= 2
                 continue

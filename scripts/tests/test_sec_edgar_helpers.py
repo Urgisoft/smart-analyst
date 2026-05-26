@@ -24,8 +24,9 @@ from __future__ import annotations
 import datetime as _dt
 import json
 import sys
+import urllib.error
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -289,3 +290,78 @@ def test_split_rejects_zero_max_chunk_days():
             user_agent="test-agent",
             max_chunk_days=0,
         )
+
+
+# ── fetch_edgar 5xx retry (S96-135 multi-hour-backfill resilience) ───────────
+
+def _make_urlopen_body(body: bytes = b"OK", encoding: str = "identity"):
+    """Build a urlopen-shaped mock returning a body in a context-manager."""
+    resp = MagicMock()
+    resp.read.return_value = body
+    resp.headers = {"Content-Encoding": encoding}
+    resp.__enter__ = lambda self_: resp
+    resp.__exit__ = lambda self_, *a: None
+    return resp
+
+
+def test_fetch_edgar_retries_on_500_then_succeeds():
+    """A transient 500 followed by 200 succeeds (multi-hour backfill resilience).
+
+    S96-135 Cycle 29 background apply hit transient EDGAR 500 on the first
+    chunk; same query succeeded immediately on re-probe. Without 5xx retry
+    a multi-hour backfill cannot survive EDGAR's normal hiccup rate.
+    """
+    call_count = {"n": 0}
+
+    def _open(req, timeout):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            raise urllib.error.HTTPError(req.full_url, 500, "Internal Server Error", {}, None)
+        return _make_urlopen_body(b"OK")
+
+    with patch.object(helpers.urllib.request, "urlopen", side_effect=_open), \
+         patch.object(helpers.time, "sleep", return_value=None):
+        data = helpers.fetch_edgar("https://efts.sec.gov/x", user_agent="test")
+    assert data == b"OK"
+    assert call_count["n"] == 2
+
+
+def test_fetch_edgar_retries_on_503_then_succeeds():
+    """503 also retries — same retry posture as 500/502/504."""
+    call_count = {"n": 0}
+
+    def _open(req, timeout):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            raise urllib.error.HTTPError(req.full_url, 503, "Service Unavailable", {}, None)
+        return _make_urlopen_body(b"OK")
+
+    with patch.object(helpers.urllib.request, "urlopen", side_effect=_open), \
+         patch.object(helpers.time, "sleep", return_value=None):
+        data = helpers.fetch_edgar("https://efts.sec.gov/x", user_agent="test")
+    assert data == b"OK"
+    assert call_count["n"] == 2
+
+
+def test_fetch_edgar_does_not_retry_on_404():
+    """404 is a non-retryable client error — propagates immediately."""
+    def _open(req, timeout):
+        raise urllib.error.HTTPError(req.full_url, 404, "Not Found", {}, None)
+
+    with patch.object(helpers.urllib.request, "urlopen", side_effect=_open), \
+         patch.object(helpers.time, "sleep", return_value=None):
+        with pytest.raises(urllib.error.HTTPError) as exc:
+            helpers.fetch_edgar("https://efts.sec.gov/x", user_agent="test")
+    assert exc.value.code == 404
+
+
+def test_fetch_edgar_does_not_retry_on_403():
+    """403 (missing User-Agent etc.) is a non-retryable client error."""
+    def _open(req, timeout):
+        raise urllib.error.HTTPError(req.full_url, 403, "Forbidden", {}, None)
+
+    with patch.object(helpers.urllib.request, "urlopen", side_effect=_open), \
+         patch.object(helpers.time, "sleep", return_value=None):
+        with pytest.raises(urllib.error.HTTPError) as exc:
+            helpers.fetch_edgar("https://efts.sec.gov/x", user_agent="test")
+    assert exc.value.code == 403
