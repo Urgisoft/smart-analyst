@@ -97,6 +97,7 @@ from _sec_edgar_helpers import (  # noqa: E402  (sys.path manipulation above)
     cik10,
     ensure_cik_ticker_map_table,
     fetch_edgar,
+    fetch_edgar_search_dated_split,
     fetch_edgar_search_paginated,
     filter_by_acceptance_date,
     parse_edgar_search_response,
@@ -224,6 +225,29 @@ def build_form4_search_url(
         "enddt": end_date.isoformat(),
     }
     return f"{base}?{urllib.parse.urlencode(params)}"
+
+
+def build_form4_search_url_template(
+    base: str,
+    forms: str = "4",
+) -> str:
+    """Build an EDGAR Form 4 FTS URL TEMPLATE with `{startdt}`/`{enddt}` slots.
+
+    Used with `fetch_edgar_search_dated_split` (S96-135, Cycle 29) to side-step
+    EDGAR's 10K-hits-per-query cap. The split helper formats this template
+    once per sub-window. Form 4 averages ~1000 filings/day on weekdays, so the
+    helper's default 14-day chunk size (~9785 filings observed for a 15-day
+    Form 4 window per 2026-05-25 probe) leaves a small safety margin.
+
+    Args:
+      base:  EDGAR_SEARCH_BASE.
+      forms: form filter (default "4"; "4,4/A" includes amendments).
+    """
+    return (
+        f"{base}?forms={urllib.parse.quote(forms)}"
+        f"&dateRange=custom"
+        f"&startdt={{startdt}}&enddt={{enddt}}"
+    )
 
 
 # ── XML parsing (Form 4 ownershipDocument) ───────────────────────────────────
@@ -807,14 +831,13 @@ def main() -> int:
         except (ValueError, json.JSONDecodeError) as e:
             print(f"[edgar-form4] FATAL: JSON parse failed: {e}", file=sys.stderr)
             return 4
-    else:
-        url = args.url or build_form4_search_url(EDGAR_SEARCH_BASE, start_date, end_date)
-        # S96-132 (Cycle 28): EDGAR FTS caps responses at 100 hits per page with
-        # no `size=` override. Use the paginated helper to retrieve the full
-        # result set across `from=0, 100, 200, …` pages. Pre-fix single-shot
-        # fetch silently truncated to the first 100 hits (Cycle 1 F3 142-row
-        # residue is the visible artefact).
-        print(f"[edgar-form4] paginated EDGAR search: {url}")
+    elif args.url:
+        # Operator-supplied --url override: respect verbatim, single-shot
+        # paginated path (no date-split — operator is responsible for the
+        # window). Falls back to legacy single-URL behavior for backward
+        # compatibility with the EK-A1 / gap #8 override path.
+        url = args.url
+        print(f"[edgar-form4] paginated EDGAR search (operator --url): {url}")
         try:
             filings = fetch_edgar_search_paginated(url, user_agent=args.user_agent)
         except urllib.error.HTTPError as e:
@@ -834,6 +857,52 @@ def main() -> int:
             print(f"[edgar-form4] FATAL: URL error fetching {url}: {e}", file=sys.stderr)
             return 3
         source_for_log = url
+    else:
+        # S96-132 (Cycle 28): EDGAR FTS caps responses at 100 hits per page.
+        # S96-135 (Cycle 29): EDGAR FTS also caps per-query at 10K total hits
+        # (`hits.total.relation` flips to "gte" past that, silently dropping
+        # the rest). Use the date-split helper to chunk the window into ≤14d
+        # sub-windows that each safely stay under both caps.
+        template = build_form4_search_url_template(EDGAR_SEARCH_BASE)
+        source_for_log = template.format(
+            startdt=start_date.isoformat(), enddt=end_date.isoformat(),
+        )
+        print(
+            f"[edgar-form4] paginated + date-split EDGAR search "
+            f"{start_date.isoformat()}..{end_date.isoformat()} "
+            f"(template={template})"
+        )
+        try:
+            filings = fetch_edgar_search_dated_split(
+                template,
+                start_date,
+                end_date,
+                user_agent=args.user_agent,
+            )
+        except urllib.error.HTTPError as e:
+            print(
+                f"[edgar-form4] FATAL: HTTP {e.code} fetching EDGAR FTS. "
+                f"\nThe EDGAR full-text search endpoint may have moved or the "
+                f"query syntax may have changed (SPEC §11 OQ-2). Operator paths:"
+                f"\n  1. Pass --url <verified-url> with the corrected endpoint."
+                f"\n  2. Download the JSON manually via browser + pass --from-file <path>."
+                f"\n  3. Narrow --start-date to reduce response size.",
+                file=sys.stderr,
+            )
+            return 3
+        except urllib.error.URLError as e:
+            print(f"[edgar-form4] FATAL: URL error fetching EDGAR FTS: {e}", file=sys.stderr)
+            return 3
+        except RuntimeError as e:
+            print(
+                f"[edgar-form4] FATAL: EDGAR 10K-cap exceeded WITHIN a single "
+                f"≤14d sub-window: {e}\n"
+                f"This suggests Form 4 daily volume has risen and "
+                f"max_chunk_days=14 is no longer safe. Reduce the chunk size in "
+                f"build_form4_search_url_template / fetch_edgar_search_dated_split.",
+                file=sys.stderr,
+            )
+            return 3
 
     # Restrict to Form 4 (the search URL filters on forms=4, but --from-file
     # responses or --url overrides may include other form types).

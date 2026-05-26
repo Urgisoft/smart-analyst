@@ -158,42 +158,51 @@ def fetch_edgar_search_paginated(
     *,
     max_pages: int = 1000,
     timeout_sec: int = 30,
+    raise_on_cap: bool = False,
 ) -> list[dict]:
     """Fetch + parse an EDGAR full-text search response, paginating via `from=`.
 
-    EDGAR's full-text search API (efts.sec.gov/LATEST/search-index) returns a
-    hard cap of 100 hits per response with no `size=` override. To retrieve
-    the full result set, callers must paginate via the `from=` offset
-    parameter — `from=0, 100, 200, …` until the response is short (<100 hits)
-    OR EDGAR's reported `hits.total.value` is reached.
+    EDGAR's full-text search API (efts.sec.gov/LATEST/search-index) has TWO
+    response caps that callers must respect:
 
-    Discovered 2026-05-25 Cycle 28 (S96-132): the single-shot fetch pattern
-    previously used by `sec_edgar_form4_ingest.py` was silently undercounting
-    by ~98% — EDGAR reports `hits.total.value = 9785` for a 15-day Form 4
-    window while the script consumed only the first 100. The pre-fix Cycle 1
-    F3 142-row state in `quantlab.insider_trades` is the residue of that
-    silent truncation (NOT a wall-clock-timestamp bug — `accepted_at` is
-    correctly read from EDGAR per line 203-207 above).
+    1. Per-response cap of 100 hits with no `size=` override → paginate via
+       `from=0, 100, 200, …` until the response is short (<100 hits) OR EDGAR's
+       reported `hits.total.value` is reached. (S96-132, Cycle 28.)
+    2. Per-query hard cap of 10K total hits — `from + 100 > 10000` returns 0
+       hits with no error. EDGAR's `hits.total` switches its `relation` field
+       from `"eq"` to `"gte"` once the true count would exceed the cap,
+       signalling silent truncation. (S96-135, Cycle 29.)
+
+    On cap-2 detection, the function emits a loud stderr WARN naming the URL
+    and counts retrieved. With `raise_on_cap=True`, it raises `RuntimeError`
+    instead — callers performing backfill where missing data is a correctness
+    issue (not just an undercount) should opt in.
 
     Args:
-      base_url:    Pre-built FTS URL (already has forms / dateRange / startdt /
-                   enddt query params). MUST NOT include a `from=` param —
-                   this function appends it per page.
-      user_agent:  EDGAR-required contact-info User-Agent string.
-      max_pages:   Safety cap on the pagination loop. Default 1000 (100K hits).
-      timeout_sec: Per-request HTTP timeout.
+      base_url:     Pre-built FTS URL (already has forms / dateRange / startdt /
+                    enddt query params). MUST NOT include a `from=` param —
+                    this function appends it per page.
+      user_agent:   EDGAR-required contact-info User-Agent string.
+      max_pages:    Safety cap on the pagination loop. Default 1000 (100K hits,
+                    but EDGAR caps at 100 pages = 10K hits in practice).
+      timeout_sec:  Per-request HTTP timeout.
+      raise_on_cap: When True, raise RuntimeError on detected 10K silent-
+                    truncation instead of just warning. Use this in backfill
+                    callers that must not silently lose data.
 
     Returns:
       Concatenated list of filing dicts from `parse_edgar_search_response`
       across all pages, in EDGAR's default sort order (most-recent-first).
 
     Raises:
-      The first `urllib.error.HTTPError` or `URLError` propagated from
-      `fetch_edgar`. Retries on 429 are handled inside `fetch_edgar`.
+      RuntimeError on detected 10K cap when `raise_on_cap=True`.
+      `urllib.error.HTTPError` / `URLError` propagated from `fetch_edgar`.
     """
     sep = "&" if "?" in base_url else "?"
     all_filings: list[dict] = []
     reported_total: int | None = None
+    reported_relation: str = "eq"
+    cap_hit = False
     for page in range(max_pages):
         from_offset = page * 100
         url = f"{base_url}{sep}from={from_offset}"
@@ -201,9 +210,27 @@ def fetch_edgar_search_paginated(
         if reported_total is None:
             try:
                 doc = json.loads(json_bytes.decode("utf-8", errors="replace"))
-                reported_total = int(doc.get("hits", {}).get("total", {}).get("value", 0) or 0)
+                hits_total = doc.get("hits", {}).get("total", {})
+                reported_total = int(hits_total.get("value", 0) or 0)
+                reported_relation = str(hits_total.get("relation", "eq"))
             except (ValueError, json.JSONDecodeError):
                 reported_total = -1
+            # 10K silent-truncation cap detection. EDGAR returns
+            # relation=="gte" when the true count exceeds the cap.
+            if reported_total >= 10000 and reported_relation != "eq":
+                cap_hit = True
+                msg = (
+                    f"[edgar-paginate] EDGAR FTS 10K hits cap detected — "
+                    f"hits.total={{value: {reported_total}, relation: "
+                    f"{reported_relation!r}}}. True count exceeds 10K; the "
+                    f"paginator will retrieve at most 10000 filings and "
+                    f"silently drop the rest. Caller should split the query "
+                    f"by date range (see fetch_edgar_search_dated_split). "
+                    f"URL: {base_url}"
+                )
+                if raise_on_cap:
+                    raise RuntimeError(msg)
+                print(msg, file=sys.stderr)
         page_filings = parse_edgar_search_response(json_bytes)
         all_filings.extend(page_filings)
         if len(page_filings) < 100:
@@ -217,6 +244,98 @@ def fetch_edgar_search_paginated(
             f"Query may be too broad; consider narrowing dateRange.",
             file=sys.stderr,
         )
+    return all_filings
+
+
+# ── Date-split paginated search (S96-135, Cycle 29) ──────────────────────────
+
+def fetch_edgar_search_dated_split(
+    base_url_template: str,
+    start_date: _dt.date,
+    end_date: _dt.date,
+    user_agent: str,
+    *,
+    max_chunk_days: int = 14,
+    timeout_sec: int = 30,
+) -> list[dict]:
+    """Auto-decompose a dateRange query around EDGAR's 10K per-query cap.
+
+    EDGAR FTS hard-caps any single query at 10K hits (`from + 100 > 10000`
+    returns 0 silently; `hits.total.relation` flips to `"gte"`). Callers
+    backfilling more than ~10K hits in one window must split the dateRange
+    into sub-windows. This helper handles the split mechanically.
+
+    Empirical Form 4 throughput (Cycle 29 probe 2026-05-25):
+      - 1-day window:  ~800-1000 filings (~10%-3% of cap)
+      - 15-day window: ~9785 filings (just under cap)
+      - 1-month+:      relation=="gte" → cap reached, silent truncation
+
+    Default `max_chunk_days=14` keeps each chunk safely under 10K for the
+    Form 4 caller. Other form-type callers may want different defaults
+    (8-K events run higher volume per day; 13D/G runs lower).
+
+    Args:
+      base_url_template: Pre-built FTS URL containing `{startdt}` and `{enddt}`
+                         literal placeholders (str.format) — NOT a pre-filled
+                         URL. Must NOT include `from=`. Example:
+                           "https://efts.sec.gov/LATEST/search-index"
+                           "?forms=4&dateRange=custom"
+                           "&startdt={startdt}&enddt={enddt}"
+      start_date:        Inclusive start of window.
+      end_date:          Inclusive end of window.
+      user_agent:        EDGAR-required contact-info User-Agent string.
+      max_chunk_days:    Maximum span (inclusive) of each sub-window. Each
+                         chunk is fetched via fetch_edgar_search_paginated
+                         with raise_on_cap=True so an in-chunk cap-hit
+                         (single chunk somehow exceeds 10K) fails loudly.
+      timeout_sec:       Per-request HTTP timeout.
+
+    Returns:
+      Concatenated filing list across all chunks. Duplicate detection is
+      NOT performed here — chunk boundaries are inclusive on both ends but
+      consecutive chunks have non-overlapping date ranges (chunk N+1 starts
+      the day after chunk N ends), so duplicates are not expected in
+      practice. Downstream writers (e.g. ReplacingMergeTree) handle any
+      residual de-dup.
+
+    Raises:
+      RuntimeError if any single sub-window itself trips the 10K cap
+      (suggests max_chunk_days is too large for this query type).
+      Network errors from `fetch_edgar` propagate.
+    """
+    if "{startdt}" not in base_url_template or "{enddt}" not in base_url_template:
+        raise ValueError(
+            "base_url_template must contain {startdt} and {enddt} placeholders"
+        )
+    if "from=" in base_url_template:
+        raise ValueError(
+            "base_url_template must not contain from= — the paginator appends it"
+        )
+    if start_date > end_date:
+        raise ValueError(f"start_date {start_date} > end_date {end_date}")
+    if max_chunk_days < 1:
+        raise ValueError(f"max_chunk_days must be >= 1, got {max_chunk_days}")
+
+    all_filings: list[dict] = []
+    cur = start_date
+    while cur <= end_date:
+        chunk_end = min(cur + _dt.timedelta(days=max_chunk_days - 1), end_date)
+        url = base_url_template.format(
+            startdt=cur.isoformat(),
+            enddt=chunk_end.isoformat(),
+        )
+        print(
+            f"[edgar-paginate-split] chunk {cur.isoformat()}..{chunk_end.isoformat()}",
+            file=sys.stderr,
+        )
+        chunk = fetch_edgar_search_paginated(
+            url,
+            user_agent=user_agent,
+            timeout_sec=timeout_sec,
+            raise_on_cap=True,
+        )
+        all_filings.extend(chunk)
+        cur = chunk_end + _dt.timedelta(days=1)
     return all_filings
 
 
