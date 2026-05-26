@@ -121,9 +121,17 @@ def fetch_edgar(url: str, user_agent: str, timeout_sec: int = 30) -> bytes:
     Retries with exponential backoff on:
       - HTTP 429 (rate-limit exceeded — SEC-documented response).
       - HTTP 5xx (transient server errors — observed empirically; Cycle 29
-        S96-135 multi-month backfill kept hitting transient 500s on EDGAR FTS
+        S96-136 multi-month backfill kept hitting transient 500s on EDGAR FTS
         that succeeded on immediate re-probe). Without 5xx retry, a multi-hour
         backfill cannot survive EDGAR's normal hiccup rate.
+      - Network read TimeoutError (Cycle 29 S96-137 — observed during body-
+        fetch phase after thousands of fetches; SSL `read operation timed out`
+        surfaces as a builtin `TimeoutError`, NOT a `urllib.error.HTTPError`
+        or `URLError`, so a single slow EDGAR response would crash a multi-
+        hour backfill). Treated identically to 5xx — transient, retry.
+      - Other socket errors (`URLError` wrapping a non-timeout reason) —
+        retried defensively; the exponential backoff still terminates after
+        SEC_RATE_LIMIT_MAX_RETRIES.
 
     `SEC_RATE_LIMIT_BACKOFF_SEC` seconds initial delay, doubling each subsequent
     retry up to `SEC_RATE_LIMIT_MAX_RETRIES`. Non-retryable 4xx (404, 403, etc.)
@@ -164,6 +172,21 @@ def fetch_edgar(url: str, user_agent: str, timeout_sec: int = 30) -> bytes:
                 delay *= 2
                 continue
             raise
+        except (TimeoutError, urllib.error.URLError) as e:
+            # Transient network errors: SSL read timeout, connection reset,
+            # DNS hiccup, etc. Retry like 5xx. (S96-137, Cycle 29 — observed
+            # mid-body-fetch crash after thousands of successful fetches.)
+            last_err = e
+            print(
+                f"[edgar-fetch] retryable network error on {url}: "
+                f"{type(e).__name__}: {e}; "
+                f"sleeping {delay:.1f}s (attempt {attempt + 1}/"
+                f"{SEC_RATE_LIMIT_MAX_RETRIES})",
+                file=sys.stderr,
+            )
+            time.sleep(delay)
+            delay *= 2
+            continue
     if last_err is not None:
         raise last_err
     raise RuntimeError(f"fetch_edgar exhausted retries for {url}")

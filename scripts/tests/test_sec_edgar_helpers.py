@@ -365,3 +365,60 @@ def test_fetch_edgar_does_not_retry_on_403():
         with pytest.raises(urllib.error.HTTPError) as exc:
             helpers.fetch_edgar("https://efts.sec.gov/x", user_agent="test")
     assert exc.value.code == 403
+
+
+def test_fetch_edgar_retries_on_timeout_error_then_succeeds():
+    """A TimeoutError (SSL read timeout) followed by 200 succeeds.
+
+    S96-137 Cycle 29 multi-month backfill body-fetch phase crashed with
+    `TimeoutError: The read operation timed out` because urllib's SSL
+    read raises the builtin TimeoutError (NOT urllib.error.HTTPError or
+    URLError). Without explicit handling a single slow EDGAR response
+    kills a multi-hour backfill mid-loop.
+    """
+    call_count = {"n": 0}
+
+    def _open(req, timeout):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            raise TimeoutError("The read operation timed out")
+        return _make_urlopen_body(b"OK")
+
+    with patch.object(helpers.urllib.request, "urlopen", side_effect=_open), \
+         patch.object(helpers.time, "sleep", return_value=None):
+        data = helpers.fetch_edgar("https://efts.sec.gov/x", user_agent="test")
+    assert data == b"OK"
+    assert call_count["n"] == 2
+
+
+def test_fetch_edgar_retries_on_url_error_then_succeeds():
+    """urllib.error.URLError (DNS / conn-reset / other transient) also retries."""
+    call_count = {"n": 0}
+
+    def _open(req, timeout):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            raise urllib.error.URLError("connection reset by peer")
+        return _make_urlopen_body(b"OK")
+
+    with patch.object(helpers.urllib.request, "urlopen", side_effect=_open), \
+         patch.object(helpers.time, "sleep", return_value=None):
+        data = helpers.fetch_edgar("https://efts.sec.gov/x", user_agent="test")
+    assert data == b"OK"
+    assert call_count["n"] == 2
+
+
+def test_fetch_edgar_exhausts_retries_on_persistent_timeout():
+    """5 consecutive TimeoutErrors exhaust retries → propagate last error."""
+    call_count = {"n": 0}
+
+    def _open(req, timeout):
+        call_count["n"] += 1
+        raise TimeoutError("persistent timeout")
+
+    with patch.object(helpers.urllib.request, "urlopen", side_effect=_open), \
+         patch.object(helpers.time, "sleep", return_value=None):
+        with pytest.raises(TimeoutError, match="persistent timeout"):
+            helpers.fetch_edgar("https://efts.sec.gov/x", user_agent="test")
+    # SEC_RATE_LIMIT_MAX_RETRIES default = 5 → 5 attempts before propagating.
+    assert call_count["n"] == helpers.SEC_RATE_LIMIT_MAX_RETRIES

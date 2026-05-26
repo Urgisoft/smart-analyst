@@ -782,7 +782,7 @@ def discover_form4_primary_xml_url(
         )
         try:
             body = fetch(index_url, user_agent=user_agent)
-        except (urllib.error.HTTPError, urllib.error.URLError):
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError):
             continue
         try:
             data = json.loads(body.decode("utf-8", errors="replace"))
@@ -853,8 +853,8 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 3
-        except urllib.error.URLError as e:
-            print(f"[edgar-form4] FATAL: URL error fetching {url}: {e}", file=sys.stderr)
+        except (urllib.error.URLError, TimeoutError) as e:
+            print(f"[edgar-form4] FATAL: network error fetching {url}: {type(e).__name__}: {e}", file=sys.stderr)
             return 3
         source_for_log = url
     else:
@@ -890,8 +890,8 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 3
-        except urllib.error.URLError as e:
-            print(f"[edgar-form4] FATAL: URL error fetching EDGAR FTS: {e}", file=sys.stderr)
+        except (urllib.error.URLError, TimeoutError) as e:
+            print(f"[edgar-form4] FATAL: network error fetching EDGAR FTS: {type(e).__name__}: {e}", file=sys.stderr)
             return 3
         except RuntimeError as e:
             print(
@@ -950,8 +950,11 @@ def main() -> int:
             filing_url = resolved
         try:
             body = fetch_edgar(filing_url, user_agent=args.user_agent)
-        except (urllib.error.HTTPError, urllib.error.URLError) as e:
-            print(f"[edgar-form4] WARN body-fetch failed for {filing['accession']}: {e}", file=sys.stderr)
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as e:
+            # TimeoutError catch (S96-137 Cycle 29): retries-exhausted SSL
+            # read timeout. Skip-and-continue is safer for a multi-hour
+            # backfill than crashing the run.
+            print(f"[edgar-form4] WARN body-fetch failed for {filing['accession']}: {type(e).__name__}: {e}", file=sys.stderr)
             return []
         return parse_form4_xml(
             body,
@@ -963,15 +966,15 @@ def main() -> int:
     def _ticker_for(cik: str) -> dict:
         try:
             return resolve_cik_to_ticker(cik, user_agent=args.user_agent, cache=issuer_cache)
-        except (urllib.error.HTTPError, urllib.error.URLError) as e:
-            print(f"[edgar-form4] WARN issuer CIK->ticker resolve failed for {cik}: {e}", file=sys.stderr)
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as e:
+            print(f"[edgar-form4] WARN issuer CIK->ticker resolve failed for {cik}: {type(e).__name__}: {e}", file=sys.stderr)
             return {"cik": cik10(cik), "ticker": "", "former_tickers": [], "company_name": ""}
 
     def _name_for(person_cik: str) -> dict:
         try:
             return resolve_person_cik_to_name(person_cik, user_agent=args.user_agent, cache=insider_cache)
-        except (urllib.error.HTTPError, urllib.error.URLError) as e:
-            print(f"[edgar-form4] WARN person CIK->name resolve failed for {person_cik}: {e}", file=sys.stderr)
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as e:
+            print(f"[edgar-form4] WARN person CIK->name resolve failed for {person_cik}: {type(e).__name__}: {e}", file=sys.stderr)
             return {"person_cik": cik10(person_cik), "name": ""}
 
     rows, insider_entries = build_insider_trade_rows(
