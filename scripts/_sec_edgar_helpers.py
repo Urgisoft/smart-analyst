@@ -48,10 +48,13 @@ EDGAR_SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik10}.json"
 EDGAR_ARCHIVES_BASE = "https://www.sec.gov/Archives/edgar/data/{cik_int}/{accession_nodash}/{primary_doc}"
 
 # SEC EDGAR rate limit: 10 req/sec. We deliberately stay well below this. After
-# a 429 we back off the documented amount and retry once.
+# a 429 OR transient 5xx we back off the documented amount and retry.
+# S96-136 (Cycle 29): MAX_RETRIES bumped from 3 → 5 because empirical EDGAR
+# 5xx bursts exceed the prior 7s cumulative backoff. 5 retries = 1+2+4+8+16 =
+# 31s cumulative, which has held across Cycle 29 multi-hour backfill probes.
 SEC_RATE_LIMIT_RPS = 10
 SEC_RATE_LIMIT_BACKOFF_SEC = 1.0
-SEC_RATE_LIMIT_MAX_RETRIES = 3
+SEC_RATE_LIMIT_MAX_RETRIES = 5
 
 # Generic User-Agent default. Individual ingest scripts override with their
 # own purpose-tagged default (e.g. `"SignalForge/exec-departure-ingest …"` for
@@ -271,7 +274,7 @@ def fetch_edgar_search_dated_split(
     end_date: _dt.date,
     user_agent: str,
     *,
-    max_chunk_days: int = 14,
+    max_chunk_days: int = 7,
     timeout_sec: int = 30,
 ) -> list[dict]:
     """Auto-decompose a dateRange query around EDGAR's 10K per-query cap.
@@ -281,14 +284,16 @@ def fetch_edgar_search_dated_split(
     backfilling more than ~10K hits in one window must split the dateRange
     into sub-windows. This helper handles the split mechanically.
 
-    Empirical Form 4 throughput (Cycle 29 probe 2026-05-25):
-      - 1-day window:  ~800-1000 filings (~10%-3% of cap)
-      - 15-day window: ~9785 filings (just under cap)
-      - 1-month+:      relation=="gte" → cap reached, silent truncation
+    Empirical Form 4 throughput (Cycle 29 probes 2026-05-25):
+      - 1-day weekday:     800-1700 filings (peak earnings season)
+      - 7-day peak window: ~5500 filings (55% of cap; safe headroom)
+      - 10-day peak:       ~7800 filings (78% of cap; tight)
+      - 14-day peak:       >10K hits → relation="gte" → cap silently hit
 
-    Default `max_chunk_days=14` keeps each chunk safely under 10K for the
-    Form 4 caller. Other form-type callers may want different defaults
-    (8-K events run higher volume per day; 13D/G runs lower).
+    Default `max_chunk_days=7` chosen for peak-window safety with headroom
+    against future volume growth. Other form-type callers may pass a
+    larger value when their daily volume is materially lower (e.g. 13D/G
+    runs ~50-200/day so 30-60d chunks are fine).
 
     Args:
       base_url_template: Pre-built FTS URL containing `{startdt}` and `{enddt}`
