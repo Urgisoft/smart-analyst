@@ -132,6 +132,16 @@ ROLE_BIT_OFFICER = 1 << 1           # 2
 ROLE_BIT_TEN_PCT_OWNER = 1 << 2     # 4
 ROLE_BIT_OTHER = 1 << 3             # 8
 
+# ClickHouse `Date` is a 16-bit day offset → representable range
+# [1970-01-01, 2149-06-06]. An EDGAR Form 4 XML can carry a typo'd
+# `transactionDate` (e.g. "0024-01-15" for "2024-01-15") that parses to a
+# VALID Python date but is unrepresentable as CH Date — the clickhouse_connect
+# binary array writer then fails the ENTIRE bulk INSERT with a misleading
+# "trying to insert None values" DataError. Dates outside this range are
+# clamped to the 1970-01-01 sentinel (same as the malformed-date path).
+_CH_DATE_MIN = _dt.date(1970, 1, 1)
+_CH_DATE_MAX = _dt.date(2149, 6, 6)
+
 
 # ── Argparse ─────────────────────────────────────────────────────────────────
 
@@ -433,6 +443,10 @@ def parse_form4_xml(
                 )
             except ValueError:
                 transaction_date = _dt.date(1970, 1, 1)
+            # Clamp out-of-CH-Date-range dates (typo'd XML) to the sentinel so
+            # one bad filing cannot crash the whole batch INSERT.
+            if not (_CH_DATE_MIN <= transaction_date <= _CH_DATE_MAX):
+                transaction_date = _CH_DATE_MIN
             try:
                 shares = float(_xml_value(txn, "transactionAmounts", "transactionShares") or "0")
             except ValueError:
@@ -674,6 +688,12 @@ def write_insider_trades(client, rows: list[dict]) -> int:
         "person_cik", "role_flags", "transaction_code", "transaction_date",
         "accepted_at", "shares", "price_per_share", "dollar_amount", "filing_url",
     ]
+    # Choke-point guard: clamp any out-of-CH-Date-range transaction_date so a
+    # single bad row can never fail the all-or-nothing bulk INSERT.
+    for r in rows:
+        td = r.get("transaction_date")
+        if not isinstance(td, _dt.date) or not (_CH_DATE_MIN <= td <= _CH_DATE_MAX):
+            r["transaction_date"] = _CH_DATE_MIN
     data = [[r[c] for c in columns] for r in rows]
     client.insert("insider_trades", data, column_names=columns)
     return len(rows)

@@ -424,6 +424,39 @@ def test_t_f4i_2_missing_shares_or_price_treated_as_zero():
     assert rows[0]["dollar_amount"] == 0.0
 
 
+@pytest.mark.parametrize("bad_date", ["0024-05-13", "1969-12-31", "2200-01-01"])
+def test_t_f4i_2_out_of_ch_date_range_clamped_to_sentinel(bad_date):
+    """A typo'd / out-of-range transactionDate (e.g. "0024-05-13" for 2024)
+    parses to a VALID Python date but is unrepresentable as a CH `Date`
+    ([1970-01-01, 2149-06-06]). It must be clamped to the 1970-01-01 sentinel
+    so one bad filing cannot crash the all-or-nothing bulk INSERT (the
+    Cycle-32 ~8h-wasted regression)."""
+    xml = f"""<?xml version="1.0"?>
+<ownershipDocument>
+  <documentType>4</documentType>
+  <issuer><issuerCik>0000000123</issuerCik><issuerTradingSymbol>X</issuerTradingSymbol></issuer>
+  <reportingOwner>
+    <reportingOwnerId><rptOwnerCik>0000000999</rptOwnerCik><rptOwnerName>X</rptOwnerName></reportingOwnerId>
+    <reportingOwnerRelationship><isOfficer>1</isOfficer></reportingOwnerRelationship>
+  </reportingOwner>
+  <nonDerivativeTable>
+    <nonDerivativeTransaction>
+      <transactionDate><value>{bad_date}</value></transactionDate>
+      <transactionCoding><transactionCode>P</transactionCode></transactionCoding>
+      <transactionAmounts>
+        <transactionShares><value>10</value></transactionShares>
+        <transactionPricePerShare><value>5</value></transactionPricePerShare>
+      </transactionAmounts>
+    </nonDerivativeTransaction>
+  </nonDerivativeTable>
+</ownershipDocument>
+""".encode()
+    rows = form4.parse_form4_xml(xml, accession="x", accepted_at=_dt.datetime(2026, 5, 13))
+    assert len(rows) == 1
+    assert rows[0]["transaction_date"] == _dt.date(1970, 1, 1)
+    assert form4._CH_DATE_MIN <= rows[0]["transaction_date"] <= form4._CH_DATE_MAX
+
+
 # ── T-F4I-3: Filings with NO P/S transactions are still logged ───────────────
 
 def test_t_f4i_3_filings_with_no_P_S_still_logged():
