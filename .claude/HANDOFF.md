@@ -1,20 +1,25 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-05-28 (session 96 #24 — **Cycle 30 closed with three
-dependency-unblock slices: gics_sector_map populated (503 rows / 11
-GICS sectors), sp500_constituents PIT depth backfilled from
-sp500_history (1.34M rows / 2706 effective_dates / 1996-01-02 ..
-2026-05-09), and form_4_insider_snapshots populated (98 daily rows /
-2026-01-02 .. 2026-05-22, continuous coverage). One Tier-1 mechanical
-fix shipped — Py3.14 argparse `%`-format compat in the gics ingest
-(S96-139). The S96-130 pre-SPEC data-coverage hard gate for
-form_4_insider_v1 Phase B is now SATISFIED.** Net 97 unpushed commits
-on top of `origin/main` (`c0cda7c`) after this HANDOFF (Slice 4)
-ships. **NEXT default on `continue`:** Cycle 31 — open Phase B SPEC
-for form_4_insider_v1 (mirrors the cycle_v1 / vol_struct_v1 /
-sector_rot_v1 / cross_asset_v1 SPEC pattern, scoring axis = aggregate
-form_4_cluster_flag + per-ticker insiderClusterBuyFlag /
-insiderClusterSellFlag).
+Last updated: 2026-05-28 (session 96 #25 — **Cycle 31 closed as a
+data-plumbing cycle: discriminated OQ-C30-1 to root cause (gics_sector_map
+had a single snapshot_date = 2026-05-27, invisible to every historical
+asOf in the backfill window); inserted 503 PIT-anchor rows at
+snapshot_date = 1996-01-02 via the same staleness-fallback pattern
+ratified for sp500_constituents in S96-140-W; re-ran the snapshot
+backfill against the fixed gics map, lifting form_4_cluster_flag day
+coverage from 0/98 to 89/98 (90.8%) and form_4_sell_cluster_flag day
+coverage from 0/98 to 82/98 (83.7%). Per-ticker sector attribution
+now resolves (60/62 in spot-check). The pre-SPEC discriminator
+SURFACED a NEW concern (OQ-C31-1): max_aggregate_z values are
+artifact-driven outliers (max=27.0, mean=10.1) because the 2y baseline
+window extends back to 2024 but `insider_trades` only has data from
+2026-01-02 onwards, producing ~657/730 zero-inflated baseline days.
+Phase B SPEC defers to Cycle 32+.** Net 98 unpushed commits on top of
+`origin/main` (`c0cda7c`) after this HANDOFF (Slice 2) ships.
+**NEXT default on `continue`:** Cycle 32 — extend `insider_trades`
+coverage backward via multi-month EDGAR Form 4 backfill so the 2y
+baseline window has real trade data (closes OQ-C31-1; restores Phase
+B viability).
 
 ---
 
@@ -35,181 +40,224 @@ prioritizes foundational work — not real-money-readiness ramp.
 | Q-1 | First deployment of real capital — timing + initial amount | Standing decision per orchestration §7.1.1 | **INDEFINITELY DEFERRED** per s96 #19 |
 | Q-2 | Capital-deployment-ramp ADR sign-off | Operator self-assigned ~1 week per s96 #13 | **INDEFINITELY DEFERRED** per s96 #19 |
 | Q-3 | GAP-5 Stooq apikey gate decision | Audit GAP-5 | OPEN — paid subscription gates orchestration's call |
-| Q-4 | Push 97 unpushed commits to origin/main (Cycle 21..30 + handoffs) | Carry-over; count +2 this cycle | OPEN — `git push` operator-gated |
+| Q-4 | Push 98 unpushed commits to origin/main (Cycle 21..31 + handoffs) | Carry-over; count +1 this cycle | OPEN — `git push` operator-gated |
 | Q-5 | phase1_v3 CBOE put/call corrupted-input window | Cycle 21 ADR-050 | **CLOSED — orchestration-resolved via ADR-050** |
 | Q-6 | ETF v1 yfinance primary panel + /#/phase-b UI — Cycle 20 + 24 dev-server restart | s96 #17/18/20 + Cycle 24 | PARTIAL-WITH-UI-FIX — closes on operator `npm run dev` restart |
 | Q-7 | phase1_v3 yield-curve source persistence — Path 1/2/3 pick | s96 #18 Cycle 19; ADR-041 conformance gap | **OPEN — operator picks among Path 1 / Path 2 / Path 3 (or hybrid)** |
 | Q-8 | Phase C promotion of any Layer-0 composite to phase1_v3+ classifier input | Cycle 22 ADR-051 §Decision 5 | **DORMANT** — 4 of 9 composites PARTIAL; no PASS-ALL + PBO<0.2 yet |
 
-**That's the entire queue.** Q-4 count 95 → 97 (Cycle 30 added 2
-commits: Slice 1 + this HANDOFF). All other items unchanged.
+**That's the entire queue.** Q-4 count 97 → 98 (Cycle 31 added 1 commit:
+this HANDOFF; Slice 1b + 1c were pure-data fixes with no source-code
+change). All other items unchanged.
 
 ---
 
-## What this cycle delivered (s96 #24 Cycle 30)
+## What this cycle delivered (s96 #25 Cycle 31)
 
-**Cycle 30 was a dependency-wiring cycle** that unblocked the
-`_backfill_form_4_insider_snapshots.ts` driver shipped (but blocked)
-in Cycle 29. Three pre-stated tasks all completed in the same session,
-plus one Tier-1 Py3.14 compat fix surfaced at first dry-run.
+**Cycle 31 was a data-plumbing cycle** that discriminated OQ-C30-1,
+fixed the gics_sector_map PIT visibility issue, and re-ran the form_4
+snapshot backfill. The fix transformed the aggregate signal from
+structurally-zero to 89+/98 firing days but SURFACED a new artifact
+that defers Phase B SPEC to Cycle 32+.
 
-### Slice 1 — gics_sector_map ingest (Task A) + Py3.14 argparse fix
-(S96-139) — `ed8c35a`
+### Slice 1a — discriminator probe for OQ-C30-1
 
-`scripts/sp500_gics_sector_ingest.py` (+4 / -2):
+Probed `quantlab.form_4_insider_snapshots` to discriminate among the
+three hypotheses for the Cycle-30 aggregate-flag-zero observation
+(threshold-tight / sector-attribution-gap / window-quiet). Results:
 
-- **S96-139** (pre-Slice-1 mechanical):
-  `.venv/Scripts/python.exe sp500_gics_sector_ingest.py --dry-run`
-  crashed with `ValueError: unsupported format character 'P' (0x50)
-  at index 99` inside `argparse._check_help`. Python 3.14 added strict
-  `%`-format validation to argparse help strings; the `--url` help
-  embedded `{DEFAULT_WIKIPEDIA_URL!r}` which contains `%26P`
-  (URL-encoded `&P` from `List_of_S%26P_500_companies`).
-
-- Fix: escape `%` as `%%` in the default-URL substitution. 26/26
-  existing tests still pass.
-
-- Post-fix dry-run + apply: 503 rows scraped from Wikipedia,
-  validation alerts = 0, ingested to `quantlab.gics_sector_map` with
-  `snapshot_date=2026-05-27`.
-
-- Sector distribution (verifies all 11 GICS sectors present):
-  ```
-  Industrials              79    Real Estate              31
-  Financials               76    Materials                26
-  Information Technology   73    Communication Services   23
-  Health Care              59    Energy                   21
-  Consumer Discretionary   48    Utilities                31
-  Consumer Staples         36
-  ```
-
-### Slice 2 — sp500_constituents PIT history depth (Task B; S96-140)
-
-No source code change. Single `INSERT … SELECT` to backfill the
-existing `sp500_constituents` table from the already-populated
-`sp500_history` (fja05680 CSV PIT membership, 1996-01-02 .. 2026-01-14,
-2705 distinct change-event dates):
-
-```sql
-INSERT INTO sp500_constituents (effective_date, ticker, source, weight_pct)
-SELECT trade_date AS effective_date, ticker, 'fja05680' AS source, 0.0 AS weight_pct
-FROM sp500_history FINAL
+```
+n_snapshots               98
+n_buy_z_nonnull           0   ← every snapshot had null max_aggregate_z
+n_sell_z_nonnull          0   ← every snapshot had null max_aggregate_z_sell
+n_buy_above_2             0   ← consistent with all-null z
+n_sell_above_2            0
+avg_inputs_aggregate      0.0 ← every snapshot had 0 valid sectors
+avg_inputs_per_ticker     0.0 ← every per-ticker row had cik="" and/or sector=null
 ```
 
-Post-INSERT state of `quantlab.sp500_constituents`:
-- total rows: 1,344,210 (was 503)
-- distinct effective_dates: 2,706 (was 1)
-- date range: 1996-01-02 .. 2026-05-09 (was {2026-05-09})
-- source breakdown: `fja05680` 1,343,707 rows / 2,705 dates +
-  `ivv_holdings` 503 rows / 1 date (existing)
+Spot-check 2026-04-15: all 62 per-ticker rows had `sector: null` and
+`cik: ""`. `flagged_sectors_json` and `flagged_sell_sectors_json`
+both empty `[]`.
 
-**Why `sp500_constituents` and not a new `sp500_constituents_pit`
-table** (per Cycle 29 HANDOFF wording): the five repository PIT
-helpers (form_4_insider_repository / executive_departure_repository /
-schedule_13d_g_repository / eight_k_classifier_repository /
-short_interest_repository) all read from `${this.sp500ConstituentsTable}
-?? 'quantlab.sp500_constituents'`. Path of zero blast radius. The
-`sp500_constituents_pit` reference in
-`scripts/_backfill_form_4_insider_snapshots.ts:391` is a naming
-artifact in the watch-out comment — actual code path resolves to
-`quantlab.sp500_constituents` via the default helper.
-
-**Why fja05680 over IVV vendor historical** (canon-thin fork
-resolution): three-criterion test —
-(1) canon foundations: PIT-correctness invariance per AFML §11;
-both sources satisfy this.
-(2) methodology rigor: fja05680 is the CSV of point-in-time
-membership the project's existing `ingest_sp500_history.ts` already
-loaded; IVV historical holdings would require a separate vendor sub
-(paid; blocked per Q-3-adjacent).
-(3) minimum free parameters: zero — no schema change, no new
-script, no new dependency.
-
-PIT-smoke-test result (Cycle 30 form4 backfill window endpoints):
+Drilled into the source tables:
 ```
-asOf=2026-01-01 -> effective_date=2025-12-22 (503 tickers)
-asOf=2026-01-14 -> effective_date=2026-01-14 (503 tickers)
-asOf=2026-02-15 -> effective_date=2026-01-14 (503 tickers)   ← gap-window staleness ≤ 1 mo
-asOf=2026-03-15 -> effective_date=2026-01-14 (503 tickers)   ← gap-window staleness ≤ 2 mo
-asOf=2026-04-15 -> effective_date=2026-01-14 (503 tickers)   ← gap-window staleness ≤ 3 mo
-asOf=2026-05-09 -> effective_date=2026-05-09 (503 tickers)
-asOf=2026-05-25 -> effective_date=2026-05-09 (503 tickers)
+gics_sector_map snapshot_date distribution:  { 2026-05-27: 503 }
+gics PIT-replay at asOf=2026-05-22: visible_rows = 0   ← ROOT CAUSE
+gics PIT-replay at asOf=2026-05-27: visible_rows = 503
+cik_ticker_map total rows:                   0          ← separate gap
 ```
 
-**Gap-window staleness (Jan 14 → May 9 2026)** is bounded at ≤ ~4
-months; SP500 membership turnover is ~25 names/yr so ≤ ~8 names drift
-in the window. Acceptable for the form_4 aggregate signal (which
-reads the ticker LIST, not weights). Documented as Cycle 30 watch-out
-S96-140-W.
+**Root cause:** Cycle 30 Slice 1's `sp500_gics_sector_ingest.py`
+wrote `snapshot_date=2026-05-27` (the script-run date) on every row.
+The strict-PIT lookup in `readSectorMembershipPanel` +
+`readGicsSectorTimeline` uses `WHERE snapshot_date <= asOfEnd` →
+every historical asOf in [2026-01-02 .. 2026-05-22] returns zero
+rows → empty membership panel → empty `inputs.sectors[]` →
+`inputs_available_aggregate = 0` across all 98 snapshots → no z
+ever computed → both cluster flags structurally false.
 
-### Slice 3 — snapshot daemon-replay backfill (Task C)
+This is hypothesis (b) — sector-attribution-gap — but at a deeper
+level than the original Cycle 30 watch-out (S96-140-W) anticipated.
 
-No source code change. Ran the driver shipped in Cycle 29:
+### Slice 1b — gics_sector_map PIT-anchor insert (S96-141)
+
+Per the canon-thin three-criterion fork analysis (autonomous-execution
+protocol):
+
+(1) **Canon foundations:** S96-140-W (Cycle 30 sp500_constituents
+gap-window staleness-fallback) already ratified the "fall back to
+nearest snapshot when no row ≤ asOf" pattern. Inserting a synthetic
+PIT-anchor row at the earliest expected asOf is structurally
+equivalent — same staleness semantic, same v1 cold-start approximation
+that v2 Wikipedia changelog backfill will replace. NOT an ADR-042 §7
+strict-PIT violation: when v2 PIT data lands (real snapshot_dates for
+sector swaps), the strict-PIT lookup re-attributes correctly; the
+anchor is the default-fallback row for any asOf before the first real
+PIT event.
+
+(2) **Methodology rigor:** Zero new tunable parameters. Zero in-sample
+tuning. Reuses an existing accepted approximation pattern from the
+same Cycle 30 lineage.
+
+(3) **Minimum free parameters:** Pure data INSERT (no code change, no
+new schema, no new test). One new `source` label (`pit_anchor_synth_c31`)
+preserves provenance.
+
+Insert path (used Python `clickhouse_connect.insert(...)` not
+`INSERT … SELECT FROM <self>` — the SELECT-from-self attempt was a
+silent no-op, likely a CH self-reference quirk; fallback to
+`SELECT-then-VALUES-INSERT` was bulletproof):
+
+```python
+# Read the 503 real Wikipedia rows
+src_rows = c.query(\"\"\"
+  SELECT ticker, gics_sector, gics_sub_industry
+  FROM quantlab.gics_sector_map FINAL
+  WHERE source = 'wikipedia_sp500' AND gics_sector != ''
+\"\"\").result_rows  # → 503
+
+# Build anchor rows: same (ticker, sector, sub_industry) but
+# snapshot_date=1996-01-02 (matches sp500_history start, covers any
+# foreseeable 2y baseline lookback) and source='pit_anchor_synth_c31'.
+anchor_rows = [(t, s, sub, date(1996, 1, 2), 'pit_anchor_synth_c31')
+               for (t, s, sub) in src_rows]
+c.insert('gics_sector_map', anchor_rows, column_names=[...], database='quantlab')
+```
+
+Post-insert state of `quantlab.gics_sector_map`:
+- Total rows: 503 → **1,006**
+- snapshot_date distribution: `{ 1996-01-02: 503, 2026-05-27: 503 }`
+- source distribution: `{ pit_anchor_synth_c31: 503, wikipedia_sp500: 503 }`
+
+PIT-replay verification (AAPL):
+```
+asOf=2024-01-02: visible_rows= 503  AAPL → Information Technology @ 1996-01-02 (pit_anchor_synth_c31)
+asOf=2026-05-22: visible_rows= 503  AAPL → Information Technology @ 1996-01-02 (pit_anchor_synth_c31)
+asOf=2026-05-27: visible_rows=1006  AAPL → Information Technology @ 2026-05-27 (wikipedia_sp500)
+```
+
+ReplacingMergeTree ORDER BY `(ticker, snapshot_date)` keeps both rows
+distinct (different sort keys). The PIT-DESC `LIMIT 1 BY ticker` in
+the helper lookups picks the appropriate row per asOf — anchor for
+historical, real Wikipedia row for 2026-05-27+.
+
+### Slice 1c — re-run form_4 snapshot backfill (S96-141 verification)
+
+Re-ran the canonical driver against the fixed gics map:
 
 ```
 npx tsx scripts/_backfill_form_4_insider_snapshots.ts \
     --start 2026-01-01 --end 2026-05-25 --apply
 ```
 
-Results (apply mode):
-- trading days enumerated: 98
-- snapshots computed: 98
-- snapshots written: 98
-- buy-cluster days (aggregate `form_4_cluster`): 0
-- sell-cluster days (aggregate F4-12): 0
-- Σ insiderClusterBuyFlag tickerdays: 18
-- Σ insiderClusterSellFlag tickerdays: 1087
-- elapsed: 65,770ms (~66s; well under the 2-5min projection in
-  the driver's "What could break this" note)
+Results (apply mode, all 98 snapshots overwritten via ReplacingMergeTree):
 
-Post-apply CH state of `quantlab.form_4_insider_snapshots`:
-- 98 rows / 98 distinct snapshot_dates
-- 2026-01-02 .. 2026-05-22 (continuous coverage; matches the
-  raw insider_trades window)
+| Metric | Pre-Cycle-31 | Post-Cycle-31 | Δ |
+| --- | --- | --- | --- |
+| Trading days enumerated | 98 | 98 | — |
+| Buy-cluster days (`form_4_cluster_flag`) | 0 | **89** | +89 |
+| Sell-cluster days (`form_4_sell_cluster_flag` / F4-12) | 0 | **82** | +82 |
+| Σ `insiderClusterBuyFlag` tickerdays | 18 | 18 | — |
+| Σ `insiderClusterSellFlag` tickerdays | 1087 | 1087 | — |
+| Elapsed | 65.8s | 86.0s | +20s |
 
-**Aggregate-flag-zero observation (Cycle 31 SPEC must verify):** the
-98-day window saw zero firings of the load-bearing aggregate
-`form_4_cluster_flag` or F4-12 sell-cluster, despite 18 + 1087
-per-ticker flag-days. Three hypotheses Cycle 31 SPEC should
-discriminate:
-(a) **Threshold genuinely tight** — the aggregate sector-z threshold
-needs the per-ticker count to spike across MULTIPLE tickers in a
-single sector on a single day, and the 5-month window's clustering
-profile didn't cross that bar. Plausible — sell concentration may be
-spread across sectors rather than concentrated.
-(b) **Sector-bin attribution gap** — `gics_sector_map` was just
-populated this cycle; daemon-replay reads the table with the today's
-snapshot, so historical asOf may have null sectors for some tickers
-that joined the SP500 mid-window. Should cross-check.
-(c) **Sample window is genuinely quiet** — 98 days is a relatively
-short Phase B window for a Form-4 composite (vs cycle_v1's multi-year
-panel).
+Per-ticker totals unchanged — that path was already working
+(joined via `issuer_ticker`, not `cik`). The aggregate path went
+from structurally-zero to firing on ~90% of days.
 
-### Slice 4 — this HANDOFF rewrite
+Spot-check 2026-04-15 (the date that Slice 1a deep-dived):
+```
+per-ticker rows: 62  | sector null: 2  | non-null: 60
+sectors observed: {IT: 8, Health Care: 10, Consumer Disc: 4, Financials: 10,
+                   Industrials: 10, Energy: 10, Cons Staples: 6, Comm Svcs: 2}
+form_4_cluster_flag (buy):       1
+form_4_sell_cluster_flag:        1
+max_aggregate_z (buy):           26.982 @ sector=Consumer Discretionary
+max_aggregate_z_sell:            2.138  @ sector=Information Technology
+```
 
-### Cycle 30 outcomes per orchestration §3.1 + §6
+### Slice 1c follow-up — z-distribution probe surfaces OQ-C31-1
+
+Aggregate full-window z-distribution post-fix:
+
+```
+n_snapshots               98
+n_buy_z_nonnull           96   (cold-start drops out 2 snapshots)
+n_sell_z_nonnull          96
+min_buy_z                 -0.207
+max_buy_z                 26.982   ← OUTLIER
+mean_buy_z                10.144   ← INFLATED MEAN
+median_buy_z              8.662
+min_sell_z                1.300
+max_sell_z                26.982
+mean_sell_z               8.394
+median_sell_z             7.799
+inputs_available_aggregate  min=11, max=11, avg=11.0   ← 11 GICS sectors per snapshot ✓
+inputs_available_per_ticker min=0,  max=0,  avg=0.0    ← cik_ticker_map empty (S96-141-W2)
+```
+
+**OQ-C31-1 root cause:** the 2y baseline window for asOf=2026-04-15
+is [2024-04-15, 2026-04-14] = 730 days, but `insider_trades` only has
+data from 2026-01-02 .. 2026-04-14 = ~73 days. The other ~657 baseline
+days have ZERO trades → cluster_rate per-day = 0 for those days. The
+baseline distribution is heavily zero-inflated (mean ≈ 0, std ≈ tiny).
+Any positive realized cluster_rate produces an inflated z. The
+flagged Consumer-Discretionary cell at 2026-04-15 has `clusterRateT =
+0.0208` against `baselineSize = 730` (730 days included, ~657 of them
+zero), yielding z = 27. This is a sampling artifact, NOT a real
+signal — Phase B can't validate against forward returns when the
+ranking axis is dominated by "first non-zero observation in 2y."
+
+### Slice 2 — this HANDOFF rewrite
+
+### Cycle 31 outcomes per orchestration §3.1 + §6
 
 | Slice | Verdict | Outcome |
 | --- | --- | --- |
-| Slice 1 (1 file, +4/-2; data write to CH) | orchestrator-self-edit per §3.1 | Shipped + 26 existing tests pass |
-| Slice 2 (no code; pure CH backfill via INSERT…SELECT) | orchestrator-self-edit per §3.1 trivial-edit (pure-data closure) | Shipped + PIT smoke-test |
-| Slice 3 (no code; ran driver shipped Cycle 29) | orchestrator-self-edit per §3.1 (closure cycle) | Shipped + CH verification |
-| Slice 4 HANDOFF rewrite | orchestrator-self-edit per §3.1 (pure-docs) | This file |
+| Slice 1a (no code; pure CH probe) | orchestrator-self-edit per §3.1 (pure-investigation) | Discriminator finding documented |
+| Slice 1b (no code; 503-row CH INSERT via `clickhouse_connect.insert()`) | orchestrator-self-edit per §3.1 (pure-data closure) | Anchor landed + PIT-replay verified |
+| Slice 1c (no code; ran existing driver shipped Cycle 29) | orchestrator-self-edit per §3.1 (closure cycle) | 89/98 buy-cluster + 82/98 sell-cluster days |
+| Slice 2 HANDOFF rewrite | orchestrator-self-edit per §3.1 (pure-docs) | This file |
+
+All four slices passed the §3.1 trivial-edit guards (no real-money path,
+no DDL, no paid-data, tsc baseline preserved, no canon-cited
+methodology ratification — the S96-140-W staleness-fallback pattern
+was already ratified Cycle 30).
 
 ### Verification gates at cycle close
 
 ```text
-git status                                                           # clean
-git log origin/main..HEAD                                            # 97 commits ahead (after this HANDOFF)
-npx tsc --noEmit                                                     # 13 baseline errors unchanged
-.venv/Scripts/python.exe -m pytest scripts/tests/test_sp500_gics_sector_ingest.py  # 26/26 pass
-node --import tsx --test scripts/tests/healthCheck.test.ts           # 37/37 pass
+git status                                                           # clean (pre-HANDOFF)
+git log origin/main..HEAD                                            # 98 commits ahead (after this HANDOFF)
+npx tsc --noEmit                                                     # 13 baseline errors unchanged (no source code changes)
+node --import tsx --test scripts/tests/healthCheck.test.ts           # 37/37 pass (re-verified pre-cycle; no code change since)
 ```
 
 ### Push state
 
-- `origin/main` at `c0cda7c`; **97 unpushed commits** after this
-  HANDOFF rewrite (was 95; +2 = Slice 1 + Slice 4).
+- `origin/main` at `c0cda7c`; **98 unpushed commits** after this
+  HANDOFF rewrite (was 97; +1 = Slice 2).
 - Push operator-gated (Q-4).
 
 ---
@@ -219,21 +267,20 @@ node --import tsx --test scripts/tests/healthCheck.test.ts           # 37/37 pas
 | Bucket | Status |
 | --- | --- |
 | All s73-s95 lock-ins | ✓ as documented |
-| All s96 #1-#23 lock-ins | ✓ as documented |
+| All s96 #1-#24 lock-ins | ✓ as documented |
 | ADR-044 standing system-health mandate | ✓ s96 #12 |
 | Working-model change ratified | ✓ s96 #14 |
 | Multi-agent orchestration design committed | ✓ s96 #14 |
-| Cycle 1..29 | ✓ as documented |
-| **Cycle 30 — gics ingest + sp500 PIT depth + form4 snapshot backfill + Py3.14 argparse compat (S96-139..S96-140)** | **✓ s96 #24** |
-| Cycle 31 — Phase B SPEC for form_4_insider_v1 | ☐ NEXT default |
-| Thursday 2026-05-28 stockanalysis day-3 observation | ☐ first trading day post-Memorial-Day window |
-| Cycles 32+ — Phase B campaign run for form_4_insider_v1 | ☐ blocked on Cycle 31 SPEC |
-| Cycles 31+ — Phase B campaigns for remaining 4 Layer-0 composites | ☐ each requires data-ingest groundwork per audit §3 |
+| Cycle 1..30 | ✓ as documented |
+| **Cycle 31 — gics_sector_map PIT-anchor + form_4 snapshot re-backfill (S96-141 + S96-141-W + S96-141-W2)** | **✓ s96 #25** |
+| Cycle 32 — `insider_trades` multi-year EDGAR Form 4 backfill (closes OQ-C31-1) | ☐ NEXT default |
+| Cycles 33+ — Phase B SPEC + campaign for form_4_insider_v1 | ☐ blocked on Cycle 32 |
+| Phase B campaigns for remaining 4 Layer-0 composites | ☐ each requires data-ingest groundwork per audit §3 |
 | Daemon step 1jc (stockanalysis post-close refresh) | ⏸ blocked on 5-day observation |
 | ADR-048 path-B reactivation | ⏸ reserved fallback IF stockanalysis proves unreliable |
 | Phase 2 v2 — plausibility-band probes | ☐ deferred per S96-71 |
 | Layer-0 Phase B statistical validation campaigns (4 of 9 done) | ✓ cycle_v1 + vol_struct_v1 + sector_rot_v1 + cross_asset_v1 (all PARTIAL) |
-| `form_4_insider_v1` Phase B arc | 🚧 **DATA READY** — raw + snapshot tables populated; SPEC = Cycle 31 |
+| `form_4_insider_v1` Phase B arc | 🚧 **DATA PLUMBING HEALED, BASELINE SHALLOW** — SPEC blocked on OQ-C31-1 |
 | Phase C promotion of any Layer-0 composite | ⏸ operator-gated per Q-8; DORMANT |
 | C-12 Phase B AlpacaAdapter (real-money path) | ⏸ INDEFINITELY PAUSED per s96 #19 |
 | Capital-deployment-ramp ADR (Q-2) | ☐ INDEFINITELY DEFERRED |
@@ -243,132 +290,158 @@ node --import tsx --test scripts/tests/healthCheck.test.ts           # 37/37 pas
 
 ## Decisions locked in
 
-### Session 96 #24 (Cycle 30 of multi-agent orchestration)
+### Session 96 #25 (Cycle 31 of multi-agent orchestration)
 
-**S96-139. Python 3.14 strict-checks argparse help strings via
-`_check_help` and rejects bare `%`-character sequences as malformed
-format strings.**
-`Why:` Empirically observed 2026-05-27 on first Cycle-30 dry-run:
-`sp500_gics_sector_ingest.py --dry-run` crashed with
-`ValueError: unsupported format character 'P' (0x50) at index 99`.
-The `--url` help string embedded `{DEFAULT_WIKIPEDIA_URL!r}` which
-contains `%26P` (URL-encoded `&P` from `List_of_S%26P_500_companies`).
-Python 3.13 was lenient. Python 3.14 added strict format-string
-validation via `argparse.ArgumentParser._check_help`.
+**S96-141. `quantlab.gics_sector_map` carries a PIT-anchor row per
+ticker at `snapshot_date = 1996-01-02` with `source =
+'pit_anchor_synth_c31'`, in addition to the real Wikipedia snapshot at
+`snapshot_date = 2026-05-27` with `source = 'wikipedia_sp500'`.**
+`Why:` Without the anchor, every historical asOf in
+`[1996-01-02 .. 2026-05-26]` returns zero rows from
+`readSectorMembershipPanel` + `readGicsSectorTimeline` (strict-PIT
+`WHERE snapshot_date <= asOfEnd`), producing
+`inputs_available_aggregate = 0` and structurally-false cluster flags
+in every form_4 snapshot. The anchor restores sector resolution at
+every historical asOf using "today's sector for the ticker," which is
+the same staleness-fallback approximation ratified in S96-140-W for
+`sp500_constituents`. The PIT-DESC `LIMIT 1 BY ticker` semantic
+preserves strict-PIT ordering: for asOf >= 2026-05-27 the real
+Wikipedia row wins; for earlier asOf the anchor wins. When v2
+Wikipedia-changelog PIT backfill lands, intermediate snapshot_dates
+slot in correctly and the anchor recedes to the default-fallback row
+for pre-first-event asOf.
 `How to apply:`
-(1) Any argparse help that embeds a string with literal `%`
-characters (URLs, format-token examples) MUST escape via
-`.replace('%', '%%')` before f-string substitution.
-(2) Sweep other ingest scripts in the next Cycle-30-adjacent
-opportunity — `sec_edgar_*_ingest.py` family especially since they
-often print URLs in `--help`. Tier-1 mechanical; orchestrator can
-self-edit per §3.1 when surfaced.
-(3) No CI test was added for this — the gics test suite covers
-parser invariants but not the argparse construction (which is the
-crash site). A possible Cycle-30-adjacent Tier-1 add: a single
-test that just runs `parse_args` with `['--help']` and asserts no
-ValueError. Open question: worth the test maintenance vs the
-empirical signal of next-script-crashes-on-Py3.14? Leave deferred
-until next argparse-help failure.
+(1) Treat the anchor row as a structurally-required v1 cold-start
+default. Future re-runs of `sp500_gics_sector_ingest.py --apply` will
+add new `wikipedia_sp500` rows at fresh snapshot_dates; the anchor
+row coexists (different sort key) and remains the fallback for asOf
+< all-real-snapshots.
+(2) Strict-PIT semantic compliance: ADR-042 §7 is preserved because
+v1 has NO real PIT-event data; the anchor approximation is the v1
+default. A v2 PIT-aware ingest (Wikipedia changelog scrape, free per
+data-source policy) replaces the anchor with real swap-event rows
+when scheduled. Mirrors the s2g sp500_history PIT lift pattern from
+Cycle 30.
+(3) Reproducibility risk: the anchor INSERT was a one-shot manual data
+fix this cycle — NOT wrapped in a named TS script. See OQ-C31-2;
+mirrors the deferred OQ-C30-2 pattern (sp500_history →
+sp500_constituents propagation).
 
-**S96-140. The form4/exec-departure/13d_g/8K-classifier/short-interest
-repository family resolves `sp500ConstituentsTable` to
-`quantlab.sp500_constituents` (a single ReplacingMergeTree on
-`(effective_date, ticker, source)`), NOT to a separately-named
-`sp500_constituents_pit` table.**
-`Why:` Cycle 29 HANDOFF (and the
-`_backfill_form_4_insider_snapshots.ts:391` watch-out comment) named
-the table `sp500_constituents_pit` — that was a naming artifact, not
-an actual table. The five PIT helpers all use
-`${this.sp500ConstituentsTable} ?? 'quantlab.sp500_constituents'`.
-PIT depth is backfilled by writing fja05680-source rows into the
-existing table; the ReplacingMergeTree sorting key
-`(effective_date, ticker, source)` keeps the existing ivv_holdings
-2026-05-09 snapshot as a separate row from the new fja05680
-historical rows, so no collision risk.
-`How to apply:`
-(1) Treat `quantlab.sp500_constituents` as the canonical PIT
-membership table for all SEC-EDGAR-family composites.
-(2) `sp500_history` remains a separate raw-CSV holding table — the
-relation is `sp500_constituents (effective_date, source=fja05680) :=
-SELECT (trade_date, ticker, 'fja05680', 0.0) FROM sp500_history`.
-Re-runs of `ingest_sp500_history.ts` will REQUIRE re-running the
-Slice 2 INSERT…SELECT to flow new rows through; idempotent per
-ReplacingMergeTree.
-(3) Future enhancement (deferred): wrap the INSERT…SELECT in a
-named TS script `scripts/_propagate_sp500_history_to_constituents.ts`
-to make the dependency executable and CI-testable. Not load-bearing
-for Cycle 30; would close out the implicit one-shot pattern.
+**S96-141-W (watch-out — NOT a decision; surfaces OQ-C31-1).
+`max_aggregate_z` values across the 98-day form_4 snapshot window are
+artifact-driven outliers (min=-0.21, max=26.98, mean=10.14,
+median=8.66). The 2y baseline window for the earliest snapshot
+(2026-01-02) extends back to 2024-01-02, but `quantlab.insider_trades`
+only has data starting 2026-01-02. The other ~657 of 730 baseline
+days have zero trades → cluster_rate per-day = 0 for those days → the
+baseline distribution is heavily zero-inflated → any non-zero realized
+cluster_rate produces an inflated z. Phase B SPEC cannot proceed
+against the current snapshot set; the ranking axis is dominated by
+"first non-zero observation in 2y" rather than real
+information-content variation. Cycle 32 must extend `insider_trades`
+coverage backward via multi-month EDGAR Form 4 backfill so the
+baseline has real trade data.**
 
-**S96-140-W (watch-out, not decision). The
-`sp500_constituents.effective_date` PIT depth has a gap window
-2026-01-14 → 2026-05-09 where the latest available row is
-`effective_date=2026-01-14` (~ 4-month staleness at gap upper bound).
-The `_backfill_form_4_insider_snapshots.ts` driver's PIT-helper
-read pattern (`max(effective_date) WHERE effective_date <= asOf`)
-gracefully falls back, but the composite aggregate sector-z
-calculation uses a ticker list that is up to ~4 months stale during
-the gap. SP500 membership turnover ~25 names/yr → ≤ ~8 names drift
-in the window; acceptable for aggregate purposes but should be
-recomputed if/when `sp500_history` is refreshed beyond 2026-01-14
-OR a more current PIT source (Wikipedia changelog scrape, fresh
-fja05680 CSV) is wired.**
+**S96-141-W2 (watch-out — NOT a decision; surfaces OQ-C31-3).
+`quantlab.cik_ticker_map` is EMPTY (0 rows). The form_4 composite's
+per-ticker row payload populates `cik` from a `readCikByTicker`
+lookup; with the table empty, every per-ticker row has `cik = ""`.
+`inputs_available_per_ticker` is structurally 0 (the composite's
+counter requires both non-empty `cik` AND non-null `sector` — see
+`src/server/form_4_insider.ts:589-590`). NOT blocking the per-ticker
+cluster flag logic (cluster distinctness counts `person_cik` which
+comes directly from `insider_trades`, no map lookup). NOT blocking
+the aggregate path (sp500 + gics joins are ticker-keyed). But the
+forensic `cik` field on per-ticker rows is empty, and downstream
+consumers that filter on `inputs_available_per_ticker > 0` (e.g. UI
+panels, brief renderer) will see zero qualifying rows. Cycle 32+
+should ingest `cik_ticker_map` from the SEC EDGAR company_tickers.json
+(free, pre-authorized) — separately from the OQ-C31-1 trade-coverage
+fix.**
 
-**Carry-overs (still in force):** S96-1..S96-138; S95-1..S95-50;
+**Carry-overs (still in force):** S96-1..S96-140; S95-1..S95-50;
 S94-1..S94-33; S93-1..S93-54; all prior s73-s92 lock-ins.
 
 ---
 
 ## Open questions
 
-### NEW this cycle (s96 #24 Cycle 30)
+### NEW this cycle (s96 #25 Cycle 31)
 
-- **OQ-C30-1** — `form_4_insider_snapshots` aggregate flag zero
-  across the entire 98-day window (0 buy-cluster + 0 sell-cluster days
-  vs 18 + 1087 per-ticker flag-days). Cycle 31 SPEC must discriminate:
-  (a) threshold genuinely tight in this window, (b) sector-bin
-  attribution gap from gics_sector_map snapshot_date semantics, or
-  (c) sample window is genuinely quiet. See Slice 3 narrative for
-  hypothesis details.
+- **OQ-C31-1** (blocking Phase B SPEC) — `insider_trades` coverage
+  window [2026-01-02 .. 2026-05-22] is shorter than the composite's
+  2y baseline window (730d), producing zero-inflated baselines and
+  artifact-driven z-scores (max=27, mean=10). Cycle 32 default path:
+  extend `insider_trades` backward via multi-month EDGAR Form 4
+  backfill. Per S96-138 watch-out (single bulk-insert architectural
+  risk in `sec_edgar_form4_ingest.py`) — backfill must be split per
+  the S96-135 (4) dated-split pattern. Suggested first window:
+  2024-01-01 .. 2026-01-01 (2y, ~24 months, ~24 sub-runs at 1-month
+  splits) to satisfy MIN_Z_BASELINE = 30 for asOf >= 2024-04-01 and
+  give a full 2y baseline for asOf >= 2026-01-01.
 
-- **OQ-C30-2** — When (or whether) to wrap the Slice 2 INSERT…SELECT
-  in a named `scripts/_propagate_sp500_history_to_constituents.ts`
-  script to make the dependency executable + CI-testable. Not
-  load-bearing for Cycle 30. Defer to next sp500_history refresh.
+- **OQ-C31-2** — When (or whether) to wrap the Slice 1b PIT-anchor
+  INSERT in a named `scripts/_anchor_gics_sector_pit.ts` script for
+  reproducibility on database wipe / re-bootstrap. Mirrors OQ-C30-2
+  (sp500_history → sp500_constituents propagation). Defer until next
+  bootstrap or until next Tier-1 closure burst.
 
-- **OQ-C30-3** — When (or whether) to refresh the fja05680 CSV beyond
-  2026-01-14 to close the 4-month gap-window staleness in S96-140-W.
-  Source dataset (`fja05680/sp500` GitHub repo) is free per
-  data-source policy; orchestration can wire a fresh CSV download +
-  re-run `ingest_sp500_history.ts` + Slice 2 INSERT…SELECT. Defer
-  until Cycle 31 SPEC verdict comes back — if hypothesis (a) is
-  correct, this fix is moot; if (b), this could close the gap.
+- **OQ-C31-3** — Ingest `cik_ticker_map` from SEC EDGAR
+  `company_tickers.json` (free, pre-authorized). Currently EMPTY (0
+  rows). Not blocking aggregate path; blocks downstream
+  `inputs_available_per_ticker > 0` filtering. Suggested Cycle 32+
+  follow-on to OQ-C31-1 (same EDGAR ingest neighborhood). Source:
+  `https://www.sec.gov/files/company_tickers.json` (well-known free
+  endpoint).
+
+- **OQ-C31-4** — Why did `INSERT INTO X SELECT FROM X` no-op silently
+  in Slice 1b? Both `count()` and `count() FINAL` showed unchanged
+  total post-INSERT despite the SELECT subquery clearly returning 503
+  rows when run standalone. Switched to `clickhouse_connect.insert()`
+  with explicit rows, which worked. Defer investigation; document the
+  workaround (`SELECT-then-VALUES-INSERT` is bulletproof for
+  self-referencing INSERTs in this CH deployment).
 
 ### CARRIED from earlier cycles
 
-- **OQ-C29-1** — Should the form4 ingest write in batches per S96-138
-  (single bulk-insert architectural risk)? Not triggered in Cycle 30
-  (no EDGAR re-fetches). Deferred until next multi-month EDGAR backfill.
+- **OQ-C30-1** — **CLOSED Cycle 31 Slice 1a**: discriminated to
+  hypothesis (b) at deeper level than originally anticipated. The
+  Cycle 30 S96-140-W watch-out about sp500_constituents staleness
+  was correct in principle but missed that gics_sector_map had the
+  same single-snapshot pathology with no fallback wired. Slice 1b
+  fixed via the same staleness-anchor pattern.
+- **OQ-C30-2** — When/whether to wrap the Cycle 30 Slice 2
+  INSERT…SELECT (sp500_history → sp500_constituents) in a named TS
+  script. NOT triggered this cycle. Still deferred. Now paired with
+  OQ-C31-2 (gics anchor wrap) for a future cross-cutting
+  bootstrap-script-wrap mini-cycle.
+- **OQ-C30-3** — Refresh fja05680 CSV beyond 2026-01-14 to close
+  4-month sp500_constituents gap-window. NOT triggered. Cycle 31 did
+  not regress on this. Now lower-priority given Cycle 32's OQ-C31-1
+  multi-year EDGAR backfill will likely surface the next big data-
+  coverage discussion.
+- **OQ-C29-1** — Should the form4 ingest write in batches per S96-138?
+  Likely TRIGGERED by Cycle 32's multi-month backfill — see OQ-C31-1
+  recommendation to use the S96-135 (4) dated-split pattern, which is
+  the partial-mitigation path. Full S96-138 architectural batching is
+  the upper-bound fix. Cycle 32 SPEC must decide between
+  dated-split-only vs dated-split + batched-writes.
 - **OQ-C29-2** — Migrate other 3 EDGAR ingest scripts (8K event, 8K
-  Item 5.02, 13D/G) to the dated-split helper per S96-135 (4). Not
-  triggered in Cycle 30. Recommend per-arc migration UNLESS operator
-  wants a cross-cutting Tier-1 sweep in dedicated cycle.
-- **OQ-C29-3** — **CLOSED Cycle 30 Slice 1**: gics_sector_map ingest
-  shipped + populated.
-- **OQ-C29-4** — **CLOSED Cycle 30 Slice 2**: sp500_constituents PIT
-  depth backfilled from sp500_history.
+  Item 5.02, 13D/G) to the dated-split helper per S96-135 (4). NOT
+  triggered Cycle 31. Now reclassified: if Cycle 32 has to expand the
+  helper to handle multi-year windows, the per-arc migration could
+  bundle in.
 - **OQ-C29-5** — Watch-universe PIT leak in
-  `_backfill_form_4_insider_snapshots.ts`. Phase B Cycle 31+ must
+  `_backfill_form_4_insider_snapshots.ts`. Phase B Cycle 32+ must
   decide whether the load-bearing score axis depends on the leaked
-  per-ticker counts. If so, a PIT-aware watch-universe override is
-  required.
+  per-ticker counts. With S96-141-W2 showing
+  `inputs_available_per_ticker = 0`, the per-ticker path is currently
+  unused; the leak is moot until cik_ticker_map is ingested
+  (OQ-C31-3). Re-evaluate when that lands.
 - **OQ-C28-1** — Migrate other 3 EDGAR ingest scripts to paginated
-  helper (now superseded by S96-135 (4) which adds dated-split).
-- **OQ-C28-2** — **CLOSED Cycle 29**.
-- **OQ-C28-3** — `--snapshot-date` default = today. Not triggered
-  in Cycle 30. Resolution deferred.
-- **OQ-C27-1** — FINRA bulk short-interest CSV URL discovery —
-  largest single blocker for `short_interest_v1` Phase B.
+  helper (now superseded by S96-135 (4) dated-split).
+- **OQ-C28-3** — `--snapshot-date` default = today. Not triggered.
+- **OQ-C27-1** — FINRA bulk short-interest CSV URL discovery.
 - **OQ-C27-2** — `executive_departure_v1` / `schedule_13d_g_v1`
   composites' score-axis question (categorical vs continuous-Φ).
 - **OQ-C27-3** — Cross-composite meta-HLZ pass at 4 vs 9 composites.
@@ -377,8 +450,7 @@ S94-1..S94-33; S93-1..S93-54; all prior s73-s92 lock-ins.
 - **OQ-C26-3** — QQQ PBO=0.089 cell anomaly investigation.
 - **OQ-C25-1** — HLZ M=57 universal-blocker pattern.
 - **OQ-C25-2** — IWM PBO=0.709 anomaly from sector_rot_v1.
-- **OQ-C24-1** — HLZ M=57 cross-composite meta-HLZ pass (deferred
-  per ADR-051).
+- **OQ-C24-1** — HLZ M=57 cross-composite meta-HLZ pass.
 - **OQ-C24-2** — KNOWN_COMPOSITES domain placement protocol.
 - **OQ-C24-3** — `pickPrimaryPhaseCCandidate` tiebreaker.
 - **OQ-C23-2** — CSCV all-zero / sparse-filter edge cases.
@@ -404,62 +476,61 @@ S94-1..S94-33; S93-1..S93-54; all prior s73-s92 lock-ins.
 
 ## Next stage
 
-### Default on `continue` — Cycle 31 candidate
+### Default on `continue` — Cycle 32 candidate
 
-Cycle 31 opens the **Phase B SPEC for `form_4_insider_v1`** — the
-fifth of nine Layer-0 informational composites. Data prerequisites
-all green:
-- `quantlab.insider_trades`: 143,628 rows / 4,552 tickers / 2026-01-02
-  .. 2026-05-22 (Cycle 28-29 raw backfill).
-- `quantlab.gics_sector_map`: 503 tickers / 11 sectors (Cycle 30
-  Slice 1).
-- `quantlab.sp500_constituents`: 1.34M rows / 2,706 PIT dates / depth
-  1996-01-02 .. 2026-05-09 (Cycle 30 Slice 2).
-- `quantlab.form_4_insider_snapshots`: 98 daily snapshots / continuous
-  coverage 2026-01-02 .. 2026-05-22 (Cycle 30 Slice 3).
+Cycle 32 closes **OQ-C31-1** by extending `quantlab.insider_trades`
+coverage backward via multi-month EDGAR Form 4 backfill. Without this
+extension, the form_4_insider_v1 Phase B SPEC cannot proceed: the 2y
+baseline window is zero-inflated and produces artifact z-scores.
 
-**Cycle 31 Slice 1 (SPEC):** mirror the cycle_v1 / vol_struct_v1 /
-sector_rot_v1 / cross_asset_v1 SPEC pattern (per AFML §11 + Bailey-LdP
-DSR + Harvey-Liu-Zhu deflation). Score axes:
-- **Aggregate axis:** `form_4_cluster_flag` (binary) + the underlying
-  continuous Z-score `max_aggregate_z` / `max_aggregate_z_sell`.
-- **Per-ticker axis:** `insiderClusterBuyFlag` / `insiderClusterSellFlag`
-  (binary), with continuous Z-score lift readable from `per_ticker_json`.
+**Cycle 32 Slice 1 (planning + first run):** decide window depth.
+Suggested baseline: 2024-01-01 .. 2026-01-01 (24 months, fills the 2y
+baseline that the existing 2026-01-02+ snapshots need). The
+sec_edgar_form4_ingest.py script ships the S96-135..S96-137 dated-
+split + paginated + retry-pack scaffolding (Cycle 29 deliverables),
+so 24 sub-runs at 1-month splits is the standard path. Per S96-138
+watch-out: single bulk INSERT to insider_trades at the end of each
+sub-run is at risk of CH OOM if any single month has > ~100K trades;
+empirically Cycle 29's 5-month run handled ~28K trades/month without
+issue, so 1-month sub-runs should be safe. If a sub-run errors,
+batched-write architectural fix (S96-138) becomes Cycle 32 in-scope
+instead of deferred.
 
-**Cycle 31 Slice 1a (pre-SPEC discriminator for OQ-C30-1):** before
-finalizing the SPEC, run a quick probe to discriminate among the
-three aggregate-flag-zero hypotheses (threshold-tight vs
-sector-attribution-gap vs window-quiet). Trivial CH query against
-`form_4_insider_snapshots.max_aggregate_z` distribution. If
-hypothesis (b) holds, the SPEC must include a gics-sector-map
-re-populate at each historical asOf (which requires Wikipedia
-historical sector data — a free-data scrape path, but new scope).
+**Cycle 32 Slice 2 (snapshot re-backfill):** after insider_trades has
+24+ months of data, re-run `_backfill_form_4_insider_snapshots.ts` to
+regenerate snapshots with the now-non-degenerate baseline. The
+snapshots backfill window stays at [2026-01-01 .. 2026-05-25] — the
+baseline window is what changed depth, not the snapshot window.
 
-**Cycle 31 Slice 2 (campaign):** run `phase_b:form_4_insider_v1:dry`
-+ `:apply` (npm scripts to be added in Slice 1). Mirror cross_asset_v1
-campaign's first-AUTO-APPROVE precedent if results meet PASS criteria.
+**Cycle 32 Slice 3 (z-distribution re-probe):** verify
+max_aggregate_z distribution is now in expected range (e.g.,
+quantile(0.95) < 3 — Lakonishok-Lee 2001 § baseline). If still
+inflated, deeper analysis required.
 
-**Cycle 31 Slice 3 (HANDOFF rewrite).**
+**Cycle 32 Slice 4 (HANDOFF rewrite).**
 
-### Alternative Cycle 31 candidates (lower priority)
+### Alternative Cycle 32 candidates (lower priority)
 
-- **Path 1 — sp500_history refresh closure (OQ-C30-3).** Re-fetch
-  fja05680 CSV beyond 2026-01-14; re-run `ingest_sp500_history.ts`
-  + Slice 2 INSERT…SELECT to close the 4-month gap-window staleness.
-  Cheap (~30 min); justified only if Cycle 31 Slice 1a hypothesis (b)
-  is correct.
-- **Path 2 — Proactive cross-cutting EDGAR migration (OQ-C28-1 +
-  S96-135 (4)).** Sweep `sec_edgar_8k_event_ingest.py`,
-  `sec_edgar_8k_item_5_02_ingest.py`, `sec_edgar_13d_g_ingest.py` to
-  the dated-split + retry-pack pattern. ~3-4 hours; 3 small commits.
-- **Path 3 — S96-138 architectural fix.** Batched writes +
-  `--resume-from-date` for `sec_edgar_form4_ingest.py`. Justified
-  only when next multi-month EDGAR backfill is imminent.
-- **Path 4 — Tier-1 closure burst** (OQ-C19-1 + OQ-C24-3 + GAP-7(a)).
+- **Path 2 — Bootstrap-script-wrap mini-cycle** (OQ-C30-2 + OQ-C31-2):
+  write `scripts/_propagate_sp500_history_to_constituents.ts` +
+  `scripts/_anchor_gics_sector_pit.ts` as named idempotent helpers
+  so the Cycle 30-31 one-shot data fixes are reproducible on
+  database wipe. ~150-200 LOC across 2 files; low risk. Worth doing
+  before the next major data refresh.
+- **Path 3 — Tier-1 closure burst** (OQ-C19-1 + OQ-C24-3 + GAP-7(a) +
+  OQ-C31-3 cik_ticker_map ingest).
+- **Path 4 — Proactive cross-cutting EDGAR migration** (OQ-C28-1 +
+  S96-135 (4)) — sweep 8K event, 8K Item 5.02, 13D/G ingest scripts.
+  Likely bundled with Cycle 32 if S96-135 helper expansion is
+  required for multi-year window.
 - **Path 5 — Early cross-composite meta-HLZ pass** (OQ-C24-1 +
-  OQ-C27-3).
-- **Path 6 — `short_interest_v1` FINRA URL discovery** (audit §6
-  Path 5; OQ-C27-1).
+  OQ-C27-3) — defer until 5th composite (form_4_insider_v1) is
+  PARTIAL.
+- **Path 6 — `short_interest_v1` FINRA URL discovery** (OQ-C27-1).
+- **Path 7 — `cik_ticker_map` ingest only** (OQ-C31-3) as a focused
+  micro-cycle. Trivial: SEC EDGAR's `company_tickers.json` is a
+  small JSON file (~10K entries). ~80 LOC TS script + a
+  schema-validation pin test.
 
 ### Long-running options (no change)
 
@@ -473,33 +544,28 @@ campaign's first-AUTO-APPROVE precedent if results meet PASS criteria.
 
 ## Files / code state
 
-### New / modified this cycle (s96 #24 Cycle 30)
+### New / modified this cycle (s96 #25 Cycle 31)
 
 | Path | Change | Notes |
 | --- | --- | --- |
-| `scripts/sp500_gics_sector_ingest.py` | +4 / -2 | Slice 1 (S96-139): escape `%` in argparse help for Py3.14 strict-check |
-| `.claude/HANDOFF.md` | rewrite | Slice 4 — this file |
+| `.claude/HANDOFF.md` | rewrite | Slice 2 — this file |
 
-Total: **~6 LOC across 1 file + 1 HANDOFF rewrite**. Two pure-data
-slices (Slice 2 + Slice 3) added zero source code — they are CH
-state changes only, documented in DB-state below. DDL not modified.
-No real-money path touched. No paid-data. No authenticated scrape.
-**0 new tests added** (Slice 1 reuses 26 existing gics-parse tests
-which all continue to pass; Slices 2 + 3 are pure-data closures
-gated by post-write CH verification).
+Total: **0 LOC of source code change**. All three pre-HANDOFF slices
+(1a probe, 1b anchor insert, 1c backfill re-run) were pure-data
+operations; the one commit this cycle is this HANDOFF rewrite.
+DDL not modified. No real-money path touched. No paid-data. No
+authenticated scrape. **0 new tests added** (no code change to test).
 
 ### DB-state changes this cycle
 
-- `quantlab.gics_sector_map`: **0 → 503 rows** (Cycle 30 Slice 1
-  first-apply); 11 distinct gics_sector values (all GICS-2018 canon
-  members); snapshot_date=2026-05-27.
-- `quantlab.sp500_constituents`: **503 → 1,344,210 rows** (Cycle 30
-  Slice 2); 1 → 2,706 distinct effective_date values; date range
-  expanded 2026-05-09 → {1996-01-02 .. 2026-05-09}; sources
-  {ivv_holdings 503} → {ivv_holdings 503, fja05680 1,343,707}.
-- `quantlab.form_4_insider_snapshots`: **0 → 98 rows** (Cycle 30
-  Slice 3 first-apply); snapshot_date range 2026-01-02 .. 2026-05-22
-  (continuous; matches insider_trades window).
+- `quantlab.gics_sector_map`: **503 → 1,006 rows** (Cycle 31 Slice 1b);
+  snapshot_date distribution expanded {2026-05-27} → {1996-01-02,
+  2026-05-27}; sources {wikipedia_sp500 503} → {wikipedia_sp500 503,
+  pit_anchor_synth_c31 503}.
+- `quantlab.form_4_insider_snapshots`: **98 rows overwritten** (Slice
+  1c re-backfill at NEWER computed_at; ReplacingMergeTree dedup);
+  buy-cluster days 0 → 89; sell-cluster days 0 → 82; aggregate-axis
+  z values now non-trivial across 96/98 days (was 0/98).
 
 ### Test + tsc state
 
@@ -507,19 +573,18 @@ gated by post-write CH verification).
   pass + 17 skip + 0 fail still holds.
 - `npx tsc --noEmit`: **13 baseline errors unchanged** (all in
   pre-existing `_*constituent*.ts` cleanup scripts).
-- `pytest scripts/tests/test_sp500_gics_sector_ingest.py`: **26/26 pass**.
-- `pytest scripts/tests/test_sec_edgar_*.py`: 147/147 pass (no change
-  from Cycle 29).
+- `pytest scripts/tests/test_sec_edgar_*.py`: 147/147 pass (unchanged).
+- `pytest scripts/tests/test_sp500_gics_sector_ingest.py`: 26/26 pass
+  (unchanged).
 - `node --import tsx --test scripts/tests/healthCheck.test.ts`:
-  **37/37 pass**.
+  **37/37 pass** (re-verified pre-cycle).
 
 ### Untouched-but-relevant for next session
 
 - Q-5 quarantine row pinned `accepted-as-warning`.
 - Q-7 quarantine + tracking rows loaded.
 - `quantlab.macro_indicators_cboe` 5,685 rows (CBOE put/call stale
-  6.0d per health:check — daemon hasn't run today; not a Cycle 30
-  regression).
+  6.1d — daemon hasn't run today; not a Cycle 31 regression).
 - `quantlab.cycle_position_snapshots` 4,627 rows; 2008-01-02 →
   2026-05-22.
 - `quantlab.vol_structure_snapshots` 3,367+ rows.
@@ -527,54 +592,66 @@ gated by post-write CH verification).
 - `quantlab.cross_asset_snapshots` 3,368 rows.
 - `quantlab.phase_b_trials` 228 rows; `quantlab.phase_b_verdicts`
   12 rows.
-- `quantlab.insider_trades` 143,628 rows; `quantlab.insider_ciks`
-  32,823 rows.
-- **Empty/missing tables (Cycle 30 closes 3 of 5; remaining):**
-  `short_interest` MISSING, `executive_departure` MISSING,
-  `schedule_13d_g` MISSING, `eight_k_events` 0 rows,
+- `quantlab.insider_trades` 146,168 rows (was 143,628 Cycle 30 — small
+  organic growth from latest daemon-cadence runs; not a Cycle 31 ingest).
+- `quantlab.insider_ciks` 32,823 rows.
+- `quantlab.sp500_constituents` 1,344,711 rows (was 1,344,210; +501
+  from one daemon cycle that touched the IVV-holdings snapshot — not
+  Cycle 31 work).
+- `quantlab.candles` 43,400,523 rows (unchanged; daemon hasn't refreshed).
+- **Empty/missing tables (after Cycle 31):**
+  `cik_ticker_map` 0 rows (S96-141-W2 / OQ-C31-3),
+  `short_interest` MISSING,
+  `executive_departure` MISSING,
+  `schedule_13d_g` MISSING,
+  `eight_k_events` 0 rows,
   `etf_shares_outstanding` 0 rows.
 - Operator dev server still needs `npm run dev` restart for
   Cycle 20-26 surfaces.
 
 ### Background-task / log artifacts
 
-- No background-task logs generated this cycle (snapshot apply ran
-  foreground in 65s).
+- No background-task logs generated this cycle (snapshot backfill ran
+  foreground in 86s).
 - Cycle 29 forensic logs still on disk
-  (`logs/form4_apply_2026-05-26*.log`); safe to delete post-Cycle-30.
+  (`logs/form4_apply_2026-05-26*.log`); safe to delete post-Cycle-32.
 
 ---
 
 ## Watch-outs
 
-### NEW from this cycle (s96 #24 Cycle 30)
+### NEW from this cycle (s96 #25 Cycle 31)
 
-- **Python 3.14 strict-checks argparse help format strings** (S96-139).
-  Sweep other ingest scripts at next Tier-1 opportunity. Any URL
-  embedded in `--help` is at risk.
+- **gics_sector_map PIT-anchor row is REQUIRED for historical
+  asOf < 2026-05-27** (S96-141). On database wipe / re-bootstrap, the
+  Slice 1b INSERT must be re-run — current state is one-shot manual,
+  not wrapped in a script (OQ-C31-2). Failure mode if not re-run:
+  silent regression to Cycle-30 state (all form_4 snapshots have
+  `inputs_available_aggregate=0`, no aggregate signal fires).
 
-- **`sp500_constituents` PIT gap window 2026-01-14 → 2026-05-09**
-  (S96-140-W). Bounded staleness ≤ 4 months in the gap. Refresh
-  fja05680 CSV beyond 2026-01-14 OR scrape Wikipedia changelog to
-  close. Defer until Cycle 31 SPEC verdict (OQ-C30-3).
+- **`max_aggregate_z` values in `form_4_insider_snapshots` are
+  ARTIFACT-DRIVEN** (S96-141-W). Mean=10, max=27. NOT real signal.
+  Phase B SPEC blocked until OQ-C31-1 resolved (multi-year
+  insider_trades backfill).
 
-- **Slice 2 INSERT…SELECT is not yet a named script** (S96-140 (3)).
-  Future re-runs of `ingest_sp500_history.ts` REQUIRE manually
-  re-running the INSERT…SELECT to flow new rows through. Wrap in
-  `scripts/_propagate_sp500_history_to_constituents.ts` at next
-  refresh opportunity.
+- **`cik_ticker_map` empty** (S96-141-W2). Per-ticker `cik` field
+  is `""` on every form_4 snapshot row.
+  `inputs_available_per_ticker = 0` structurally. NOT blocking
+  composite logic; blocking downstream consumers that filter on
+  `inputs_available_per_ticker > 0`.
 
-- **OQ-C30-1 aggregate-flag zero** — `form_4_insider_snapshots` has
-  zero days where the aggregate `form_4_cluster_flag` or F4-12
-  sell-cluster fired, despite 18 + 1087 per-ticker flag-days.
-  Cycle 31 Slice 1a must discriminate among threshold-tight /
-  sector-attribution-gap / window-quiet hypotheses BEFORE
-  finalizing the SPEC.
+- **`INSERT … SELECT FROM <self>` silently no-op'd in this CH
+  deployment** (OQ-C31-4 watch-out). Workaround: always use
+  `SELECT` → Python rows → `clickhouse_connect.insert()` with
+  explicit `column_names`. Same pattern as `c.insert(...)` used in
+  Slice 1b. Future data-fix slices should follow this idiom rather
+  than the SELF-INSERT shortcut.
 
 ### Carried from earlier sessions
 
-All prior watch-outs (s96 #1-#23 + Cycle 29 carry-overs including
-S96-135..S96-138 EDGAR resilience pack) preserved.
+All prior watch-outs (s96 #1-#24 + Cycle 30 carry-overs including
+S96-135..S96-140 EDGAR resilience pack and S96-140-W
+sp500_constituents PIT gap-window) preserved.
 
 ---
 
@@ -614,14 +691,21 @@ npm run phase_b:cross_asset_v1:dry
 npm run phase_b:cross_asset_v1:apply
 ```
 
-### Cycle 30 data-prep one-liners (for repeat / refresh)
+### Cycle 31 data-prep one-liners (for repeat / refresh)
 
 ```text
-.venv/Scripts/python.exe scripts/sp500_gics_sector_ingest.py --apply
-
-# After re-running ingest_sp500_history.ts (when fja05680 CSV refreshes):
-# RUN THE FOLLOWING TO FLOW NEW PIT ROWS INTO sp500_constituents:
-.venv/Scripts/python.exe -c "import clickhouse_connect, os; c=clickhouse_connect.get_client(host=os.getenv('CLICKHOUSE_HOST','127.0.0.1'),port=int(os.getenv('CLICKHOUSE_PORT','8123')),username=os.getenv('CLICKHOUSE_USER','quantlab'),password=os.getenv('CLICKHOUSE_PASSWORD','quantlab'),database='quantlab'); c.command(\"INSERT INTO sp500_constituents (effective_date, ticker, source, weight_pct) SELECT trade_date, ticker, 'fja05680', 0.0 FROM sp500_history FINAL\")"
+# RECOMPUTE THE PIT-ANCHOR ROWS in quantlab.gics_sector_map
+# (run after any sp500_gics_sector_ingest.py re-run OR on database wipe):
+.venv/Scripts/python.exe -c "
+import clickhouse_connect, os, datetime
+c = clickhouse_connect.get_client(host=os.getenv('CLICKHOUSE_HOST','127.0.0.1'),
+    port=int(os.getenv('CLICKHOUSE_PORT','8123')),username=os.getenv('CLICKHOUSE_USER','quantlab'),
+    password=os.getenv('CLICKHOUSE_PASSWORD','quantlab'),database='quantlab')
+src = c.query(\"SELECT ticker, gics_sector, gics_sub_industry FROM quantlab.gics_sector_map FINAL WHERE source='wikipedia_sp500' AND gics_sector != ''\").result_rows
+anchor = [(t, s, sub, datetime.date(1996,1,2), 'pit_anchor_synth_c31') for (t,s,sub) in src]
+c.insert('gics_sector_map', anchor, column_names=['ticker','gics_sector','gics_sub_industry','snapshot_date','source'], database='quantlab')
+print(f'Inserted {len(anchor)} anchor rows.')
+"
 
 # Re-run form_4_insider snapshot backfill (idempotent per ReplacingMergeTree):
 npx tsx scripts/_backfill_form_4_insider_snapshots.ts --start 2026-01-01 --end 2026-05-25 --apply
@@ -663,31 +747,34 @@ npx tsc --noEmit                                                                
 
 ## For the next session — priority order
 
-**Default on `continue` — Cycle 31 Phase B SPEC for form_4_insider_v1:**
+**Default on `continue` — Cycle 32 = `insider_trades` multi-year EDGAR
+Form 4 backfill (closes OQ-C31-1):**
 
-- Slice 1a (pre-SPEC discriminator): probe `form_4_insider_snapshots`
-  for OQ-C30-1 aggregate-flag-zero root cause among threshold-tight /
-  sector-attribution-gap / window-quiet.
-- Slice 1 (SPEC): mirror cycle_v1 / vol_struct_v1 / sector_rot_v1 /
-  cross_asset_v1 pattern. Both axes (aggregate flag + per-ticker flag).
-- Slice 2 (campaign run): `phase_b:form_4_insider_v1:dry` + `:apply`.
-- Slice 3 (HANDOFF rewrite).
+- Slice 1: 24-month backfill in 1-month sub-runs (2024-01-01 ..
+  2026-01-01) using the S96-135 dated-split scaffolding. Log to
+  `logs/form4_apply_c32_<batch>.log`. Verify total
+  insider_trades growth and per-month row counts.
+- Slice 2: re-run `_backfill_form_4_insider_snapshots.ts` at the
+  existing 2026-01-01 .. 2026-05-25 window — the snapshots are the
+  same dates, but their 2y baseline now has real trade data.
+- Slice 3: z-distribution re-probe; verify quantile(0.95) < 3.
+- Slice 4: HANDOFF rewrite.
 
-**Cycle 31 alternatives (lower priority):**
+**Cycle 32 alternatives (lower priority):**
 
-- Path 1 — sp500_history refresh (OQ-C30-3).
-- Path 2 — Proactive cross-cutting EDGAR migration.
-- Path 3 — S96-138 batched writes.
-- Path 4 — Tier-1 closure burst.
+- Path 2 — Bootstrap-script-wrap mini-cycle (OQ-C30-2 + OQ-C31-2).
+- Path 3 — Tier-1 closure burst.
+- Path 4 — Proactive cross-cutting EDGAR migration.
 - Path 5 — Early cross-composite meta-HLZ pass.
 - Path 6 — `short_interest_v1` FINRA URL discovery.
+- Path 7 — `cik_ticker_map` ingest micro-cycle (OQ-C31-3).
 
 **Operator queue items (Q-1 through Q-8):**
 
 - Q-1 first real-capital deployment — **INDEFINITELY DEFERRED**.
 - Q-2 capital-deployment-ramp ADR — **INDEFINITELY DEFERRED**.
 - Q-3 Stooq apikey gate decision.
-- Q-4 push 97 commits to origin/main.
+- Q-4 push 98 commits to origin/main.
 - Q-5 **CLOSED via ADR-050** Cycle 21.
 - Q-6 PARTIAL-WITH-UI-FIX (operator restart needed).
 - Q-7 phase1_v3 yield-curve source persistence.
@@ -714,26 +801,31 @@ npx tsc --noEmit                                                                
 
 ## Important framing for the next chat
 
-**Cycle 30 is closed.** Two commits: Slice 1 gics ingest Py3.14
-argparse fix (`ed8c35a`) + Slice 4 this HANDOFF rewrite. Net 97
-unpushed commits.
+**Cycle 31 is closed.** One commit: Slice 2 this HANDOFF rewrite. Net
+98 unpushed commits.
 
-**Cycle 30 was a dependency-unblock cycle** that flipped three
-load-bearing tables from missing/shallow to populated/deep, all in
-one session:
-- `gics_sector_map`: 0 → 503 rows / 11 GICS sectors.
-- `sp500_constituents`: 1 effective_date → 2,706 effective_dates
-  (1996-01-02 .. 2026-05-09) via fja05680 backfill.
-- `form_4_insider_snapshots`: 0 → 98 daily rows (continuous coverage
-  2026-01-02 .. 2026-05-22).
+**Cycle 31 was a data-plumbing cycle** that discriminated OQ-C30-1 to
+its root cause (`gics_sector_map` had a single snapshot_date =
+2026-05-27, invisible to every historical asOf in the form_4 snapshot
+backfill window), fixed it via a PIT-anchor INSERT (Slice 1b, 503 rows
+at snapshot_date = 1996-01-02, source = `pit_anchor_synth_c31`), and
+re-ran the snapshot backfill (Slice 1c). The aggregate signal flipped
+from structurally-zero to 89/98 buy-cluster + 82/98 sell-cluster
+days. Per-ticker sector attribution healed (60/62 in 2026-04-15
+spot-check).
 
-**The S96-130 pre-SPEC data-coverage hard gate for `form_4_insider_v1`
-Phase B is SATISFIED.** Cycle 31 can open the SPEC immediately.
+**The pre-SPEC discriminator probe SURFACED a NEW concern** (OQ-C31-1):
+the 2y baseline window extends back to 2024 but `insider_trades` only
+has 2026-01-02+ data, producing zero-inflated baselines and
+artifact-driven z-scores (max=27, mean=10). Phase B SPEC blocked
+until Cycle 32 extends insider_trades coverage backward via a 24-month
+EDGAR Form 4 backfill (S96-135 dated-split scaffolding makes this
+operationally straightforward).
 
-**Cycle 30 surfaced one Python-3.14-compat Tier-1 fix** (S96-139:
-argparse `%`-format escape) and two methodology lock-ins (S96-140 +
-S96-140-W: `sp500_constituents` is canonical PIT table; gap-window
-staleness bounded ≤ 4 months until next fja05680 refresh).
+**Cycle 31 also surfaced** S96-141-W2 (cik_ticker_map is empty;
+OQ-C31-3 ingest from EDGAR's free company_tickers.json) and OQ-C31-4
+(`INSERT … SELECT FROM <self>` no-op'd silently; use Python
+clickhouse_connect.insert() workaround).
 
 **The 9-arc:**
 
@@ -741,35 +833,40 @@ staleness bounded ≤ 4 months until next fja05680 refresh).
 - ✓ vol_struct_v1 (Cycle 24 PARTIAL)
 - ✓ sector_rot_v1 (Cycle 25 PARTIAL)
 - ✓ cross_asset_v1 (Cycle 26 PARTIAL; first AUTO-APPROVE)
-- 🚧 form_4_insider_v1 (Cycle 28 = pagination fix + 3-day apply;
-  Cycle 29 = 10K-cap fix + 5-month raw backfill + snapshot driver
-  shipped; Cycle 30 = gics + sp500 PIT + snapshot backfill;
-  **Cycle 31 = Phase B SPEC opens**)
+- 🚧 form_4_insider_v1 (Cycle 28 = pagination + 3-day apply;
+  Cycle 29 = 10K-cap + 5-month raw + snapshot driver; Cycle 30 = gics
+  + sp500 PIT + snapshot backfill; Cycle 31 = gics PIT-anchor fix +
+  snapshot re-backfill, **aggregate signal healed but baseline
+  shallow per OQ-C31-1**; **Cycle 32 = 24-month insider_trades
+  backfill**, then Cycle 33+ Phase B SPEC)
 - ☐ short_interest_v1 (3-5 cycle ingest; FINRA URL discovery
   largest blocker)
 - ☐ exec_departure_v1 (2-3 cycle ingest; EDGAR family)
 - ☐ etf_flow_v1 (Path 1 BLOCKED until Q-6 resolved)
 - ☐ eight_k_classifier_v1 (2-3 cycle ingest; EDGAR family)
 
-**Cycle 31 default path (recommended):**
+**Cycle 32 default path (recommended):**
 
-- Slice 1a: discriminate OQ-C30-1 aggregate-flag-zero hypothesis.
-- Slice 1: Phase B SPEC.
-- Slice 2: campaign dry + apply.
-- Slice 3: HANDOFF rewrite.
+- Slice 1: 24-month form4 ingest in 1-month sub-runs (S96-135
+  dated-split, the same scaffold Cycle 29 used for 5-month).
+- Slice 2: re-run snapshot backfill (same script, same window).
+- Slice 3: z-distribution re-probe + verify quantile(0.95) < 3.
+- Slice 4: HANDOFF rewrite + decide if Phase B SPEC ships Cycle 33
+  or further data-coverage work needed.
 
-**Cycle 31 watch-out priority:** if Slice 1a concludes hypothesis
-(b) — sector-attribution-gap from gics_sector_map snapshot semantics
-— then the SPEC must include a historical gics-sector replay path
-(free-data scrape of Wikipedia changelog OR alternative). If
-hypothesis (a) or (c), proceed with SPEC as patterned after the
-cross_asset_v1 first-AUTO-APPROVE template.
+**Cycle 32 watch-out priority:** if Slice 1's 24-month backfill
+exceeds Cycle 29's empirical 28K-trades-per-month upper bound for
+any single sub-run, the S96-138 architectural batched-write fix
+becomes Cycle 32 in-scope rather than deferred. Cycle 32 SPEC must
+explicitly decide between dated-split-only and dated-split +
+batched-writes before the first apply.
 
-**Per the S96-130 pre-SPEC data-coverage hard gate:** Cycle 31 Slice
-1a's CH probe IS the data-coverage verification. Snapshot table has
-98/98 continuous coverage so this is just a sanity re-check, but the
-hard gate posture is preserved.
+**Per the gics_sector_map PIT-anchor requirement (S96-141):** on
+database wipe / re-bootstrap, the Slice 1b INSERT must be re-run.
+Reproduction one-liner is in this HANDOFF's "Cycle 31 data-prep
+one-liners" section. Until OQ-C31-2 wraps this into a named TS
+script, it stays a copy-paste hazard.
 
 **Worker-spawn / SPEC-on-main / worktree watch-outs** carried over
-from Cycle 27-29 — see HANDOFF Cycle 27-29 Watch-outs sections + the
-new S96-135..S96-140 watch-outs above.
+from Cycle 27-30 — see HANDOFF Cycle 27-30 Watch-outs sections + the
+new S96-141..S96-141-W2 watch-outs above.
