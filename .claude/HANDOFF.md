@@ -1,77 +1,80 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-05-28 (session 96 #26 — **Cycle 32 IN PROGRESS: 24-month
+Last updated: 2026-05-28 (session 96 #26 — **Cycle 32 IN PROGRESS: FILTERED
 `insider_trades` EDGAR Form 4 backfill running in the background to close
-OQ-C31-1 (zero-inflated 2y baseline). Three slices already committed: (1) a
-CH-`Date` range-clamp bugfix that was crashing every pre-2025 backfill month
-at the bulk INSERT after ~3-5h of fetching; (2) bulk `cik_ticker_map` ingest
-from SEC `company_tickers.json` — 7,992 issuers, closes OQ-C31-3 / S96-141-W2;
-(3) two idempotent reproducibility scripts wrapping the Cycle 30/31 one-shot
-data fixes — closes OQ-C30-2 + OQ-C31-2. The backfill itself (Dec-2025 month
-landed: 22,626 rows; 2024-01..2025-11 = 23 months looping at ~3h each, ~70h
-total) is the gating remaining work. Operator chose the full faithful
-backfill over a filtered fast path.** Net 102 unpushed commits on
-`origin/main` (`c0cda7c`) after this HANDOFF ships.
-**NEXT on `continue`:** check backfill progress (master log + per-month
-`accepted_at` distribution), relaunch any missing months (idempotent), then
-run the snapshot re-backfill + z-distribution re-probe + Cycle 32 close.
+OQ-C31-1 (zero-inflated 2y baseline). FOUR slices committed: (1) a CH-`Date`
+range-clamp bugfix that was crashing pre-2025 months at the bulk INSERT; (2)
+bulk `cik_ticker_map` ingest from SEC `company_tickers.json` — 7,992 issuers,
+closes OQ-C31-3 / S96-141-W2; (3) two reproducibility scripts wrapping the
+Cycle 30/31 one-shot data fixes — closes OQ-C30-2 + OQ-C31-2; (4) an
+SP500 issuer-CIK FILTER for the form4 ingest — closes OQ-C32-1 and FIXES the
+EDGAR sustained-access throttling that made the original full-market backfill
+produce silently-incomplete months. The backfill PIVOTED from full-market
+(~70h, throttled, broken months) to SP500-filtered (~12-18h, complete months)
+after the operator approved the pivot. 2024-01 + 2024-04 already landed
+full-market (complete); the other 21 months are running filtered.** Net 103
+unpushed commits on `origin/main` (`c0cda7c`) after this HANDOFF ships.
+**NEXT on `continue`:** check the FILTERED backfill (`logs/c32_filtered_backfill.sh`
+is resumable — re-run it; it skips months already ≥3000 rows), then run the
+snapshot re-backfill + z-distribution re-probe + Cycle 32 close.
 
 ---
 
-## ⚠️ ACTIVE BACKGROUND JOB — `insider_trades` 24-month backfill (resume protocol)
+## ⚠️ ACTIVE BACKGROUND JOB — FILTERED `insider_trades` backfill (resume protocol)
 
-**A long-running (~70h) EDGAR Form 4 backfill is in flight.** It is the gating
-Cycle 32 work. The environment has restarted twice this session, so the next
-session MUST be able to resume it. The driver lived at `/tmp/c32_form4_loop.sh`
-(EPHEMERAL — likely gone after a restart); the resume logic below does not
-depend on it.
+**A FILTERED (SP500 issuer-CIK) EDGAR Form 4 backfill is in flight (~12-18h).**
+It is the gating Cycle 32 work. The environment restarted twice this session,
+so the next session MUST be able to resume it. The resumable driver is at
+**`logs/c32_filtered_backfill.sh`** (in the repo dir → survives restart, unlike
+the obsolete `/tmp` full-market driver).
 
-**What it does:** ingests Form 4 filings month-by-month for **2024-01-01 ..
-2025-11-30** (23 months) into `quantlab.insider_trades`, one `--apply` sub-run
-per month, serialized (EDGAR 10 req/s global cap → never run two concurrently).
-Dec-2025 (`2025-12-01..2026-01-01`) was already landed separately (22,626 rows).
+**Why FILTERED (the pivot):** the original full-market backfill (~16-24K
+filings/month body-fetched) triggered EDGAR's sustained-access throttle after
+~3h: 503 storms + read-timeouts exhausted the 5-retry pack, **silently
+skipping filings** → incomplete months (2024-02 wrote 876 of ~25K filings'
+rows; 2024-03 wrote 0). `rc=0` masked it. The fix (slice 4 / OQ-C32-1): filter
+the search results to the **533 SP500 issuer CIKs** (the composite's
+load-bearing aggregate only reads SP500 PIT constituents) BEFORE the expensive
+body-fetch → ~5x fewer requests (23,893 → 4,771 filings/month) → stays under
+the throttle AND produces complete months. Operator approved the pivot.
 
-**Why:** OQ-C31-1 — the form_4 composite's 2y baseline window
+**Why at all:** OQ-C31-1 — the form_4 composite's 2y baseline window
 ([asOf-730d, asOf]) was zero-inflated because `insider_trades` only had
-2026-01-02+ data. The earliest snapshot (2026-01-01) needs membership back to
-2024-01-01. 2y baseline is load-bearing (Lakonishok-Lee 2001, baked into the
-`form_4_insider_v1` composite version) — NOT a knob to shrink.
+2026-01-02+ data. 2y baseline is load-bearing (Lakonishok-Lee 2001, baked into
+the `form_4_insider_v1` composite version) — NOT a knob to shrink.
 
-**Runtime reality:** ~16K filings/month × (index.json + XML body) ≈ 33K HTTP
-requests/month at ~3 req/s effective ≈ **~3h/month → ~70h** for 23 months.
-Mostly idle I/O wait, not CPU. The operator was shown a ~7h filtered-path
-alternative (pre-filter to SP500/midcap CIKs) and chose the full faithful
-backfill.
+**State:** Dec-2025 (22,626) + 2024-01 (24,516) + 2024-04 (18,970) already
+landed FULL-MARKET (complete — they contain the SP500 subset, so the filtered
+loop SKIPS them). The other 21 months (2024-02,03,05..12 + 2025-01..11) run
+filtered (~7-9K rows each expected). Mixing full-market + filtered months is
+fine: the composite joins to SP500 PIT constituents at read-time, so the
+SP500 subset is present in every month either way.
 
-**RESUME PROTOCOL (idempotent — safe to re-run any month):**
+**RESUME PROTOCOL (idempotent + resumable — just re-run the driver):**
 
 1. Ensure ClickHouse is up (see "Restart recovery" below).
-2. Probe which months are done:
+2. Rebuild the allowlist if `logs/sp500_issuer_ciks.txt` is gone (it's
+   gitignored → may not survive a wipe):
    ```
-   .venv/Scripts/python.exe -c "
-   import clickhouse_connect
-   c=clickhouse_connect.get_client(host='127.0.0.1',port=8123,username='quantlab',password='quantlab',database='quantlab')
-   for m,n in c.query(\"SELECT toStartOfMonth(accepted_at) m, count() FROM quantlab.insider_trades WHERE accepted_at>='2024-01-01' AND accepted_at<'2025-12-01' GROUP BY m ORDER BY m\").result_rows: print(m,f'{n:,}')
-   "
+   npx tsx scripts/_build_sp500_issuer_cik_allowlist.ts > logs/sp500_issuer_ciks.txt
    ```
-   A complete month has **~10K-40K rows**. A month with **0 / a few hundred**
-   rows is incomplete (only late-filed amendments from the original window) →
-   re-run it.
-3. Re-run a single missing month (example for 2024-03):
+3. Re-run the resumable driver — it SKIPS any month already ≥3000 rows and
+   runs only the missing ones:
    ```
-   .venv/Scripts/python.exe -u scripts/sec_edgar_form4_ingest.py \
-       --start-date 2024-03-01 --end-date 2024-04-01 --apply \
-       > logs/form4_apply_c32_2024-03.log 2>&1
+   bash logs/c32_filtered_backfill.sh
    ```
+   (run in background; ~36min/month for the missing months). Progress in
+   `logs/form4_filtered_c32_master.log`.
+4. **VALIDATE COMPLETENESS, not just rc=0** (the throttle lesson): a complete
+   filtered month has **~5K-12K rows**; a throttled/incomplete month has
+   <2K. Probe per-month `accepted_at` counts (see Backfill reminders below).
    ReplacingMergeTree on `(issuer_cik, accession, transaction_id)` makes
-   re-runs safe (dedup on merge). Each month writes a SINGLE bulk INSERT at
-   the very end — a mid-run kill writes **zero** rows (clean restart point).
-4. The 23-month list: `2024-01..2024-12` (12) + `2025-01..2025-11` (11). Each
-   sub-run window is `[YYYY-MM-01, next-month-01]`.
+   re-runs safe; each month is a single end-of-run INSERT (mid-kill = 0 rows).
 
-**Watch-out:** the CH-`Date` range bug (now fixed in `sec_edgar_form4_ingest.py`,
-slice 1) is what made 2024-01/2024-02 fail before — make sure the running /
-re-run uses the CURRENT script (commit `9c7d1e6`+).
+**Watch-out:** if the FILTERED months ALSO show throttling (incomplete <2K),
+the next lever is lowering `SEC_RATE_LIMIT_RPS` (currently 10, no margin) +
+raising 503 backoff in `scripts/_sec_edgar_helpers.py`. Monitor the first few
+filtered months before assuming it's clean.
 
 ---
 
@@ -99,14 +102,14 @@ ratified 2026-05-23 (s96 #14), every routine decision is the orchestration's.
 | Q-1 | First deployment of real capital — timing + amount | orchestration §7.1.1 | **INDEFINITELY DEFERRED** per s96 #19 |
 | Q-2 | Capital-deployment-ramp ADR sign-off | s96 #13 | **INDEFINITELY DEFERRED** per s96 #19 |
 | Q-3 | GAP-5 Stooq apikey gate decision | Audit GAP-5 | OPEN — paid subscription |
-| Q-4 | Push 102 unpushed commits to origin/main (Cycle 21..32 + handoffs) | Carry-over; +4 this session | OPEN — `git push` operator-gated |
+| Q-4 | Push 103 unpushed commits to origin/main (Cycle 21..32 + handoffs) | Carry-over; +5 this session | OPEN — `git push` operator-gated |
 | Q-5 | phase1_v3 CBOE put/call corrupted-input window | Cycle 21 ADR-050 | **CLOSED — ADR-050** |
 | Q-6 | ETF v1 yfinance primary panel + /#/phase-b UI restart | s96 #17/18/20 + C24 | PARTIAL — closes on operator `npm run dev` restart |
 | Q-7 | phase1_v3 yield-curve source persistence — Path 1/2/3 pick | s96 #18 C19; ADR-041 gap | **OPEN — operator picks Path** |
 | Q-8 | Phase C promotion of any Layer-0 composite to phase1_v3+ | Cycle 22 ADR-051 §Decision 5 | **DORMANT** — no PASS-ALL + PBO<0.2 yet |
 
-**Q-4 count 98 → 102** (this session: slice 1 + slice 2 + slice 3 + this
-HANDOFF). All other items unchanged.
+**Q-4 count 98 → 103** (this session: slices 1-4 + interim HANDOFF; this
+HANDOFF edit is uncommitted-then-committed). All other items unchanged.
 
 ---
 
@@ -160,10 +163,22 @@ DB wipe. Two named idempotent wrappers:
 Both verified idempotent against current state; anchor `--apply` re-confirmed
 FINAL distribution 503/503. tsc baseline 13 unchanged.
 
-### Slice 1c — the backfill itself (RUNNING, see top section)
+### Slice 4 (commit `a8df3b7`) — SP500 issuer-CIK filter (closes OQ-C32-1; fixes throttling)
 
-23-month loop in background. Dec-2025 landed (22,626 rows). 2024-01..2025-11
-in progress (~70h). NOT yet complete.
+Added `--issuer-cik-file` to `sec_edgar_form4_ingest.py` (`load_issuer_cik_allowlist`
++ `filter_filings_by_issuer_cik`, matched against `ciks_all` so the issuer CIK
+is never missed); applied BEFORE body-fetch. New
+`scripts/_build_sp500_issuer_cik_allowlist.ts` emits the union of SP500
+constituent issuer CIKs (since 2023-06-01) via cik_ticker_map — **566 tickers
+→ 533 CIKs**. Empirically cuts 23,893 → 4,771 filings/month (~5x). +5
+filter/loader tests (**55 form4 tests total**). tsc baseline 13.
+
+### Backfill (RUNNING — FILTERED, see top section)
+
+Full-market loop STOPPED (was producing throttled/incomplete months). Pivoted
+to the filtered resumable driver `logs/c32_filtered_backfill.sh`. Dec-2025 +
+2024-01 + 2024-04 complete (full-market); 21 months running filtered (~12-18h).
+NOT yet complete.
 
 ### Cycle 32 outcomes per orchestration §3.1
 
@@ -210,6 +225,17 @@ the all-or-nothing bulk INSERT. `How to apply:` the clamp is at both the parser
 and the writer choke point; any new EDGAR ingest writing a CH `Date`/`DateTime`
 column should apply the same bounds guard.
 
+**S96-144. Multi-month/multi-year EDGAR Form 4 backfills MUST filter to the
+SP500 issuer-CIK allowlist before body-fetch (`--issuer-cik-file`).** `Why:`
+full-market body-fetching (~16-24K filings/month) triggers EDGAR's
+sustained-access throttle (503 storms) after ~3h, which silently skips filings
+and produces incomplete months with a deceptive `rc=0`. The composite's
+load-bearing aggregate only reads SP500 PIT constituents, so the filter loses
+nothing the aggregate needs while cutting volume ~5x. `How to apply:` use
+`logs/c32_filtered_backfill.sh` (resumable); regenerate the allowlist via
+`_build_sp500_issuer_cik_allowlist.ts`. ALWAYS validate backfilled months by
+ROW COUNT (complete filtered month ≈ 5K-12K rows), never by exit code.
+
 **Carry-overs (still in force):** S96-1..S96-141 (incl. S96-141 gics PIT-anchor,
 S96-140 sp500_constituents PIT depth, S96-135..S96-138 EDGAR resilience pack);
 S95-1..S95-50; all prior s73-s94 lock-ins.
@@ -237,12 +263,16 @@ S95-1..S95-50; all prior s73-s94 lock-ins.
   gics_sector_map in this CH build (24.8.14.39). Workaround documented +
   encoded in `_anchor_gics_sector_pit.ts` (read-then-insert). Defer root-cause
   investigation.
-- **OQ-C32-1** (NEW) — the backfill stores ALL market Form 4s (~16K/month),
-  ~10× what the composite reads (SP500+midcap). A future optimization: a
-  PIT-clean SP500/midcap-CIK pre-filter before body-fetch would cut runtime
-  ~10× (~7h). Requires the now-populated cik_ticker_map + a PIT issuer-CIK
-  union from sp500_constituents. Deferred — operator chose the full backfill
-  this cycle.
+- **OQ-C32-1** — CLOSED (slice 4): the SP500 issuer-CIK pre-filter is
+  implemented (`--issuer-cik-file` + `_build_sp500_issuer_cik_allowlist.ts`)
+  and is the active backfill path. NOT a future optimization anymore — it's
+  REQUIRED (S96-144) because the full-market path triggers EDGAR throttling.
+- **OQ-C32-2** (NEW) — the filter is SP500-only (533 CIKs). The composite's
+  NON-load-bearing per-ticker path uses an equity-midcap watch universe that
+  is NOT in the allowlist, so midcap-only insiders won't be backfilled. Fine
+  for Phase B aggregate validation; revisit if the per-ticker path becomes
+  load-bearing. Also: 33 of 566 SP500 tickers didn't resolve to a CIK
+  (delisted / not in company_tickers.json) — a minor v1 coverage gap.
 - **OQ-C29-1 / OQ-C29-2** — form4 batched-writes (S96-138) + migrate other 3
   EDGAR ingests to dated-split (S96-135 (4)). The 23-month backfill empirically
   tests whether single bulk INSERT/month holds at ~10-40K rows; if any month
@@ -260,10 +290,11 @@ S95-1..S95-50; all prior s73-s94 lock-ins.
 
 ### Default on `continue` — finish Cycle 32
 
-1. **Check backfill state** (master log `logs/form4_apply_c32_master.log` +
-   the per-month `accepted_at` probe in the resume-protocol section). If the
-   loop is still running, let it finish; if interrupted, relaunch missing
-   months (idempotent).
+1. **Check FILTERED backfill state** (master log
+   `logs/form4_filtered_c32_master.log` + per-month `accepted_at` probe). If
+   interrupted, re-run `bash logs/c32_filtered_backfill.sh` (resumable — skips
+   months ≥3000 rows). VALIDATE by row count (complete ≈ 5K-12K/month), not
+   rc=0 (S96-144).
 2. **Snapshot re-backfill:** once `insider_trades` has 2024-01+ coverage,
    `npx tsx scripts/_backfill_form_4_insider_snapshots.ts --start 2026-01-01 --end 2026-05-25 --apply`
    (same window; the baseline DEPTH changed, not the snapshot dates).
@@ -294,7 +325,11 @@ S95-1..S95-50; all prior s73-s94 lock-ins.
 | `scripts/tests/test_sec_edgar_company_tickers_ingest.py` | NEW | 8 parser/pin tests |
 | `scripts/_propagate_sp500_history_to_constituents.ts` | NEW | OQ-C30-2 reproducibility wrap |
 | `scripts/_anchor_gics_sector_pit.ts` | NEW | OQ-C31-2 reproducibility wrap |
+| `scripts/_build_sp500_issuer_cik_allowlist.ts` | NEW | slice 4 — emits 533 SP500 issuer CIKs |
+| `scripts/sec_edgar_form4_ingest.py` | edit | slice 4 — `--issuer-cik-file` filter |
+| `scripts/tests/test_sec_edgar_form4_ingest.py` | edit | slice 4 — +5 filter tests (55 total) |
 | `package.json` | edit | +`edgar:company-tickers:ingest[:dry]` |
+| `logs/c32_filtered_backfill.sh` | NEW (gitignored) | resumable filtered backfill driver |
 | `.claude/HANDOFF.md` | rewrite | this file |
 
 No DDL. No real-money path. No paid-data. No authenticated scrape.
@@ -399,7 +434,8 @@ node --import tsx --test scripts/tests/healthCheck.test.ts                      
 
 **Default on `continue` — finish Cycle 32:**
 
-1. Check backfill (master log + per-month probe); relaunch missing months.
+1. Check FILTERED backfill; re-run `bash logs/c32_filtered_backfill.sh` if
+   interrupted (resumable). Validate by row count (≈5K-12K/month), not rc=0.
 2. Snapshot re-backfill (same 2026-01-01..2026-05-25 window).
 3. z-distribution re-probe (quantile(0.95) < 3?).
 4. HANDOFF rewrite + decide if form_4_insider_v1 Phase B SPEC ships next cycle.
@@ -415,17 +451,24 @@ relaxed Phase B thresholds; broker integration.
 
 ## Important framing for the next chat
 
-**Cycle 32 is IN PROGRESS, not closed.** The gating work — a 24-month
+**Cycle 32 is IN PROGRESS, not closed.** The gating work — a FILTERED
 `insider_trades` EDGAR Form 4 backfill to close OQ-C31-1 (zero-inflated 2y
-baseline) — is running in the background (~70h). Three supporting slices are
-already committed: a CH-`Date` range-clamp bugfix (S96-143; root cause of an
-~8h-wasted double failure), the `cik_ticker_map` bulk ingest (S96-142, closes
-OQ-C31-3), and two reproducibility wrappers (closes OQ-C30-2 + OQ-C31-2).
+baseline) — is running in the background (~12-18h). FOUR supporting slices are
+committed: a CH-`Date` range-clamp bugfix (S96-143; root cause of an ~8h-wasted
+double failure), the `cik_ticker_map` bulk ingest (S96-142, closes OQ-C31-3),
+two reproducibility wrappers (closes OQ-C30-2 + OQ-C31-2), and the SP500
+issuer-CIK filter (S96-144, closes OQ-C32-1) that FIXED the EDGAR throttling.
 
-**The single most important thing:** the backfill is resumable and idempotent
-— if the machine restarted, bring up Docker/CH, probe per-month coverage,
-relaunch only the missing months. Do NOT assume it finished; verify via the
-`accepted_at` distribution.
+**The key lesson (S96-144):** the original full-market backfill triggered
+EDGAR's sustained-access throttle (503 storms) and produced silently-incomplete
+months with rc=0. The fix is the SP500-CIK filter (~5x less volume). ALWAYS
+validate backfilled months by ROW COUNT (≈5K-12K/filtered-month), never by
+exit code.
+
+**The single most important thing:** the filtered backfill is resumable — if
+the machine restarted, bring up Docker/CH, then `bash
+logs/c32_filtered_backfill.sh` (it skips months already ≥3000 rows). Do NOT
+assume it finished; verify via the `accepted_at` distribution.
 
 **After the backfill:** snapshot re-backfill → z-reprobe → if the baseline is
 healthy (quantile(0.95) < 3), `form_4_insider_v1` Phase B SPEC unblocks (Cycle
