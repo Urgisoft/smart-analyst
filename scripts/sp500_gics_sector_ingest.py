@@ -119,8 +119,10 @@ def parse_args() -> argparse.Namespace:
         "--url",
         type=str,
         default=None,
-        help=f"Override URL to fetch the Wikipedia page from. "
-             f"Default: {DEFAULT_WIKIPEDIA_URL!r}.",
+        # Double-`%` because argparse runs the help string through %-formatting
+        # (Python 3.14 strict-checks). The default URL contains '%26' / '%5F'.
+        help=("Override URL to fetch the Wikipedia page from. "
+              f"Default: {DEFAULT_WIKIPEDIA_URL.replace('%', '%%')!r}."),
     )
     p.add_argument(
         "--from-file",
