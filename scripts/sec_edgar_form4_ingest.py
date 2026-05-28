@@ -194,6 +194,18 @@ def parse_args() -> argparse.Namespace:
              "rejected to prevent look-ahead leakage. Default = today.",
     )
     p.add_argument(
+        "--issuer-cik-file",
+        type=str,
+        default=None,
+        help="Path to a newline-delimited file of issuer CIKs (any format; "
+             "normalized to 10-digit). When set, only filings whose issuer "
+             "CIK is in the set are body-fetched — the rest are skipped BEFORE "
+             "the expensive XML fetch. Used for the Cycle 32 SP500/midcap "
+             "filtered backfill (OQ-C32-1) to cut body-fetch volume ~10x and "
+             "stay under EDGAR's sustained-access throttle. Omit for the "
+             "full-market ingest.",
+    )
+    p.add_argument(
         "--dry-run",
         action="store_true",
         help="Fetch + parse + count; no CH write (default).",
@@ -204,6 +216,44 @@ def parse_args() -> argparse.Namespace:
         help="Write to CH. Without this flag, the script defaults to dry-run.",
     )
     return p.parse_args()
+
+
+def load_issuer_cik_allowlist(path: str) -> set[str]:
+    """Load a newline-delimited issuer-CIK allowlist, normalized to 10-digit.
+
+    Blank lines and `#` comments are ignored. Raises if the file yields zero
+    CIKs (a silent empty allowlist would drop EVERY filing — fail loud).
+    """
+    out: set[str] = set()
+    for line in Path(path).read_text(encoding="utf-8").splitlines():
+        s = line.strip()
+        if not s or s.startswith("#"):
+            continue
+        out.add(cik10(s))
+    if not out:
+        raise ValueError(f"issuer-CIK allowlist {path!r} parsed to zero CIKs")
+    return out
+
+
+def filter_filings_by_issuer_cik(filings: list[dict], cik_set: set[str]) -> list[dict]:
+    """Keep only filings whose issuer CIK is in `cik_set`.
+
+    Form 4 FTS hits carry all CIKs on the filing (issuer + reporting person)
+    in `ciks_all` (and the first in `cik`). A filing is kept if ANY of its
+    CIKs is in the set — the issuer CIK is reliably present in `ciks_all`, so
+    this never drops a wanted SP500-issuer filing. A rare coincidental
+    person-CIK match only OVER-includes (harmless: the row's true issuer_cik
+    comes from the parsed XML downstream).
+    """
+    kept: list[dict] = []
+    for f in filings:
+        ciks = set(f.get("ciks_all") or [])
+        c0 = f.get("cik")
+        if c0:
+            ciks.add(cik10(c0))
+        if ciks & cik_set:
+            kept.append(f)
+    return kept
 
 
 # ── URL construction (form=4) ────────────────────────────────────────────────
@@ -934,6 +984,17 @@ def main() -> int:
     rejected = len(filings) - len(filings_in_window)
     if rejected > 0:
         print(f"[edgar-form4] filtered out {rejected} filings with accepted_at > {snapshot_date} (F4-10 anti-leak)")
+
+    # OQ-C32-1: optional issuer-CIK allowlist — cut body-fetch volume ~10x
+    # (SP500/midcap-only) to stay under EDGAR's sustained-access throttle.
+    # Applied BEFORE body-fetch so the expensive XML fetches are skipped.
+    if args.issuer_cik_file:
+        cik_set = load_issuer_cik_allowlist(args.issuer_cik_file)
+        before = len(filings_in_window)
+        filings_in_window = filter_filings_by_issuer_cik(filings_in_window, cik_set)
+        print(f"[edgar-form4] issuer-CIK allowlist ({len(cik_set)} CIKs): "
+              f"kept {len(filings_in_window)} / {before} filings "
+              f"(skipped {before - len(filings_in_window)} non-allowlisted before body-fetch)")
 
     if not apply_mode:
         print("[edgar-form4] dry-run — no CH write, no body fetches. Use --apply to persist.")

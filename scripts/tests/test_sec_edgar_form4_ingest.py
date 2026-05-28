@@ -457,6 +457,44 @@ def test_t_f4i_2_out_of_ch_date_range_clamped_to_sentinel(bad_date):
     assert form4._CH_DATE_MIN <= rows[0]["transaction_date"] <= form4._CH_DATE_MAX
 
 
+# ── OQ-C32-1: issuer-CIK allowlist filter (filtered backfill) ────────────────
+
+def test_filter_filings_by_issuer_cik_keeps_only_allowlisted():
+    filings = [
+        {"accession": "a", "cik": "0000320193", "ciks_all": ["0000320193", "0001111111"]},
+        {"accession": "b", "cik": "0009999999", "ciks_all": ["0009999999"]},
+        {"accession": "c", "cik": "0000789019", "ciks_all": ["0002222222", "0000789019"]},
+    ]
+    kept = form4.filter_filings_by_issuer_cik(filings, {"0000320193", "0000789019"})
+    assert [f["accession"] for f in kept] == ["a", "c"]
+
+
+def test_filter_matches_any_cik_in_ciks_all():
+    # Issuer CIK present only in ciks_all (not the first `cik`) is still kept.
+    filings = [{"accession": "x", "cik": "0001111111", "ciks_all": ["0001111111", "0000320193"]}]
+    kept = form4.filter_filings_by_issuer_cik(filings, {"0000320193"})
+    assert len(kept) == 1
+
+
+def test_filter_empty_set_keeps_nothing():
+    filings = [{"accession": "x", "cik": "0000320193", "ciks_all": ["0000320193"]}]
+    assert form4.filter_filings_by_issuer_cik(filings, set()) == []
+
+
+def test_load_issuer_cik_allowlist_normalizes_and_skips_comments(tmp_path):
+    p = tmp_path / "ciks.txt"
+    p.write_text("# header comment\n320193\n0000789019\n\n  1045810  \n", encoding="utf-8")
+    s = form4.load_issuer_cik_allowlist(str(p))
+    assert s == {"0000320193", "0000789019", "0001045810"}
+
+
+def test_load_issuer_cik_allowlist_raises_on_empty(tmp_path):
+    p = tmp_path / "empty.txt"
+    p.write_text("# only a comment\n\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="zero CIKs"):
+        form4.load_issuer_cik_allowlist(str(p))
+
+
 # ── T-F4I-3: Filings with NO P/S transactions are still logged ───────────────
 
 def test_t_f4i_3_filings_with_no_P_S_still_logged():
