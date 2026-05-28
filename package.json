@@ -58,6 +58,8 @@
     "edgar:form4:ingest:dry": ".venv\\Scripts\\python.exe scripts/sec_edgar_form4_ingest.py --dry-run",
     "edgar:13d-g:ingest": ".venv\\Scripts\\python.exe scripts/sec_edgar_13d_g_ingest.py --apply",
     "edgar:13d-g:ingest:dry": ".venv\\Scripts\\python.exe scripts/sec_edgar_13d_g_ingest.py --dry-run",
+    "edgar:company-tickers:ingest": ".venv\\Scripts\\python.exe scripts/sec_edgar_company_tickers_ingest.py --apply",
+    "edgar:company-tickers:ingest:dry": ".venv\\Scripts\\python.exe scripts/sec_edgar_company_tickers_ingest.py --dry-run",
     "etf:flow:ingest": ".venv\\Scripts\\python.exe scripts/etf_flow_ingest.py --apply",
     "etf:flow:ingest:dry": ".venv\\Scripts\\python.exe scripts/etf_flow_ingest.py --dry-run",
     "etf:flow:issuer-csv:ingest": ".venv\\Scripts\\python.exe scripts/etf_flow_issuer_csv_ingest.py --apply",
