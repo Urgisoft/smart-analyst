@@ -100,6 +100,12 @@ import {
   fetchForm4InsiderState,
   Form4InsiderDashboardError,
 } from "./src/server/form_4_dashboard.js";
+import {
+  parseQuery as parseSchedule13DGQuery,
+  isQueryFailure as isSchedule13DGQueryFailure,
+  fetchSchedule13DGState,
+  Schedule13DGDashboardError,
+} from "./src/server/schedule_13d_g_dashboard.js";
 import { fetchEtfFlowCrossValidationState } from "./src/server/etf_flow_dashboard.js";
 import { fetchHealthState } from "./src/server/health_dashboard.js";
 import { fetchPhaseBDashboardState } from "./src/server/phase_b_dashboard.js";
@@ -757,6 +763,28 @@ async function startServer() {
         return res.status(e.status).json({ error: e.error, detail: e.detail });
       }
       console.error('form-4-insider state error', e);
+      return res.status(503).json({ error: 'clickhouse_unavailable', detail: (e as Error).message });
+    }
+  });
+
+  // Powers /#/schedule-13d-g — Cycle 33 slice 3a (S96-147). Read-only view of
+  // `quantlab.schedule_13d_g_snapshots` projected onto CompositeDetailPayload —
+  // a flat single-axis (NEW-13D cluster z) descriptor + per-ticker 13D/13G
+  // drill. hasData=false (not 503) when no snapshot exists (the XD13 ingest has
+  // never run). SPEC: docs/specs/schedule-13d-13g-activist-stake.md.
+  app.get("/api/schedule-13d-g", async (req, res) => {
+    const parsed = parseSchedule13DGQuery({ lookbackDays: req.query.lookbackDays });
+    if (isSchedule13DGQueryFailure(parsed)) {
+      return res.status(parsed.status).json({ error: parsed.error, detail: parsed.detail });
+    }
+    try {
+      const response = await fetchSchedule13DGState({ lookbackDays: parsed.lookbackDays });
+      return res.json(response);
+    } catch (e) {
+      if (e instanceof Schedule13DGDashboardError) {
+        return res.status(e.status).json({ error: e.error, detail: e.detail });
+      }
+      console.error('schedule-13d-g state error', e);
       return res.status(503).json({ error: 'clickhouse_unavailable', detail: (e as Error).message });
     }
   });

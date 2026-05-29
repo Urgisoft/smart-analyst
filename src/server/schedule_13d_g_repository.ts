@@ -629,33 +629,12 @@ export class Schedule13DGRepository {
     } catch {
       perTickerRows = [];
     }
-    let flaggedSectors: ReadonlyArray<Schedule13DGFlaggedSector> = [];
-    try {
-      const parsed = JSON.parse(r.flagged_sectors_json);
-      if (Array.isArray(parsed)) {
-        flaggedSectors = parsed as Schedule13DGFlaggedSector[];
-      }
-    } catch {
-      flaggedSectors = [];
-    }
+    const flaggedSectors = parseFlaggedSectors(r.flagged_sectors_json);
 
     // v1 cross-day max-z derivation: walk flaggedSectors. Pre-v2 we only
     // persist sectors with |z| > THRESHOLD, so this loses the "next-closest"
     // signal. Lexicographic tie-break matches the composite convention.
-    let maxAggregateZ: number | null = null;
-    let maxAggregateZSector: string | null = null;
-    let maxAbsZ = -Infinity;
-    for (const fs of flaggedSectors) {
-      const absZ = Math.abs(fs.z);
-      if (
-        absZ > maxAbsZ ||
-        (absZ === maxAbsZ && (maxAggregateZSector == null || fs.sector < maxAggregateZSector))
-      ) {
-        maxAbsZ = absZ;
-        maxAggregateZ = fs.z;
-        maxAggregateZSector = fs.sector;
-      }
-    }
+    const { maxAggregateZ, maxAggregateZSector } = deriveMaxAggregateZ(flaggedSectors);
 
     const parsedDate = parseChDateTime(r.snapshot_date);
     const snapshotDate = parsedDate ?? new Date(`${r.snapshot_date}T00:00:00.000Z`);
@@ -675,6 +654,67 @@ export class Schedule13DGRepository {
     };
   }
 
+  /**
+   * Read a trailing window of snapshots ending at-or-before `anchor`, ASC by
+   * date. Powers the composite-detail dashboard (Cycle 33 slice 3a). Read-only;
+   * additive. Selects the cluster flag + coverage counts + the
+   * `flagged_sectors_json` blob ONLY (NOT per_ticker_json) — the per-ticker
+   * blob is large; the aggregate history needs only the flagged-sector array
+   * to derive each day's max-z. v1 persists no `max_aggregate_z` column (SPEC
+   * §6), so the per-day z MUST be derived from `flagged_sectors_json` here —
+   * the array holds only |z|>2 sectors, so the derived z is null on calm days
+   * (an honest sparse sparkline; the firing lane carries the verdict trend).
+   *
+   * Subquery-around-FINAL (S96-149 / a52c964 class): filter on the raw
+   * `snapshot_date` (Date) INSIDE the subquery; `toString()` only in the outer
+   * SELECT — never bind a WHERE Date range to a String alias.
+   */
+  async loadHistory(
+    anchor: Date,
+    lookbackDays: number,
+  ): Promise<Schedule13DGHistoryRow[]> {
+    const anchorStr = anchor.toISOString().slice(0, 10);
+    const startStr = new Date(anchor.getTime() - lookbackDays * 24 * 60 * 60 * 1000)
+      .toISOString().slice(0, 10);
+    const q = await this.ch.query({
+      query: `
+        SELECT
+          toString(snapshot_date) AS snapshot_date,
+          schedule_13d_cluster_flag,
+          flagged_sectors_json,
+          inputs_available_aggregate,
+          inputs_available_per_ticker
+        FROM (
+          SELECT
+            snapshot_date, schedule_13d_cluster_flag, flagged_sectors_json,
+            inputs_available_aggregate, inputs_available_per_ticker
+          FROM ${this.snapshotsTable} FINAL
+          WHERE snapshot_date >= {start:Date} AND snapshot_date <= {anchor:Date}
+          ORDER BY snapshot_date ASC
+        )
+      `,
+      query_params: { start: startStr, anchor: anchorStr },
+      format: 'JSONEachRow',
+    });
+    const rows = await q.json<{
+      snapshot_date: string;
+      schedule_13d_cluster_flag: number | string;
+      flagged_sectors_json: string;
+      inputs_available_aggregate: number | string;
+      inputs_available_per_ticker: number | string;
+    }>();
+    return rows.map(r => {
+      const { maxAggregateZ } = deriveMaxAggregateZ(parseFlaggedSectors(r.flagged_sectors_json));
+      return {
+        date: r.snapshot_date,
+        clusterFlag: Number(r.schedule_13d_cluster_flag) === 1,
+        maxAggregateZ,
+        inputsAvailableAggregate: Number(r.inputs_available_aggregate),
+        inputsAvailablePerTicker: Number(r.inputs_available_per_ticker),
+      };
+    });
+  }
+
   /** Instance probe: does the source `schedule_13d_g_filings` table exist?
    *  Used internally by `runDaemonSchedule13DGEvaluation` for the SPEC §7
    *  cold-start branch (returns a cold-start snapshot, NOT a throw).
@@ -685,7 +725,56 @@ export class Schedule13DGRepository {
   }
 }
 
+/** One trailing-window snapshot row for the schedule_13d_g composite-detail
+ *  dashboard (Cycle 33 slice 3a). Aggregate-layer only — per-ticker rows are
+ *  not carried in history (the latest snapshot supplies the drill). `maxAggregateZ`
+ *  is derived from `flagged_sectors_json` (|z|>2 sectors only) and is null on
+ *  days no sector was flagged (v1 persists no continuous max-z column). */
+export interface Schedule13DGHistoryRow {
+  date: string;
+  clusterFlag: boolean;
+  maxAggregateZ: number | null;
+  inputsAvailableAggregate: number;
+  inputsAvailablePerTicker: number;
+}
+
 // ───── helpers ──────────────────────────────────────────────────────────────
+
+/** Parse a `flagged_sectors_json` blob to a flagged-sector array; malformed /
+ *  non-array JSON degrades to []. Shared by loadLatestSnapshot + loadHistory. */
+function parseFlaggedSectors(json: string): Schedule13DGFlaggedSector[] {
+  try {
+    const parsed = JSON.parse(json);
+    return Array.isArray(parsed) ? (parsed as Schedule13DGFlaggedSector[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Derive (maxAggregateZ, maxAggregateZSector) — the signed z of the max-|z|
+ *  flagged sector, lexicographic tie-break (earlier sector name wins, matching
+ *  the composite's `evaluateSchedule13DGComposite` convention). v1 persists
+ *  only |z|>THRESHOLD sectors (SPEC §6), so the result is null when no sector
+ *  was flagged. Shared by loadLatestSnapshot (latest) + loadHistory (per row). */
+export function deriveMaxAggregateZ(
+  flaggedSectors: ReadonlyArray<Schedule13DGFlaggedSector>,
+): { maxAggregateZ: number | null; maxAggregateZSector: string | null } {
+  let maxAggregateZ: number | null = null;
+  let maxAggregateZSector: string | null = null;
+  let maxAbsZ = -Infinity;
+  for (const fs of flaggedSectors) {
+    const absZ = Math.abs(fs.z);
+    if (
+      absZ > maxAbsZ ||
+      (absZ === maxAbsZ && (maxAggregateZSector == null || fs.sector < maxAggregateZSector))
+    ) {
+      maxAbsZ = absZ;
+      maxAggregateZ = fs.z;
+      maxAggregateZSector = fs.sector;
+    }
+  }
+  return { maxAggregateZ, maxAggregateZSector };
+}
 
 function groupFilingsByTicker(
   rows: readonly RawFilingRow[],

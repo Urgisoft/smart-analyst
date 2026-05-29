@@ -1376,6 +1376,13 @@ export default function App() {
               Form 4 insiders →
             </a>
             <a
+              href="#/schedule-13d-g"
+              className="text-[9px] font-black text-violet-400/80 hover:text-violet-300 uppercase tracking-[0.2em] border border-violet-400/30 hover:border-violet-400 rounded-lg px-3 py-1.5 transition-colors"
+              title="Schedule 13D/G activist-stake composite (schedule_13d_g_v1 · informational · NEW-13D sector-cluster z + per-ticker 13D/13G drill · reusable composite-detail panel · empty until EDGAR 13D/G ingest runs)"
+            >
+              Schedule 13D/G →
+            </a>
+            <a
               href="#/etf-flow"
               className="text-[9px] font-black text-fuchsia-400/80 hover:text-fuchsia-300 uppercase tracking-[0.2em] border border-fuchsia-400/30 hover:border-fuchsia-400 rounded-lg px-3 py-1.5 transition-colors"
               title="ETF-flow cross-validation (Gap #9 v3.1 · yfinance primary vs SSGA secondary · per-ticker shares-outstanding divergence + severity ladder)"

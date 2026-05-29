@@ -508,3 +508,102 @@ export const form4InsiderDescriptor: CompositeDescriptor = {
     { bit: FORM4_INPUT_PER_TICKER, label: 'PER-TICKER' },
   ],
 };
+
+// ── schedule_13d_g (Cycle 33 slice 3a — flat single-axis + drill) ────────────
+// The FIFTH composite onto the reusable panel. Unlike form_4 (dual-axis,
+// metricGroups), schedule_13d_g has a SINGLE aggregate signal — the NEW-13D
+// sector-cluster rate z (Brav-Jiang-Partnoy-Thomas 2008 §2.2: the activist
+// announcement effect is concentrated on the INITIAL SC 13D filing). So the
+// descriptor is FLAT (no metricGroups), like vol/sector/cross — but it DOES
+// use the optional `drill` table for the per-ticker 13D/13G filing-activity
+// rows, proving the reusable panel covers "flat-z + drill" too.
+//
+// Coverage strip uses two layer-bits (aggregate-sector vs per-ticker) like
+// form_4 — schedule_13d_g persists `inputs_available_aggregate` (a baseline-
+// PRINTS sum, cold-start guard 330 = 30×11, NOT a sector count) +
+// `inputs_available_per_ticker`, not a categorical INPUT_* mask.
+//
+// v1 persisted-shape note: `maxAggregateZ` is derived from `flagged_sectors_json`
+// (|z|>2 sectors only — SPEC §6 omits a continuous max-z column), so the z bar
+// is structurally null-or-≥2: '—' on calm days, past the warn band whenever a
+// cluster fires. A reading past ±4 still screams OUT_OF_BAND_CRIT.
+
+export const XD13_INPUT_AGG = 1 << 0;
+export const XD13_INPUT_PER_TICKER = 1 << 1;
+
+export const schedule13DGDescriptor: CompositeDescriptor = {
+  composite: 'schedule_13d_g',
+  endpoint: '/api/schedule-13d-g',
+  title: 'VECTOR_ACTIVIST · Schedule 13D/G Stakes',
+  accent: 'violet',
+  subtitle:
+    'SEC Schedule 13D (activist, ≥5% with intent to influence) + 13G (passive) beneficial-ownership filings, aggregated to GICS sectors. The cluster z tracks the NEW-13D sector filing rate vs a 2y baseline (Brav-Jiang-Partnoy-Thomas 2008 §2.2 — announcement effect concentrated on initial 13D). Per-ticker drill = equity-midcap watch universe. Informational only in v1; does not fire phase1_v3.',
+  specPath: 'docs/specs/schedule-13d-13g-activist-stake.md',
+  ingestHint: [
+    '# 1. Ensure schema exists (idempotent):',
+    'npm run migrate:create-schedule-13d-g-filings:apply',
+    'npm run migrate:create-schedule-13d-g-snapshots:apply',
+    '',
+    '# 2. Ingest the filing stream (free SEC EDGAR — watch the per-IP throttle;',
+    '#    prefer paced ingest, the bulk backfill is rate-limited):',
+    'npm run edgar:13d-g:ingest',
+    '',
+    '# 3. Run the daemon once to write the first snapshot:',
+    'npm run daemon:daily',
+  ],
+  metrics: [
+    {
+      key: 'maxAggregateZ',
+      label: 'Activist-cluster max sector z',
+      short: 'Clust-z',
+      unit: 'z', warnAbs: 2, critAbs: 4,
+      glossary:
+        'Largest |z| across all GICS sectors of the sector’s NEW-SC-13D filing rate (initial activist filings ÷ sector size, 90d window) vs its trailing-2y baseline. >+2 = unusually concentrated activist filing in a sector. In v1 this is derived from the flagged-sector list (|z|>2 only), so it shows ‘—’ on calm days and ≥2 whenever a cluster fired; a reading past ±4 is implausibly extreme — suspect a thin baseline (the anomaly scan flags it).',
+    },
+    {
+      key: 'flaggedSectorCount',
+      label: 'Flagged sectors (|z|>2)',
+      short: 'Sec#',
+      unit: 'raw',
+      glossary: 'Number of GICS sectors whose NEW-13D filing-rate z exceeded ±2 this snapshot.',
+    },
+    {
+      key: 'activeTickers13D',
+      label: 'Tickers with a 13D (30d)',
+      short: '13D#',
+      unit: 'raw',
+      glossary: 'Count of watch-universe names with ≥1 Schedule 13D filing (incl. amendments) in the trailing 30 days. The per-ticker drill lists them.',
+    },
+    {
+      key: 'activeTickers13G',
+      label: 'Tickers with a 13G (30d)',
+      short: '13G#',
+      unit: 'raw',
+      glossary: 'Count of watch-universe names with ≥1 Schedule 13G (passive) filing (incl. amendments) in the trailing 30 days.',
+    },
+    {
+      key: 'new13DFilings90d',
+      label: 'New 13D filings (90d)',
+      short: 'New13D',
+      unit: 'raw',
+      glossary: 'Total NEW SC 13D filings (EXCLUDES /A amendments — XD-5 asymmetry) across the watch universe in the trailing 90 days. The aggregate cluster z is built from this initial-filing rate.',
+    },
+  ],
+  flags: [
+    {
+      key: 'schedule13DClusterFlag',
+      label: 'Activist-stake sector cluster',
+      whenTrue: 'At least one GICS sector’s NEW-13D filing-rate z exceeded |z|>2 vs its 2y baseline — concentrated activist-stake filing somewhere in the index.',
+    },
+  ],
+  verdicts: {
+    activist_cluster: { tone: 'warn', meaning: 'A GICS sector’s NEW-13D filing rate exceeded |z|>2 vs its 2y baseline — concentrated activist-stake accumulation worth watching.' },
+    normal: { tone: 'neutral', meaning: 'No sector’s NEW-13D filing rate exceeded the |z|>2 baseline threshold.' },
+    unknown: { tone: 'unknown', meaning: 'The aggregate-sector layer had no baseline prints — could not classify (cold-start before the 2y baseline warmed).' },
+  },
+  defaultTone: 'neutral',
+  inputBits: [
+    { bit: XD13_INPUT_AGG, label: 'AGG-SECTORS' },
+    { bit: XD13_INPUT_PER_TICKER, label: 'PER-TICKER' },
+  ],
+};

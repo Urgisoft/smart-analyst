@@ -50,6 +50,10 @@ const CrossAssetApp = lazy(() => import('./components/composite/CrossAssetApp.ts
 // (S96-147). The dual-axis panel: descriptor.metricGroups drives the buy/sell
 // lanes + the payload.drill carries the per-ticker table.
 const Form4InsiderApp = lazy(() => import('./components/composite/Form4InsiderApp.tsx'));
+// Lazy-load the schedule_13d_g activist-stake composite-detail panel — Cycle 33
+// slice 3a (S96-147). Flat single-axis descriptor + per-ticker 13D/13G drill;
+// reuses CompositeDetailApp. Ships an empty-state until the EDGAR 13D/G ingest runs.
+const Schedule13DGApp = lazy(() => import('./components/composite/Schedule13DGApp.tsx'));
 
 function Router() {
   const [hash, setHash] = useState(window.location.hash);
@@ -182,6 +186,17 @@ function Router() {
         </div>
       }>
         <Form4InsiderApp />
+      </Suspense>
+    );
+  }
+  if (path === '#/schedule-13d-g' || path.startsWith('#/schedule-13d-g/')) {
+    return (
+      <Suspense fallback={
+        <div className="min-h-screen bg-[#050505] text-violet-400/70 flex items-center justify-center text-[10px] font-mono uppercase tracking-widest">
+          loading schedule-13d-g…
+        </div>
+      }>
+        <Schedule13DGApp />
       </Suspense>
     );
   }
