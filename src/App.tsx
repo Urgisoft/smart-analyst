@@ -1390,6 +1390,13 @@ export default function App() {
               8-K events →
             </a>
             <a
+              href="#/short-interest"
+              className="text-[9px] font-black text-lime-400/80 hover:text-lime-300 uppercase tracking-[0.2em] border border-lime-400/30 hover:border-lime-400 rounded-lg px-3 py-1.5 transition-colors"
+              title="Short-interest sentiment composite (short_interest_v1 · informational · equal-weight aggregate-short z [NO GICS sectors] + per-ticker ramp/capitulation drill · reusable composite-detail panel · empty until FINRA short-interest ingest runs)"
+            >
+              Short interest →
+            </a>
+            <a
               href="#/etf-flow"
               className="text-[9px] font-black text-fuchsia-400/80 hover:text-fuchsia-300 uppercase tracking-[0.2em] border border-fuchsia-400/30 hover:border-fuchsia-400 rounded-lg px-3 py-1.5 transition-colors"
               title="ETF-flow cross-validation (Gap #9 v3.1 · yfinance primary vs SSGA secondary · per-ticker shares-outstanding divergence + severity ladder)"

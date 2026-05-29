@@ -58,6 +58,11 @@ const Schedule13DGApp = lazy(() => import('./components/composite/Schedule13DGAp
 // Cycle 33 slice 3c (S96-147). Flat single-axis descriptor + per-ticker
 // material-event drill; reuses CompositeDetailApp. Empty-state until EK ingest runs.
 const EightKClassifierApp = lazy(() => import('./components/composite/EightKClassifierApp.tsx'));
+// Lazy-load the short_interest sentiment composite-detail panel — Cycle 33
+// slice 3d (S96-147). Flat single-axis (equal-weight aggregate-short z, NO GICS
+// sectors — S96-153) + per-ticker short-interest drill; reuses CompositeDetailApp.
+// Empty-state until the FINRA short-interest ingest runs.
+const ShortInterestApp = lazy(() => import('./components/composite/ShortInterestApp.tsx'));
 
 function Router() {
   const [hash, setHash] = useState(window.location.hash);
@@ -212,6 +217,17 @@ function Router() {
         </div>
       }>
         <EightKClassifierApp />
+      </Suspense>
+    );
+  }
+  if (path === '#/short-interest' || path.startsWith('#/short-interest/')) {
+    return (
+      <Suspense fallback={
+        <div className="min-h-screen bg-[#050505] text-lime-400/70 flex items-center justify-center text-[10px] font-mono uppercase tracking-widest">
+          loading short-interest…
+        </div>
+      }>
+        <ShortInterestApp />
       </Suspense>
     );
   }

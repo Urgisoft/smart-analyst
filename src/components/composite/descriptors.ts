@@ -690,3 +690,89 @@ export const eightKClassifierDescriptor: CompositeDescriptor = {
     { bit: EK_INPUT_PER_TICKER, label: 'PER-TICKER' },
   ],
 };
+
+// ── short_interest (Cycle 33 slice 3d — flat single-axis + drill) ────────────
+// The SEVENTH composite. FLAT single-axis + per-ticker drill — but the aggregate
+// signal DIVERGES from every prior composite (S96-153, verified against
+// short_interest.ts, NOT assumed from a GICS-sector sibling):
+//   - NO GICS-sector layer. The aggregate is a SINGLE equal-weight short-interest
+//     z across the SPY-500 constituents (Asquith-Pathak-Ritter 2005 §4), NOT a
+//     max-of-11-sectors cluster z. So there is no maxAggregateZSector, no
+//     flagged-sectors list — the z bar shows ONE continuous, persisted reading.
+//   - `aggregateZ` IS persisted + continuous (like eight_k, UNLIKE schedule_13d_g's
+//     derived null-or-≥2) → dense history sparkline, real on calm days.
+//   - `inputsAvailableAggregate` is a COUNT OF SPY-500 CONSTITUENTS with a valid
+//     shares-short reading (NOT a 0–11 sector count, NOT a baseline-prints sum) —
+//     surfaced in the context strip as "N constituents", never "/11 sectors".
+//   - Path A4-β: FINRA publishes shares-short but not shares-outstanding, so v1
+//     standardizes mean shares-short directly (ROC of shares-short ≈ ROC of SIR
+//     when shares-outstanding varies slowly — Diether-Lee-Werner 2009 §3). The
+//     raw mean-shares value is surfaced in the context strip (awkward magnitude),
+//     not as a metric bar.
+
+export const SI_INPUT_AGG = 1 << 0;
+export const SI_INPUT_PER_TICKER = 1 << 1;
+
+export const shortInterestDescriptor: CompositeDescriptor = {
+  composite: 'short_interest',
+  endpoint: '/api/short-interest',
+  title: 'VECTOR_SHORT · Short-Interest Sentiment',
+  accent: 'lime',
+  subtitle:
+    'FINRA biweekly short interest — per-stock short-ramp / capitulation flags (ROC over 6 reports, Diether-Lee-Werner 2009 §3 — the signal is the RATE OF CHANGE, not the level) + an equal-weight aggregate-short z across the SPY-500 constituents (Asquith-Pathak-Ritter 2005 §4 — weakly contrarian over 60+ day horizons). Per-ticker drill = equity-midcap watch universe. Informational only in v1; does not fire phase1_v3.',
+  specPath: 'docs/specs/short-interest-tracking.md',
+  ingestHint: [
+    '# 1. Ensure schema exists (idempotent):',
+    'npm run migrate:create-short-interest-snapshots:apply',
+    '',
+    '# 2. Ingest the FINRA biweekly short-interest feed (free FINRA — bi-monthly',
+    '#    cadence; watch the per-IP throttle on bulk backfills, prefer paced):',
+    'npm run finra:short-interest:ingest',
+    '',
+    '# 3. Run the daemon once to write the first snapshot:',
+    'npm run daemon:daily',
+  ],
+  metrics: [
+    {
+      key: 'aggregateZ',
+      label: 'Aggregate short-interest z',
+      short: 'Agg-z',
+      unit: 'z', warnAbs: 2, critAbs: 4,
+      glossary:
+        'Equal-weight mean short interest across the SPY-500 constituents (Path A4-β: mean shares-short — FINRA publishes shares-short but not shares-outstanding), standardized against its own trailing-2y biweekly baseline (~52 prints). >+2 = unusually high aggregate short, weakly contrarian over 60+ day horizons (Asquith-Pathak-Ritter 2005 §4). The short-extreme flag fires at |z|>2. A reading past ±4 is implausibly extreme — suspect a thin baseline (the anomaly scan flags it).',
+    },
+    {
+      key: 'shortRampTickers',
+      label: 'Tickers ramping short (90d)',
+      short: 'Ramp#',
+      unit: 'raw',
+      glossary:
+        'Count of watch-universe names whose short-interest ROC over ~3 months (6 biweekly reports) exceeded +50% AND days-to-cover > 5 (Diether-Lee-Werner 2009 §3 — rising-short pressure). The per-ticker drill lists them.',
+    },
+    {
+      key: 'shortCapitulationTickers',
+      label: 'Tickers capitulating (90d)',
+      short: 'Cap#',
+      unit: 'raw',
+      glossary:
+        'Count of names whose short-interest ROC fell below −40% off a prior-high base (sir_t6 above its 2y median + 1σ) — shorts covering a previously-crowded position. Contrarian-bullish read; informational only in v1.',
+    },
+  ],
+  flags: [
+    {
+      key: 'sentimentShortExtreme',
+      label: 'Aggregate short extreme',
+      whenTrue: 'Equal-weight aggregate short interest is at |z|>2 vs its 2y baseline — an unusually crowded (or unusually light) short across the index. Weakly contrarian per Asquith-Pathak-Ritter 2005 §4.',
+    },
+  ],
+  verdicts: {
+    short_extreme: { tone: 'warn', meaning: 'Aggregate short interest is at a |z|>2 extreme vs its 2y baseline — an unusually crowded short across the index (weakly contrarian over 60+ day horizons).' },
+    normal: { tone: 'neutral', meaning: 'Aggregate short interest is within its usual ±2σ band — no extreme-positioning signal.' },
+    unknown: { tone: 'unknown', meaning: 'The aggregate short-interest z could not be computed (baseline under 30 prints, or no FINRA data ingested yet) — could not classify.' },
+  },
+  defaultTone: 'neutral',
+  inputBits: [
+    { bit: SI_INPUT_AGG, label: 'AGG-SHORT' },
+    { bit: SI_INPUT_PER_TICKER, label: 'PER-TICKER' },
+  ],
+};

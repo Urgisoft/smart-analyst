@@ -112,6 +112,12 @@ import {
   fetchEightKState,
   EightKDashboardError,
 } from "./src/server/eight_k_dashboard.js";
+import {
+  parseQuery as parseShortInterestQuery,
+  isQueryFailure as isShortInterestQueryFailure,
+  fetchShortInterestState,
+  ShortInterestDashboardError,
+} from "./src/server/short_interest_dashboard.js";
 import { fetchEtfFlowCrossValidationState } from "./src/server/etf_flow_dashboard.js";
 import { fetchHealthState } from "./src/server/health_dashboard.js";
 import { fetchPhaseBDashboardState } from "./src/server/phase_b_dashboard.js";
@@ -813,6 +819,29 @@ async function startServer() {
         return res.status(e.status).json({ error: e.error, detail: e.detail });
       }
       console.error('eight-k state error', e);
+      return res.status(503).json({ error: 'clickhouse_unavailable', detail: (e as Error).message });
+    }
+  });
+
+  // Powers /#/short-interest — Cycle 33 slice 3d (S96-147). Read-only view of
+  // `quantlab.short_interest_snapshots` projected onto CompositeDetailPayload —
+  // a flat single-axis (equal-weight aggregate-short z, NO GICS sectors)
+  // descriptor + per-ticker short-interest drill. hasData=false (not 503) when
+  // no snapshot exists (the FINRA ingest has never run).
+  // SPEC: docs/specs/short-interest-tracking.md.
+  app.get("/api/short-interest", async (req, res) => {
+    const parsed = parseShortInterestQuery({ lookbackDays: req.query.lookbackDays });
+    if (isShortInterestQueryFailure(parsed)) {
+      return res.status(parsed.status).json({ error: parsed.error, detail: parsed.detail });
+    }
+    try {
+      const response = await fetchShortInterestState({ lookbackDays: parsed.lookbackDays });
+      return res.json(response);
+    } catch (e) {
+      if (e instanceof ShortInterestDashboardError) {
+        return res.status(e.status).json({ error: e.error, detail: e.detail });
+      }
+      console.error('short-interest state error', e);
       return res.status(503).json({ error: 'clickhouse_unavailable', detail: (e as Error).message });
     }
   });

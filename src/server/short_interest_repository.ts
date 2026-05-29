@@ -582,6 +582,77 @@ export class ShortInterestRepository {
       version: r.composite_version as typeof SHORT_INTEREST_COMPOSITE_VERSION,
     };
   }
+
+  /**
+   * Read a trailing window of snapshots ending at-or-before `anchor`, ASC by
+   * date. Powers the composite-detail dashboard (Cycle 33 slice 3d). Read-only;
+   * additive. Selects `aggregate_z` (the persisted continuous aggregate-short z)
+   * + `sentiment_short_extreme` + the two coverage counts (NOT per_ticker_json) —
+   * a year of history is one cheap scan, no per-row JSON parse.
+   *
+   * Unlike the GICS-sector siblings (eight_k / executive_departure) there is NO
+   * max_aggregate_z column here — short_interest persists a single equal-weight
+   * `aggregate_z` (S96-153). The history sparkline reads that directly.
+   *
+   * Subquery-around-FINAL (S96-149 / a52c964 class): filter on the raw
+   * `snapshot_date` (Date) INSIDE the subquery; `toString()` only in the outer
+   * SELECT — never bind a WHERE Date range to a String alias.
+   */
+  async loadHistory(
+    anchor: Date,
+    lookbackDays: number,
+  ): Promise<ShortInterestHistoryRow[]> {
+    const anchorStr = anchor.toISOString().slice(0, 10);
+    const startStr = new Date(anchor.getTime() - lookbackDays * 24 * 60 * 60 * 1000)
+      .toISOString().slice(0, 10);
+    const q = await this.ch.query({
+      query: `
+        SELECT
+          toString(snapshot_date) AS snapshot_date,
+          aggregate_z,
+          sentiment_short_extreme,
+          inputs_available_aggregate,
+          inputs_available_per_ticker
+        FROM (
+          SELECT
+            snapshot_date, aggregate_z, sentiment_short_extreme,
+            inputs_available_aggregate, inputs_available_per_ticker
+          FROM ${this.snapshotsTable} FINAL
+          WHERE snapshot_date >= {start:Date} AND snapshot_date <= {anchor:Date}
+          ORDER BY snapshot_date ASC
+        )
+      `,
+      query_params: { start: startStr, anchor: anchorStr },
+      format: 'JSONEachRow',
+    });
+    const rows = await q.json<{
+      snapshot_date: string;
+      aggregate_z: number | null;
+      sentiment_short_extreme: number | string;
+      inputs_available_aggregate: number | string;
+      inputs_available_per_ticker: number | string;
+    }>();
+    return rows.map(r => ({
+      date: r.snapshot_date,
+      aggregateZ: nullableNum(r.aggregate_z),
+      sentimentShortExtreme: Number(r.sentiment_short_extreme) === 1,
+      inputsAvailableAggregate: Number(r.inputs_available_aggregate),
+      inputsAvailablePerTicker: Number(r.inputs_available_per_ticker),
+    }));
+  }
+}
+
+/** One trailing-window snapshot row for the short_interest composite-detail
+ *  dashboard (Cycle 33 slice 3d). Aggregate-layer only — per-ticker rows are
+ *  not carried in history (the latest snapshot supplies the drill).
+ *  `aggregateZ` is the persisted equal-weight aggregate-short z (null only at
+ *  cold-start, baseline < 30 prints). NO max-sector-z column (S96-153). */
+export interface ShortInterestHistoryRow {
+  date: string;
+  aggregateZ: number | null;
+  sentimentShortExtreme: boolean;
+  inputsAvailableAggregate: number;
+  inputsAvailablePerTicker: number;
 }
 
 // ───── helpers ──────────────────────────────────────────────────────────────
