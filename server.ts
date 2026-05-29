@@ -76,6 +76,12 @@ import {
   fetchCyclePositionState,
   CyclePositionDashboardError,
 } from "./src/server/cycle_position_dashboard.js";
+import {
+  parseQuery as parseVolStructureQuery,
+  isQueryFailure as isVolStructureQueryFailure,
+  fetchVolStructureState,
+  VolStructureDashboardError,
+} from "./src/server/vol_structure_dashboard.js";
 import { fetchEtfFlowCrossValidationState } from "./src/server/etf_flow_dashboard.js";
 import { fetchHealthState } from "./src/server/health_dashboard.js";
 import { fetchPhaseBDashboardState } from "./src/server/phase_b_dashboard.js";
@@ -650,6 +656,28 @@ async function startServer() {
         return res.status(e.status).json({ error: e.error, detail: e.detail });
       }
       console.error('cycle-position state error', e);
+      return res.status(503).json({ error: 'clickhouse_unavailable', detail: (e as Error).message });
+    }
+  });
+
+  // Powers /#/vol-structure — Cycle 33 (S96-147) reference composite-detail
+  // panel. Read-only view of `quantlab.vol_structure_snapshots` projected onto
+  // the shared CompositeDetailPayload. Returns hasData=false (not 503) when no
+  // snapshot exists so the panel renders an "awaiting first daemon cycle" state.
+  // SPEC: docs/specs/expanded-vol-structure.md §§2-3.
+  app.get("/api/vol-structure", async (req, res) => {
+    const parsed = parseVolStructureQuery({ lookbackDays: req.query.lookbackDays });
+    if (isVolStructureQueryFailure(parsed)) {
+      return res.status(parsed.status).json({ error: parsed.error, detail: parsed.detail });
+    }
+    try {
+      const response = await fetchVolStructureState({ lookbackDays: parsed.lookbackDays });
+      return res.json(response);
+    } catch (e) {
+      if (e instanceof VolStructureDashboardError) {
+        return res.status(e.status).json({ error: e.error, detail: e.detail });
+      }
+      console.error('vol-structure state error', e);
       return res.status(503).json({ error: 'clickhouse_unavailable', detail: (e as Error).message });
     }
   });

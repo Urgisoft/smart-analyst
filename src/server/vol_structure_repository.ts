@@ -281,6 +281,86 @@ export class VolStructureRepository {
       compositeVersion: r.composite_version as typeof VOL_STRUCT_COMPOSITE_VERSION,
     };
   }
+
+  /**
+   * Read a trailing window of snapshots ending at-or-before `anchor`, ASC by
+   * date. Powers the composite-detail dashboard's trend + firing-lane panels
+   * (Cycle 33). Read-only; additive — does not touch the write path.
+   * Mirrors CyclePositionRepository.loadHistory's anchored-window shape so the
+   * dashboard can show the full available window even when the daemon is
+   * stale (anchor = latest snapshot date, not wall clock).
+   */
+  async loadHistory(
+    anchor: Date,
+    lookbackDays: number,
+  ): Promise<VolStructureHistoryRow[]> {
+    const anchorStr = anchor.toISOString().slice(0, 10);
+    const startStr = new Date(anchor.getTime() - lookbackDays * 24 * 60 * 60 * 1000)
+      .toISOString().slice(0, 10);
+    // Subquery-around-FINAL pattern: filter on the raw `snapshot_date` (Date)
+    // in the inner query, apply toString() only in the OUTER select. Doing
+    // `SELECT toString(snapshot_date) AS snapshot_date ... WHERE snapshot_date
+    // <= {anchor:Date}` trips the a52c964 alias-shadowing bug — the WHERE
+    // binds to the String alias, yielding "no supertype for String, Date".
+    const q = await this.ch.query({
+      query: `
+        SELECT
+          toString(snapshot_date) AS snapshot_date,
+          regime_flag,
+          curve_steepness_z,
+          inversion_depth,
+          vix_z,
+          vvix_z,
+          inputs_present
+        FROM (
+          SELECT
+            snapshot_date,
+            regime_flag,
+            curve_steepness_z,
+            inversion_depth,
+            vix_z,
+            vvix_z,
+            inputs_present
+          FROM ${this.snapshotsTable} FINAL
+          WHERE snapshot_date >= {start:Date} AND snapshot_date <= {anchor:Date}
+          ORDER BY snapshot_date ASC
+        )
+      `,
+      query_params: { start: startStr, anchor: anchorStr },
+      format: 'JSONEachRow',
+    });
+    const rows = await q.json<{
+      snapshot_date: string;
+      regime_flag: string;
+      curve_steepness_z: number | null;
+      inversion_depth: number | null;
+      vix_z: number | null;
+      vvix_z: number | null;
+      inputs_present: number | string;
+    }>();
+    const num = (v: number | null): number | null =>
+      v != null && Number.isFinite(Number(v)) ? Number(v) : null;
+    return rows.map(r => ({
+      date: r.snapshot_date,
+      regimeFlag: r.regime_flag as VolStructureRegimeFlag,
+      curveSteepnessZ: num(r.curve_steepness_z),
+      inversionDepth: num(r.inversion_depth),
+      vixZ: num(r.vix_z),
+      vvixZ: num(r.vvix_z),
+      inputsPresent: Number(r.inputs_present),
+    }));
+  }
+}
+
+/** One trailing-window snapshot row for the composite-detail dashboard. */
+export interface VolStructureHistoryRow {
+  date: string;
+  regimeFlag: VolStructureRegimeFlag;
+  curveSteepnessZ: number | null;
+  inversionDepth: number | null;
+  vixZ: number | null;
+  vvixZ: number | null;
+  inputsPresent: number;
 }
 
 function formatDateTime64(d: Date): string {

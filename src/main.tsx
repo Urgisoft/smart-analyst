@@ -37,6 +37,11 @@ const HealthApp = lazy(() => import('./components/health/HealthApp.tsx'));
 // Read-only view of the Layer-0 Phase B deflation-pipeline verdicts persisted in
 // `quantlab.phase_b_verdicts` by Cycle 23+ Composite worker campaigns.
 const PhaseBApp = lazy(() => import('./components/phase_b/PhaseBApp.tsx'));
+// Lazy-load the vol-structure composite-detail panel — Cycle 33 (S96-147), the
+// reference impl of the reusable CompositeDetailApp. Read-only view of
+// `quantlab.vol_structure_snapshots`. First of the 7 backend-only composites to
+// get a real panel; subsequent composites reuse the same component + a descriptor.
+const VolStructApp = lazy(() => import('./components/composite/VolStructApp.tsx'));
 
 function Router() {
   const [hash, setHash] = useState(window.location.hash);
@@ -125,6 +130,17 @@ function Router() {
         </div>
       }>
         <EtfFlowApp />
+      </Suspense>
+    );
+  }
+  if (path === '#/vol-structure' || path.startsWith('#/vol-structure/')) {
+    return (
+      <Suspense fallback={
+        <div className="min-h-screen bg-[#050505] text-cyan-400/70 flex items-center justify-center text-[10px] font-mono uppercase tracking-widest">
+          loading vol-structure…
+        </div>
+      }>
+        <VolStructApp />
       </Suspense>
     );
   }

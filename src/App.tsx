@@ -1348,6 +1348,13 @@ export default function App() {
               Cycle position →
             </a>
             <a
+              href="#/vol-structure"
+              className="text-[9px] font-black text-cyan-400/80 hover:text-cyan-300 uppercase tracking-[0.2em] border border-cyan-400/30 hover:border-cyan-400 rounded-lg px-3 py-1.5 transition-colors"
+              title="Volatility term-structure composite (vol_struct_v1 · informational · full VIX-family curve shape + VVIX divergence · reusable composite-detail panel with anomaly scan)"
+            >
+              Vol structure →
+            </a>
+            <a
               href="#/etf-flow"
               className="text-[9px] font-black text-fuchsia-400/80 hover:text-fuchsia-300 uppercase tracking-[0.2em] border border-fuchsia-400/30 hover:border-fuchsia-400 rounded-lg px-3 py-1.5 transition-colors"
               title="ETF-flow cross-validation (Gap #9 v3.1 · yfinance primary vs SSGA secondary · per-ticker shares-outstanding divergence + severity ladder)"
