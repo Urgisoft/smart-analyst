@@ -118,6 +118,12 @@ import {
   fetchShortInterestState,
   ShortInterestDashboardError,
 } from "./src/server/short_interest_dashboard.js";
+import {
+  parseQuery as parseExecutiveDepartureQuery,
+  isQueryFailure as isExecutiveDepartureQueryFailure,
+  fetchExecutiveDepartureState,
+  ExecutiveDepartureDashboardError,
+} from "./src/server/executive_departure_dashboard.js";
 import { fetchEtfFlowCrossValidationState } from "./src/server/etf_flow_dashboard.js";
 import { fetchHealthState } from "./src/server/health_dashboard.js";
 import { fetchPhaseBDashboardState } from "./src/server/phase_b_dashboard.js";
@@ -842,6 +848,29 @@ async function startServer() {
         return res.status(e.status).json({ error: e.error, detail: e.detail });
       }
       console.error('short-interest state error', e);
+      return res.status(503).json({ error: 'clickhouse_unavailable', detail: (e as Error).message });
+    }
+  });
+
+  // Powers /#/executive-departure — Cycle 33 slice 3d (S96-147), CLOSES the panel
+  // sweep. Read-only view of `quantlab.executive_departure_snapshots` projected
+  // onto CompositeDetailPayload — a flat single-axis (5.02(b) departure sector
+  // cluster z, GICS sectors) descriptor + per-ticker departure/appointment drill.
+  // hasData=false (not 503) when no snapshot exists (the exec-departure ingest has
+  // never run). SPEC: docs/specs/executive-departure-signal.md.
+  app.get("/api/executive-departure", async (req, res) => {
+    const parsed = parseExecutiveDepartureQuery({ lookbackDays: req.query.lookbackDays });
+    if (isExecutiveDepartureQueryFailure(parsed)) {
+      return res.status(parsed.status).json({ error: parsed.error, detail: parsed.detail });
+    }
+    try {
+      const response = await fetchExecutiveDepartureState({ lookbackDays: parsed.lookbackDays });
+      return res.json(response);
+    } catch (e) {
+      if (e instanceof ExecutiveDepartureDashboardError) {
+        return res.status(e.status).json({ error: e.error, detail: e.detail });
+      }
+      console.error('executive-departure state error', e);
       return res.status(503).json({ error: 'clickhouse_unavailable', detail: (e as Error).message });
     }
   });

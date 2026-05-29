@@ -42,6 +42,7 @@ import {
 const ACCENT_HEX: Record<string, string> = {
   cyan: '#22d3ee', amber: '#fbbf24', violet: '#a78bfa', emerald: '#34d399',
   fuchsia: '#e879f9', sky: '#38bdf8', rose: '#fb7185', lime: '#a3e635',
+  indigo: '#818cf8', teal: '#2dd4bf',
 };
 function accentHex(stem: string): string { return ACCENT_HEX[stem] ?? '#22d3ee'; }
 

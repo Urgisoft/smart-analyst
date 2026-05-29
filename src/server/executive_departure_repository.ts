@@ -752,6 +752,81 @@ export class ExecutiveDepartureRepository {
       version: r.composite_version as typeof EXECUTIVE_DEPARTURE_COMPOSITE_VERSION,
     };
   }
+
+  /**
+   * Read a trailing window of snapshots ending at-or-before `anchor`, ASC by
+   * date. Powers the composite-detail dashboard (Cycle 33 slice 3d). Read-only;
+   * additive. Selects the cluster flag + the persisted `max_aggregate_z` + the
+   * two coverage counts (NOT per_ticker_json / flagged_sectors_json) — a year of
+   * history is one cheap scan, no per-row JSON parse (max_aggregate_z is a real
+   * persisted column here, like eight_k — unlike schedule_13d_g where it is
+   * derived from flagged sectors).
+   *
+   * Subquery-around-FINAL (S96-149 / a52c964 class): filter on the raw
+   * `snapshot_date` (Date) INSIDE the subquery; `toString()` only in the outer
+   * SELECT — never bind a WHERE Date range to a String alias.
+   */
+  async loadHistory(
+    anchor: Date,
+    lookbackDays: number,
+  ): Promise<ExecutiveDepartureHistoryRow[]> {
+    const anchorStr = anchor.toISOString().slice(0, 10);
+    const startStr = new Date(anchor.getTime() - lookbackDays * 24 * 60 * 60 * 1000)
+      .toISOString().slice(0, 10);
+    const q = await this.ch.query({
+      query: `
+        SELECT
+          toString(snapshot_date) AS snapshot_date,
+          executive_cluster_departure,
+          max_aggregate_z,
+          inputs_available_aggregate,
+          inputs_available_per_ticker
+        FROM (
+          SELECT
+            snapshot_date, executive_cluster_departure, max_aggregate_z,
+            inputs_available_aggregate, inputs_available_per_ticker
+          FROM ${this.snapshotsTable} FINAL
+          WHERE snapshot_date >= {start:Date} AND snapshot_date <= {anchor:Date}
+          ORDER BY snapshot_date ASC
+        )
+      `,
+      query_params: { start: startStr, anchor: anchorStr },
+      format: 'JSONEachRow',
+    });
+    const rows = await q.json<{
+      snapshot_date: string;
+      executive_cluster_departure: number | string;
+      max_aggregate_z: number | string | null;
+      inputs_available_aggregate: number | string;
+      inputs_available_per_ticker: number | string;
+    }>();
+    return rows.map(r => ({
+      date: r.snapshot_date,
+      clusterFlag: Number(r.executive_cluster_departure) === 1,
+      maxAggregateZ: nullableNum(r.max_aggregate_z),
+      inputsAvailableAggregate: Number(r.inputs_available_aggregate),
+      inputsAvailablePerTicker: Number(r.inputs_available_per_ticker),
+    }));
+  }
+}
+
+/** One trailing-window snapshot row for the executive_departure composite-detail
+ *  dashboard (Cycle 33 slice 3d). Aggregate-layer only — per-ticker rows are not
+ *  carried in history (the latest snapshot supplies the drill). `maxAggregateZ`
+ *  is the persisted continuous column (null only at cold-start / pre-migration
+ *  rows). Mirrors EightKClassifierHistoryRow. */
+export interface ExecutiveDepartureHistoryRow {
+  date: string;
+  clusterFlag: boolean;
+  maxAggregateZ: number | null;
+  inputsAvailableAggregate: number;
+  inputsAvailablePerTicker: number;
+}
+
+function nullableNum(v: number | string | null | undefined): number | null {
+  if (v == null) return null;
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
 }
 
 // ───── helpers ──────────────────────────────────────────────────────────────

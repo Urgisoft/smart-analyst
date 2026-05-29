@@ -776,3 +776,97 @@ export const shortInterestDescriptor: CompositeDescriptor = {
     { bit: SI_INPUT_PER_TICKER, label: 'PER-TICKER' },
   ],
 };
+
+// ── executive_departure (Cycle 33 slice 3d — flat single-axis + drill) ───────
+// The EIGHTH composite — and the one that CLOSES the panel sweep. FLAT single-
+// axis (NEW 5.02(b) departure sector event-rate cluster z) + per-ticker
+// departure/appointment drill. Structurally MIRRORS eight_k (GICS-sector cluster)
+// — verified against executive_departure.ts, NOT assumed from the field names
+// (S96-153). Two persisted-shape facts confirmed from the composite + repository:
+//   - maxAggregateZ is a PERSISTED continuous column (migrate_add_max_aggregate_z_
+//     to_executive_departure_snapshots.ts; loadLatestSnapshot reads max_aggregate_z)
+//     so the z bar shows real in-band readings + a dense sparkline — like eight_k,
+//     UNLIKE schedule_13d_g's derived null-or-≥2.
+//   - inputsAvailableAggregate is a 0–11 SECTOR COUNT (composite line ~377:
+//     `if (s.sectorSize > 0) inputsAvailableAggregate++`) → context "X/11 sectors",
+//     like eight_k — NOT a baseline-prints sum, NOT a constituent count.
+
+export const XD_INPUT_AGG = 1 << 0;
+export const XD_INPUT_PER_TICKER = 1 << 1;
+
+export const executiveDepartureDescriptor: CompositeDescriptor = {
+  composite: 'executive_departure',
+  endpoint: '/api/executive-departure',
+  title: 'VECTOR_EXEC · Executive-Departure Cluster',
+  accent: 'indigo',
+  subtitle:
+    'SEC 8-K Item 5.02(b) executive-departure / 5.02(c) appointment filings, aggregated to GICS sectors. The cluster z tracks the sector departure rate (5.02(b) filings ÷ sector size, 90d window) vs a trailing-2y baseline; >+2 = unusual clustering of exec exits in a sector. Canon thin (Warner-Watts-Wruck 1988; Denis-Denis 1995). Per-ticker drill = equity-midcap watch universe. Informational only in v1; does not fire phase1_v3.',
+  specPath: 'docs/specs/executive-departure-signal.md',
+  ingestHint: [
+    '# 1. Ensure schema exists (idempotent):',
+    'npm run migrate:create-executive-departure-snapshots:apply',
+    'npm run migrate:add-max-z-executive-departure-snapshots:apply',
+    '',
+    '# 2. Ingest the 8-K Item 5.02 stream (free SEC EDGAR — watch the per-IP',
+    '#    throttle; prefer paced ingest, the bulk backfill is rate-limited):',
+    'npm run edgar:exec-departure:ingest',
+    '',
+    '# 3. Run the daemon once to write the first snapshot:',
+    'npm run daemon:daily',
+  ],
+  metrics: [
+    {
+      key: 'maxAggregateZ',
+      label: 'Departure-cluster max sector z',
+      short: 'Clust-z',
+      unit: 'z', warnAbs: 2, critAbs: 4,
+      glossary:
+        'Largest |z| across all GICS sectors of the sector’s 5.02(b) departure rate (forced/voluntary exec departures ÷ sector size, 90d window) vs its trailing-2y baseline. >+2 = unusually concentrated executive departures in a sector. A reading past ±4 is implausibly extreme — suspect a thin baseline (the anomaly scan flags it).',
+    },
+    {
+      key: 'flaggedSectorCount',
+      label: 'Flagged sectors (|z|>2)',
+      short: 'Sec#',
+      unit: 'raw',
+      glossary: 'Number of GICS sectors whose departure-rate z exceeded ±2 this snapshot.',
+    },
+    {
+      key: 'departureTickers',
+      label: 'Tickers with a departure (90d)',
+      short: 'Dep#',
+      unit: 'raw',
+      glossary: 'Count of watch-universe names with ≥1 Item 5.02(b) executive departure in the trailing 90 days. The per-ticker drill lists them.',
+    },
+    {
+      key: 'appointmentTickers',
+      label: 'Tickers with an appointment (90d)',
+      short: 'Appt#',
+      unit: 'raw',
+      glossary: 'Count of names with ≥1 Item 5.02(c) executive appointment in the trailing 90 days.',
+    },
+    {
+      key: 'recentDepartures90d',
+      label: 'Total departures (90d)',
+      short: 'Deps',
+      unit: 'raw',
+      glossary: 'Sum of distinct 5.02(b) departure events across the watch universe in the trailing 90 days.',
+    },
+  ],
+  flags: [
+    {
+      key: 'executiveClusterDeparture',
+      label: 'Executive-departure sector cluster',
+      whenTrue: 'At least one GICS sector’s 5.02(b) departure-rate z exceeded |z|>2 vs its 2y baseline — concentrated executive departures somewhere in the index.',
+    },
+  ],
+  verdicts: {
+    departure_cluster: { tone: 'warn', meaning: 'A GICS sector’s executive-departure rate exceeded |z|>2 vs its 2y baseline — concentrated executive exits worth watching.' },
+    normal: { tone: 'neutral', meaning: 'No sector’s departure rate exceeded the |z|>2 baseline threshold.' },
+    unknown: { tone: 'unknown', meaning: 'No GICS sector had a valid 2y baseline — could not classify (cold-start before the baseline warmed).' },
+  },
+  defaultTone: 'neutral',
+  inputBits: [
+    { bit: XD_INPUT_AGG, label: 'AGG-SECTORS' },
+    { bit: XD_INPUT_PER_TICKER, label: 'PER-TICKER' },
+  ],
+};

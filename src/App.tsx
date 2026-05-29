@@ -1397,6 +1397,13 @@ export default function App() {
               Short interest →
             </a>
             <a
+              href="#/executive-departure"
+              className="text-[9px] font-black text-indigo-400/80 hover:text-indigo-300 uppercase tracking-[0.2em] border border-indigo-400/30 hover:border-indigo-400 rounded-lg px-3 py-1.5 transition-colors"
+              title="Executive-departure cluster composite (exec_departure_v1 · informational · 5.02(b) departure sector-cluster z [GICS sectors] + per-ticker departure/appointment drill · reusable composite-detail panel · empty until EDGAR 8-K Item 5.02 ingest runs)"
+            >
+              Exec departures →
+            </a>
+            <a
               href="#/etf-flow"
               className="text-[9px] font-black text-fuchsia-400/80 hover:text-fuchsia-300 uppercase tracking-[0.2em] border border-fuchsia-400/30 hover:border-fuchsia-400 rounded-lg px-3 py-1.5 transition-colors"
               title="ETF-flow cross-validation (Gap #9 v3.1 · yfinance primary vs SSGA secondary · per-ticker shares-outstanding divergence + severity ladder)"

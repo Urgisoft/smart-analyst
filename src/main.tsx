@@ -63,6 +63,11 @@ const EightKClassifierApp = lazy(() => import('./components/composite/EightKClas
 // sectors — S96-153) + per-ticker short-interest drill; reuses CompositeDetailApp.
 // Empty-state until the FINRA short-interest ingest runs.
 const ShortInterestApp = lazy(() => import('./components/composite/ShortInterestApp.tsx'));
+// Lazy-load the executive_departure cluster composite-detail panel — Cycle 33
+// slice 3d (S96-147), CLOSES the panel sweep. Flat single-axis (5.02(b) departure
+// sector cluster z, GICS sectors — mirrors eight_k) + per-ticker drill; reuses
+// CompositeDetailApp. Empty-state until the EDGAR 8-K Item 5.02 ingest runs.
+const ExecutiveDepartureApp = lazy(() => import('./components/composite/ExecutiveDepartureApp.tsx'));
 
 function Router() {
   const [hash, setHash] = useState(window.location.hash);
@@ -228,6 +233,17 @@ function Router() {
         </div>
       }>
         <ShortInterestApp />
+      </Suspense>
+    );
+  }
+  if (path === '#/executive-departure' || path.startsWith('#/executive-departure/')) {
+    return (
+      <Suspense fallback={
+        <div className="min-h-screen bg-[#050505] text-indigo-400/70 flex items-center justify-center text-[10px] font-mono uppercase tracking-widest">
+          loading executive-departure…
+        </div>
+      }>
+        <ExecutiveDepartureApp />
       </Suspense>
     );
   }
