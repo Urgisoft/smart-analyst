@@ -495,6 +495,82 @@ export class CrossAssetSignalsRepository {
       compositeVersion: r.composite_version as typeof CROSS_ASSET_COMPOSITE_VERSION,
     };
   }
+
+  /**
+   * Read a trailing window of snapshots ending at-or-before `anchor`, ASC by
+   * date. Powers the composite-detail dashboard (Cycle 33). Read-only; additive.
+   * Subquery-around-FINAL pattern (S96-149) to avoid the a52c964 alias-shadow
+   * bug ("no supertype for String, Date").
+   */
+  async loadHistory(
+    anchor: Date,
+    lookbackDays: number,
+  ): Promise<CrossAssetHistoryRow[]> {
+    const anchorStr = anchor.toISOString().slice(0, 10);
+    const startStr = new Date(anchor.getTime() - lookbackDays * 24 * 60 * 60 * 1000)
+      .toISOString().slice(0, 10);
+    const q = await this.ch.query({
+      query: `
+        SELECT
+          toString(snapshot_date) AS snapshot_date,
+          regime_flag,
+          credit_internals_diff_z,
+          dxy_20d_change_pct,
+          real_rate_10y_20d_change_bps,
+          copper_gold_ratio_20d_change_pct,
+          inverted_segment_count,
+          active_flag_count,
+          inputs_present
+        FROM (
+          SELECT
+            snapshot_date, regime_flag,
+            credit_internals_diff_z, dxy_20d_change_pct,
+            real_rate_10y_20d_change_bps, copper_gold_ratio_20d_change_pct,
+            inverted_segment_count, active_flag_count, inputs_present
+          FROM ${this.snapshotsTable} FINAL
+          WHERE snapshot_date >= {start:Date} AND snapshot_date <= {anchor:Date}
+          ORDER BY snapshot_date ASC
+        )
+      `,
+      query_params: { start: startStr, anchor: anchorStr },
+      format: 'JSONEachRow',
+    });
+    const rows = await q.json<{
+      snapshot_date: string;
+      regime_flag: string;
+      credit_internals_diff_z: number | null;
+      dxy_20d_change_pct: number | null;
+      real_rate_10y_20d_change_bps: number | null;
+      copper_gold_ratio_20d_change_pct: number | null;
+      inverted_segment_count: number | string;
+      active_flag_count: number | string;
+      inputs_present: number | string;
+    }>();
+    return rows.map(r => ({
+      date: r.snapshot_date,
+      regimeFlag: r.regime_flag as CrossAssetRegimeFlag,
+      creditInternalsDiffZ: nullableNum(r.credit_internals_diff_z),
+      dxy20dChangePct: nullableNum(r.dxy_20d_change_pct),
+      realRate10y20dChangeBps: nullableNum(r.real_rate_10y_20d_change_bps),
+      copperGoldRatio20dChangePct: nullableNum(r.copper_gold_ratio_20d_change_pct),
+      invertedSegmentCount: Number(r.inverted_segment_count),
+      activeFlagCount: Number(r.active_flag_count),
+      inputsPresent: Number(r.inputs_present),
+    }));
+  }
+}
+
+/** One trailing-window snapshot row for the composite-detail dashboard. */
+export interface CrossAssetHistoryRow {
+  date: string;
+  regimeFlag: CrossAssetRegimeFlag;
+  creditInternalsDiffZ: number | null;
+  dxy20dChangePct: number | null;
+  realRate10y20dChangeBps: number | null;
+  copperGoldRatio20dChangePct: number | null;
+  invertedSegmentCount: number;
+  activeFlagCount: number;
+  inputsPresent: number;
 }
 
 interface RawSnapshotRow {

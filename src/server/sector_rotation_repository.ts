@@ -346,6 +346,79 @@ export class SectorRotationRepository {
       compositeVersion: r.composite_version as typeof SECTOR_ROT_COMPOSITE_VERSION,
     };
   }
+
+  /**
+   * Read a trailing window of snapshots ending at-or-before `anchor`, ASC by
+   * date. Powers the composite-detail dashboard (Cycle 33). Read-only; additive.
+   * Uses the subquery-around-FINAL pattern (S96-149) — filtering on the raw
+   * `snapshot_date` (Date) inside, toString() only in the outer SELECT — to
+   * avoid the a52c964 alias-shadow bug ("no supertype for String, Date").
+   */
+  async loadHistory(
+    anchor: Date,
+    lookbackDays: number,
+  ): Promise<SectorRotationHistoryRow[]> {
+    const anchorStr = anchor.toISOString().slice(0, 10);
+    const startStr = new Date(anchor.getTime() - lookbackDays * 24 * 60 * 60 * 1000)
+      .toISOString().slice(0, 10);
+    const q = await this.ch.query({
+      query: `
+        SELECT
+          toString(snapshot_date) AS snapshot_date,
+          regime_flag,
+          defensive_cyclical_spread_z,
+          top_sector_volume_share_z,
+          defensive_cyclical_spread,
+          spy_pct_off_52w_high,
+          growth_value_spread,
+          inputs_present
+        FROM (
+          SELECT
+            snapshot_date, regime_flag,
+            defensive_cyclical_spread_z, top_sector_volume_share_z,
+            defensive_cyclical_spread, spy_pct_off_52w_high, growth_value_spread,
+            inputs_present
+          FROM ${this.snapshotsTable} FINAL
+          WHERE snapshot_date >= {start:Date} AND snapshot_date <= {anchor:Date}
+          ORDER BY snapshot_date ASC
+        )
+      `,
+      query_params: { start: startStr, anchor: anchorStr },
+      format: 'JSONEachRow',
+    });
+    const rows = await q.json<{
+      snapshot_date: string;
+      regime_flag: string;
+      defensive_cyclical_spread_z: number | null;
+      top_sector_volume_share_z: number | null;
+      defensive_cyclical_spread: number | null;
+      spy_pct_off_52w_high: number | null;
+      growth_value_spread: number | null;
+      inputs_present: number | string;
+    }>();
+    return rows.map(r => ({
+      date: r.snapshot_date,
+      regimeFlag: r.regime_flag as SectorRotationRegimeFlag,
+      defensiveCyclicalSpreadZ: nullableNum(r.defensive_cyclical_spread_z),
+      topSectorVolumeShareZ: nullableNum(r.top_sector_volume_share_z),
+      defensiveCyclicalSpread: nullableNum(r.defensive_cyclical_spread),
+      spyPctOff52wHigh: nullableNum(r.spy_pct_off_52w_high),
+      growthValueSpread: nullableNum(r.growth_value_spread),
+      inputsPresent: Number(r.inputs_present),
+    }));
+  }
+}
+
+/** One trailing-window snapshot row for the composite-detail dashboard. */
+export interface SectorRotationHistoryRow {
+  date: string;
+  regimeFlag: SectorRotationRegimeFlag;
+  defensiveCyclicalSpreadZ: number | null;
+  topSectorVolumeShareZ: number | null;
+  defensiveCyclicalSpread: number | null;
+  spyPctOff52wHigh: number | null;
+  growthValueSpread: number | null;
+  inputsPresent: number;
 }
 
 function nullableNum(v: number | null | undefined): number | null {

@@ -42,6 +42,10 @@ const PhaseBApp = lazy(() => import('./components/phase_b/PhaseBApp.tsx'));
 // `quantlab.vol_structure_snapshots`. First of the 7 backend-only composites to
 // get a real panel; subsequent composites reuse the same component + a descriptor.
 const VolStructApp = lazy(() => import('./components/composite/VolStructApp.tsx'));
+// Lazy-load the sector-rotation + cross-asset composite-detail panels — Cycle 33
+// slice 2a (S96-147). Both reuse CompositeDetailApp via their descriptors.
+const SectorRotationApp = lazy(() => import('./components/composite/SectorRotationApp.tsx'));
+const CrossAssetApp = lazy(() => import('./components/composite/CrossAssetApp.tsx'));
 
 function Router() {
   const [hash, setHash] = useState(window.location.hash);
@@ -141,6 +145,28 @@ function Router() {
         </div>
       }>
         <VolStructApp />
+      </Suspense>
+    );
+  }
+  if (path === '#/sector-rotation' || path.startsWith('#/sector-rotation/')) {
+    return (
+      <Suspense fallback={
+        <div className="min-h-screen bg-[#050505] text-amber-400/70 flex items-center justify-center text-[10px] font-mono uppercase tracking-widest">
+          loading sector-rotation…
+        </div>
+      }>
+        <SectorRotationApp />
+      </Suspense>
+    );
+  }
+  if (path === '#/cross-asset' || path.startsWith('#/cross-asset/')) {
+    return (
+      <Suspense fallback={
+        <div className="min-h-screen bg-[#050505] text-rose-400/70 flex items-center justify-center text-[10px] font-mono uppercase tracking-widest">
+          loading cross-asset…
+        </div>
+      }>
+        <CrossAssetApp />
       </Suspense>
     );
   }

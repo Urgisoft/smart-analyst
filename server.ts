@@ -82,6 +82,18 @@ import {
   fetchVolStructureState,
   VolStructureDashboardError,
 } from "./src/server/vol_structure_dashboard.js";
+import {
+  parseQuery as parseSectorRotationQuery,
+  isQueryFailure as isSectorRotationQueryFailure,
+  fetchSectorRotationState,
+  SectorRotationDashboardError,
+} from "./src/server/sector_rotation_dashboard.js";
+import {
+  parseQuery as parseCrossAssetQuery,
+  isQueryFailure as isCrossAssetQueryFailure,
+  fetchCrossAssetState,
+  CrossAssetDashboardError,
+} from "./src/server/cross_asset_dashboard.js";
 import { fetchEtfFlowCrossValidationState } from "./src/server/etf_flow_dashboard.js";
 import { fetchHealthState } from "./src/server/health_dashboard.js";
 import { fetchPhaseBDashboardState } from "./src/server/phase_b_dashboard.js";
@@ -678,6 +690,46 @@ async function startServer() {
         return res.status(e.status).json({ error: e.error, detail: e.detail });
       }
       console.error('vol-structure state error', e);
+      return res.status(503).json({ error: 'clickhouse_unavailable', detail: (e as Error).message });
+    }
+  });
+
+  // Powers /#/sector-rotation — Cycle 33 slice 2a (S96-147). Read-only view of
+  // `quantlab.sector_rotation_snapshots` projected onto CompositeDetailPayload.
+  // hasData=false (not 503) when no snapshot exists. SPEC: docs/specs/sector-rotation.md.
+  app.get("/api/sector-rotation", async (req, res) => {
+    const parsed = parseSectorRotationQuery({ lookbackDays: req.query.lookbackDays });
+    if (isSectorRotationQueryFailure(parsed)) {
+      return res.status(parsed.status).json({ error: parsed.error, detail: parsed.detail });
+    }
+    try {
+      const response = await fetchSectorRotationState({ lookbackDays: parsed.lookbackDays });
+      return res.json(response);
+    } catch (e) {
+      if (e instanceof SectorRotationDashboardError) {
+        return res.status(e.status).json({ error: e.error, detail: e.detail });
+      }
+      console.error('sector-rotation state error', e);
+      return res.status(503).json({ error: 'clickhouse_unavailable', detail: (e as Error).message });
+    }
+  });
+
+  // Powers /#/cross-asset — Cycle 33 slice 2a (S96-147). Read-only view of
+  // `quantlab.cross_asset_snapshots` projected onto CompositeDetailPayload.
+  // hasData=false (not 503) when no snapshot exists. SPEC: docs/specs/cross-asset-signals.md.
+  app.get("/api/cross-asset", async (req, res) => {
+    const parsed = parseCrossAssetQuery({ lookbackDays: req.query.lookbackDays });
+    if (isCrossAssetQueryFailure(parsed)) {
+      return res.status(parsed.status).json({ error: parsed.error, detail: parsed.detail });
+    }
+    try {
+      const response = await fetchCrossAssetState({ lookbackDays: parsed.lookbackDays });
+      return res.json(response);
+    } catch (e) {
+      if (e instanceof CrossAssetDashboardError) {
+        return res.status(e.status).json({ error: e.error, detail: e.detail });
+      }
+      console.error('cross-asset state error', e);
       return res.status(503).json({ error: 'clickhouse_unavailable', detail: (e as Error).message });
     }
   });

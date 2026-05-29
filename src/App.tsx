@@ -1355,6 +1355,20 @@ export default function App() {
               Vol structure →
             </a>
             <a
+              href="#/sector-rotation"
+              className="text-[9px] font-black text-amber-400/80 hover:text-amber-300 uppercase tracking-[0.2em] border border-amber-400/30 hover:border-amber-400 rounded-lg px-3 py-1.5 transition-colors"
+              title="Sector-rotation composite (sector_rot_v1 · informational · defensive/cyclical leadership + volume concentration + growth/value · reusable composite-detail panel)"
+            >
+              Sector rotation →
+            </a>
+            <a
+              href="#/cross-asset"
+              className="text-[9px] font-black text-rose-400/80 hover:text-rose-300 uppercase tracking-[0.2em] border border-rose-400/30 hover:border-rose-400 rounded-lg px-3 py-1.5 transition-colors"
+              title="Cross-asset stress composite (cross_asset_v1 · informational · dollar/real-rate/commodity/credit/curve flags · reusable composite-detail panel)"
+            >
+              Cross-asset →
+            </a>
+            <a
               href="#/etf-flow"
               className="text-[9px] font-black text-fuchsia-400/80 hover:text-fuchsia-300 uppercase tracking-[0.2em] border border-fuchsia-400/30 hover:border-fuchsia-400 rounded-lg px-3 py-1.5 transition-colors"
               title="ETF-flow cross-validation (Gap #9 v3.1 · yfinance primary vs SSGA secondary · per-ticker shares-outstanding divergence + severity ladder)"

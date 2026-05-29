@@ -50,6 +50,15 @@ export interface CompositeFlagValue {
   value: boolean;
 }
 
+/** A categorical / non-numeric piece of context for the state hero, e.g.
+ *  sector_rotation's most-concentrated sector symbol or cross_asset's active
+ *  flag count. Kept as a string so non-numeric labels (a ticker, a count, a
+ *  segment name) surface honestly alongside the numeric metrics. */
+export interface CompositeContextItem {
+  label: string;
+  value: string;
+}
+
 // ── History (ASC by date) — trend + sign-flip / degenerate-baseline scan ─────
 
 export interface CompositeHistoryPoint {
@@ -84,6 +93,9 @@ export interface CompositeDetailPayload {
   staleDays: number | null;
   /** Discrete verdict/regime label, e.g. 'severe_stress'. null when none. */
   verdict: string | null;
+  /** Optional categorical context items (e.g. most-concentrated sector,
+   *  active-flag count). Rendered in the state hero. Omitted when none. */
+  context?: CompositeContextItem[];
   /** Latest per-metric values (descriptor order resolved client-side). */
   metrics: CompositeMetricValue[];
   /** Latest boolean indicator flags. */

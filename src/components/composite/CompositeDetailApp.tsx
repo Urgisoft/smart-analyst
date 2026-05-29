@@ -243,6 +243,16 @@ function StateHero({ payload, descriptor }: { payload: CompositeDetailPayload; d
           <div className="text-zinc-600">{payload.sourceTable}</div>
         </div>
       </div>
+      {payload.context && payload.context.length > 0 && (
+        <div className="mt-3 pt-3 border-t border-[#141414] flex flex-wrap gap-x-6 gap-y-1.5">
+          {payload.context.map(c => (
+            <div key={c.label} className="text-[10px] font-mono">
+              <span className="text-zinc-500 uppercase tracking-wider">{c.label}: </span>
+              <span className="text-zinc-200">{c.value}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
