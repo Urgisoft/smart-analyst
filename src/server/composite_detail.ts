@@ -59,6 +59,42 @@ export interface CompositeContextItem {
   value: string;
 }
 
+// ── Optional per-entity drill table (Cycle 33 slice 2b / S96-147) ────────────
+// form_4 carries 62 per-ticker rows in its snapshot; sector/cross_asset carry
+// none. The drill is an OPTIONAL payload section a composite populates when it
+// has per-entity rows worth surfacing (form_4 per-ticker; later 13d_g filings,
+// short_interest per-name). The reusable panel renders it generically. Composites
+// without per-entity rows omit `drill` entirely (the existing 3 panels do).
+
+export interface CompositeDrillColumn {
+  /** Cell key into each row's `cells`. */
+  key: string;
+  /** Column header. */
+  label: string;
+  /** Cell alignment; numeric columns right-align. Default 'left'. */
+  align?: 'left' | 'right';
+  /** Render hint. 'usd' = compact $ (−$96.2M); 'num' = integer; 'days' = Nd/—;
+   *  'bool' = YES/·; 'text' (default) = string as-is. null cells always → '—'. */
+  format?: 'text' | 'num' | 'usd' | 'bool' | 'days';
+}
+
+export interface CompositeDrillRow {
+  /** Cell values keyed by column key. null → rendered as '—'. */
+  cells: Record<string, string | number | boolean | null>;
+  /** Visual emphasis hint — a buy-cluster row tints buy-side, sell-cluster
+   *  sell-side. 'none' (default) = no tint. */
+  emphasis?: 'buy' | 'sell' | 'none';
+}
+
+export interface CompositeDrillTable {
+  title: string;
+  columns: CompositeDrillColumn[];
+  rows: CompositeDrillRow[];
+  /** Coverage / source caveat shown under the table (e.g. Finnhub thinness,
+   *  SP500 scope, a "showing N of M" cap note). */
+  note?: string;
+}
+
 // ── History (ASC by date) — trend + sign-flip / degenerate-baseline scan ─────
 
 export interface CompositeHistoryPoint {
@@ -96,6 +132,10 @@ export interface CompositeDetailPayload {
   /** Optional categorical context items (e.g. most-concentrated sector,
    *  active-flag count). Rendered in the state hero. Omitted when none. */
   context?: CompositeContextItem[];
+  /** Optional per-entity drill table (e.g. form_4 per-ticker rows). Rendered
+   *  as its own section below the metric bars. Omitted by composites with no
+   *  per-entity rows (the existing 3 panels). */
+  drill?: CompositeDrillTable;
   /** Latest per-metric values (descriptor order resolved client-side). */
   metrics: CompositeMetricValue[];
   /** Latest boolean indicator flags. */

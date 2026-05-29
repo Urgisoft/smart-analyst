@@ -19,7 +19,12 @@
  * Tailwind class names — they'd be purged from the build).
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { CompositeDetailPayload, CompositeTone } from '../../server/composite_detail.js';
+import type {
+  CompositeDetailPayload,
+  CompositeDrillColumn,
+  CompositeDrillTable,
+  CompositeTone,
+} from '../../server/composite_detail.js';
 import {
   scanCompositeAnomalies,
   type Anomaly,
@@ -29,6 +34,7 @@ import {
   toAnomalyScanConfig,
   type CompositeDescriptor,
   type CompositeMetricDescriptor,
+  type CompositeMetricGroup,
 } from './descriptors.js';
 
 // ── Color maps (inline; dynamic Tailwind classes get purged) ─────────────────
@@ -166,6 +172,7 @@ function DashboardLayout({ payload, descriptor, accent }: {
       <CoverageStrip payload={payload} descriptor={descriptor} accent={accent} />
       <MetricBars payload={payload} descriptor={descriptor} accent={accent} />
       <HistoryPanel payload={payload} descriptor={descriptor} accent={accent} />
+      {payload.drill && <DrillTable drill={payload.drill} />}
       <MetricTable payload={payload} descriptor={descriptor} />
       <GlossaryFooter descriptor={descriptor} />
     </div>
@@ -299,13 +306,64 @@ function MetricBars({ payload, descriptor, accent }: {
   payload: CompositeDetailPayload; descriptor: CompositeDescriptor; accent: string;
 }) {
   const valueByKey = new Map(payload.metrics.map(m => [m.key, m.value]));
-  const zMetrics = descriptor.metrics.filter(m => m.unit === 'z');
-  const rawMetrics = descriptor.metrics.filter(m => m.unit === 'raw');
+  // Grouped layout (form_4 dual buy/sell lanes — Cycle 33 slice 2b). When the
+  // descriptor declares metricGroups, render one accented sub-panel per group.
+  if (descriptor.metricGroups && descriptor.metricGroups.length > 0) {
+    return (
+      <div className="border border-[#1a1a1a] bg-[#0a0a0a] rounded p-4">
+        <div className="text-[9px] font-black uppercase tracking-[0.25em] text-zinc-500 mb-3">
+          standardized indicators by lane (z-scores · position on ±σ scale)
+        </div>
+        <div className="flex flex-col gap-5">
+          {descriptor.metricGroups.map(g => (
+            <div key={g.key}>
+              <MetricGroupBars group={g} descriptor={descriptor} valueByKey={valueByKey} fallbackAccent={accent} />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="border border-[#1a1a1a] bg-[#0a0a0a] rounded p-4">
       <div className="text-[9px] font-black uppercase tracking-[0.25em] text-zinc-500 mb-3">
         standardized indicators (z-scores · position on ±σ scale)
       </div>
+      <MetricSet metrics={descriptor.metrics} valueByKey={valueByKey} accent={accent} />
+    </div>
+  );
+}
+
+/** One group's bars (a buy or sell lane), with its own accent + header. */
+function MetricGroupBars({ group, descriptor, valueByKey, fallbackAccent }: {
+  group: CompositeMetricGroup;
+  descriptor: CompositeDescriptor;
+  valueByKey: Map<string, number | null>;
+  fallbackAccent: string;
+}) {
+  const gAccent = group.accent ? accentHex(group.accent) : fallbackAccent;
+  const metrics = group.metricKeys
+    .map(k => descriptor.metrics.find(m => m.key === k))
+    .filter((m): m is CompositeMetricDescriptor => m !== undefined);
+  return (
+    <div className="rounded border p-3" style={{ borderColor: `${gAccent}33`, backgroundColor: `${gAccent}08` }}>
+      <div className="text-[10px] font-black uppercase tracking-[0.2em] mb-2.5" style={{ color: gAccent }}>{group.label}</div>
+      <MetricSet metrics={metrics} valueByKey={valueByKey} accent={gAccent} />
+    </div>
+  );
+}
+
+/** Renders a set of metrics: z-metrics as ±σ bars, raw metrics as value cards.
+ *  Shared by the flat layout and each grouped lane. */
+function MetricSet({ metrics, valueByKey, accent }: {
+  metrics: CompositeMetricDescriptor[];
+  valueByKey: Map<string, number | null>;
+  accent: string;
+}) {
+  const zMetrics = metrics.filter(m => m.unit === 'z');
+  const rawMetrics = metrics.filter(m => m.unit === 'raw');
+  return (
+    <>
       <div className="flex flex-col gap-3">
         {zMetrics.map(m => (
           // key lives on an intrinsic wrapper (codebase convention — TS does not
@@ -316,7 +374,7 @@ function MetricBars({ payload, descriptor, accent }: {
         ))}
       </div>
       {rawMetrics.length > 0 && (
-        <div className="mt-4 pt-3 border-t border-[#1a1a1a] flex flex-wrap gap-6">
+        <div className={`${zMetrics.length > 0 ? 'mt-4 pt-3 border-t border-[#1a1a1a]' : ''} flex flex-wrap gap-6`}>
           {rawMetrics.map(m => (
             <div key={m.key} className="flex flex-col gap-0.5">
               <div className="text-[9px] font-mono uppercase tracking-wider text-zinc-500" title={m.glossary}>{m.label}</div>
@@ -325,7 +383,7 @@ function MetricBars({ payload, descriptor, accent }: {
           ))}
         </div>
       )}
-    </div>
+    </>
   );
 }
 
@@ -381,7 +439,6 @@ function ZBar({ metric, value, accent }: { metric: CompositeMetricDescriptor; va
 function HistoryPanel({ payload, descriptor, accent }: {
   payload: CompositeDetailPayload; descriptor: CompositeDescriptor; accent: string;
 }) {
-  const zMetrics = descriptor.metrics.filter(m => m.unit === 'z');
   if (payload.history.length < 2) {
     return (
       <div className="border border-[#1a1a1a] bg-[#0a0a0a] rounded p-4 text-[10px] font-mono text-zinc-600">
@@ -389,18 +446,45 @@ function HistoryPanel({ payload, descriptor, accent }: {
       </div>
     );
   }
+  const grouped = descriptor.metricGroups && descriptor.metricGroups.length > 0;
   return (
     <div className="border border-[#1a1a1a] bg-[#0a0a0a] rounded p-4">
       <div className="text-[9px] font-black uppercase tracking-[0.25em] text-zinc-500 mb-3">
         trend ({payload.history.length}d) — each z-metric self-scaled; firing lane = verdict per day
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {zMetrics.map(m => (
-          <div key={m.key}>
-            <Sparkline label={m.short} series={payload.history.map(h => h.metrics[m.key] ?? null)} accent={accent} crit={m.critAbs ?? 4} />
+      {grouped
+        ? (
+          <div className="flex flex-col gap-4">
+            {descriptor.metricGroups!.map(g => {
+              const gAccent = g.accent ? accentHex(g.accent) : accent;
+              const zMetrics = g.metricKeys
+                .map(k => descriptor.metrics.find(m => m.key === k))
+                .filter((m): m is CompositeMetricDescriptor => m !== undefined && m.unit === 'z');
+              if (zMetrics.length === 0) return null;
+              return (
+                <div key={g.key}>
+                  <div className="text-[9px] font-mono uppercase tracking-wider mb-1.5" style={{ color: gAccent }}>{g.label}</div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {zMetrics.map(m => (
+                      <div key={m.key}>
+                        <Sparkline label={m.short} series={payload.history.map(h => h.metrics[m.key] ?? null)} accent={gAccent} crit={m.critAbs ?? 4} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
           </div>
-        ))}
-      </div>
+        )
+        : (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {descriptor.metrics.filter(m => m.unit === 'z').map(m => (
+              <div key={m.key}>
+                <Sparkline label={m.short} series={payload.history.map(h => h.metrics[m.key] ?? null)} accent={accent} crit={m.critAbs ?? 4} />
+              </div>
+            ))}
+          </div>
+        )}
       <FiringLane payload={payload} descriptor={descriptor} />
     </div>
   );
@@ -540,6 +624,56 @@ function GlossaryFooter({ descriptor }: { descriptor: CompositeDescriptor }) {
   );
 }
 
+// ── Per-entity drill table (form_4 per-ticker; later 13d_g / short_interest) ─
+
+const EMPHASIS_HEX: Record<'buy' | 'sell' | 'none', string> = {
+  buy: '#34d399', sell: '#fb7185', none: 'transparent',
+};
+
+function DrillTable({ drill }: { drill: CompositeDrillTable }) {
+  return (
+    <div className="border border-[#1a1a1a] bg-[#0a0a0a] rounded p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-[9px] font-black uppercase tracking-[0.25em] text-zinc-500">{drill.title}</div>
+        <div className="text-[10px] font-mono text-zinc-600">{drill.rows.length} row{drill.rows.length === 1 ? '' : 's'}</div>
+      </div>
+      {drill.rows.length === 0 ? (
+        <div className="text-[10px] font-mono text-zinc-600">no rows this snapshot.</div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-[11px] font-mono">
+            <thead>
+              <tr className="text-zinc-600 text-left">
+                {drill.columns.map(c => (
+                  <th key={c.key} className={`font-normal pb-1.5 ${c.align === 'right' ? 'text-right' : 'text-left'}`}>{c.label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {drill.rows.map((row, i) => {
+                const emph = row.emphasis ?? 'none';
+                return (
+                  <tr key={i} className="border-t border-[#141414]"
+                    style={emph !== 'none' ? { boxShadow: `inset 2px 0 0 ${EMPHASIS_HEX[emph]}` } : undefined}>
+                    {drill.columns.map(c => (
+                      <td key={c.key} className={`py-1 ${c.align === 'right' ? 'text-right' : 'text-left'} ${c.key === drill.columns[0].key ? 'text-zinc-200' : 'text-zinc-400'}`}>
+                        {fmtCell(row.cells[c.key] ?? null, c)}
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {drill.note && (
+        <div className="text-[9px] font-mono text-zinc-600 mt-3 pt-2 border-t border-[#141414] leading-relaxed">{drill.note}</div>
+      )}
+    </div>
+  );
+}
+
 // ── Empty state ──────────────────────────────────────────────────────────────
 
 function EmptyState({ descriptor }: { descriptor: CompositeDescriptor }) {
@@ -562,4 +696,33 @@ function EmptyState({ descriptor }: { descriptor: CompositeDescriptor }) {
 function fmt(v: number | null): string {
   if (v === null || !Number.isFinite(v)) return '—';
   return (v >= 0 ? '' : '') + v.toFixed(2);
+}
+
+/** Compact USD: −$96.2M / $1.3B / $480 / $0. null/non-finite → '—'. */
+function fmtUsd(v: number | null): string {
+  if (v === null || !Number.isFinite(v)) return '—';
+  const sign = v < 0 ? '-' : '';
+  const a = Math.abs(v);
+  if (a >= 1e9) return `${sign}$${(a / 1e9).toFixed(1)}B`;
+  if (a >= 1e6) return `${sign}$${(a / 1e6).toFixed(1)}M`;
+  if (a >= 1e3) return `${sign}$${(a / 1e3).toFixed(1)}K`;
+  return `${sign}$${a.toFixed(0)}`;
+}
+
+/** Render a drill cell per its column's format hint. null → '—' always. */
+function fmtCell(v: string | number | boolean | null, col: CompositeDrillColumn): string {
+  if (v === null || v === undefined) return '—';
+  switch (col.format) {
+    case 'usd':
+      return typeof v === 'number' ? fmtUsd(v) : String(v);
+    case 'num':
+      return typeof v === 'number' && Number.isFinite(v) ? String(v) : '—';
+    case 'days':
+      return typeof v === 'number' && Number.isFinite(v) ? `${v}d` : '—';
+    case 'bool':
+      return v === true ? 'YES' : v === false ? '·' : String(v);
+    case 'text':
+    default:
+      return String(v);
+  }
 }

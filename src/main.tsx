@@ -46,6 +46,10 @@ const VolStructApp = lazy(() => import('./components/composite/VolStructApp.tsx'
 // slice 2a (S96-147). Both reuse CompositeDetailApp via their descriptors.
 const SectorRotationApp = lazy(() => import('./components/composite/SectorRotationApp.tsx'));
 const CrossAssetApp = lazy(() => import('./components/composite/CrossAssetApp.tsx'));
+// Lazy-load the form_4 insider composite-detail panel — Cycle 33 slice 2b
+// (S96-147). The dual-axis panel: descriptor.metricGroups drives the buy/sell
+// lanes + the payload.drill carries the per-ticker table.
+const Form4InsiderApp = lazy(() => import('./components/composite/Form4InsiderApp.tsx'));
 
 function Router() {
   const [hash, setHash] = useState(window.location.hash);
@@ -167,6 +171,17 @@ function Router() {
         </div>
       }>
         <CrossAssetApp />
+      </Suspense>
+    );
+  }
+  if (path === '#/form-4-insider' || path.startsWith('#/form-4-insider/')) {
+    return (
+      <Suspense fallback={
+        <div className="min-h-screen bg-[#050505] text-emerald-400/70 flex items-center justify-center text-[10px] font-mono uppercase tracking-widest">
+          loading form-4-insider…
+        </div>
+      }>
+        <Form4InsiderApp />
       </Suspense>
     );
   }

@@ -47,6 +47,28 @@ export interface VerdictMeaning {
   meaning: string;
 }
 
+/** A group of metrics + flags rendered together as one lane (Cycle 33 slice 2b
+ *  / S96-147 — the OQ-C33-2 genuine descriptor extension). form_4 is dual-axis:
+ *  a buy-cluster lane + a symmetric sell-cluster lane, each with its own z
+ *  metric + flag + accent. When a descriptor sets `metricGroups`, the bars +
+ *  history sections render grouped (a labeled sub-panel per group, in its own
+ *  accent); when omitted (the existing 3 fixed-metric panels) rendering is the
+ *  flat single-lane layout — behavior is byte-identical for those. */
+export interface CompositeMetricGroup {
+  /** Stable group key, e.g. 'buy' | 'sell'. */
+  key: string;
+  /** Group header, e.g. 'Buy-side cluster — bullish, load-bearing'. */
+  label: string;
+  /** Tailwind color stem for this group's bars (overrides descriptor.accent).
+   *  Must be a key in CompositeDetailApp's ACCENT_HEX. */
+  accent?: string;
+  /** Metric keys belonging to this group, in render order. Each must match a
+   *  descriptor.metrics[].key. */
+  metricKeys: string[];
+  /** Flag keys belonging to this group. Each must match a descriptor.flags[].key. */
+  flagKeys?: string[];
+}
+
 export interface CompositeDescriptor {
   /** Stable composite key (matches payload.composite). */
   composite: string;
@@ -64,6 +86,10 @@ export interface CompositeDescriptor {
   ingestHint: string[];
   metrics: CompositeMetricDescriptor[];
   flags: CompositeFlagDescriptor[];
+  /** Optional metric/flag grouping into per-lane sub-panels (Cycle 33 slice 2b
+   *  / S96-147). When set, the bars + history sections render grouped. When
+   *  omitted, the flat single-lane layout renders (the existing 3 panels). */
+  metricGroups?: CompositeMetricGroup[];
   /** Verdict label → tone + meaning. */
   verdicts: Record<string, VerdictMeaning>;
   /** Tone for a verdict not in the map. */
@@ -352,5 +378,133 @@ export const crossAssetDescriptor: CompositeDescriptor = {
     { bit: 1 << 3, label: 'COMMOD' },
     { bit: 1 << 4, label: 'CREDIT-Z' },
     { bit: 1 << 5, label: 'FX-CTX' },
+  ],
+};
+
+// ── form_4_insider (Cycle 33 slice 2b — the dual-axis descriptor) ────────────
+// The ONE genuine descriptor extension of Cycle 33 (OQ-C33-2). Unlike the three
+// fixed-single-metric composites above, form_4 carries TWO parallel tracks:
+//   - a BUY-cluster lane (the load-bearing bullish signal — Lakonishok-Lee 2001
+//     §3: open-market insider buys are informative), and
+//   - a symmetric SELL-cluster lane (informationally weaker, ~30-50% diluted by
+//     tax/diversification/charity motives — LL 2001 §4).
+// Each lane has its own max-sector-z metric + aggregate cluster flag + accent,
+// expressed via `metricGroups`. The verdict is DERIVED from the two flags in the
+// dashboard projection (form_4 persists no single discrete regime label).
+//
+// Coverage strip uses two layer-bits (aggregate-sector vs per-ticker) rather
+// than a per-input bitmask — form_4 persists `inputs_available_aggregate`
+// (sectors with a valid baseline) + `inputs_available_per_ticker` (names with a
+// CIK+sector), not a categorical INPUT_* mask. Granular counts surface in the
+// state-hero context strip; the per-ticker detail lives in the drill table.
+
+export const FORM4_INPUT_AGG = 1 << 0;
+export const FORM4_INPUT_PER_TICKER = 1 << 1;
+
+export const form4InsiderDescriptor: CompositeDescriptor = {
+  composite: 'form_4_insider',
+  endpoint: '/api/form-4-insider',
+  title: 'VECTOR_INSIDER · Form 4 Cluster',
+  accent: 'emerald',
+  subtitle:
+    'SEC Form 4 open-market insider clusters ({P}urchase / {S}ale), aggregated to GICS sectors. Buy-side cluster z is the load-bearing signal (Lakonishok-Lee 2001 §3); the sell-side track is informationally weaker (~30-50% diluted, §4). Per-ticker drill = equity-midcap watch universe. Informational only in v1; does not fire phase1_v3.',
+  specPath: 'docs/specs/event-driven-filings-processor.md',
+  ingestHint: [
+    '# 1. Ensure schema exists (idempotent — three-table co-bootstrap):',
+    'npm run migrate:create-form-4-insider-snapshots',
+    'npm run migrate:create-form-4-insider-snapshots:apply',
+    '',
+    '# 2. Backfill the insider-trade stream (Finnhub-sourced; SP500-scoped):',
+    'FINNHUB_API_KEY=<key> .venv/Scripts/python.exe scripts/finnhub_insider_ingest.py \\',
+    '  --from-date 2024-01-01 --to-date <today> --apply',
+    '',
+    '# 3. Run the daemon once to write the first snapshot:',
+    'npm run daemon:daily',
+  ],
+  metrics: [
+    {
+      key: 'maxAggregateZ',
+      label: 'Buy-cluster max sector z',
+      short: 'Buy-z',
+      unit: 'z', warnAbs: 2, critAbs: 4,
+      glossary:
+        'Largest |z| across all GICS sectors of the sector’s cluster-BUY rate (tickers with ≥3 distinct insiders buying in 30d ÷ sector size) vs its trailing-2y baseline. >+2 = unusually concentrated insider buying. A reading past ±4 is implausibly extreme — suspect a thin/zero-inflated baseline (the anomaly scan flags it).',
+    },
+    {
+      key: 'maxAggregateZSell',
+      label: 'Sell-cluster max sector z',
+      short: 'Sell-z',
+      unit: 'z', warnAbs: 2, critAbs: 4,
+      glossary:
+        'Sell-side mirror of the buy z: largest |z| of any sector’s cluster-SELL rate vs its OWN trailing-2y baseline (sell baselines run higher — sells are more frequent in steady state). Weaker signal than the buy side per Lakonishok-Lee 2001 §4.',
+    },
+    {
+      key: 'buyClusterTickers',
+      label: 'Tickers with a buy cluster',
+      short: 'Buy#',
+      unit: 'raw',
+      glossary: 'Count of watch-universe names whose 30d window had ≥3 distinct insiders buying (open-market P code). The per-ticker drill lists them.',
+    },
+    {
+      key: 'sellClusterTickers',
+      label: 'Tickers with a sell cluster',
+      short: 'Sell#',
+      unit: 'raw',
+      glossary: 'Count of watch-universe names with ≥3 distinct insiders selling (open-market S code) in 30d.',
+    },
+    {
+      key: 'flaggedBuySectors',
+      label: 'Flagged buy sectors (|z|>2)',
+      short: 'BuySec',
+      unit: 'raw',
+      glossary: 'Number of GICS sectors whose buy-cluster-rate z exceeded ±2 this snapshot.',
+    },
+    {
+      key: 'flaggedSellSectors',
+      label: 'Flagged sell sectors (|z|>2)',
+      short: 'SellSec',
+      unit: 'raw',
+      glossary: 'Number of GICS sectors whose sell-cluster-rate z exceeded ±2 this snapshot.',
+    },
+  ],
+  flags: [
+    {
+      key: 'form4ClusterFlag',
+      label: 'Buy-side sector cluster',
+      whenTrue: 'At least one GICS sector’s cluster-BUY rate z exceeded |z|>2 vs its 2y baseline — concentrated insider buying somewhere in the index.',
+    },
+    {
+      key: 'form4SellClusterFlag',
+      label: 'Sell-side sector cluster',
+      whenTrue: 'At least one sector’s cluster-SELL rate z exceeded |z|>2 — concentrated insider selling (weaker signal per LL §4).',
+    },
+  ],
+  metricGroups: [
+    {
+      key: 'buy',
+      label: 'Buy-side cluster — bullish, load-bearing (Lakonishok-Lee 2001 §3)',
+      accent: 'emerald',
+      metricKeys: ['maxAggregateZ', 'buyClusterTickers', 'flaggedBuySectors'],
+      flagKeys: ['form4ClusterFlag'],
+    },
+    {
+      key: 'sell',
+      label: 'Sell-side cluster — weaker signal, ~30-50% diluted (Lakonishok-Lee 2001 §4)',
+      accent: 'rose',
+      metricKeys: ['maxAggregateZSell', 'sellClusterTickers', 'flaggedSellSectors'],
+      flagKeys: ['form4SellClusterFlag'],
+    },
+  ],
+  verdicts: {
+    dual_cluster: { tone: 'warn', meaning: 'Both buy- AND sell-side sector clusters firing — divergent insider activity across different sectors.' },
+    buy_cluster: { tone: 'calm', meaning: 'Concentrated insider BUYING in ≥1 sector (|z|>2) — the load-bearing bullish signal (LL 2001: buys are informative).' },
+    sell_cluster: { tone: 'elevated', meaning: 'Concentrated insider SELLING in ≥1 sector — informationally weaker (~30-50% diluted by tax/diversification motives).' },
+    normal: { tone: 'neutral', meaning: 'No sector’s buy- or sell-cluster rate exceeded the |z|>2 baseline threshold.' },
+    unknown: { tone: 'unknown', meaning: 'The aggregate-sector layer had no sector with a valid 2y baseline — could not classify.' },
+  },
+  defaultTone: 'neutral',
+  inputBits: [
+    { bit: FORM4_INPUT_AGG, label: 'AGG-SECTORS' },
+    { bit: FORM4_INPUT_PER_TICKER, label: 'PER-TICKER' },
   ],
 };

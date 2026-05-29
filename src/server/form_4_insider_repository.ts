@@ -773,6 +773,86 @@ export class Form4InsiderRepository {
       version: r.composite_version as typeof FORM_4_INSIDER_COMPOSITE_VERSION,
     };
   }
+
+  /**
+   * Read a trailing window of snapshots ending at-or-before `anchor`, ASC by
+   * date. Powers the composite-detail dashboard (Cycle 33 slice 2b). Read-only;
+   * additive. Lightweight — selects only the two aggregate z-scores + the two
+   * cluster flags + the two coverage counts (NOT the per_ticker / flagged-sector
+   * JSON blobs), so a year of history is one cheap scan, no per-row JSON parse.
+   *
+   * Subquery-around-FINAL (S96-149 / a52c964 class): filter on the raw
+   * `snapshot_date` (Date) INSIDE the subquery; `toString()` only in the outer
+   * SELECT — never bind a WHERE Date range to a String alias.
+   */
+  async loadHistory(
+    anchor: Date,
+    lookbackDays: number,
+  ): Promise<Form4InsiderHistoryRow[]> {
+    const anchorStr = anchor.toISOString().slice(0, 10);
+    const startStr = new Date(anchor.getTime() - lookbackDays * 24 * 60 * 60 * 1000)
+      .toISOString().slice(0, 10);
+    const q = await this.ch.query({
+      query: `
+        SELECT
+          toString(snapshot_date) AS snapshot_date,
+          form_4_cluster_flag,
+          form_4_sell_cluster_flag,
+          max_aggregate_z,
+          max_aggregate_z_sell,
+          inputs_available_aggregate,
+          inputs_available_per_ticker
+        FROM (
+          SELECT
+            snapshot_date, form_4_cluster_flag, form_4_sell_cluster_flag,
+            max_aggregate_z, max_aggregate_z_sell,
+            inputs_available_aggregate, inputs_available_per_ticker
+          FROM ${this.snapshotsTable} FINAL
+          WHERE snapshot_date >= {start:Date} AND snapshot_date <= {anchor:Date}
+          ORDER BY snapshot_date ASC
+        )
+      `,
+      query_params: { start: startStr, anchor: anchorStr },
+      format: 'JSONEachRow',
+    });
+    const rows = await q.json<{
+      snapshot_date: string;
+      form_4_cluster_flag: number | string;
+      form_4_sell_cluster_flag: number | string;
+      max_aggregate_z: number | string | null;
+      max_aggregate_z_sell: number | string | null;
+      inputs_available_aggregate: number | string;
+      inputs_available_per_ticker: number | string;
+    }>();
+    return rows.map(r => ({
+      date: r.snapshot_date,
+      buyClusterFlag: Number(r.form_4_cluster_flag) === 1,
+      sellClusterFlag: Number(r.form_4_sell_cluster_flag) === 1,
+      maxAggregateZ: nullableNum(r.max_aggregate_z),
+      maxAggregateZSell: nullableNum(r.max_aggregate_z_sell),
+      inputsAvailableAggregate: Number(r.inputs_available_aggregate),
+      inputsAvailablePerTicker: Number(r.inputs_available_per_ticker),
+    }));
+  }
+}
+
+/** One trailing-window snapshot row for the form_4 composite-detail dashboard
+ *  (Cycle 33 slice 2b). Aggregate-layer only — per-ticker rows are not carried
+ *  in history (the latest snapshot supplies the drill). */
+export interface Form4InsiderHistoryRow {
+  date: string;
+  buyClusterFlag: boolean;
+  sellClusterFlag: boolean;
+  maxAggregateZ: number | null;
+  maxAggregateZSell: number | null;
+  inputsAvailableAggregate: number;
+  inputsAvailablePerTicker: number;
+}
+
+function nullableNum(v: number | string | null | undefined): number | null {
+  if (v == null) return null;
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
 }
 
 // ───── helpers ──────────────────────────────────────────────────────────────

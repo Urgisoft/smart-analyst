@@ -1369,6 +1369,13 @@ export default function App() {
               Cross-asset →
             </a>
             <a
+              href="#/form-4-insider"
+              className="text-[9px] font-black text-emerald-400/80 hover:text-emerald-300 uppercase tracking-[0.2em] border border-emerald-400/30 hover:border-emerald-400 rounded-lg px-3 py-1.5 transition-colors"
+              title="Form 4 insider cluster composite (form_4_insider_v1 · informational · dual buy/sell sector-cluster z + per-ticker drill · reusable composite-detail panel)"
+            >
+              Form 4 insiders →
+            </a>
+            <a
               href="#/etf-flow"
               className="text-[9px] font-black text-fuchsia-400/80 hover:text-fuchsia-300 uppercase tracking-[0.2em] border border-fuchsia-400/30 hover:border-fuchsia-400 rounded-lg px-3 py-1.5 transition-colors"
               title="ETF-flow cross-validation (Gap #9 v3.1 · yfinance primary vs SSGA secondary · per-ticker shares-outstanding divergence + severity ladder)"

@@ -94,6 +94,12 @@ import {
   fetchCrossAssetState,
   CrossAssetDashboardError,
 } from "./src/server/cross_asset_dashboard.js";
+import {
+  parseQuery as parseForm4Query,
+  isQueryFailure as isForm4QueryFailure,
+  fetchForm4InsiderState,
+  Form4InsiderDashboardError,
+} from "./src/server/form_4_dashboard.js";
 import { fetchEtfFlowCrossValidationState } from "./src/server/etf_flow_dashboard.js";
 import { fetchHealthState } from "./src/server/health_dashboard.js";
 import { fetchPhaseBDashboardState } from "./src/server/phase_b_dashboard.js";
@@ -730,6 +736,27 @@ async function startServer() {
         return res.status(e.status).json({ error: e.error, detail: e.detail });
       }
       console.error('cross-asset state error', e);
+      return res.status(503).json({ error: 'clickhouse_unavailable', detail: (e as Error).message });
+    }
+  });
+
+  // Powers /#/form-4-insider — Cycle 33 slice 2b (S96-147). Read-only view of
+  // `quantlab.form_4_insider_snapshots` projected onto CompositeDetailPayload
+  // with the dual buy/sell metricGroups + per-ticker drill. hasData=false (not
+  // 503) when no snapshot exists. SPEC: docs/specs/event-driven-filings-processor.md.
+  app.get("/api/form-4-insider", async (req, res) => {
+    const parsed = parseForm4Query({ lookbackDays: req.query.lookbackDays });
+    if (isForm4QueryFailure(parsed)) {
+      return res.status(parsed.status).json({ error: parsed.error, detail: parsed.detail });
+    }
+    try {
+      const response = await fetchForm4InsiderState({ lookbackDays: parsed.lookbackDays });
+      return res.json(response);
+    } catch (e) {
+      if (e instanceof Form4InsiderDashboardError) {
+        return res.status(e.status).json({ error: e.error, detail: e.detail });
+      }
+      console.error('form-4-insider state error', e);
       return res.status(503).json({ error: 'clickhouse_unavailable', detail: (e as Error).message });
     }
   });
