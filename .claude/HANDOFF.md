@@ -1,31 +1,40 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-05-28 (session 96 #26 — **Cycle 32 CLOSED. form_4_insider
-data plumbing is HEALED via a source switch to Finnhub after SEC EDGAR's
-per-IP throttle made the direct Form 4 backfill unviable (429/503 storms →
-silently-incomplete months, even when SP500-filtered). insider_trades grew
-146K → 289K rows (22/24 backfill months populated, was ~2/24); the snapshot
-re-backfill z-distribution went from the degenerate max=27/mean=10.1
-(zero-inflated baseline, OQ-C31-1) to max=11/mean=2.9/median=2.2 — the
-artifact is RESOLVED. Six commits this session (slices 1-5 + handoffs).
-Operator also reviewed UI coverage (only 3/11 composites have real panels) and
-decided Cycle 33 = a dedicated CATCH-UP UI CYCLE.** Net 106 unpushed commits
-on `origin/main` (`c0cda7c`) after this HANDOFF ships.
-**NEXT on `continue`:** Cycle 33 — build ONE reusable `CompositeDetailApp`
-(per-composite descriptor) covering the 7 backend-only composites + a 13D/G
-panel, per the design in [[ui-design-principles]] memory. form_4 Phase B SPEC
-comes AFTER Cycle 33 and must address S96-146 (source-granularity mismatch).
+Last updated: 2026-05-28 (session 96 #27 — **Cycle 33 OPEN, slice 1 shipped. The
+catch-up UI cycle has its REFERENCE PANEL: one reusable `CompositeDetailApp`
+parameterized by a per-composite `CompositeDescriptor`, with vol_structure wired
+as the first of the 7 backend-only composites to get a real panel.** The panel
+carries the full bug-finding overlay (anomaly banner / position-on-scale z-bars
+with ±σ band / coverage strip / data lineage / verdict firing-lane) + a pure,
+unit-tested anomaly scan that explicitly catches the OQ-C31-1 z=27 artifact at
+render time. Live API smoke caught + fixed a ClickHouse alias-shadowing bug in
+the new `loadHistory`. Critic verdict AUTO-APPROVE. One commit this session
+(`1684ba1`).**
+**NEXT on `continue`:** Cycle 33 slice 2 — wire the remaining composites onto
+the reference panel. **Slice 2a MUST first extend the descriptor for
+variable-length per-sector/asset z-arrays (OQ-C33-1)** before sector_rotation +
+cross_asset can reuse it; then form_4 (needs dual buy/sell grouping, OQ-C33-2),
+then a bespoke 13D/G event-timeline, then retrofit the anomaly overlay onto the
+existing `EtfFlowApp`.
 
 ---
 
 ## 🔌 Restart recovery — ClickHouse is in Docker Desktop
 
-The machine restarted multiple times this session. ClickHouse runs in the
-`quantlab-clickhouse` Docker container under Docker Desktop. On reboot:
+ClickHouse runs in the `quantlab-clickhouse` Docker container under Docker
+Desktop. On reboot (this session restarted twice mid-cycle):
 
 1. `Start-Process "C:\Program Files\Docker\Docker\Docker Desktop.exe"`
-2. The `quantlab-clickhouse` container auto-starts (~5s after engine ready).
-3. Verify `SELECT 1` on `127.0.0.1:8123` before any CH work.
+2. Poll until the container is up: `docker start quantlab-clickhouse` in a loop;
+   then wait for `docker inspect --format '{{.State.Health.Status}}'
+   quantlab-clickhouse` = `healthy` (~30-60s after engine ready).
+3. Verify `SELECT 1` before any CH work. (Raw curl w/o creds returns an auth
+   error even when CH is up — that's expected; the app uses the configured client.)
+
+**Dev server:** `npm run dev` (= `tsx server.ts`) → http://localhost:3000. It is
+NOT hot-reloading; restart it after server-side edits. **As of this handoff the
+dev server is RUNNING in the background** so the operator can visually validate
+the new panel at **http://localhost:3000/#/vol-structure**.
 
 **Re-run the Finnhub insider backfill (idempotent; if data is ever lost):**
 ```
@@ -33,7 +42,6 @@ FINNHUB_API_KEY=<operator key from Cline financial-hub MCP config> \
   .venv/Scripts/python.exe scripts/finnhub_insider_ingest.py \
   --from-date 2024-01-01 --to-date <today> --apply
 ```
-Cross-source accession dedup makes re-runs safe. ~533 SP500 calls, ~12min.
 
 ---
 
@@ -47,128 +55,127 @@ ratified 2026-05-23 (s96 #14), every routine decision is the orchestration's.
 | Q-1 | First real-capital deployment — timing + amount | §7.1.1 | **INDEFINITELY DEFERRED** (s96 #19) |
 | Q-2 | Capital-deployment-ramp ADR sign-off | s96 #13 | **INDEFINITELY DEFERRED** (s96 #19) |
 | Q-3 | GAP-5 Stooq apikey gate decision | Audit GAP-5 | OPEN — paid subscription |
-| Q-4 | Push 106 unpushed commits to origin/main | Carry-over; +8 this session | OPEN — `git push` operator-gated |
+| Q-4 | Push 107 unpushed commits to origin/main | Carry-over; +1 this session | OPEN — `git push` operator-gated |
 | Q-5 | phase1_v3 CBOE corrupted-input window | Cycle 21 ADR-050 | **CLOSED — ADR-050** |
 | Q-6 | ETF v1 yfinance primary + /#/phase-b UI restart | s96 #17/18/20 + C24 | PARTIAL — operator `npm run dev` restart |
 | Q-7 | phase1_v3 yield-curve source persistence — Path pick | s96 #18 C19 | **OPEN — operator picks Path** |
 | Q-8 | Phase C promotion of any Layer-0 composite | Cycle 22 ADR-051 | **DORMANT** — no PASS-ALL + PBO<0.2 yet |
 
-**NEW this session — Finnhub key note (NOT a queue item, FYI):** the insider
-ingest now depends on the operator's Finnhub free-tier API key (lives in the
-Cline `financial-hub` MCP config env `FINNHUB_API_KEY`). Free-tier, already
-owned — no new subscription. If insider data needs refreshing the key must be
-in env. Not on the real-money queue.
+**FYI (not a queue item):** the new `/#/vol-structure` panel is built + API-
+validated + builds clean, but the FINAL visual browser check is the one gate I
+can't run headlessly — please eyeball it at http://localhost:3000/#/vol-structure
+when convenient (dev server is already running). Expect: verdict `normal`, 5/5
+coverage, an info-level STALE flag (snapshot 5d old — known daemon staleness),
+all z-scores in-band, a 501-day firing lane.
 
 ---
 
-## What this session delivered (s96 #26 Cycle 32)
+## What this session delivered (s96 #27 Cycle 33 slice 1)
 
-The arc: tried full-market EDGAR backfill → throttled + crashed → fixed a CH-Date
-bug → tried SP500-filtered EDGAR → STILL throttled → **pivoted to Finnhub** (the
-reliable source) → backfilled 2 years in ~12min → snapshots + z-reprobe → artifact
-resolved. Plus two reproducibility wrappers, a cik_ticker_map ingest, and a UI
-coverage audit that set the Cycle 33 plan.
+The reusable composite-detail architecture + the vol_structure reference panel.
+This restores the per-slice UI rule (`feedback_ui_validation_each_slice`) that
+had drifted — 7 composites had shipped backend-only.
 
 | Commit | Slice |
 | --- | --- |
-| `9c7d1e6` | CH-`Date` range clamp (parser + writer); fixed batch-INSERT crash on out-of-range transactionDate (S96-143). +3 tests. |
-| `5ce50d3` | bulk `cik_ticker_map` from SEC company_tickers.json — 7,992 issuers (closes OQ-C31-3 / S96-141-W2). +8 tests. |
-| `706b295` | reproducibility wrappers `_propagate_sp500_history_to_constituents.ts` + `_anchor_gics_sector_pit.ts` (closes OQ-C30-2 + OQ-C31-2). |
-| `a8df3b7` | SP500 issuer-CIK filter for the EDGAR ingest (`--issuer-cik-file`) + `_build_sp500_issuer_cik_allowlist.ts` (533 CIKs). **Now superseded for the backfill by Finnhub, but the allowlist builder still feeds the Finnhub SP500 universe.** +5 tests. |
-| `68c1296`, `e980f43` | interim HANDOFFs. |
-| `6bea3d3` | **Finnhub insider ingest** `scripts/finnhub_insider_ingest.py` (S96-145). +8 tests. |
+| `1684ba1` | Cycle 33 slice 1 — reusable `CompositeDetailApp(descriptor)` + vol_structure reference panel (S96-148). 12 files, +1819 LOC, 27 new tests. |
 
-### Outcome metrics
-- `insider_trades`: 146,168 → **289,225 rows**; **22/24** backfill months ≥2K
-  (2024-09 + 2025-09 thin <2K — likely seasonal, non-blocking).
-- form_4 snapshots re-backfilled (98 days): buy-cluster days 89→**66**,
-  sell-cluster 82→**41** (fewer = less artifact-firing = baseline healed).
-- z-distribution: BUY max=11.08 mean=2.92 median=2.19 q95=5.32; SELL max=6.53
-  mean=2.36. **Was max=27 mean=10.1.** OQ-C31-1 artifact RESOLVED.
+### What landed
+- **`src/server/composite_detail.ts`** — the NORMALIZED wire contract every
+  `/api/<composite>` route projects onto: `{ verdict, metrics[] (named z + raw),
+  flags[], inputsPresent bitmask, history[], staleDays, sourceTable, ... }` +
+  pure helpers `popcount` / `computeStaleDays` / `emptyCompositeDetail`. CH-free.
+- **`src/components/composite/anomalyScan.ts`** — pure client-side scan:
+  NON_FINITE / OUT_OF_BAND(_CRIT) / NO_COVERAGE / COVERAGE_DEGRADED / STALE /
+  UNKNOWN_VERDICT / DEGENERATE_BASELINE / DISCONTINUITY, sorted worst-first. The
+  z=27 + zero-inflated-baseline (OQ-C31-1) case is an explicit test.
+- **`src/components/composite/descriptors.ts`** — `CompositeDescriptor` type +
+  `volStructureDescriptor` + `toAnomalyScanConfig`.
+- **`src/components/composite/CompositeDetailApp.tsx`** — the reusable 5-section
+  panel + anomaly banner + lineage + glossary. Hand-rolled SVG; `null`→`—`;
+  inline-hex accent/tone colors (dynamic Tailwind classes would be purged).
+- **`src/components/composite/VolStructApp.tsx`** — ~10-line wrapper.
+- **`src/server/vol_structure_dashboard.ts`** — `fetchVolStructureState`
+  projection + `parseQuery` (mirrors `cycle_position_dashboard.ts`).
+- **`src/server/vol_structure_repository.ts`** — additive read-only `loadHistory`
+  + `VolStructureHistoryRow`.
+- Wiring: `server.ts` `/api/vol-structure`, `main.tsx` `#/vol-structure` lazy
+  route, `App.tsx` "Vol structure →" nav link.
 
-### Verification gates
+### Verification gates (all green)
 ```
-.venv/Scripts/python.exe -m pytest scripts/tests/test_finnhub_insider_ingest.py        # 8 pass
-.venv/Scripts/python.exe -m pytest scripts/tests/test_sec_edgar_form4_ingest.py         # 55 pass
-.venv/Scripts/python.exe -m pytest scripts/tests/test_sec_edgar_company_tickers_ingest.py  # 8 pass
-npx tsc --noEmit                                                                        # 13 baseline unchanged
+npx tsc --noEmit                                                          # 13 baseline unchanged
+node --import tsx --test scripts/tests/compositeAnomalyScan.test.ts \
+     scripts/tests/compositeDetailDashboard.test.ts                       # 27 pass (incl. z=27 catcher)
+node --import tsx --test scripts/tests/volStructureRepository.test.ts \
+     scripts/tests/volStructure.test.ts                                   # 63 pass (regression)
+curl localhost:3000/api/vol-structure            # 200, hasData=true, 501 history pts
+curl localhost:3000/api/vol-structure?lookbackDays=5   # 400 bad_query
+npx vite build                                   # clean; VolStructApp chunk bundles
 ```
+Critic (general-purpose, §3.3 prompt): **AUTO-APPROVE** (no real-money path, no
+DDL, no paid data; one optional nit applied — `Number.isFinite` guard on the ZBar
+value label).
 
 ---
 
 ## Decisions locked in
 
-### Session 96 #26 (Cycle 32)
+### Session 96 #27 (Cycle 33 slice 1)
 
-**S96-145. Finnhub is the backfill source for `insider_trades` (Section-16
-data), via `scripts/finnhub_insider_ingest.py`.** `Why:` direct SEC EDGAR Form 4
-scraping (even SP500-filtered) is throttled by EDGAR's per-IP fair-access
-limiter on sustained bulk access (429/503 → silently-incomplete months).
-Finnhub re-distributes the SAME SEC data (`source:"sec"`, SEC accession as
-`id`) via a managed API: one call/symbol, full 2y history, ~533 calls ~12min,
-no throttle. Operator-directed (the Cline `financial-hub` MCP is Finnhub-backed).
-`How to apply:` (1) key from env `FINNHUB_API_KEY`; (2) cross-source dedup by
-SEC accession — skip Finnhub rows whose accession exists (EDGAR skips WHOLE
-filings on failure, so existing EDGAR rows are complete per-filing) → no
-double-count, no destructive deletes; (3) Finnhub gives insider NAME not
-person_cik → synthetic `FH`+sha1(name)[:10] person_cik (F4-2 cluster
-distinctness becomes distinct-name); `accepted_at`←`filingDate`; `role_flags=0`
-(v1 weights roles 1.0); `source='finnhub'`; CH-Date clamp reused (S96-143).
+**S96-148. The 7 backend-only composites are surfaced by ONE reusable
+`CompositeDetailApp`, parameterized by a `CompositeDescriptor`, fed by a
+NORMALIZED `CompositeDetailPayload` that each `/api/<composite>` route projects
+its own snapshot onto.** `Why:` the composites share a snapshot shape (named
+z-scores + boolean flags + `inputs_present` bitmask + discrete verdict + daily
+series); one component + per-composite data (descriptor) = 7 panels for ~1 panel
+of test surface (per `[[ui-design-principles]]`). `How to apply:` adding a
+composite = (1) a server projection `fetch<X>State` → `CompositeDetailPayload`
+(template: `vol_structure_dashboard.ts`); (2) a descriptor entry; (3) a
+~10-line `<X>App` wrapper; (4) route + lazy hash route + nav link. No new
+rendering code. The bug-finding overlay (anomaly scan + bars-with-band +
+coverage strip + lineage) is built into the shared component, so every panel
+gets it for free.
 
-**S96-146 (watch-out — NOT a decision; Phase-B-SPEC blocker for form_4).
-EDGAR-recent vs Finnhub-baseline GRANULARITY MISMATCH.** EDGAR returns ~2.4-2.8
-P/S rows per filing (every Section-16 line); Finnhub returns ~1.0 row per
-filing (one/primary transaction). The recent scoring window (2026, EDGAR) is
-therefore ~2.5x denser than the 2024-25 baseline (Finnhub), biasing
-`max_aggregate_z` upward (residual mean=2.9, q95=5.3 vs an ideal ~0/~1.65 under
-no-signal). The OQ-C31-1 zero-inflation is fixed, but **form_4 Phase B SPEC
-must normalize source granularity** (options: re-ingest the recent window from
-Finnhub for consistency; or use filings-count not transaction-count as the
-cluster metric; or per-source rate normalization) before the form_4 ranking
-axis can be trusted. Do NOT run form_4 Phase B until this is addressed.
+**S96-149 (watch-out — ClickHouse alias-shadowing).** A history query of the form
+`SELECT toString(snapshot_date) AS snapshot_date ... WHERE snapshot_date <=
+{x:Date}` makes CH bind the WHERE to the String *alias*, not the Date column →
+`no supertype for String, Date`. Fix = the subquery-around-FINAL pattern (filter
+on the raw column inside, `toString` only in the outer SELECT). This is the
+documented a52c964 bug class; the live API smoke test caught it. **Every future
+composite `loadHistory` must use the subquery pattern.**
 
-**S96-147. Cycle 33 = a dedicated CATCH-UP UI CYCLE (operator decision).** UI
-audit: only 3/11 composites have real panels (regime, cycle_position, etf_flow);
-7 show only a binary Phase-B verdict (vol_struct, sector_rot, cross_asset,
-short_interest, exec_departure, eight_k, form_4); schedule_13d_g has none.
-`How to apply:` build ONE reusable `CompositeDetailApp` parameterized by a
-per-composite `CompositeDescriptor`, covering the 7 (they share a snapshot
-shape) + a bespoke 13D/G event-timeline panel + nav, then UI ships per-slice
-for every future arc. Full design + bug-finding overlay + meaning-layer spec in
-the [[ui-design-principles]] memory. Build order: vol_structure (reference) →
-sector_rotation/cross_asset → form_4 (highest bug-surface) → 13d_g. Stay on
-hand-rolled SVG (not recharts); §B uses position-on-scale BARS (not color
-heatmap) so out-of-band z punches past the band; client-side pure anomaly scan
-+ coverage strip + data-lineage on every number.
-
-**Carry-overs (still in force):** S96-1..S96-144 (incl. S96-142 cik_ticker_map,
-S96-143 CH-Date clamp, S96-141 gics PIT-anchor, S96-140 sp500_constituents PIT
-depth); all prior s73-s95 lock-ins.
+**Carry-overs (still in force):** S96-145 (Finnhub = insider backfill source),
+S96-146 (form_4 EDGAR/Finnhub granularity mismatch — Phase-B-SPEC blocker),
+S96-147 (Cycle 33 = catch-up UI cycle), S96-1..S96-144; all prior s73-s95
+lock-ins.
 
 ---
 
 ## Open questions
 
-### CLOSED this session
-- **OQ-C31-1** — **RESOLVED** (zero-inflated baseline artifact gone; z 27→11,
-  mean 10→2.9). Residual granularity bias tracked separately as S96-146.
-- **OQ-C31-3** — CLOSED (slice 2: cik_ticker_map = 7,992 issuers).
-- **OQ-C30-2 / OQ-C31-2** — CLOSED (slice 3: reproducibility wrappers).
-- **OQ-C32-1** — CLOSED (slice 4: SP500 filter built) — though Finnhub
-  superseded the EDGAR backfill it was built for.
+### NEW this session (descriptor-shape gaps — surfaced by the critic; gate the next slices)
+- **OQ-C33-1** — **per-sector / per-asset z-arrays.** `sector_rotation` and
+  `cross_asset` snapshots carry N parallel z-series (one per GICS sector / per
+  asset), not a fixed named metric set. The current `CompositeDescriptor.metrics`
+  is a flat fixed list and `history[].metrics` is a `Record<string,number|null>`.
+  Slice 2a must extend the descriptor (dynamic/templated metric generation OR a
+  payload extension carrying the per-sector array) BEFORE wiring those two. The
+  vol_structure impl itself is correct as-is; this is an additive extension.
+- **OQ-C33-2** — **form_4 dual buy/sell axes.** form_4 has two verdict lanes /
+  two metric groups (buy-cluster + sell-cluster). No descriptor slot for grouping
+  yet. Needs a `metricGroups`-style extension + the per-ticker drill + coverage
+  banner (per S96-147 design). Also still blocked from Phase B by S96-146.
 
-### OPEN
-- **S96-146** (above) — form_4 Phase B SPEC must normalize EDGAR/Finnhub source
-  granularity. THE form_4 Phase-B blocker now.
-- **OQ-C32-2** — Finnhub coverage caveats: ~1 row/filing (vs EDGAR's ~2.5);
-  2024-09 + 2025-09 thin; SP500-only (no midcap per-ticker). Re-evaluate at
-  Phase B SPEC.
+### OPEN (carried)
+- **S96-146** — form_4 Phase B SPEC must normalize EDGAR/Finnhub source
+  granularity. THE form_4 Phase-B blocker.
+- **OQ-C32-2** — Finnhub coverage caveats (~1 row/filing; 2024-09 + 2025-09 thin;
+  SP500-only). Re-evaluate at Phase B SPEC.
 - **OQ-C31-4** — `INSERT…SELECT FROM <self>` no-ops in this CH build; workaround
-  documented in `_anchor_gics_sector_pit.ts`.
-- **EDGAR throttle lesson** — the OTHER EDGAR ingests (8K-event, 8K-Item-5.02,
-  13D/G) are lower-volume than Form 4 and may run fine, but if any future bulk
-  EDGAR backfill is attempted, expect the same per-IP throttle; prefer a managed
-  source (Finnhub-style) or heavy pacing.
+  in `_anchor_gics_sector_pit.ts`.
+- **EDGAR throttle lesson** — prefer a managed source (Finnhub-style) or heavy
+  pacing for any bulk EDGAR backfill.
 - **CARRIED:** OQ-C29-1/2/5, OQ-C30-3, OQ-C27-1..3, OQ-C26-1..3, OQ-C25-1..2,
   OQ-C24-1..3, OQ-C19-1, OQ-C18-1, OQ-C17-1 — unchanged.
 
@@ -176,108 +183,115 @@ depth); all prior s73-s95 lock-ins.
 
 ## Next stage
 
-### Default on `continue` — Cycle 33: catch-up UI cycle (S96-147)
+### Default on `continue` — Cycle 33 slice 2: wire the rest onto the reference panel
 
-1. **Build the reusable `CompositeDetailApp`** + `CompositeDescriptor` type +
-   the bug-finding anomaly-scan hook (pure, unit-testable) + the §B
-   bars-with-band heatmap component + coverage strip + lineage tooltips. Spec in
-   [[ui-design-principles]] memory + the §B/§A mockups discussed s96 #26.
-2. Wire `vol_structure` first (reference impl, cleanest pure-z shape) — a
-   `/api/vol-structure` dashboard route mirroring `cycle_position_dashboard.ts`
-   with a `tableExists()` guard + a `VolStructApp` wrapper (~20 LOC) + nav link.
-   Validate in browser per ADR-044.
-3. Then `sector_rotation`/`cross_asset` (regimeFlag variant), `form_4` (dual
-   buy/sell + per-ticker drill + coverage banner), bespoke `schedule_13d_g`
-   event-timeline. Retrofit the anomaly overlay onto the existing `EtfFlowApp`.
-4. Each panel ships validated in-browser (reinstates feedback_ui_validation_each_slice).
+Build order (per S96-147 + the critic's reuse-gap notes):
+1. **Slice 2a — descriptor extension for per-sector/asset z-arrays (OQ-C33-1)**,
+   then wire **`sector_rotation`** (reference for the array variant) — a
+   `/api/sector-rotation` projection + `SectorRotationApp` wrapper + descriptor +
+   route/nav. Then **`cross_asset`** (same variant; regimeFlag verdict). Use the
+   `cross_asset_snapshots_repository.ts` + `sector_rotation_repository.ts`
+   read-side; add an additive `loadHistory` using the **subquery-around-FINAL
+   pattern (S96-149)** to each.
+2. **`form_4`** — needs the dual buy/sell grouping (OQ-C33-2) + per-ticker drill +
+   a coverage banner (Finnhub ~1 row/filing). Highest bug-surface; the anomaly
+   scan's DEGENERATE_BASELINE check is the OQ-C31-1 guard here.
+3. **Bespoke `schedule_13d_g`** event-timeline panel (no z-scores; event list).
+4. **Retrofit** the anomaly overlay onto the existing `EtfFlowApp`.
+5. Remaining: `short_interest`, `executive_departure`, `eight_k_classifier`
+   (EDGAR-family — watch throttle) — each is a descriptor + wrapper once 2a lands.
+
+Each panel ships browser-validated (the dev server is already running; restart
+after server edits).
 
 ### After Cycle 33
 - **form_4 Phase B SPEC** — must FIRST resolve S96-146 (source-granularity
   normalization), then run the DSR/PBO/HLZ deflation campaign.
-- Remaining Layer-0 arcs: short_interest_v1 (FINRA URL discovery), exec_departure_v1,
-  eight_k_classifier_v1 (EDGAR-family — watch throttle), etf_flow_v1 (Q-6 blocked).
 - Cross-composite meta-HLZ pass once a 5th composite is PARTIAL.
 
 ---
 
 ## Files / code state
 
-### New / modified this session
+### New / modified this session (all in commit `1684ba1`)
 | Path | Change |
 | --- | --- |
-| `scripts/finnhub_insider_ingest.py` | NEW — Finnhub insider ingest (S96-145) |
-| `scripts/tests/test_finnhub_insider_ingest.py` | NEW — 8 mapping tests |
-| `scripts/sec_edgar_form4_ingest.py` | CH-Date clamp + `--issuer-cik-file` filter |
-| `scripts/sec_edgar_company_tickers_ingest.py` | NEW — cik_ticker_map ingest |
-| `scripts/_build_sp500_issuer_cik_allowlist.ts` | NEW — 533 SP500 CIKs (feeds Finnhub universe too) |
-| `scripts/_propagate_sp500_history_to_constituents.ts` | NEW — OQ-C30-2 wrap |
-| `scripts/_anchor_gics_sector_pit.ts` | NEW — OQ-C31-2 wrap |
-| `scripts/sec_edgar_company_tickers_ingest.py` tests + form4 tests | +16 tests total |
-| `package.json` | +`edgar:company-tickers:ingest[:dry]` |
-| `logs/c32_filtered_backfill.sh`, `logs/sp500_issuer_ciks.txt`, `logs/finnhub_insider_backfill.log` | gitignored runtime artifacts |
-| `.claude/HANDOFF.md` | this rewrite |
+| `src/server/composite_detail.ts` | NEW — shared wire contract + pure helpers |
+| `src/server/vol_structure_dashboard.ts` | NEW — vol_structure projection + parseQuery |
+| `src/server/vol_structure_repository.ts` | +additive read-only `loadHistory` (subquery-around-FINAL) |
+| `src/components/composite/anomalyScan.ts` | NEW — pure anomaly scan |
+| `src/components/composite/descriptors.ts` | NEW — descriptor type + volStructureDescriptor |
+| `src/components/composite/CompositeDetailApp.tsx` | NEW — reusable 5-section panel |
+| `src/components/composite/VolStructApp.tsx` | NEW — thin wrapper |
+| `scripts/tests/compositeDetailDashboard.test.ts` | NEW — helpers + dashboard projection tests |
+| `scripts/tests/compositeAnomalyScan.test.ts` | NEW — anomaly scan tests (z=27 catcher) |
+| `server.ts` | +`/api/vol-structure` route |
+| `src/main.tsx` | +`#/vol-structure` lazy route |
+| `src/App.tsx` | +"Vol structure →" nav link |
 
 No DDL. No real-money path. No authenticated scrape. tsc baseline 13.
 
-### DB-state
-- `insider_trades`: **289,225 rows** (EDGAR 2024-01/04/2025-12/2026 + Finnhub
-  2024-25 gaps; mixed source, deduped by accession).
-- `cik_ticker_map`: 7,992 issuers.
-- `gics_sector_map`: 1,006 (anchor intact).
-- `form_4_insider_snapshots`: 98 rows re-backfilled (buy 66 / sell 41 days).
+### DB-state (unchanged from Cycle 32)
+- `vol_structure_snapshots`: ~3,368 rows (latest 2026-05-24; daemon ~5d stale —
+  known, not a regression). Powers the new panel with real data.
+- `insider_trades`: 289,225 rows; `cik_ticker_map`: 7,992; `gics_sector_map`:
+  1,006; `form_4_insider_snapshots`: 98.
 - Empty/missing: `short_interest`, `executive_departure`, `schedule_13d_g`,
   `eight_k_events`, `etf_shares_outstanding`.
-- Daemon stale ~6d (composites very-stale; not a regression).
 
 ---
 
 ## Watch-outs
 
 ### NEW this session
-- **S96-146 source-granularity mismatch** (above) — form_4 Phase-B blocker.
-- **Finnhub insider data is ~1 row/filing** (vs EDGAR ~2.5) + SP500-only +
-  synthetic person_cik (name-derived). Fine for the aggregate; the per-ticker
-  forensic path is approximate.
-- **EDGAR per-IP throttle is real** — do not attempt bulk Form 4 EDGAR
-  backfills; use Finnhub. The IP may be cooled-down for hours after this
-  session's runs.
-- **Mixed-source insider_trades** — EDGAR rows (real person_cik) + Finnhub rows
-  (synthetic FH person_cik) for different filings. Same-insider-across-sources
-  counts as 2 distinct in cluster windows spanning a source boundary; rare,
-  affects baseline days only (2026 snapshot cluster-windows are all-EDGAR).
+- **S96-149 alias-shadowing** (above) — subquery-around-FINAL is mandatory for
+  every composite `loadHistory`.
+- **OQ-C33-1 / OQ-C33-2** descriptor-shape gaps gate slice 2 — do NOT try to
+  wire sector_rotation/cross_asset/form_4 onto the descriptor as-is; extend it
+  first.
+- **Dynamic Tailwind classes get purged** — the reusable panel uses inline-hex
+  for accent/tone colors on purpose. New composites pass a tailwind color *stem*
+  (`accent: 'cyan'`); add the hex to `ACCENT_HEX` in `CompositeDetailApp.tsx` if
+  the stem isn't already there.
+- **Dev server is running** on :3000 (background) for operator visual validation;
+  it does NOT hot-reload server edits.
+- **Browser-visual validation is the one gate I can't run headlessly** — API
+  smoke + vite build + tsc + tests are green; the operator's eyeball on
+  `/#/vol-structure` is the final confirmation.
 
 ### Carried
-All prior watch-outs (gics PIT-anchor required on wipe; CH-Date range;
-sp500_constituents PIT gap-window; etc.) preserved.
+All prior watch-outs (Finnhub ~1 row/filing + synthetic person_cik; EDGAR per-IP
+throttle; gics PIT-anchor required on wipe; CH-Date range; sp500_constituents PIT
+gap-window) preserved.
 
 ---
 
 ## Pre-loaded operational reminders
 
 ```
-# Re-run Finnhub insider backfill (idempotent):
-FINNHUB_API_KEY=<key> .venv/Scripts/python.exe scripts/finnhub_insider_ingest.py --from-date 2024-01-01 --to-date <today> --apply
-# Re-run form_4 snapshot backfill:
-npx tsx scripts/_backfill_form_4_insider_snapshots.ts --start 2026-01-01 --end 2026-05-25 --apply
-# z-distribution probe:
-#   SELECT max(max_aggregate_z), avg(max_aggregate_z), quantile(0.95)(max_aggregate_z) FROM quantlab.form_4_insider_snapshots
-# Reproducibility wraps (on DB wipe):
-npx tsx scripts/_propagate_sp500_history_to_constituents.ts --apply
-npx tsx scripts/_anchor_gics_sector_pit.ts --apply
-npm run edgar:company-tickers:ingest
-# Health + daily:
+# Bring CH up after reboot:
+Start-Process "C:\Program Files\Docker\Docker\Docker Desktop.exe"
+docker start quantlab-clickhouse   # loop until healthy
+# Dev server (visual validation):
+npm run dev                        # http://localhost:3000/#/vol-structure
+# Cycle 33 tests:
+node --import tsx --test scripts/tests/compositeAnomalyScan.test.ts scripts/tests/compositeDetailDashboard.test.ts
+# Gates:
+npx tsc --noEmit                   # 13 baseline
 npm run health:check
-npm run daemon:daily
-npx tsc --noEmit        # 13 baseline
+npm run daemon:daily               # composites ~5d stale (known)
 ```
 
 ---
 
 ## For the next session — priority order
 
-**Default on `continue` — Cycle 33 catch-up UI cycle (S96-147):** build the
-reusable `CompositeDetailApp` + anomaly overlay (spec in [[ui-design-principles]]),
-wire vol_structure first, then the rest. Each panel browser-validated.
+**Default on `continue` — Cycle 33 slice 2 (S96-147 continued):** FIRST extend
+`CompositeDescriptor` for per-sector/asset z-arrays (OQ-C33-1), then wire
+`sector_rotation` + `cross_asset`; then `form_4` (dual buy/sell, OQ-C33-2);
+bespoke `schedule_13d_g`; retrofit the anomaly overlay onto `EtfFlowApp`. Every
+composite `loadHistory` uses the subquery-around-FINAL pattern (S96-149). Each
+panel browser-validated.
 
 **Do NOT auto-open without operator green-light:** form_4 Phase B (blocked on
 S96-146); Phase C promotion; ALTER DROP/DELETE; `git push` (Q-4); bulk EDGAR
@@ -287,21 +301,22 @@ Form 4 backfills (throttled — use Finnhub); broker integration; real-money pat
 
 ## Important framing for the next chat
 
-**Cycle 32 is CLOSED.** form_4's data plumbing is healed: after EDGAR throttling
-made the direct backfill unviable, we switched to **Finnhub** (operator-directed,
-the financial-hub MCP's backend) and backfilled 2 years of SP500 insider data in
-~12min. insider_trades 146K→289K, the zero-inflated-baseline artifact (OQ-C31-1,
-z=27→11) is resolved. A residual **EDGAR/Finnhub granularity mismatch (S96-146)**
-remains — it's the form_4 Phase-B SPEC's problem, not a data blocker.
+**Cycle 33 is the catch-up UI cycle; slice 1 (the reference panel) is DONE.**
+There is now ONE reusable `CompositeDetailApp(descriptor)` with the full
+bug-finding overlay, and `vol_structure` is wired as the live reference at
+`/#/vol-structure`. The hard architectural work — the normalized wire contract,
+the pure unit-tested anomaly scan (which catches the OQ-C31-1 z=27 failure mode
+at render time), the descriptor abstraction — is locked in (S96-148). Adding the
+remaining 6 composites is now mostly mechanical: a projection + a descriptor + a
+10-line wrapper each.
 
-**Next is Cycle 33 — the catch-up UI cycle** (operator decision S96-147): one
-reusable composite-detail panel covering the 7 backend-only composites + a 13D/G
-panel, with a bug-finding overlay (bars-not-color, coverage strip, lineage,
-unit-testable anomaly scan) and a plain-language meaning layer. This restores
-the per-slice UI rule that had drifted (7 composites shipped backend-only). Full
-design in the [[ui-design-principles]] memory.
+**The one architectural extension still owed (slice 2a):** the descriptor + payload
+need to handle variable-length per-sector/asset z-arrays (sector_rotation,
+cross_asset — OQ-C33-1) and form_4's dual buy/sell grouping (OQ-C33-2). vol_structure
+(a fixed named z-set) is the clean reference; those two variants come next.
 
-**The 9-arc:** ✓ cycle_v1, vol_struct_v1, sector_rot_v1, cross_asset_v1 (PARTIAL);
-🚧 form_4_insider_v1 (data healed; Phase B blocked on S96-146); ☐ short_interest,
-exec_departure, etf_flow, eight_k. After Cycle 33, form_4 Phase B (post-S96-146)
-resumes the arc.
+**The 9-arc:** ✓ cycle_v1, vol_struct_v1, sector_rot_v1, cross_asset_v1 (PARTIAL,
+Phase B); 🚧 form_4_insider_v1 (data healed; Phase B blocked on S96-146);
+☐ short_interest, exec_departure, etf_flow, eight_k. **UI coverage:** regime +
+cycle_position + etf_flow + **vol_structure (NEW)** now have real panels; the
+other 6 backend-only composites get panels through the rest of Cycle 33.
