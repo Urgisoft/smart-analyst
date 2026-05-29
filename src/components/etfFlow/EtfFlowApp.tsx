@@ -22,7 +22,7 @@
  *   3. `hasData=false` AND secondary table present but empty → "run the
  *      SSGA refresh" empty-state with operator commands.
  */
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type {
   EtfFlowCrossValidationStateResponse,
   EtfFlowSecondaryLatestRow,
@@ -31,6 +31,8 @@ import type {
   EtfFlowDivergence,
   EtfFlowDivergenceSeverity,
 } from '../../server/etf_flow_cross_validation.js';
+import { scanEtfFlowAnomalies } from './etfFlowAnomalyScan.js';
+import type { Anomaly, AnomalySeverity } from '../composite/anomalyScan.js';
 
 interface State {
   data: EtfFlowCrossValidationStateResponse | null;
@@ -49,6 +51,15 @@ export default function EtfFlowApp() {
     error: null,
     lookbackDays: DEFAULT_LOOKBACK,
   });
+
+  // Cycle 33 slice 3b (S96-147): bug-finding-first anomaly overlay. Scans the
+  // cross-validation response so a source disagreement / primary-dark state
+  // SCREAMS at the top on render, consistent with the 8 composite panels. Not
+  // run in 'empty' mode (the EmptyState explains that case).
+  const anomalies = useMemo<Anomaly[]>(
+    () => (state.data && state.data.mode !== 'empty' ? scanEtfFlowAnomalies(state.data) : []),
+    [state.data],
+  );
 
   const refresh = useCallback(async (lookbackDays: number) => {
     setState(s => ({ ...s, loading: true, error: null, lookbackDays }));
@@ -136,6 +147,9 @@ export default function EtfFlowApp() {
           <PrimaryDarkBanner data={state.data} />
         ) : (
           <SpecBanner />
+        )}
+        {state.data && state.data.mode !== 'empty' && (
+          <AnomalyBanner anomalies={anomalies} />
         )}
         {state.error && (
           <div className="border border-red-500/40 bg-red-500/10 rounded p-4 mb-4">
@@ -629,6 +643,50 @@ npm run daemon:daily`;
         v3.1 arc: s96 #7 (adapter) → s96 #8 (wrapper) → s96 #9 (daemon hook) → s96 #11 (this panel) →
         s96 #12 (primary guard + /#/health surface).
       </div>
+    </div>
+  );
+}
+
+// ── Anomaly banner (Cycle 33 slice 3b — bug-finding-first overlay) ───────────
+// Visual matches CompositeDetailApp's AnomalyBanner so the bug-finding-first UX
+// is identical across all panels (inline-hex; dynamic Tailwind classes purge).
+// Kept local (not imported from CompositeDetailApp) because EtfFlowApp is a
+// fully bespoke panel with its own header/formatters — same posture as the
+// rest of this file.
+
+const SEVERITY_HEX: Record<AnomalySeverity, string> = {
+  critical: '#f87171', warn: '#fbbf24', info: '#a1a1aa',
+};
+
+function AnomalyBanner({ anomalies }: { anomalies: Anomaly[] }) {
+  if (anomalies.length === 0) {
+    return (
+      <div className="border border-emerald-500/25 bg-emerald-500/[0.04] rounded px-3 py-2 mb-4 flex items-center gap-2">
+        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+        <span className="text-[10px] font-mono text-emerald-300/80 uppercase tracking-[0.15em]">
+          anomaly scan clean — primary and secondary agree; no implausible divergence or primary-dark
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div className="border border-zinc-700/60 bg-black/40 rounded p-3 mb-4 flex flex-col gap-1.5">
+      <div className="text-[9px] font-black uppercase tracking-[0.25em] text-zinc-400 mb-0.5">
+        Anomaly scan — {anomalies.length} flag{anomalies.length === 1 ? '' : 's'}
+      </div>
+      {anomalies.map((a, i) => (
+        <div key={`${a.code}-${i}`} className="flex items-start gap-2">
+          <span
+            className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded whitespace-nowrap mt-px"
+            style={{ color: SEVERITY_HEX[a.severity], border: `1px solid ${SEVERITY_HEX[a.severity]}55`, backgroundColor: `${SEVERITY_HEX[a.severity]}14` }}
+          >
+            {a.severity}
+          </span>
+          <span className="text-[11px] font-mono leading-snug" style={{ color: `${SEVERITY_HEX[a.severity]}dd` }}>
+            <span className="text-zinc-500">[{a.code}]</span> {a.message}
+          </span>
+        </div>
+      ))}
     </div>
   );
 }
