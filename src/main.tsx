@@ -54,6 +54,10 @@ const Form4InsiderApp = lazy(() => import('./components/composite/Form4InsiderAp
 // slice 3a (S96-147). Flat single-axis descriptor + per-ticker 13D/13G drill;
 // reuses CompositeDetailApp. Ships an empty-state until the EDGAR 13D/G ingest runs.
 const Schedule13DGApp = lazy(() => import('./components/composite/Schedule13DGApp.tsx'));
+// Lazy-load the eight_k material-event classifier composite-detail panel —
+// Cycle 33 slice 3c (S96-147). Flat single-axis descriptor + per-ticker
+// material-event drill; reuses CompositeDetailApp. Empty-state until EK ingest runs.
+const EightKClassifierApp = lazy(() => import('./components/composite/EightKClassifierApp.tsx'));
 
 function Router() {
   const [hash, setHash] = useState(window.location.hash);
@@ -197,6 +201,17 @@ function Router() {
         </div>
       }>
         <Schedule13DGApp />
+      </Suspense>
+    );
+  }
+  if (path === '#/eight-k' || path.startsWith('#/eight-k/')) {
+    return (
+      <Suspense fallback={
+        <div className="min-h-screen bg-[#050505] text-sky-400/70 flex items-center justify-center text-[10px] font-mono uppercase tracking-widest">
+          loading eight-k…
+        </div>
+      }>
+        <EightKClassifierApp />
       </Suspense>
     );
   }

@@ -1383,6 +1383,13 @@ export default function App() {
               Schedule 13D/G →
             </a>
             <a
+              href="#/eight-k"
+              className="text-[9px] font-black text-sky-400/80 hover:text-sky-300 uppercase tracking-[0.2em] border border-sky-400/30 hover:border-sky-400 rounded-lg px-3 py-1.5 transition-colors"
+              title="8-K material-event classifier composite (eight_k_classifier_v1 · informational · high-signal-event sector-cluster z + per-ticker material-event drill · reusable composite-detail panel · empty until EDGAR 8-K ingest runs)"
+            >
+              8-K events →
+            </a>
+            <a
               href="#/etf-flow"
               className="text-[9px] font-black text-fuchsia-400/80 hover:text-fuchsia-300 uppercase tracking-[0.2em] border border-fuchsia-400/30 hover:border-fuchsia-400 rounded-lg px-3 py-1.5 transition-colors"
               title="ETF-flow cross-validation (Gap #9 v3.1 · yfinance primary vs SSGA secondary · per-ticker shares-outstanding divergence + severity ladder)"

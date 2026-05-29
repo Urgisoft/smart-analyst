@@ -106,6 +106,12 @@ import {
   fetchSchedule13DGState,
   Schedule13DGDashboardError,
 } from "./src/server/schedule_13d_g_dashboard.js";
+import {
+  parseQuery as parseEightKQuery,
+  isQueryFailure as isEightKQueryFailure,
+  fetchEightKState,
+  EightKDashboardError,
+} from "./src/server/eight_k_dashboard.js";
 import { fetchEtfFlowCrossValidationState } from "./src/server/etf_flow_dashboard.js";
 import { fetchHealthState } from "./src/server/health_dashboard.js";
 import { fetchPhaseBDashboardState } from "./src/server/phase_b_dashboard.js";
@@ -785,6 +791,28 @@ async function startServer() {
         return res.status(e.status).json({ error: e.error, detail: e.detail });
       }
       console.error('schedule-13d-g state error', e);
+      return res.status(503).json({ error: 'clickhouse_unavailable', detail: (e as Error).message });
+    }
+  });
+
+  // Powers /#/eight-k — Cycle 33 slice 3c (S96-147). Read-only view of
+  // `quantlab.eight_k_classifier_snapshots` projected onto CompositeDetailPayload
+  // — a flat single-axis (high-signal-event cluster z) descriptor + per-ticker
+  // material-event drill. hasData=false (not 503) when no snapshot exists (the
+  // EK ingest has never run). SPEC: docs/specs/event-driven-filings-processor.md.
+  app.get("/api/eight-k", async (req, res) => {
+    const parsed = parseEightKQuery({ lookbackDays: req.query.lookbackDays });
+    if (isEightKQueryFailure(parsed)) {
+      return res.status(parsed.status).json({ error: parsed.error, detail: parsed.detail });
+    }
+    try {
+      const response = await fetchEightKState({ lookbackDays: parsed.lookbackDays });
+      return res.json(response);
+    } catch (e) {
+      if (e instanceof EightKDashboardError) {
+        return res.status(e.status).json({ error: e.error, detail: e.detail });
+      }
+      console.error('eight-k state error', e);
       return res.status(503).json({ error: 'clickhouse_unavailable', detail: (e as Error).message });
     }
   });

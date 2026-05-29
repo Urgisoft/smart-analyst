@@ -607,3 +607,86 @@ export const schedule13DGDescriptor: CompositeDescriptor = {
     { bit: XD13_INPUT_PER_TICKER, label: 'PER-TICKER' },
   ],
 };
+
+// ── eight_k_classifier (Cycle 33 slice 3c — flat single-axis + drill) ────────
+// The SIXTH composite. FLAT single-axis (NEW high-signal-item sector event-rate
+// cluster z) + per-ticker material-event drill. Structurally form_4-minus-the-
+// sell-lane. Two persisted-shape facts (verified, NOT assumed from a sibling —
+// S96-153): maxAggregateZ is a PERSISTED continuous column (like form_4, UNLIKE
+// schedule_13d_g's derived null-or-≥2) so the z bar shows real in-band readings;
+// inputsAvailableAggregate is a 0–11 SECTOR COUNT (like form_4, render "X/11
+// sectors", NOT schedule_13d_g's baseline-prints sum).
+
+export const EK_INPUT_AGG = 1 << 0;
+export const EK_INPUT_PER_TICKER = 1 << 1;
+
+export const eightKClassifierDescriptor: CompositeDescriptor = {
+  composite: 'eight_k_classifier',
+  endpoint: '/api/eight-k',
+  title: 'VECTOR_8K · Material-Event Classifier',
+  accent: 'sky',
+  subtitle:
+    'SEC Form 8-K high-signal material events (material agreement 1.01 · M&A 2.01 · impairment 2.06 · delisting 3.01 · auditor change 4.01 · restatement 4.02 · control change 5.01), aggregated to GICS sectors. The cluster z tracks the sector NEW-event filing rate vs a 2y baseline. Per-ticker drill = equity-midcap watch universe. Informational only in v1; does not fire phase1_v3.',
+  specPath: 'docs/specs/event-driven-filings-processor.md',
+  ingestHint: [
+    '# 1. Ensure schema exists (idempotent):',
+    'npm run migrate:create-eight-k-events:apply',
+    'npm run migrate:create-eight-k-classifier-snapshots:apply',
+    'npm run migrate:add-max-z-eight-k-classifier-snapshots:apply',
+    '',
+    '# 2. Ingest the 8-K event stream (free SEC EDGAR — watch the per-IP throttle;',
+    '#    prefer paced ingest, the bulk backfill is rate-limited):',
+    'npm run edgar:8k-event:ingest',
+    '',
+    '# 3. Run the daemon once to write the first snapshot:',
+    'npm run daemon:daily',
+  ],
+  metrics: [
+    {
+      key: 'maxAggregateZ',
+      label: 'Event-cluster max sector z',
+      short: 'Clust-z',
+      unit: 'z', warnAbs: 2, critAbs: 4,
+      glossary:
+        'Largest |z| across all GICS sectors of the sector’s high-signal 8-K event rate (distinct material filings ÷ sector size, 90d window) vs its trailing-2y baseline. >+2 = unusually concentrated material-event filing in a sector. A reading past ±4 is implausibly extreme — suspect a thin baseline (the anomaly scan flags it).',
+    },
+    {
+      key: 'flaggedSectorCount',
+      label: 'Flagged sectors (|z|>2)',
+      short: 'Sec#',
+      unit: 'raw',
+      glossary: 'Number of GICS sectors whose high-signal-event-rate z exceeded ±2 this snapshot.',
+    },
+    {
+      key: 'materialEventTickers',
+      label: 'Tickers with a material event (90d)',
+      short: 'Matl#',
+      unit: 'raw',
+      glossary: 'Count of watch-universe names with ≥1 high-signal 8-K item (impairment / restatement / delisting / etc.) in the trailing 90 days. The per-ticker drill lists them.',
+    },
+    {
+      key: 'recentEvents90d',
+      label: 'Total material events (90d)',
+      short: 'Events',
+      unit: 'raw',
+      glossary: 'Sum of distinct high-signal 8-K events across the watch universe in the trailing 90 days.',
+    },
+  ],
+  flags: [
+    {
+      key: 'eightKClusterFlag',
+      label: 'Material-event sector cluster',
+      whenTrue: 'At least one GICS sector’s high-signal-8-K-event rate z exceeded |z|>2 vs its 2y baseline — concentrated material-event filing somewhere in the index.',
+    },
+  ],
+  verdicts: {
+    event_cluster: { tone: 'warn', meaning: 'A GICS sector’s high-signal 8-K event rate exceeded |z|>2 vs its 2y baseline — concentrated material-event filing worth watching.' },
+    normal: { tone: 'neutral', meaning: 'No sector’s high-signal-event rate exceeded the |z|>2 baseline threshold.' },
+    unknown: { tone: 'unknown', meaning: 'No GICS sector had a valid 2y baseline — could not classify (cold-start before the baseline warmed).' },
+  },
+  defaultTone: 'neutral',
+  inputBits: [
+    { bit: EK_INPUT_AGG, label: 'AGG-SECTORS' },
+    { bit: EK_INPUT_PER_TICKER, label: 'PER-TICKER' },
+  ],
+};
