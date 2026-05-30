@@ -809,6 +809,11 @@ export class Form4InsiderRepository {
         // OQ-G3-1 / s94 #8 strategy (β) persistence wiring. Columns added by
         // migrate_add_max_aggregate_z_to_form_4_insider_snapshots.ts;
         // SPEC docs/specs/gics-sector-baseline-computation.md §2.
+        // ADR-053 (v3): these columns now carry the BOUNDED empirical
+        // z-equivalent `zEmp` (max across valid sectors), NOT the Gaussian z.
+        // `composite_version='form_4_insider_v3'` disambiguates the semantics
+        // (no DDL change; ADR-051 D8 version-pin trail). The raw exceedance p +
+        // effectiveSample m ride in flagged_sectors_json.
         max_aggregate_z: snapshot.maxAggregateZ,
         max_aggregate_z_sector: snapshot.maxAggregateZSector,
         // Gap #7 v2 sell-cluster F4 G3 persistence wiring (s95 #2). Columns

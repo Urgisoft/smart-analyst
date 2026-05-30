@@ -120,25 +120,45 @@ function empty(lookbackDays: number): CompositeDetailPayload {
   });
 }
 
-/** Derive a discrete verdict from the two aggregate cluster flags. form_4
- *  persists no single regime label (unlike the other Layer-0 composites). When
- *  the aggregate layer had no sector with a valid 2y baseline AND neither flag
- *  fired, the composite could not classify → 'unknown'. */
+/** Derive a discrete verdict from the two aggregate cluster flags + the two
+ *  max-score values. form_4 persists no single regime label (unlike the other
+ *  Layer-0 composites).
+ *
+ *  Verdict precedence (ADR-053 §7):
+ *    - a fired flag wins (dual_cluster / buy_cluster / sell_cluster);
+ *    - 'unknown' = no sectors had any baseline at all (`aggregateAvailable ≤ 0`)
+ *      — the true cold-start;
+ *    - 'under_review' = baselines EXISTED (`aggregateAvailable > 0`) but every
+ *      sector was guard-suppressed under ADR-053 (both maxAggregateZ +
+ *      maxAggregateZSell null) — the honest "insufficient data / statistic
+ *      under review" state (the pre-D7 reality: the EDGAR baseline is too sparse
+ *      for the empirical statistic to resolve anything);
+ *    - 'normal' = baselines existed, valid statistics computed, nothing fired.
+ *
+ *  `maxAggregateZ` / `maxAggregateZSell` are the bounded `zEmp` (ADR-053);
+ *  both null ⟺ every sector guard-suppressed. */
 export function deriveVerdict(
   buyFlag: boolean,
   sellFlag: boolean,
   aggregateAvailable: number,
+  maxAggregateZ: number | null = null,
+  maxAggregateZSell: number | null = null,
 ): string {
   if (buyFlag && sellFlag) return 'dual_cluster';
   if (buyFlag) return 'buy_cluster';
   if (sellFlag) return 'sell_cluster';
   if (aggregateAvailable <= 0) return 'unknown';
+  if (maxAggregateZ == null && maxAggregateZSell == null) return 'under_review';
   return 'normal';
 }
 
-function sectorContext(sector: string | null, z: number | null): string {
+/** ADR-053: the value is the bounded empirical z-equivalent `zEmp` (≥ 0), not a
+ *  Gaussian z — label it `zEmp` so the operator does not read it as a σ. */
+function sectorContext(sector: string | null, zEmp: number | null): string {
   if (!sector) return '—';
-  return z != null && Number.isFinite(z) ? `${sector} (z ${z.toFixed(2)})` : sector;
+  return zEmp != null && Number.isFinite(zEmp)
+    ? `${sector} (zEmp ${zEmp.toFixed(2)})`
+    : sector;
 }
 
 /** Build the per-ticker drill table from the snapshot's per_ticker rows.
@@ -218,6 +238,7 @@ export function projectPayload(
 
   const verdict = deriveVerdict(
     latest.form4ClusterFlag, latest.form4SellClusterFlag, latest.inputsAvailableAggregate,
+    latest.maxAggregateZ, latest.maxAggregateZSell,
   );
 
   return {
@@ -260,7 +281,10 @@ export function projectPayload(
     drill: buildDrill(latest.perTickerRows),
     history: history.map(h => ({
       date: h.date,
-      verdict: deriveVerdict(h.buyClusterFlag, h.sellClusterFlag, h.inputsAvailableAggregate),
+      verdict: deriveVerdict(
+        h.buyClusterFlag, h.sellClusterFlag, h.inputsAvailableAggregate,
+        h.maxAggregateZ, h.maxAggregateZSell,
+      ),
       metrics: {
         maxAggregateZ: h.maxAggregateZ,
         maxAggregateZSell: h.maxAggregateZSell,
@@ -283,11 +307,17 @@ export class Form4InsiderDashboardError extends Error {
 
 /**
  * What could break this:
- *   - The latest snapshot's maxAggregateZ can be implausibly extreme (the live
- *     data shows ~5.5 — past ±4σ) when a sector's 2y cluster-rate baseline is
- *     thin/pinned. That is NOT masked here: it flows to the payload and the
- *     client anomaly scan fires OUT_OF_BAND_CRIT on render. Surfacing it is the
- *     point (the Phase-B granularity question is S96-146, separate).
+ *   - **maxAggregateZ is now a BOUNDED empirical z-equivalent (ADR-053), not a
+ *     Gaussian z.** Pre-v3, a thin/zero-inflated 2y baseline let one ordinary
+ *     clustered ticker produce a fabricated 5–14σ that fired OUT_OF_BAND_CRIT on
+ *     render. ADR-053 (S96-163) replaced the Gaussian z with a one-sided
+ *     empirical-exceedance statistic whose display value `zEmp` is bounded by
+ *     the baseline resolution (≈2.58 at n≈204). So the anomaly scan no longer
+ *     fires on a fabricated σ — a maxAggregateZ past ~3 would itself be a bug.
+ *     When every sector is guard-suppressed (the sparse-baseline reality before
+ *     the ADR-052 D7 coverage backfill) maxAggregateZ + maxAggregateZSell are
+ *     both null and the verdict is `under_review` ("insufficient data /
+ *     statistic under review") — honest, not a number.
  *   - History carries only the two aggregate z-metrics (no per-ticker counts) —
  *     the sparklines are aggregate-only; the per-ticker drill is latest-only.
  *   - inputsPresent is a 2-layer proxy, not a categorical mask; a 1/2 reading

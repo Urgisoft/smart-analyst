@@ -1,14 +1,19 @@
 ---
 adr_id: 053
-status: PROPOSED
+status: Accepted
 date: 2026-05-30
-session: 96 #32 Cycle 35
+ratified: 2026-05-30 (session 96 #33 Cycle 36)
+session: 96 #32 Cycle 35 (PROPOSED) → 96 #33 Cycle 36 (RATIFIED + implemented)
 owner: Orchestrator (Vector Core)
-ratification: NOT YET RATIFIED. This is a methodology-canon decision (it changes a
-  composite's calculation logic — the aggregate anomaly statistic), so per ADR-044
-  it is operator-visible and the IMPLEMENTATION is a gated Composite-worker slice.
-  Drafting this PROPOSED ADR is orchestrator pure-docs (multi-agent-orchestration
-  §3.1); the ratification + the calc-logic change are the next cycle's gated work.
+ratification: RATIFIED by the orchestration per the s96 #14 working model
+  (multi-agent-orchestration §6.4 "writing ADRs for routine architecture decisions"
+  + §7.3 "Phase B statistical validation … orchestration-owned"). This is a
+  methodology-canon decision (it changes a composite's calculation logic — the
+  aggregate anomaly statistic), so per ADR-044 it is operator-VISIBLE; it does NOT
+  name a new methodology canon source (Aronson EBTA is already in the Vector Core
+  Tier-1 list the operator has seen), so it is NOT operator-GATED (no §6.3 trigger 5
+  escalation). The implementation ships as a gated Composite-worker + Critic slice
+  this cycle. See "Decision (RATIFIED)" below for the pinned implementation SPEC.
 supersedes: none
 extends: ADR-052 (provenance normalization) — ADR-052 fixed the cross-source
   contamination; this ADR addresses the residual the fix EXPOSED.
@@ -122,23 +127,106 @@ Does not replace the statistic; it suppresses the invalid/cold-start cases (e.g.
   data's observable sparsity, not tuned to an outcome (AFML §11.4). Best used as a
   guard *layered on* Option B, not standalone.
 
-## Decision (PROPOSED — to be ratified next cycle)
+## Decision (RATIFIED — Cycle 36)
 
-**Recommended:** **Option B (empirical exceedance / rank) as the primary statistic,
-with Option C (minimum-effective-sample guard → honest null) layered on for the
-degenerate / cold-start case.** Three-criterion canon-thin-fork test
-(`CLAUDE.md` autonomous-execution):
+**Option B (empirical exceedance / rank) as the primary statistic, with Option C
+(minimum-effective-sample guard → honest null) layered on**, refined as below.
+Three-criterion canon-thin-fork test (`CLAUDE.md` autonomous-execution):
 1. **Canon depth** — B has direct, on-point support (Aronson EBTA empirical
    significance; LdP empirical distributions). A is generic textbook; the canon is
    thinner on the specific application.
-2. **No in-sample tuning** — B has **zero** tunable parameters (the firing threshold
-   is a calibrated tail probability, not a fit knob); A estimates `p̂` (not tuned);
-   C adds exactly one a-priori-pinned `K`.
-3. **Fewest free parameters** — B = 0; B+C = 1 (`K`, pinned from observed sparsity).
+2. **No in-sample tuning** — B has **zero** tunable parameters; the firing threshold
+   is the conventional significance level α (NOT fit to form_4 data); both guards
+   derive from α (see below), so no knob is fit against the validation set.
+3. **Fewest free parameters** — B = 0; **B+C = effectively 0 new** after the Cycle-36
+   refinement: the effective-sample floor is *derived from α*, not an independent `K`.
 
 This is the smallest, most assumption-light change that makes the aggregate output
-honest. It is a **calculation-logic change** to the composite, so it goes through a
+honest. It is a **calculation-logic change** to the composite, so it ships through a
 Composite worker + Critic and is operator-visible per ADR-044.
+
+### Implementation SPEC (pinned this cycle)
+
+All thresholds derive from a single conventional significance level **α = 0.05**
+(one-sided). Nothing below is fit to the form_4 data (anti-shopping; AFML §11.4).
+
+1. **Statistic — one-sided empirical upper-tail exceedance**, per sector × cycle ×
+   direction (buy / sell), over the EDGAR-only coverage-gated baseline rate series
+   `r_1..r_n` (`= baseline2y` / `baseline2ySell`, already delivered by
+   `populateSectorsForCycle` per ADR-052 D1/D2):
+
+   ```text
+   p = ( #{ i : r_i ≥ r_today } + 1 ) / ( n + 1 )
+   ```
+
+   Conservative (`≥` counts ties; standard North-et-al. / Davison-Hinkley empirical
+   p-value). Bounded in `[1/(n+1), 1]`; smaller = more anomalous. Replaces `computeZ`
+   on the cluster-rate (the Gaussian z is removed from the aggregate path; it may
+   remain only as dead code pending deletion).
+
+2. **Storage — reuse the existing `max_aggregate_z[_sell]` columns, NO DDL.** Carry
+   the **bounded empirical-exceedance z-equivalent**
+
+   ```text
+   zEmp = max(0, invNormCDF(1 − p))          // src/lib/psr.ts, Acklam
+   ```
+
+   This is the ADR-Option-B-sanctioned "inverse-normal-of-p z-equivalent purely for
+   display continuity." It is genuinely a z-quantile (no Gaussian-moment fiction), is
+   ONE-SIDED (clamped ≥ 0 — "less clustering than usual" is not an anomaly, unlike the
+   old two-sided `|z|`), and is **bounded by the baseline resolution**
+   (`zEmp ≤ invNormCDF(n/(n+1))` ≈ 2.58 at n≈204) — a fabricated 14σ is now
+   *impossible*. The richer detail (`exceedance` p, `effectiveSample` m) serializes
+   into the schemaless `flagged_sectors_json` / `flagged_sell_sectors_json` String
+   columns (`Form4InsiderFlaggedSector` gains `exceedance` + `effectiveSample`; the
+   legacy `z` field is replaced by `zEmp`). No column rename; the
+   `composite_version='form_4_insider_v3'` tag disambiguates the column semantics per
+   ADR-051 D8 (the version-pin trail's exact purpose).
+
+3. **Firing** — `form4ClusterFlag` / `form4SellClusterFlag` fire iff ANY *valid*
+   sector has `p ≤ α` (= `zEmp ≥ invNormCDF(0.95) ≈ 1.645`). Guard-suppressed sectors
+   have null `zEmp` and cannot fire. (Legacy `|z| > 2` is retired.)
+
+4. **Validity guards — both derived from α, zero new free parameters.** Emit
+   `insufficient_data` (null `zEmp`, sector excluded from the flagged list + the
+   `max` reducer) when EITHER fails:
+   - **Resolution floor:** `n ≥ MIN_Z_BASELINE` (= 30, the inherited cross-composite
+     constant; 30 ≥ ⌈1/α⌉ = 20, so the ECDF can represent a 5 % tail — no constant
+     change, conservative).
+   - **Effective-sample floor (the core fix, refines Option C):**
+     `m ≥ ⌈α·(n+1)⌉` where `m = #{ i : r_i > 0 }` (non-zero baseline days).
+     **Derivation:** firing requires `#{r_i ≥ r_today} ≤ α(n+1) − 1`; the minimal
+     non-zero rate `1/N` is `≥` every non-zero baseline day, so it would fire iff
+     `m < α(n+1)`. Requiring `m ≥ ⌈α(n+1)⌉` is therefore *exactly* the condition that
+     "merely being non-zero (one clustered ticker) cannot reach the α-tail." This is
+     an α-derived ratio, NOT an independent `K` — strictly fewer free parameters than
+     the PROPOSED "fixed K", and self-scaling as D7 lengthens `n`. Worked example
+     (Comm-Svcs 2026-04-30): n=203, m=1, `⌈0.05·204⌉ = 11`; `1 < 11` → insufficient_data,
+     not z=14.18. ✓
+
+5. **Option A (Binomial) — NOT computed.** Its within-sector ticker-independence
+   assumption is violated by sector-wide insider co-movement (the ADR Option-A
+   caveat), and a cross-check column adds surface for no decision it would change.
+   "Fewer features, robustly" (Vector Core operating rules). Revisit only if a
+   specific Phase-B need arises.
+
+6. **Version** — `FORM_4_INSIDER_COMPOSITE_VERSION = 'form_4_insider_v3'` (ADR-051 D8).
+
+7. **UI honesty (`form_4_dashboard.ts`)** — `deriveVerdict` returns a new
+   `'under_review'` state when both `maxAggregateZ` and `maxAggregateZSell` are null
+   AND `inputsAvailableAggregate > 0` (baselines exist but every sector was
+   guard-suppressed — the honest pre-D7 state). `'unknown'` remains the
+   no-baseline cold-start (`inputsAvailableAggregate ≤ 0`). The dashboard's stale
+   "the ~5.5 surfacing is the point" `What could break this` note is rewritten to
+   cite this ADR. The descriptor label set + the brief renderer surface
+   "insufficient data / statistic under review (ADR-053)" rather than a number.
+
+8. **Quarantine** — the `health_quarantine` ADR-052/053 row stays
+   `accepted-as-warning`; its note is refined to "z-invalidity RESOLVED by ADR-053 v3
+   (no fabricated σ renders); residual warning = data-RESOLUTION gate pending ADR-052
+   D7 coverage backfill — an informational limitation, not a correctness defect." It
+   is NOT flipped to `corrected`: the statistic is fixed, but the standing data-sparsity
+   warning genuinely persists until D7, which is what `accepted-as-warning` means.
 
 ## The deeper PUSHBACK (do not paper over)
 
@@ -166,14 +254,20 @@ test rework; the aggregate flag's historical firing pattern changes (the v2 → 
 version bump records it per ADR-051 D8). Deferred behind D7 for *usability* (not for
 correctness — the statistic fix is independently correct).
 
-## What this ADR does NOT decide
-- The exact empirical-tail firing threshold + the `K` min-effective-sample value —
-  pinned a-priori in the implementation SPEC from observed sparsity, NOT tuned to an
-  outcome (anti-shopping; AFML §11.4).
-- Whether to ALSO compute Option A (Binomial) as a cross-check column — deferred to
-  the SPEC.
-- The version label for the change (expected `form_4_insider_v3`; confirm in the
-  implementation slice; ADR-051 D8 version-pin trail).
+## Decided this cycle (was "does NOT decide" in the PROPOSED draft)
+
+- **Firing threshold + effective-sample floor** — pinned: α = 0.05 (one-sided,
+  conventional, NOT data-fit); effective-sample floor `m ≥ ⌈α·(n+1)⌉`, derived from
+  α (refines the PROPOSED "fixed K" to an α-derived ratio — strictly fewer free
+  parameters). See "Implementation SPEC" §1/§3/§4.
+- **Option A (Binomial)** — NOT computed (independence assumption violated;
+  fewer-features). See "Implementation SPEC" §5.
+- **Version label** — `form_4_insider_v3` (Implementation SPEC §6).
+- **Storage** — reuse `max_aggregate_z[_sell]` columns (z-equivalent), no DDL;
+  raw `exceedance` + `effectiveSample` into the flagged-sectors JSON (§2).
+
+## What this ADR still does NOT decide
+
 - Whether the other four EDGAR/FINRA composites (`schedule_13d_g`, `eight_k`,
   `executive_departure`, `short_interest`) share the sparse-rate z-invalidity — same
   structural pattern in principle (all are z-on-cluster-rate); re-evaluate per

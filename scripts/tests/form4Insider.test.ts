@@ -14,6 +14,7 @@ import {
   CLUSTER_WINDOW_DAYS,
   CLUSTER_INSIDER_THRESHOLD,
   FORM_4_CLUSTER_Z_THRESHOLD,
+  FORM_4_EXCEEDANCE_ALPHA,
   MIN_Z_BASELINE,
   HIGH_SIGNAL_TRANSACTION_CODES,
   BUY_CODE,
@@ -31,7 +32,9 @@ import {
   flagInsiderCluster,
   computeSectorClusterRate,
   computeZ,
+  computeEmpiricalExceedance,
   flagForm4Cluster,
+  flagForm4ClusterEmpirical,
   evaluateForm4InsiderComposite,
   type InsiderTrade,
   type Form4InsiderInputs,
@@ -743,7 +746,10 @@ describe('flagForm4Cluster (T-F4-14)', () => {
     assert.equal(flagged.sector, 'Information Technology');
     assert.equal(flagged.sectorSize, 30);
     assertClose(flagged.clusterRateT, 6 / 30);
-    assert.ok(Math.abs(flagged.z) > FORM_4_CLUSTER_Z_THRESHOLD);
+    // ADR-053: a flagged sector cleared the empirical α-tail; zEmp is bounded.
+    assert.ok(flagged.exceedance <= FORM_4_EXCEEDANCE_ALPHA);
+    assert.ok(flagged.zEmp >= 0 && flagged.zEmp < 2.6,
+      `zEmp must be bounded, got ${flagged.zEmp}`);
     assert.equal(snap.form4ClusterFlag, true);
   });
 
@@ -1031,7 +1037,7 @@ describe('aggregate-layer maxAggregateZ + maxAggregateZSector (MAXZ-F4-1..4)', (
     return computeSectorClusterRate(inWindow, sectorSize, ASOF);
   }
 
-  it('MAXZ-F4-1: maxAggregateZ is the signed z of the max-|z| sector', () => {
+  it('MAXZ-F4-1: maxAggregateZ is the max bounded zEmp across valid sectors (ADR-053)', () => {
     const baseline = makeBaseline();
     const inputs = makeInputs({
       sectors: [
@@ -1041,23 +1047,21 @@ describe('aggregate-layer maxAggregateZ + maxAggregateZSector (MAXZ-F4-1..4)', (
       ],
     });
     const snap = evaluateForm4InsiderComposite(inputs);
-    const expectedZs = inputs.sectors.map((s) => ({
+    const expected = inputs.sectors.map((s) => ({
       sector: s.sector,
-      z: computeZ(expectedRate(s.trades, s.sectorSize), s.baseline2y).z,
+      zEmp: computeEmpiricalExceedance(expectedRate(s.trades, s.sectorSize), s.baseline2y).zEmp,
     }));
     let bestZ: number | null = null;
-    let bestAbs = -Infinity;
-    for (const r of expectedZs) {
-      if (r.z != null && Math.abs(r.z) > bestAbs) {
-        bestAbs = Math.abs(r.z);
-        bestZ = r.z;
-      }
+    for (const r of expected) {
+      if (r.zEmp != null && (bestZ == null || r.zEmp > bestZ)) bestZ = r.zEmp;
     }
-    assert.ok(bestZ != null, 'expected at least one non-null z in test setup');
+    assert.ok(bestZ != null, 'expected at least one non-null zEmp in test setup');
     assert.equal(snap.maxAggregateZ, bestZ);
+    // Bounded — never a fabricated σ.
+    assert.ok((snap.maxAggregateZ ?? 0) >= 0 && (snap.maxAggregateZ ?? 0) < 2.6);
   });
 
-  it('MAXZ-F4-2: maxAggregateZSector names the sector with max |z|', () => {
+  it('MAXZ-F4-2: maxAggregateZSector names the sector with max zEmp', () => {
     const baseline = makeBaseline();
     const inputs = makeInputs({
       sectors: [
@@ -1067,19 +1071,21 @@ describe('aggregate-layer maxAggregateZ + maxAggregateZSector (MAXZ-F4-1..4)', (
       ],
     });
     const snap = evaluateForm4InsiderComposite(inputs);
-    const expectedZs = inputs.sectors.map((s) => ({
+    const expected = inputs.sectors.map((s) => ({
       sector: s.sector,
-      z: computeZ(expectedRate(s.trades, s.sectorSize), s.baseline2y).z,
+      zEmp: computeEmpiricalExceedance(expectedRate(s.trades, s.sectorSize), s.baseline2y).zEmp,
     }));
-    let bestAbs = -Infinity;
+    let bestZ = -Infinity;
     let expectedSector: string | null = null;
-    for (const r of expectedZs) {
-      if (r.z != null && Math.abs(r.z) > bestAbs) {
-        bestAbs = Math.abs(r.z);
+    for (const r of expected) {
+      // Lexicographic tie-break mirrors the evaluator.
+      if (r.zEmp != null && (r.zEmp > bestZ || (r.zEmp === bestZ && (expectedSector == null || r.sector < expectedSector)))) {
+        bestZ = r.zEmp;
         expectedSector = r.sector;
       }
     }
     assert.equal(snap.maxAggregateZSector, expectedSector);
+    // Energy has the highest cluster-rate (8 tickers) → strongest exceedance.
     assert.equal(snap.maxAggregateZSector, 'Energy');
   });
 
@@ -1187,10 +1193,10 @@ describe('F4-12 v2 sell-cluster sector aggregation (G2-SELL-*)', () => {
   });
 
   // G2-SELL-F4-3 — orchestrator emits form4SellClusterFlag=true on sell-side anomaly.
-  it('G2-SELL-F4-3: form4SellClusterFlag fires on sell-side |z| > 2.0', () => {
+  it('G2-SELL-F4-3: form4SellClusterFlag fires on sell-side empirical α-tail (ADR-053)', () => {
     const baseline = makeBaseline();
     // 6 sell-cluster tickers in sector of 30 → sell-rate = 0.20, well above
-    // baseline mean ~0.02; |z| > 2 expected with this baseline shape.
+    // every baseline day → exceedance ≤ α → fires.
     const inputs = makeInputs({
       sectors: [{
         sector: 'Information Technology',
@@ -1207,17 +1213,18 @@ describe('F4-12 v2 sell-cluster sector aggregation (G2-SELL-*)', () => {
     assert.equal(flagged.sector, 'Information Technology');
     assert.equal(flagged.sectorSize, 30);
     assertClose(flagged.clusterRateT, 6 / 30);
-    assert.ok(Math.abs(flagged.z) > FORM_4_CLUSTER_Z_THRESHOLD);
-    // Buy-side independent: cold-start baseline2y → buy-z null → buy-flag false.
+    assert.ok(flagged.exceedance <= FORM_4_EXCEEDANCE_ALPHA);
+    assert.ok(flagged.zEmp >= 0 && flagged.zEmp < 2.6);
+    // Buy-side independent: cold-start baseline2y → buy-stat null → buy-flag false.
     assert.equal(snap.form4ClusterFlag, false);
     assert.equal(snap.flaggedSectors.length, 0);
   });
 
   // G2-SELL-F4-4 — buy + sell flags are independent; both can fire concurrently.
-  // The independence invariant is about the FLAGS, not about whether a sector
-  // appears in exactly one direction's flagged set (a zero-rate today against
-  // a non-zero baseline mean produces a negative-z that the symmetric |z| > 2
-  // test legitimately flags — same posture as F4-6 and AFML §1.3).
+  // The independence invariant is about the FLAGS. ADR-053: the empirical tail is
+  // ONE-SIDED, so a zero-rate today (Financials buy, Energy sell) yields
+  // exceedance ≈ 1.0 → zEmp 0 → does NOT fire its opposite direction; only the
+  // direction whose trades match fires.
   it('G2-SELL-F4-4: buy + sell flags are independent (both can fire concurrently)', () => {
     const baseline = makeBaseline();
     const inputs = makeInputs({
@@ -1310,11 +1317,16 @@ describe('F4-12 v2 sell-cluster sector aggregation (G2-SELL-*)', () => {
 
 describe('constants (sanity)', () => {
   it('exposes the expected SPEC-pinned values', () => {
-    assert.equal(FORM_4_INSIDER_COMPOSITE_VERSION, 'form_4_insider_v2');
+    // ADR-053 (S96-163): version bumped to v3 (empirical-exceedance statistic).
+    assert.equal(FORM_4_INSIDER_COMPOSITE_VERSION, 'form_4_insider_v3');
     assert.equal(ROLLING_WINDOW_DAYS, 90);
     assert.equal(CLUSTER_WINDOW_DAYS, 30);
     assert.equal(CLUSTER_INSIDER_THRESHOLD, 3);
+    // @deprecated under ADR-053 but still pinned for the historical-reference trail.
     assert.equal(FORM_4_CLUSTER_Z_THRESHOLD, 2.0);
+    // ADR-053: the single conventional significance level driving both guards
+    // AND the firing threshold.
+    assert.equal(FORM_4_EXCEEDANCE_ALPHA, 0.05);
     assert.equal(MIN_Z_BASELINE, 30);
     assert.deepEqual([...HIGH_SIGNAL_TRANSACTION_CODES], ['P', 'S']);
     assert.equal(BUY_CODE, 'P');
@@ -1540,5 +1552,193 @@ describe('ADR-052 source-provenance normalization (D1/D3/D4)', () => {
     assert.equal(row.insiderClusterBuyFlag, false);
     assert.equal(row.insiderBuyCount90d, 3);
     assert.deepEqual(row.insiderCountSourceMix, { edgar: 0, finnhub: 3 });
+  });
+});
+
+// ── ADR-053 (S96-163) — empirical-exceedance aggregate statistic ─────────────
+//
+// Replaces the Gaussian z on the sparse, zero-inflated EDGAR-only cluster-rate.
+// Statistic: p = (#{baseline ≥ today} + 1)/(n + 1); zEmp = max(0, invNormCDF(1−p)).
+// Guards (both α-derived): n ≥ MIN_Z_BASELINE AND m ≥ ⌈α·(n+1)⌉ non-zero days.
+
+describe('computeEmpiricalExceedance (ADR-053)', () => {
+  const ALPHA = FORM_4_EXCEEDANCE_ALPHA;
+
+  it('T-F4-ADR053-1: zero-inflation 14σ→insufficient_data (the Comm-Svcs regression test)', () => {
+    // Communication Services 2026-04-30 reproduction: 202 zeros + 1 non-zero,
+    // today = 1/22 (one clustered ticker). The OLD Gaussian z scored this at
+    // 14.18σ; ADR-053 must return insufficient_data because the EFFECTIVE
+    // (non-zero) sample m=1 < ⌈0.05·204⌉ = 11.
+    const baseline = [
+      ...Array.from({ length: 202 }, () => 0),
+      0.03, // the lone non-zero baseline day
+    ];
+    const today = 1 / 22; // 0.0455 — one ordinary clustered ticker
+    const r = computeEmpiricalExceedance(today, baseline);
+    assert.equal(r.baselineSize, 203);
+    assert.equal(r.effectiveSample, 1); // only 1 non-zero baseline day
+    // m=1 < ceil(0.05*204)=11 → guard-suppressed (NOT a fabricated 14σ).
+    assert.equal(r.insufficientData, true);
+    assert.equal(r.exceedance, null);
+    assert.equal(r.zEmp, null);
+  });
+
+  it('T-F4-ADR053-2: cold-start (empty baseline) → insufficient_data', () => {
+    const r = computeEmpiricalExceedance(0.1, []);
+    assert.equal(r.baselineSize, 0);
+    assert.equal(r.effectiveSample, 0);
+    assert.equal(r.insufficientData, true);
+    assert.equal(r.exceedance, null);
+    assert.equal(r.zEmp, null);
+  });
+
+  it('T-F4-ADR053-2b: resolution floor — n < MIN_Z_BASELINE → insufficient_data', () => {
+    // 29 non-zero days (all guards on effective sample would pass) but n < 30.
+    const baseline = Array.from({ length: MIN_Z_BASELINE - 1 }, (_, i) => 0.01 + i * 0.001);
+    const r = computeEmpiricalExceedance(0.5, baseline);
+    assert.equal(r.baselineSize, MIN_Z_BASELINE - 1);
+    assert.equal(r.insufficientData, true);
+    assert.equal(r.zEmp, null);
+  });
+
+  it('T-F4-ADR053-3: effective-sample guard boundary (m === ceil(α·(n+1)) valid; m−1 insufficient)', () => {
+    // Choose n = 39 → n+1 = 40 → ceil(0.05*40) = 2. Make a baseline with EXACTLY
+    // 2 non-zero days and 37 zeros (n=39 ≥ 30). today exceeds both non-zero days.
+    const n = 39;
+    const floor = Math.ceil(ALPHA * (n + 1)); // 2
+    const baselineAtFloor = [
+      ...Array.from({ length: floor }, () => 0.01),
+      ...Array.from({ length: n - floor }, () => 0),
+    ];
+    const atFloor = computeEmpiricalExceedance(0.5, baselineAtFloor);
+    assert.equal(atFloor.baselineSize, n);
+    assert.equal(atFloor.effectiveSample, floor);
+    assert.equal(atFloor.insufficientData, false, 'm === floor must be VALID');
+    assert.ok(atFloor.exceedance != null && atFloor.zEmp != null);
+
+    // m = floor − 1 → insufficient_data.
+    const baselineBelow = [
+      ...Array.from({ length: floor - 1 }, () => 0.01),
+      ...Array.from({ length: n - (floor - 1) }, () => 0),
+    ];
+    const below = computeEmpiricalExceedance(0.5, baselineBelow);
+    assert.equal(below.effectiveSample, floor - 1);
+    assert.equal(below.insufficientData, true, 'm === floor−1 must be insufficient');
+    assert.equal(below.zEmp, null);
+  });
+
+  it('T-F4-ADR053-4: genuine anomaly — today above ~95% of a dense baseline → fires, zEmp BOUNDED (never 14)', () => {
+    // 200 non-zero baseline days spread across [0.01, 0.20]; today = 0.30 exceeds
+    // all of them → exceedance = 1/201 ≈ 0.005 ≤ α; zEmp ≈ invNormCDF(0.995) ≈ 2.58.
+    const baseline = Array.from({ length: 200 }, (_, i) => 0.01 + (i / 200) * 0.19);
+    const today = 0.30;
+    const r = computeEmpiricalExceedance(today, baseline);
+    assert.equal(r.insufficientData, false);
+    assert.ok(r.exceedance != null && r.exceedance <= ALPHA, `exceedance ${r.exceedance} must be ≤ α`);
+    assert.ok(r.zEmp != null && r.zEmp >= 1.645, `zEmp ${r.zEmp} must clear the one-sided 95% quantile`);
+    assert.ok(r.zEmp != null && r.zEmp < 3, `zEmp ${r.zEmp} must be BOUNDED, never a fabricated 14σ`);
+  });
+
+  it('T-F4-ADR053-5: invNormCDF(1−p) clamp — today below baseline median → zEmp clamped to 0 (not negative/NaN, distinct from null)', () => {
+    // Dense baseline; today = 0 (below every non-zero day) → geCount = n →
+    // p = (n+1)/(n+1) = 1 → 1−p = 0 → zEmp clamped to 0. Distinct from null
+    // (the statistic IS valid; today is simply not anomalous).
+    const baseline = Array.from({ length: 100 }, (_, i) => 0.01 + i * 0.001);
+    const r = computeEmpiricalExceedance(0, baseline);
+    assert.equal(r.insufficientData, false);
+    assert.equal(r.exceedance, 1); // all 100 baseline days ≥ 0
+    assert.equal(r.zEmp, 0); // clamped, NOT null and NOT negative/NaN
+    assert.ok(Number.isFinite(r.zEmp as number));
+  });
+
+  it('T-F4-ADR053-6: value null (degenerate sector) → insufficient_data', () => {
+    const baseline = Array.from({ length: 100 }, () => 0.05);
+    const r = computeEmpiricalExceedance(null, baseline);
+    assert.equal(r.insufficientData, true);
+    assert.equal(r.zEmp, null);
+  });
+
+  it('T-F4-ADR053-7: NaN/Infinity baseline entries are filtered from n + m', () => {
+    const baseline = [0.1, NaN, 0.2, Infinity, 0.3,
+      ...Array.from({ length: 30 }, () => 0.05)];
+    const r = computeEmpiricalExceedance(0.5, baseline);
+    assert.equal(r.baselineSize, 33); // 3 + 30 finite (NaN + Infinity dropped)
+    assert.equal(r.effectiveSample, 33); // all finite entries are > 0
+  });
+});
+
+describe('flagForm4ClusterEmpirical (ADR-053 firing rule)', () => {
+  const ALPHA = FORM_4_EXCEEDANCE_ALPHA;
+  it('fires when any valid sector has p ≤ α', () => {
+    assert.equal(flagForm4ClusterEmpirical([0.5, 0.2, ALPHA]), true); // boundary p === α fires
+    assert.equal(flagForm4ClusterEmpirical([0.01, 0.9]), true);
+  });
+  it('does not fire when all p > α', () => {
+    assert.equal(flagForm4ClusterEmpirical([0.06, 0.5, 1.0]), false);
+  });
+  it('guard-suppressed (null) sectors cannot fire', () => {
+    assert.equal(flagForm4ClusterEmpirical([null, null, null]), false);
+    assert.equal(flagForm4ClusterEmpirical([null, 0.5]), false);
+  });
+});
+
+describe('evaluateForm4InsiderComposite — ADR-053 aggregate end-to-end', () => {
+  it('T-F4-ADR053-E2E-1: a zero-inflated sector is guard-suppressed → no flag, no fabricated maxAggregateZ', () => {
+    // ONE sector whose EDGAR-only baseline is 202 zeros + 1 non-zero (the
+    // Comm-Svcs shape), today = 1 clustered ticker in a sector of 22.
+    const baseline = [
+      ...Array.from({ length: 202 }, () => 0),
+      0.0455,
+    ];
+    // Build today's trades for ONE cluster ticker (3 distinct EDGAR insiders).
+    const trades: InsiderTrade[] = [];
+    for (let pi = 0; pi < 3; pi++) {
+      trades.push(makeTrade({
+        issuerTicker: 'XYZ', accession: `xyz-${pi}`, transactionCode: 'P',
+        personCik: `00010000${pi}1`, source: EDGAR_CANONICAL_SOURCE,
+        acceptedAt: new Date(ASOF.getTime() - (3 + pi) * DAY_MS),
+      }));
+    }
+    const inputs = makeInputs({
+      sectors: [{
+        sector: 'Communication Services', sectorSize: 22,
+        trades, baseline2y: baseline, baseline2ySell: [],
+      }],
+    });
+    const snap = evaluateForm4InsiderComposite(inputs);
+    // The whole point: NO fabricated σ. Guard-suppressed → null + no flag.
+    assert.equal(snap.maxAggregateZ, null);
+    assert.equal(snap.maxAggregateZSector, null);
+    assert.equal(snap.form4ClusterFlag, false);
+    assert.equal(snap.flaggedSectors.length, 0);
+    // The aggregate layer DID evaluate (sectorSize > 0).
+    assert.equal(snap.inputsAvailableAggregate, 1);
+  });
+
+  it('T-F4-ADR053-E2E-2: a dense-baseline genuine anomaly fires with a bounded zEmp', () => {
+    const baseline = Array.from({ length: 200 }, (_, i) => 0.005 + (i / 200) * 0.02);
+    // 6 cluster-buy tickers in a sector of 30 → rate 0.2 exceeds all baseline.
+    const trades: InsiderTrade[] = [];
+    for (let ti = 0; ti < 6; ti++) {
+      for (let pi = 0; pi < 3; pi++) {
+        trades.push(makeTrade({
+          issuerTicker: `T${ti}`, accession: `T${ti}-${pi}`, transactionCode: 'P',
+          personCik: `0001${ti}${pi}00001`, source: EDGAR_CANONICAL_SOURCE,
+          acceptedAt: new Date(ASOF.getTime() - (5 + pi * 2) * DAY_MS),
+        }));
+      }
+    }
+    const snap = evaluateForm4InsiderComposite(makeInputs({
+      sectors: [{
+        sector: 'Information Technology', sectorSize: 30,
+        trades, baseline2y: baseline, baseline2ySell: [],
+      }],
+    }));
+    assert.equal(snap.form4ClusterFlag, true);
+    assert.equal(snap.flaggedSectors.length, 1);
+    assert.ok(snap.maxAggregateZ != null && snap.maxAggregateZ >= 1.645);
+    assert.ok(snap.maxAggregateZ != null && snap.maxAggregateZ < 3,
+      `maxAggregateZ ${snap.maxAggregateZ} must be bounded, never 14σ`);
+    assert.equal(snap.maxAggregateZSector, 'Information Technology');
   });
 });

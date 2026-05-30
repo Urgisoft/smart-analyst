@@ -22,16 +22,32 @@
  *      against a 2y daily baseline exceeds |z| > 2 symmetrically. Per
  *      F4-6 (v1) the buy-side aggregate is load-bearing.
  *
- *      **F4-12 (v2, this slice — S95-1)**: a symmetric sell-side track
- *      runs in parallel. `form4SellClusterFlag` fires when any sector's
- *      cluster-sell-rate (= tickers with `insiderClusterSellFlag` in
- *      sector / sector_size) z-score against its OWN 2y daily baseline
- *      (`baseline2ySell`) exceeds |z| > 2 symmetrically. Lakonishok-Lee
- *      2001 §4 documents that the sell signal is ~30-50% diluted by
- *      tax/diversification/charity motives — informationally weaker than
- *      buys but non-zero. Two SEPARATE booleans + max-z sectors are
- *      emitted so downstream weighting (brief render, position sizing)
- *      can treat the two signals asymmetrically.
+ *      **F4-12 (v2, S95-1)**: a symmetric sell-side track runs in parallel.
+ *      `form4SellClusterFlag` fires when any sector's cluster-sell-rate (=
+ *      tickers with `insiderClusterSellFlag` in sector / sector_size) is
+ *      anomalously high vs its OWN 2y daily baseline (`baseline2ySell`).
+ *      Lakonishok-Lee 2001 §4 documents that the sell signal is ~30-50%
+ *      diluted by tax/diversification/charity motives — informationally
+ *      weaker than buys but non-zero. Two SEPARATE booleans + max-score
+ *      sectors are emitted so downstream weighting (brief render, position
+ *      sizing) can treat the two signals asymmetrically.
+ *
+ *      **ADR-053 (v3, S96-163)**: the aggregate anomaly statistic changed.
+ *      The previous v1/v2 path z-scored the sector cluster-rate against its
+ *      2y baseline with a Gaussian z-test (`computeZ`). On the EDGAR-only
+ *      coverage-gated baseline (post-ADR-052 D2) that baseline is sparse and
+ *      zero-inflated (e.g. Communication Services 2026-04-30: 202 of 203
+ *      baseline days are exactly 0). The Gaussian z degenerates there: one
+ *      ordinary clustered ticker (rate 1/22) z-scored to a fabricated 14.18σ
+ *      because the lone non-zero baseline day collapses σ. The Gaussian z is
+ *      the wrong statistic for a sparse, zero-inflated, bounded, discrete
+ *      rate (Vector Core canon: a metric whose assumptions are violated by
+ *      the data is not a metric). v3 replaces it with a one-sided EMPIRICAL
+ *      UPPER-TAIL EXCEEDANCE statistic (`computeEmpiricalExceedance`) +
+ *      validity guards. See that function's docstring and ADR-053 for the
+ *      full SPEC. The firing test is now an empirical-tail threshold
+ *      (`p ≤ α`, α = 0.05) instead of `|z| > 2`; the stored display value is
+ *      a BOUNDED z-equivalent (`zEmp`), so a fabricated 14σ is impossible.
  *
  * Canon:
  *   - Lakonishok & Lee 2001 *Rev. Fin. Studies* §3 — open-market insider P/S
@@ -62,11 +78,12 @@
  *     mega-insider cluster dominating sector signal).
  *   - F4-12 (v2, S95-1): Sell-side aggregate mirrors F4-6 structurally —
  *     counts tickers with `insiderClusterSellFlag` per sector against a
- *     SEPARATE 2y baseline `baseline2ySell`. Same threshold (|z| > 2.0),
- *     same MIN_Z_BASELINE=30, same cluster window (30d), same distinct-
- *     insider threshold (3). Zero new tuned parameters per Bailey-LdP
- *     2014 selection-bias canon — the threshold is inherited unchanged
- *     from the buy-side, not refit against a validation set.
+ *     SEPARATE 2y baseline `baseline2ySell`. Same anomaly statistic, same
+ *     MIN_Z_BASELINE=30, same cluster window (30d), same distinct-insider
+ *     threshold (3). Zero new tuned parameters per Bailey-LdP 2014 selection-
+ *     bias canon — the firing threshold is inherited from the buy-side, not
+ *     refit against a validation set. ADR-053 (v3): both directions now use the
+ *     empirical-exceedance `p ≤ α` firing rule instead of `|z| > 2.0`.
  *   - F4-7 / F4-8 / F4-9 / F4-10: ingest concerns, encoded at F4-A1.
  *   - F4-10: `acceptedAt` is the load-bearing window-membership anchor.
  *     `transactionDate` is forensic ONLY (can be 1-2bd before acceptance per
@@ -75,14 +92,18 @@
  *     `acceptedAt` for windowing.
  *   - F4-11: Composite version = 'form_4_insider_v1'.
  *   - EDF-7: MIN_Z_BASELINE = 30 (matches all six prior Layer-0 composites).
+ *   - ADR-053: aggregate anomaly statistic = one-sided empirical exceedance +
+ *     effective-sample guard (replaces the Gaussian z on the cluster-rate);
+ *     all thresholds derive from a single α = 0.05.
  *
  * Pure-function layer:
- *   This module exposes only pure functions + type definitions. Z-score
+ *   This module exposes only pure functions + type definitions. Anomaly
  *   baselines are INPUTS (computed by the A4 repository from a 2y trailing
  *   panel), not computed inside this module. Same architectural separation
  *   as eight_k_classifier.ts, executive_departure.ts, etf_flow.ts,
  *   cross_asset_signals.ts, short_interest.ts.
  */
+import { invNormCDF } from '../lib/psr.js';
 
 /** Composite version. Bump on any change to window length, cluster threshold,
  *  transaction-code filter, aggregator, or universe definition. Stored
@@ -96,8 +117,21 @@
  *  the version bump keeps the "did the composite change after a bad result?"
  *  audit a single CH query. The bump is provenance hygiene, NOT a formula search
  *  against a bad backtest, so it is permitted under ADR-051 Decision 5
- *  (anti-shopping). */
-export const FORM_4_INSIDER_COMPOSITE_VERSION = 'form_4_insider_v2' as const;
+ *  (anti-shopping).
+ *
+ *  **v3 (ADR-053 D6 — S96-163 resolution):** the aggregate ANOMALY STATISTIC
+ *  changes — from the Gaussian z on the sector cluster-rate to a one-sided
+ *  empirical upper-tail exceedance + effective-sample guard
+ *  (`computeEmpiricalExceedance`). v2 verification proved the provenance fix
+ *  did NOT resolve the fabricated-σ artifact at the value level (the EDGAR-only
+ *  coverage-gated baseline is zero-inflated, so the Gaussian z still produced
+ *  up to 14.18σ from one ordinary clustered ticker). This is a calculation-logic
+ *  change to the anomaly statistic, version-pinned per ADR-051 Decision 8. The
+ *  α = 0.05 firing threshold is conventional (NOT fit to form_4 data), so the
+ *  bump is permitted under ADR-051 Decision 5 (anti-shopping). The stored
+ *  `max_aggregate_z[_sell]` columns now carry the BOUNDED z-equivalent `zEmp`,
+ *  disambiguated by this version tag. */
+export const FORM_4_INSIDER_COMPOSITE_VERSION = 'form_4_insider_v3' as const;
 export type Form4InsiderCompositeVersion = typeof FORM_4_INSIDER_COMPOSITE_VERSION;
 
 /** ADR-052 D1 — the canonical source for all cluster-identity computations.
@@ -132,11 +166,25 @@ export const CLUSTER_WINDOW_DAYS = 30;
 /** Cluster threshold per F4-2: distinct `personCik` count required. */
 export const CLUSTER_INSIDER_THRESHOLD = 3;
 
-/** Aggregate-sector cluster-rate z-threshold per F4-6 (symmetric). */
+/** @deprecated ADR-053 (S96-163) retired the Gaussian z-threshold firing rule.
+ *  The aggregate flag now fires on the empirical-exceedance tail (`p ≤
+ *  FORM_4_EXCEEDANCE_ALPHA`), NOT on `|z| > 2`. Kept only for the constants-
+ *  sanity pin + backward-reference; no live code path reads it. Remove when the
+ *  v1/v2 historical-comparison code is fully retired. */
 export const FORM_4_CLUSTER_Z_THRESHOLD = 2.0;
 
-/** EDF-7: minimum baseline prints for a valid z-score. Matches the
- *  MIN_Z_BASELINE constant across all Layer-0 composites. */
+/** ADR-053 (S96-163) — the single conventional one-sided significance level
+ *  from which BOTH validity guards AND the firing threshold derive (zero new
+ *  free parameters; α is NOT fit to form_4 data — anti-shopping per AFML §11.4 /
+ *  ADR-051 Decision 5). The aggregate cluster flag fires iff ANY valid sector
+ *  has empirical-exceedance `p ≤ α`. The effective-sample guard requires
+ *  `m ≥ ⌈α·(n+1)⌉` non-zero baseline days (see `computeEmpiricalExceedance`). */
+export const FORM_4_EXCEEDANCE_ALPHA = 0.05;
+
+/** EDF-7: minimum baseline prints for a valid anomaly statistic. Matches the
+ *  MIN_Z_BASELINE constant across all Layer-0 composites. Under ADR-053 this is
+ *  the RESOLUTION floor (the ECDF needs ≥ ⌈1/α⌉ = 20 days to represent a 5% tail;
+ *  30 ≥ 20, conservative — no constant change). */
 export const MIN_Z_BASELINE = 30;
 
 /** F4-4: open-market transaction codes admitted to the composite. Ingest
@@ -422,7 +470,117 @@ export function computeSectorClusterRate(
   return clusterTickerCount / sectorSize;
 }
 
-/** Z-score = (value - mean(baseline)) / stddev(baseline).
+/** Result of the ADR-053 empirical-exceedance anomaly statistic. */
+export interface EmpiricalExceedanceResult {
+  /** One-sided empirical upper-tail p-value, `(#{r_i ≥ today} + 1)/(n + 1)`.
+   *  Null when a validity guard fails (insufficient data). Bounded
+   *  `[1/(n+1), 1]`; smaller = more anomalous. */
+  exceedance: number | null;
+  /** Bounded z-equivalent for display continuity, `max(0, invNormCDF(1 − p))`.
+   *  Null when a guard fails. One-sided (clamped ≥ 0 — "less clustering than
+   *  usual" is not an anomaly). Bounded by the baseline resolution
+   *  (`≤ invNormCDF(n/(n+1))` ≈ 2.58 at n≈204) — a fabricated 14σ is impossible. */
+  zEmp: number | null;
+  /** Count of finite baseline observations `n`. */
+  baselineSize: number;
+  /** Count of NON-ZERO baseline observations `m = #{r_i > 0}` — the EFFECTIVE
+   *  sample, distinct from the calendar-day count. The core ADR-053 guard. */
+  effectiveSample: number;
+  /** True when EITHER validity guard failed → emit an honest insufficient-data
+   *  state rather than a number. */
+  insufficientData: boolean;
+}
+
+/** ADR-053 (S96-163) — one-sided empirical upper-tail exceedance anomaly
+ *  statistic for the sector cluster-rate, with an effective-sample guard.
+ *
+ *  REPLACES `computeZ` on the aggregate cluster-rate path. The Gaussian z is
+ *  invalid on the EDGAR-only coverage-gated baseline because that baseline is
+ *  sparse, bounded, discrete, and zero-inflated (75–99% zeros): a single
+ *  clustered ticker collapses σ and fabricates a 5–14σ "event." The empirical
+ *  exceedance makes NO distributional assumption — it just asks where today's
+ *  rate falls in the sector's own historical ECDF.
+ *
+ *  Statistic (Aronson, *Evidence-Based Technical Analysis* 2006, Monte-Carlo /
+ *  bootstrap empirical p-value for technical rules on non-normal data — Tier-1
+ *  canon; the conservative `≥`-tie / `+1`-numerator form is the standard
+ *  North-et-al. / Davison-Hinkley empirical p-value):
+ *
+ *      p = ( #{ i : r_i ≥ r_today } + 1 ) / ( n + 1 )
+ *
+ *  Bounded `[1/(n+1), 1]`; smaller = more anomalous. The display value is the
+ *  bounded z-equivalent `zEmp = max(0, invNormCDF(1 − p))` (one-sided), which
+ *  is genuinely a normal quantile of the empirical tail probability (no
+ *  Gaussian-moment fiction) and is bounded by the baseline resolution.
+ *
+ *  Validity guards — BOTH must pass, else `insufficientData = true` (null
+ *  exceedance + null zEmp). Both derive from a single α (= FORM_4_EXCEEDANCE_ALPHA),
+ *  so there are ZERO new free parameters (anti-shopping; AFML §11.4 /
+ *  ADR-051 Decision 5):
+ *    1. **Resolution floor:** `n ≥ MIN_Z_BASELINE` (= 30; the ECDF needs enough
+ *       days to represent an α-tail).
+ *    2. **Effective-sample floor (the core fix):** `m ≥ ⌈α·(n+1)⌉` where
+ *       `m = #{ i : r_i > 0 }` (NON-ZERO baseline days — NOT the day count).
+ *       Derivation: firing requires `#{r_i ≥ r_today} ≤ α(n+1) − 1`; the minimal
+ *       non-zero rate `1/N` is `≥` every non-zero baseline day, so "merely being
+ *       non-zero (one clustered ticker)" reaches the α-tail iff `m < α(n+1)`.
+ *       Requiring `m ≥ ⌈α(n+1)⌉` is therefore EXACTLY the condition that one
+ *       ordinary clustered ticker cannot manufacture an anomaly. Worked example
+ *       (Comm-Svcs 2026-04-30): n=203, m=1, ⌈0.05·204⌉ = 11; 1 < 11 →
+ *       insufficient_data, not z=14.18. ✓
+ *
+ *  `value == null` (degenerate sector, sectorSize ≤ 0) → insufficient_data.
+ *  NaN/Infinity baseline entries are filtered out of `n` (mirrors computeZ). */
+export function computeEmpiricalExceedance(
+  value: number | null,
+  baseline: ReadonlyArray<number>,
+): EmpiricalExceedanceResult {
+  const finite = baseline.filter((b) => Number.isFinite(b));
+  const n = finite.length;
+  let m = 0;
+  for (const b of finite) if (b > 0) m++;
+  // Guard 1 (resolution) + value validity + Guard 2 (effective sample). The
+  // effective-sample floor is the ceil of α·(n+1) — an α-derived ratio, not an
+  // independent K (ADR-053 §4). When n < MIN_Z_BASELINE the floor is computed on
+  // the (too-small) n anyway; the resolution guard already rejects that case.
+  const effectiveFloor = Math.ceil(FORM_4_EXCEEDANCE_ALPHA * (n + 1));
+  if (
+    value == null ||
+    !Number.isFinite(value) ||
+    n < MIN_Z_BASELINE ||
+    m < effectiveFloor
+  ) {
+    return {
+      exceedance: null,
+      zEmp: null,
+      baselineSize: n,
+      effectiveSample: m,
+      insufficientData: true,
+    };
+  }
+  let geCount = 0;
+  for (const b of finite) if (b >= value) geCount++;
+  const p = (geCount + 1) / (n + 1);
+  // 1 − p ∈ [0, n/(n+1)]. invNormCDF returns +Infinity only at arg ≥ 1, which
+  // cannot happen here (p ≥ 1/(n+1) > 0). At p === 1 (value below every baseline
+  // day → geCount = n) the arg is 0 and invNormCDF returns −Infinity; max(0, …)
+  // clamps zEmp to 0 (an honest "not anomalous", distinct from null).
+  const oneMinusP = 1 - p;
+  const zEmp = oneMinusP <= 0 ? 0 : Math.max(0, invNormCDF(oneMinusP));
+  return {
+    exceedance: p,
+    zEmp,
+    baselineSize: n,
+    effectiveSample: m,
+    insufficientData: false,
+  };
+}
+
+/** @deprecated ADR-053 retired the Gaussian z on the cluster-rate. Use
+ *  `computeEmpiricalExceedance`. Kept for the v1/v2 historical comparison + the
+ *  T-F4-12/13 regression tests; NOT used by `evaluateForm4InsiderComposite`.
+ *
+ *  Z-score = (value - mean(baseline)) / stddev(baseline).
  *  Returns null + baselineSize when baseline has fewer than MIN_Z_BASELINE
  *  prints OR stddev is degenerate (≤ 1e-12).
  *
@@ -453,15 +611,33 @@ export function computeZ(
   return { z: (value - mean) / stddev, baselineSize };
 }
 
-/** `form4ClusterFlag` (buy-side) / `form4SellClusterFlag` (v2 sell-side):
+/** @deprecated ADR-053 retired the `|z| > 2` firing rule. Firing is now per
+ *  the empirical-exceedance tail (`flagForm4ClusterEmpirical`). Kept for the
+ *  T-F4-14 regression test only; NOT used by `evaluateForm4InsiderComposite`.
+ *
+ *  `form4ClusterFlag` (buy-side) / `form4SellClusterFlag` (v2 sell-side):
  *  ANY sector with |z| > 2.0. Returns false when all sector z-scores are
- *  null (cold-start). Direction-agnostic — operates on a z array; the
- *  orchestrator calls this twice, once per direction. */
+ *  null (cold-start). */
 export function flagForm4Cluster(
   sectorZs: ReadonlyArray<number | null>,
 ): boolean {
   for (const z of sectorZs) {
     if (z != null && Math.abs(z) > FORM_4_CLUSTER_Z_THRESHOLD) return true;
+  }
+  return false;
+}
+
+/** ADR-053 firing rule — `form4ClusterFlag` / `form4SellClusterFlag` fire iff
+ *  ANY VALID sector has empirical-exceedance `p ≤ α` (= FORM_4_EXCEEDANCE_ALPHA).
+ *  Guard-suppressed sectors carry `null` exceedance and CANNOT fire (an
+ *  insufficient-data sector is not an anomaly). Returns false when every sector
+ *  is null (cold-start / all guard-suppressed). Direction-agnostic — the
+ *  orchestrator calls this twice, once per direction. */
+export function flagForm4ClusterEmpirical(
+  sectorExceedances: ReadonlyArray<number | null>,
+): boolean {
+  for (const p of sectorExceedances) {
+    if (p != null && p <= FORM_4_EXCEEDANCE_ALPHA) return true;
   }
   return false;
 }
@@ -503,12 +679,25 @@ export interface Form4InsiderPerTickerRow {
   insiderCountSourceMix: { edgar: number; finnhub: number };
 }
 
-/** A flagged sector row — only emitted for sectors with |z| > 2.0. */
+/** A flagged sector row — only emitted for VALID sectors that FIRE under
+ *  ADR-053 (empirical-exceedance `p ≤ α`). The legacy `z` (Gaussian) field is
+ *  replaced by `zEmp` (bounded empirical z-equivalent); the raw `exceedance`
+ *  (tail p) and `effectiveSample` (m = non-zero baseline days) are carried for
+ *  forensic transparency. Serializes into the schemaless `flagged_sectors_json`
+ *  / `flagged_sell_sectors_json` String columns (no DDL). */
 export interface Form4InsiderFlaggedSector {
   sector: string;
   sectorSize: number;
   clusterRateT: number;
-  z: number;
+  /** Bounded empirical z-equivalent, `max(0, invNormCDF(1 − exceedance))`
+   *  (ADR-053). Replaces the legacy Gaussian `z`. zEmp ≥ 0; a fabricated 14σ is
+   *  impossible (bounded by the baseline resolution). */
+  zEmp: number;
+  /** One-sided empirical upper-tail p-value (ADR-053). `≤ α` for every flagged
+   *  sector (that is the firing condition). */
+  exceedance: number;
+  /** Effective sample = NON-ZERO baseline days `m` (ADR-053 guard metric). */
+  effectiveSample: number;
   baselineSize: number;
 }
 
@@ -572,26 +761,29 @@ export interface Form4InsiderSnapshot {
   flaggedSectors: ReadonlyArray<Form4InsiderFlaggedSector>;
   form4ClusterFlag: boolean;
 
-  /** Signed z of the sector with max |z| across all sectors with non-null z.
-   *  Null when all sector z's are null (cold-start). Per ADR-042 §1 Decision §1
-   *  + SPEC docs/specs/gics-sector-baseline-computation.md §2; consumed by the
-   *  brief renderer's §1.4 "No sectors flagged today" branch. */
+  /** ADR-053: the MAX bounded empirical z-equivalent (`zEmp`) across all VALID
+   *  sectors (zEmp ≥ 0, so this is just the max — no abs needed). Null when
+   *  every sector is guard-suppressed/cold-start (insufficient data). This is
+   *  the BOUNDED display value stored in `max_aggregate_z`; a fabricated 14σ is
+   *  impossible. (Pre-v3 this carried the unbounded Gaussian z.) Per SPEC
+   *  docs/specs/adr-053-form4-aggregate-sparse-rate-statistic.md §2; consumed by
+   *  the brief renderer's §1.4 branch. */
   maxAggregateZ: number | null;
-  /** Sector name with max |z|. Null when all z's are null. Ties broken
+  /** Sector name with max `zEmp`. Null when `maxAggregateZ` is null. Ties broken
    *  lexicographically (earlier sector name wins; deterministic across runs). */
   maxAggregateZSector: string | null;
 
   /** v2 sell-side aggregate, mirror of `flaggedSectors` for the
-   *  cluster-SELL-rate track. F4-12 (S95-1). Empty when no sector's
-   *  sell-side |z| > 2.0. */
+   *  cluster-SELL-rate track. F4-12 (S95-1). Empty when no sector FIRES under
+   *  ADR-053 (`p ≤ α`). */
   flaggedSellSectors: ReadonlyArray<Form4InsiderFlaggedSector>;
-  /** v2 sell-side `form4ClusterFlag` mirror — fires when ANY sector's
-   *  sell-side |z| > 2.0. Independent of `form4ClusterFlag`; both can fire
-   *  simultaneously (concurrent buy- + sell-side anomalies) or in
-   *  isolation. */
+  /** v2 sell-side `form4ClusterFlag` mirror — fires (ADR-053) when ANY valid
+   *  sector's sell-side empirical-exceedance `p ≤ α`. Independent of
+   *  `form4ClusterFlag`; both can fire simultaneously or in isolation. */
   form4SellClusterFlag: boolean;
-  /** v2 sell-side `maxAggregateZ` mirror. Null when all sell-side z's are
-   *  null (cold-start OR pre-G2 wiring where `baseline2ySell` is empty). */
+  /** v2 sell-side `maxAggregateZ` mirror — max sell-side `zEmp`. Null when all
+   *  sell-side sectors are guard-suppressed/cold-start (incl. empty
+   *  `baseline2ySell`). */
   maxAggregateZSell: number | null;
   /** v2 sell-side `maxAggregateZSector` mirror. Same lexicographic
    *  tie-break as the buy-side counterpart. */
@@ -612,9 +804,12 @@ export interface Form4InsiderSnapshot {
  *    1. Per-ticker: dedupe + code-filter + window-filter trades; derive
  *       per-direction counts, distinct-insider counts, net dollar, and the
  *       30d cluster flags (per direction).
- *    2. Sector-aggregate: per sector, compute cluster_rate_t (tickers with
- *       buy-cluster-flag fired / sector_size) and z-score against the
- *       trailing 2y baseline; emit a flaggedSectors row when |z| > 2.0.
+ *    2. Sector-aggregate (ADR-053): per sector, compute cluster_rate_t (tickers
+ *       with cluster-flag fired / sector_size) and the one-sided empirical
+ *       upper-tail exceedance vs the trailing-2y baseline (with the
+ *       effective-sample guard). Emit a flaggedSectors row when the sector is
+ *       VALID and fires (`p ≤ α`). `maxAggregateZ[Sell]` = max bounded `zEmp`
+ *       across valid sectors.
  *    3. Compose into the snapshot shape.
  *
  *  No I/O. No side effects. Re-runnable with identical inputs.
@@ -697,17 +892,21 @@ export function evaluateForm4InsiderComposite(
     });
   }
 
-  // Sector-aggregate layer — buy-side (F4-6) and sell-side (F4-12 v2)
-  // run in parallel; each direction has its own baseline + z + flagged-set.
+  // Sector-aggregate layer — buy-side (F4-6) and sell-side (F4-12 v2) run in
+  // parallel; each direction has its own baseline + ADR-053 empirical-exceedance
+  // statistic + flagged-set. The Gaussian z (`computeZ`) is RETIRED from this
+  // path (it is invalid on the sparse zero-inflated EDGAR-only baseline — one
+  // ordinary clustered ticker → 14σ; ADR-053). `maxAggregateZ[Sell]` now carries
+  // the BOUNDED empirical z-equivalent `zEmp` (≥ 0; max, no abs).
   const flaggedSectors: Form4InsiderFlaggedSector[] = [];
   const flaggedSellSectors: Form4InsiderFlaggedSector[] = [];
-  const sectorZs: (number | null)[] = [];
-  const sectorSellZs: (number | null)[] = [];
+  const sectorExceedances: (number | null)[] = [];
+  const sectorSellExceedances: (number | null)[] = [];
   let inputsAvailableAggregate = 0;
-  let maxAbsZ = -Infinity;
+  let maxZEmp = -Infinity;
   let maxAggregateZ: number | null = null;
   let maxAggregateZSector: string | null = null;
-  let maxAbsZSell = -Infinity;
+  let maxZEmpSell = -Infinity;
   let maxAggregateZSell: number | null = null;
   let maxAggregateZSellSector: string | null = null;
   for (const s of inputs.sectors) {
@@ -730,59 +929,78 @@ export function evaluateForm4InsiderComposite(
     const rateSell = computeSectorClusterRate(
       edgarSectorTrades, s.sectorSize, inputs.asOf, SELL_CODE,
     );
-    const { z, baselineSize } = computeZ(rateBuy, s.baseline2y);
-    const { z: zSell, baselineSize: baselineSizeSell } = computeZ(
-      rateSell, s.baseline2ySell,
-    );
-    sectorZs.push(z);
-    sectorSellZs.push(zSell);
+    // ADR-053 — one-sided empirical upper-tail exceedance + effective-sample
+    // guard. A guard-suppressed sector returns null exceedance/zEmp and is
+    // EXCLUDED from both the flagged list and the max reducer (insufficient
+    // data is not an anomaly).
+    const buyStat = computeEmpiricalExceedance(rateBuy, s.baseline2y);
+    const sellStat = computeEmpiricalExceedance(rateSell, s.baseline2ySell);
+    sectorExceedances.push(buyStat.exceedance);
+    sectorSellExceedances.push(sellStat.exceedance);
     if (s.sectorSize > 0) inputsAvailableAggregate++;
-    if (z != null) {
-      const absZ = Math.abs(z);
+    if (buyStat.zEmp != null) {
+      const zEmp = buyStat.zEmp;
       // Tie-break: lexicographically earlier sector name wins. Order-independent
       // across permutations of inputs.sectors per SPEC §5.2 MAXZ-*-4.
       if (
-        absZ > maxAbsZ ||
-        (absZ === maxAbsZ && (maxAggregateZSector == null || s.sector < maxAggregateZSector))
+        zEmp > maxZEmp ||
+        (zEmp === maxZEmp && (maxAggregateZSector == null || s.sector < maxAggregateZSector))
       ) {
-        maxAbsZ = absZ;
-        maxAggregateZ = z;
+        maxZEmp = zEmp;
+        maxAggregateZ = zEmp;
         maxAggregateZSector = s.sector;
       }
     }
-    if (zSell != null) {
-      const absZSell = Math.abs(zSell);
+    if (sellStat.zEmp != null) {
+      const zEmpSell = sellStat.zEmp;
       if (
-        absZSell > maxAbsZSell ||
-        (absZSell === maxAbsZSell
+        zEmpSell > maxZEmpSell ||
+        (zEmpSell === maxZEmpSell
           && (maxAggregateZSellSector == null || s.sector < maxAggregateZSellSector))
       ) {
-        maxAbsZSell = absZSell;
-        maxAggregateZSell = zSell;
+        maxZEmpSell = zEmpSell;
+        maxAggregateZSell = zEmpSell;
         maxAggregateZSellSector = s.sector;
       }
     }
-    if (z != null && Math.abs(z) > FORM_4_CLUSTER_Z_THRESHOLD && rateBuy != null) {
+    // Fire only for VALID sectors that clear the empirical-tail threshold.
+    if (
+      !buyStat.insufficientData &&
+      buyStat.exceedance != null &&
+      buyStat.exceedance <= FORM_4_EXCEEDANCE_ALPHA &&
+      buyStat.zEmp != null &&
+      rateBuy != null
+    ) {
       flaggedSectors.push({
         sector: s.sector,
         sectorSize: s.sectorSize,
         clusterRateT: rateBuy,
-        z,
-        baselineSize,
+        zEmp: buyStat.zEmp,
+        exceedance: buyStat.exceedance,
+        effectiveSample: buyStat.effectiveSample,
+        baselineSize: buyStat.baselineSize,
       });
     }
-    if (zSell != null && Math.abs(zSell) > FORM_4_CLUSTER_Z_THRESHOLD && rateSell != null) {
+    if (
+      !sellStat.insufficientData &&
+      sellStat.exceedance != null &&
+      sellStat.exceedance <= FORM_4_EXCEEDANCE_ALPHA &&
+      sellStat.zEmp != null &&
+      rateSell != null
+    ) {
       flaggedSellSectors.push({
         sector: s.sector,
         sectorSize: s.sectorSize,
         clusterRateT: rateSell,
-        z: zSell,
-        baselineSize: baselineSizeSell,
+        zEmp: sellStat.zEmp,
+        exceedance: sellStat.exceedance,
+        effectiveSample: sellStat.effectiveSample,
+        baselineSize: sellStat.baselineSize,
       });
     }
   }
-  const form4ClusterFlag = flagForm4Cluster(sectorZs);
-  const form4SellClusterFlag = flagForm4Cluster(sectorSellZs);
+  const form4ClusterFlag = flagForm4ClusterEmpirical(sectorExceedances);
+  const form4SellClusterFlag = flagForm4ClusterEmpirical(sectorSellExceedances);
 
   return {
     snapshotDate: inputs.asOf,
@@ -809,6 +1027,21 @@ export function evaluateForm4InsiderComposite(
 
 /**
  * What could break this:
+ *   - **Aggregate anomaly statistic (ADR-053 — S96-163).** The aggregate flag +
+ *     `maxAggregateZ[Sell]` now derive from the one-sided EMPIRICAL EXCEEDANCE
+ *     statistic (`computeEmpiricalExceedance`), NOT the Gaussian z (`computeZ`,
+ *     retired from this path). The Gaussian z is invalid on the sparse,
+ *     zero-inflated EDGAR-only coverage-gated baseline (one ordinary clustered
+ *     ticker fabricated up to 14.18σ). Two guards (both α-derived, zero new free
+ *     params) gate validity: the resolution floor `n ≥ MIN_Z_BASELINE` and the
+ *     EFFECTIVE-sample floor `m ≥ ⌈α·(n+1)⌉` (non-zero baseline days, NOT day
+ *     count). A regression that re-routed the aggregate through `computeZ`, or
+ *     that counted DAYS instead of NON-ZERO days for the effective-sample guard,
+ *     would resurrect the fabricated-σ artifact. The stored `zEmp` is BOUNDED
+ *     (≤ ~2.58 at n≈204) by construction; a value past ~3 on a normal baseline
+ *     would itself be a bug signal. PUSHBACK note: even valid, the statistic is
+ *     DATA-LIMITED (resolution floor `1/(n+1)`); the form_4 aggregate is not
+ *     Phase-B-usable until ADR-052 D7 (EDGAR coverage backfill) also lands.
  *   - **Source-provenance boundary (ADR-052 D1/D2/D3/D4 — S96-146).** The
  *     cluster path (per-ticker cluster flags, the sector cluster-rate, hence
  *     `form4ClusterFlag` / `form4SellClusterFlag` / `maxAggregateZ[Sell]`) is
@@ -819,13 +1052,10 @@ export function evaluateForm4InsiderComposite(
  *     DUAL-SOURCE (EDGAR ∪ Finnhub) for coverage value, carrying an
  *     `insiderCountSourceMix` label (D3/D4) so the split is honest. The
  *     coverage-homogeneous baseline (D2) is built in the repository
- *     (`populateSectorsForCycle`): the z-baseline admits only days where EDGAR
- *     was actively ingesting, never zero-filling gap days. A regression that
- *     fed dual-source rows into the cluster path, or that z-scored across the
- *     2024-Finnhub / 2025-EDGAR provenance break, reproduces the z=5.57
- *     artifact (AFML §11.3 stationarity precondition). `EDGAR_CANONICAL_SOURCE`
- *     uses exact string equality; an empty/absent `source` fails closed (row
- *     dropped from the cluster path).
+ *     (`populateSectorsForCycle`): the baseline admits only days where EDGAR
+ *     was actively ingesting, never zero-filling gap days.
+ *     `EDGAR_CANONICAL_SOURCE` uses exact string equality; an empty/absent
+ *     `source` fails closed (row dropped from the cluster path).
  *   - **Cross-language drift on the {P, S} filter (S93-37 load-bearing).**
  *     Python ingest's `DEFAULT_HIGH_SIGNAL_CODES = ("P", "S")` and this
  *     module's `HIGH_SIGNAL_TRANSACTION_CODES` are conceptually byte-pinned
@@ -876,11 +1106,14 @@ export function evaluateForm4InsiderComposite(
  *     insiders have 2 business days to file post-trade per 17 CFR
  *     240.16a-3. The composite trusts the caller to pass `acceptedAt`;
  *     downstream verification is at the repository layer.
- *   - **Cold-start cascade in aggregate.** A single missing-baseline sector
- *     forces its z to null but `form4ClusterFlag` still fires if any OTHER
- *     sector exceeds threshold. Mirrors EK + gap #8 + gap #9 posture.
- *     Operator sees the cold-start via `inputsAvailableAggregate < sector
- *     count` in the snapshot.
+ *   - **Cold-start / guard-suppression cascade in aggregate.** A sector whose
+ *     baseline fails either ADR-053 guard returns null exceedance/zEmp and is
+ *     excluded from the flagged list + the max reducer, but `form4ClusterFlag`
+ *     still fires if any OTHER VALID sector clears the α-tail. When EVERY sector
+ *     is guard-suppressed, `maxAggregateZ[Sell]` is null AND both flags are
+ *     false — the honest "insufficient data / statistic under review" state
+ *     (dashboard `under_review` verdict per ADR-053 §7). Operator sees the
+ *     cold-start via `inputsAvailableAggregate < sector count` in the snapshot.
  *   - **`dollarAmount` trusted as-is.** F4-5 pre-computes `shares ×
  *     pricePerShare` at ingest per S93. If a future ingest regression sets
  *     `dollarAmount = 0` while preserving shares + price, net-dollar math

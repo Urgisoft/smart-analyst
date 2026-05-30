@@ -57,9 +57,13 @@ function snap(over: Partial<Form4InsiderSnapshot> = {}): Form4InsiderSnapshot {
     snapshotDate: new Date('2026-05-22T00:00:00Z'),
     lastEdgarQueryAt: new Date('2026-05-22T06:00:00Z'),
     bdSinceLastQuery: 0,
-    flaggedSectors: [{ sector: 'Health Care', sectorSize: 60, clusterRateT: 0.05, z: 5.57, baselineSize: 400 }],
+    // ADR-053: flagged sector carries bounded zEmp + raw exceedance + eff. sample.
+    flaggedSectors: [{
+      sector: 'Health Care', sectorSize: 60, clusterRateT: 0.05,
+      zEmp: 2.31, exceedance: 0.0104, effectiveSample: 95, baselineSize: 400,
+    }],
     form4ClusterFlag: true,
-    maxAggregateZ: 5.57,
+    maxAggregateZ: 2.31,
     maxAggregateZSector: 'Health Care',
     flaggedSellSectors: [],
     form4SellClusterFlag: false,
@@ -68,7 +72,7 @@ function snap(over: Partial<Form4InsiderSnapshot> = {}): Form4InsiderSnapshot {
     perTickerRows: [ptRow()],
     inputsAvailableAggregate: 11,
     inputsAvailablePerTicker: 60,
-    version: 'form_4_insider_v2',
+    version: 'form_4_insider_v3',
     ...over,
   };
 }
@@ -91,19 +95,28 @@ describe('form_4 parseQuery', () => {
 // ── deriveVerdict (the dual-flag derivation) ────────────────────────────────────
 
 describe('form_4 deriveVerdict', () => {
-  it('maps every flag combination', () => {
-    assert.equal(deriveVerdict(true, true, 11), 'dual_cluster');
-    assert.equal(deriveVerdict(true, false, 11), 'buy_cluster');
-    assert.equal(deriveVerdict(false, true, 11), 'sell_cluster');
-    assert.equal(deriveVerdict(false, false, 11), 'normal');
+  it('maps every flag combination (valid statistics present)', () => {
+    // Pass non-null max-z to signal "valid statistic exists" → 'normal' on no fire.
+    assert.equal(deriveVerdict(true, true, 11, 2.1, 1.0), 'dual_cluster');
+    assert.equal(deriveVerdict(true, false, 11, 2.1, null), 'buy_cluster');
+    assert.equal(deriveVerdict(false, true, 11, null, 2.1), 'sell_cluster');
+    assert.equal(deriveVerdict(false, false, 11, 1.0, 1.0), 'normal');
   });
-  it('returns unknown only when neither fired AND no aggregate baseline', () => {
+  it('returns unknown only when neither fired AND no aggregate baseline at all', () => {
     assert.equal(deriveVerdict(false, false, 0), 'unknown');
     // flags override cold-start — if a flag fired the layer clearly evaluated
     assert.equal(deriveVerdict(true, false, 0), 'buy_cluster');
   });
+  it('ADR-053: returns under_review when baselines exist but every sector guard-suppressed', () => {
+    // aggregateAvailable > 0 (baselines exist) AND both max-z null (all sectors
+    // guard-suppressed) → honest "insufficient data" state, NOT 'normal'.
+    assert.equal(deriveVerdict(false, false, 11, null, null), 'under_review');
+    // A single non-null max-z means at least one valid statistic → 'normal'.
+    assert.equal(deriveVerdict(false, false, 11, 0.8, null), 'normal');
+    assert.equal(deriveVerdict(false, false, 11, null, 0.8), 'normal');
+  });
   it('every derivable verdict has a descriptor meaning', () => {
-    for (const v of ['dual_cluster', 'buy_cluster', 'sell_cluster', 'normal', 'unknown']) {
+    for (const v of ['dual_cluster', 'buy_cluster', 'sell_cluster', 'normal', 'under_review', 'unknown']) {
       assert.ok(form4InsiderDescriptor.verdicts[v], `missing verdict meaning: ${v}`);
     }
   });
@@ -159,12 +172,13 @@ describe('form_4 projectPayload', () => {
     const p = projectPayload(snap(), hist, 365, NOW);
     assert.equal(p.composite, 'form_4_insider');
     assert.equal(p.hasData, true);
-    assert.equal(p.compositeVersion, 'form_4_insider_v2');
+    assert.equal(p.compositeVersion, 'form_4_insider_v3');
     assert.equal(p.verdict, 'buy_cluster');                // buy flag only
     assert.equal(p.snapshotDate, '2026-05-22');            // from last history row
     assert.equal(p.staleDays, 6);
     const m = new Map(p.metrics.map(x => [x.key, x.value]));
-    assert.equal(m.get('maxAggregateZ'), 5.57);
+    // ADR-053: bounded zEmp from the latest snap fixture (was the old Gaussian 5.57).
+    assert.equal(m.get('maxAggregateZ'), 2.31);
     assert.equal(m.get('maxAggregateZSell'), 1.73);
     assert.equal(m.get('sellClusterTickers'), 1);          // the one perTicker row has sell cluster
     assert.equal(m.get('buyClusterTickers'), 0);
@@ -202,6 +216,19 @@ describe('form_4 projectPayload', () => {
     const p = projectPayload(snap({ maxAggregateZ: null }), [], 365, NOW);
     const m = new Map(p.metrics.map(x => [x.key, x.value]));
     assert.equal(m.get('maxAggregateZ'), null);
+  });
+  it('ADR-053: derives under_review when baselines exist but every sector guard-suppressed', () => {
+    const p = projectPayload(
+      snap({
+        form4ClusterFlag: false, form4SellClusterFlag: false,
+        inputsAvailableAggregate: 11, maxAggregateZ: null, maxAggregateZSell: null,
+        flaggedSectors: [], flaggedSellSectors: [],
+      }),
+      [], 365, NOW,
+    );
+    assert.equal(p.verdict, 'under_review');
+    // The descriptor must define a meaning for the under_review verdict.
+    assert.ok(form4InsiderDescriptor.verdicts['under_review']);
   });
 });
 

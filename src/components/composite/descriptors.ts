@@ -407,7 +407,7 @@ export const form4InsiderDescriptor: CompositeDescriptor = {
   title: 'VECTOR_INSIDER · Form 4 Cluster',
   accent: 'emerald',
   subtitle:
-    'SEC Form 4 open-market insider clusters ({P}urchase / {S}ale), aggregated to GICS sectors. Buy-side cluster z is the load-bearing signal (Lakonishok-Lee 2001 §3); the sell-side track is informationally weaker (~30-50% diluted, §4). Per-ticker drill = equity-midcap watch universe. Informational only in v1; does not fire phase1_v3.',
+    'SEC Form 4 open-market insider clusters ({P}urchase / {S}ale), aggregated to GICS sectors. Aggregate anomaly = one-sided empirical-exceedance (ADR-053; bounded zEmp, NOT a Gaussian z). Buy-side is the load-bearing signal (Lakonishok-Lee 2001 §3); the sell-side track is informationally weaker (~30-50% diluted, §4). Per-ticker drill = equity-midcap watch universe. Informational only; does not fire phase1_v3. Aggregate not Phase-B-usable until the EDGAR coverage backfill (ADR-052 D7).',
   specPath: 'docs/specs/event-driven-filings-processor.md',
   ingestHint: [
     '# 1. Ensure schema exists (idempotent — three-table co-bootstrap):',
@@ -424,19 +424,19 @@ export const form4InsiderDescriptor: CompositeDescriptor = {
   metrics: [
     {
       key: 'maxAggregateZ',
-      label: 'Buy-cluster max sector z',
-      short: 'Buy-z',
-      unit: 'z', warnAbs: 2, critAbs: 4,
+      label: 'Buy-cluster max sector zEmp',
+      short: 'Buy-zEmp',
+      unit: 'z', warnAbs: 1.645, critAbs: 2.6,
       glossary:
-        'Largest |z| across all GICS sectors of the sector’s cluster-BUY rate (tickers with ≥3 distinct insiders buying in 30d ÷ sector size) vs its trailing-2y baseline. >+2 = unusually concentrated insider buying. A reading past ±4 is implausibly extreme — suspect a thin/zero-inflated baseline (the anomaly scan flags it).',
+        'ADR-053: largest BOUNDED empirical z-equivalent (zEmp) across all GICS sectors of the sector’s cluster-BUY rate (tickers with ≥3 distinct insiders buying in 30d ÷ sector size) vs its trailing-2y EDGAR-only baseline. zEmp = the normal quantile of a one-sided empirical-exceedance p-value — NOT a Gaussian z (the old z fabricated up to 14σ on the sparse baseline). zEmp ≥ 1.645 ⟺ the sector cleared the α=0.05 empirical tail (it fired). Bounded by the baseline resolution (≈2.58 at ~204 days); a value past ~3 would itself be a bug. Null when every sector is guard-suppressed (insufficient EDGAR data — pre-D7).',
     },
     {
       key: 'maxAggregateZSell',
-      label: 'Sell-cluster max sector z',
-      short: 'Sell-z',
-      unit: 'z', warnAbs: 2, critAbs: 4,
+      label: 'Sell-cluster max sector zEmp',
+      short: 'Sell-zEmp',
+      unit: 'z', warnAbs: 1.645, critAbs: 2.6,
       glossary:
-        'Sell-side mirror of the buy z: largest |z| of any sector’s cluster-SELL rate vs its OWN trailing-2y baseline (sell baselines run higher — sells are more frequent in steady state). Weaker signal than the buy side per Lakonishok-Lee 2001 §4.',
+        'Sell-side mirror of the buy zEmp: largest bounded empirical z-equivalent of any sector’s cluster-SELL rate vs its OWN trailing-2y EDGAR-only baseline (ADR-053 empirical-exceedance statistic). Weaker signal than the buy side per Lakonishok-Lee 2001 §4. Null when every sell-side sector is guard-suppressed.',
     },
     {
       key: 'buyClusterTickers',
@@ -454,29 +454,29 @@ export const form4InsiderDescriptor: CompositeDescriptor = {
     },
     {
       key: 'flaggedBuySectors',
-      label: 'Flagged buy sectors (|z|>2)',
+      label: 'Flagged buy sectors (p≤0.05)',
       short: 'BuySec',
       unit: 'raw',
-      glossary: 'Number of GICS sectors whose buy-cluster-rate z exceeded ±2 this snapshot.',
+      glossary: 'ADR-053: number of GICS sectors whose buy-cluster-rate cleared the α=0.05 empirical upper-tail this snapshot (a valid sector with exceedance p≤0.05).',
     },
     {
       key: 'flaggedSellSectors',
-      label: 'Flagged sell sectors (|z|>2)',
+      label: 'Flagged sell sectors (p≤0.05)',
       short: 'SellSec',
       unit: 'raw',
-      glossary: 'Number of GICS sectors whose sell-cluster-rate z exceeded ±2 this snapshot.',
+      glossary: 'ADR-053: number of GICS sectors whose sell-cluster-rate cleared the α=0.05 empirical upper-tail this snapshot.',
     },
   ],
   flags: [
     {
       key: 'form4ClusterFlag',
       label: 'Buy-side sector cluster',
-      whenTrue: 'At least one GICS sector’s cluster-BUY rate z exceeded |z|>2 vs its 2y baseline — concentrated insider buying somewhere in the index.',
+      whenTrue: 'ADR-053: at least one valid GICS sector’s cluster-BUY rate cleared the α=0.05 empirical upper-tail vs its 2y baseline — concentrated insider buying somewhere in the index.',
     },
     {
       key: 'form4SellClusterFlag',
       label: 'Sell-side sector cluster',
-      whenTrue: 'At least one sector’s cluster-SELL rate z exceeded |z|>2 — concentrated insider selling (weaker signal per LL §4).',
+      whenTrue: 'ADR-053: at least one valid sector’s cluster-SELL rate cleared the α=0.05 empirical upper-tail — concentrated insider selling (weaker signal per LL §4).',
     },
   ],
   metricGroups: [
@@ -499,8 +499,9 @@ export const form4InsiderDescriptor: CompositeDescriptor = {
     dual_cluster: { tone: 'warn', meaning: 'Both buy- AND sell-side sector clusters firing — divergent insider activity across different sectors.' },
     buy_cluster: { tone: 'calm', meaning: 'Concentrated insider BUYING in ≥1 sector (|z|>2) — the load-bearing bullish signal (LL 2001: buys are informative).' },
     sell_cluster: { tone: 'elevated', meaning: 'Concentrated insider SELLING in ≥1 sector — informationally weaker (~30-50% diluted by tax/diversification motives).' },
-    normal: { tone: 'neutral', meaning: 'No sector’s buy- or sell-cluster rate exceeded the |z|>2 baseline threshold.' },
-    unknown: { tone: 'unknown', meaning: 'The aggregate-sector layer had no sector with a valid 2y baseline — could not classify.' },
+    normal: { tone: 'neutral', meaning: 'ADR-053: valid statistics computed for ≥1 sector, but no sector cleared the α=0.05 empirical upper-tail (buy or sell).' },
+    under_review: { tone: 'unknown', meaning: 'Insufficient data / statistic under review (ADR-053). Sector baselines exist but every sector was guard-suppressed — the EDGAR-only baseline is too sparse for the empirical statistic to resolve an anomaly. Not usable until the ADR-052 D7 coverage backfill lands.' },
+    unknown: { tone: 'unknown', meaning: 'The aggregate-sector layer had no sector with any 2y baseline — could not classify (true cold-start).' },
   },
   defaultTone: 'neutral',
   inputBits: [

@@ -917,42 +917,48 @@ export interface BriefForm4InsiderSection {
   lastEdgarQueryAt: string | null;
   /** Business days between lastEdgarQueryAt and asOf (null pre-ingest). */
   bdSinceLastQuery: number | null;
-  /** Sectors with |z| > 2.0 (v1: always empty — see module note). */
+  /** ADR-053: sectors that FIRED the empirical-exceedance tail (`p ≤ α`).
+   *  `zEmp` is the bounded empirical z-equivalent (≥ 0; replaces the legacy
+   *  Gaussian `z`); `exceedance` is the raw one-sided tail p; `effectiveSample`
+   *  is the non-zero baseline-day count `m`. Pass-through from
+   *  `Form4InsiderSnapshot.flaggedSectors`. */
   flaggedSectors: ReadonlyArray<{
     sector: string;
     sectorSize: number;
     clusterRateT: number;
-    z: number;
+    zEmp: number;
+    exceedance: number;
+    effectiveSample: number;
     baselineSize: number;
   }>;
-  /** Flag: ANY sector has |z| > 2.0. */
+  /** Flag (ADR-053): ANY valid sector cleared the α=0.05 empirical tail. */
   form4ClusterFlag: boolean;
-  /** Signed z of the sector with max |z| across all sectors with non-null z;
-   *  null when all sector z's are null (cold-start). Threaded from the composite
-   *  snapshot per ADR-042 §1 / SPEC §2 — consumed by the §1.4 "No sectors
-   *  flagged today" branch in the renderer. */
+  /** ADR-053: MAX bounded empirical z-equivalent (`zEmp`) across valid sectors;
+   *  null when every sector is guard-suppressed (insufficient data — the honest
+   *  "under review" state). Consumed by the renderer's §1.4 branch. */
   maxAggregateZ: number | null;
-  /** Sector name with max |z|; null when all z's null. Ties broken
+  /** Sector name with max `zEmp`; null when `maxAggregateZ` is null. Ties broken
    *  lexicographically (earlier sector name wins; deterministic across runs). */
   maxAggregateZSector: string | null;
   /** v2 sell-side mirror of `flaggedSectors`. Gap #7 v2 sell-cluster F4 G3
-   *  (s95 #2). Sectors with sell-side |z| > 2.0. The renderer emits a
-   *  parallel "Sell-side cluster" sub-section under the existing buy-side
-   *  panel using the same three-branch §1.4 structure (LIVE / no-flag-
-   *  cleared / cold-start). Pass-through from
+   *  (s95 #2). Sectors that FIRED the sell-side empirical tail (ADR-053). The
+   *  renderer emits a parallel "Sell-side cluster" sub-section under the existing
+   *  buy-side panel using the same three-branch §1.4 structure. Pass-through from
    *  `Form4InsiderSnapshot.flaggedSellSectors`. */
   flaggedSellSectors: ReadonlyArray<{
     sector: string;
     sectorSize: number;
     clusterRateT: number;
-    z: number;
+    zEmp: number;
+    exceedance: number;
+    effectiveSample: number;
     baselineSize: number;
   }>;
   /** v2 sell-side mirror of `form4ClusterFlag`. Independent of the buy-side
    *  flag; both can fire concurrently or in isolation per F4-12 / S95-1. */
   form4SellClusterFlag: boolean;
-  /** v2 sell-side mirror of `maxAggregateZ`. Null at cold-start OR when
-   *  `baseline2ySell` is empty across all sectors. */
+  /** v2 sell-side mirror of `maxAggregateZ` (max sell-side `zEmp`). Null when
+   *  every sell-side sector is guard-suppressed (incl. empty `baseline2ySell`). */
   maxAggregateZSell: number | null;
   /** v2 sell-side mirror of `maxAggregateZSector`. Same lexicographic
    *  tie-break as the buy-side counterpart. */
@@ -2913,33 +2919,53 @@ function renderForm4InsiderSection(b: MorningBrief): string {
     return lines.join('\n');
   }
   const s = b.formFour;
-  const clusterLabel = s.form4ClusterFlag ? 'CLUSTER' : 'NORMAL';
+  // ADR-053: when the aggregate layer evaluated but every sector was
+  // guard-suppressed (both max-scores null while baselines exist), the honest
+  // header is "UNDER REVIEW", not "NORMAL".
+  const aggregateUnderReview =
+    !s.form4ClusterFlag && !s.form4SellClusterFlag &&
+    s.inputsAvailableAggregate > 0 &&
+    s.maxAggregateZ == null && s.maxAggregateZSell == null;
+  const clusterLabel = (s.form4ClusterFlag || s.form4SellClusterFlag)
+    ? 'CLUSTER'
+    : aggregateUnderReview ? 'UNDER REVIEW (ADR-053)' : 'NORMAL';
   lines.push(`## 15. Form 4 insider activity — ${clusterLabel}`);
   lines.push(``);
 
-  // Aggregate sector panel — §1.4 three-branch under ADR-042 Option (a).
+  // Aggregate sector panel — §1.4 three-branch under ADR-042 Option (a),
+  // ADR-053 empirical-exceedance statistic.
   if (s.flaggedSectors.length > 0) {
     lines.push(`**Aggregate (SPY 500 cluster-buy rate by GICS sector):** ` +
-      `${s.flaggedSectors.length} sector(s) with |z| > 2.0`);
+      `${s.flaggedSectors.length} sector(s) cleared the α=0.05 empirical tail (ADR-053)`);
     lines.push(``);
-    lines.push(`| Sector | Cluster rate | z | Baseline n | Constituents |`);
-    lines.push(`|---|---|---|---|---|`);
+    lines.push(`| Sector | Cluster rate | zEmp | Exceedance p | Eff. n | Baseline n | Constituents |`);
+    lines.push(`|---|---|---|---|---|---|---|`);
     for (const f of s.flaggedSectors) {
       const ratePct = (f.clusterRateT * 100).toFixed(1);
-      const zStr = `${f.z >= 0 ? '+' : ''}${f.z.toFixed(2)}σ`;
-      lines.push(`| ${f.sector} | ${ratePct}% | ${zStr} | ${f.baselineSize} | ${f.sectorSize} |`);
+      const zStr = `${f.zEmp.toFixed(2)}`;
+      const pStr = f.exceedance.toFixed(4);
+      lines.push(`| ${f.sector} | ${ratePct}% | ${zStr} | ${pStr} | ${f.effectiveSample} | ${f.baselineSize} | ${f.sectorSize} |`);
     }
+  } else if (s.inputsAvailableAggregate > 0 && s.maxAggregateZ == null) {
+    // ADR-053: baselines exist but every sector was guard-suppressed (the
+    // EDGAR-only baseline is too sparse for the empirical statistic to resolve).
+    // Honest "insufficient data / under review" state — NOT a fabricated number.
+    lines.push(
+      `**Aggregate (SPY 500 cluster-buy rate by GICS sector):** Insufficient data / ` +
+      `statistic under review (ADR-053). Sector baselines exist (${s.inputsAvailableAggregate}/11) ` +
+      `but every sector failed the empirical-exceedance validity guards (too few ` +
+      `non-zero baseline days) — no anomaly score is emitted until the EDGAR coverage ` +
+      `backfill (ADR-052 D7) lengthens the baseline.`,
+    );
   } else if (s.inputsAvailableAggregate > 0) {
     const k = s.inputsAvailableAggregate;
-    const maxZStr = s.maxAggregateZ != null
-      ? `${s.maxAggregateZ >= 0 ? '+' : ''}${s.maxAggregateZ.toFixed(2)}`
-      : 'n/a';
+    const maxZStr = s.maxAggregateZ != null ? s.maxAggregateZ.toFixed(2) : 'n/a';
     const maxZSectorStr = s.maxAggregateZSector ?? 'n/a';
     lines.push(
       `**Aggregate (SPY 500 cluster-buy rate by GICS sector):** No sectors flagged today ` +
-      `(${k}/11 cleared MIN_Z_BASELINE; max-|z|=${maxZStr} at ${maxZSectorStr}). ` +
-      `Per-sector baseline re-computed per daemon cycle from raw events + PIT ` +
-      `constituents + GICS map (ADR-042 Option a).`,
+      `(${k}/11 with a valid empirical statistic; max zEmp=${maxZStr} at ${maxZSectorStr}; ` +
+      `none cleared the α=0.05 tail). Per-sector baseline re-computed per daemon cycle ` +
+      `from raw events + PIT constituents + GICS map (ADR-042 Option a; ADR-053 statistic).`,
     );
   } else {
     lines.push(
@@ -2965,27 +2991,34 @@ function renderForm4InsiderSection(b: MorningBrief): string {
   lines.push(``);
   if (s.flaggedSellSectors.length > 0) {
     lines.push(`**Aggregate (SPY 500 cluster-sell rate by GICS sector):** ` +
-      `${s.flaggedSellSectors.length} sector(s) with |z| > 2.0`);
+      `${s.flaggedSellSectors.length} sector(s) cleared the α=0.05 empirical tail (ADR-053)`);
     lines.push(``);
-    lines.push(`| Sector | Cluster rate | z | Baseline n | Constituents |`);
-    lines.push(`|---|---|---|---|---|`);
+    lines.push(`| Sector | Cluster rate | zEmp | Exceedance p | Eff. n | Baseline n | Constituents |`);
+    lines.push(`|---|---|---|---|---|---|---|`);
     for (const f of s.flaggedSellSectors) {
       const ratePct = (f.clusterRateT * 100).toFixed(1);
-      const zStr = `${f.z >= 0 ? '+' : ''}${f.z.toFixed(2)}σ`;
-      lines.push(`| ${f.sector} | ${ratePct}% | ${zStr} | ${f.baselineSize} | ${f.sectorSize} |`);
+      const zStr = `${f.zEmp.toFixed(2)}`;
+      const pStr = f.exceedance.toFixed(4);
+      lines.push(`| ${f.sector} | ${ratePct}% | ${zStr} | ${pStr} | ${f.effectiveSample} | ${f.baselineSize} | ${f.sectorSize} |`);
     }
+  } else if (s.inputsAvailableAggregate > 0 && s.maxAggregateZSell == null) {
+    // ADR-053: sell-side baselines exist but every sector was guard-suppressed.
+    lines.push(
+      `**Aggregate (SPY 500 cluster-sell rate by GICS sector):** Insufficient data / ` +
+      `statistic under review (ADR-053). Sell-side sector baselines exist but every ` +
+      `sector failed the empirical-exceedance validity guards (too few non-zero ` +
+      `baseline days) — no anomaly score until the EDGAR coverage backfill (ADR-052 D7).`,
+    );
   } else if (s.inputsAvailableAggregate > 0) {
     const k = s.inputsAvailableAggregate;
-    const maxZStr = s.maxAggregateZSell != null
-      ? `${s.maxAggregateZSell >= 0 ? '+' : ''}${s.maxAggregateZSell.toFixed(2)}`
-      : 'n/a';
+    const maxZStr = s.maxAggregateZSell != null ? s.maxAggregateZSell.toFixed(2) : 'n/a';
     const maxZSectorStr = s.maxAggregateZSellSector ?? 'n/a';
     lines.push(
       `**Aggregate (SPY 500 cluster-sell rate by GICS sector):** No sectors flagged today ` +
-      `(${k}/11 cleared MIN_Z_BASELINE; max-|z|=${maxZStr} at ${maxZSectorStr}). ` +
-      `Per-sector baseline re-computed per daemon cycle from raw events + PIT ` +
-      `constituents + GICS map (ADR-042 Option a; sell signal interpretation ` +
-      `per Lakonishok-Lee 2001 §4 — ~30-50% diluted vs buys).`,
+      `(${k}/11 with a valid empirical statistic; max zEmp=${maxZStr} at ${maxZSectorStr}; ` +
+      `none cleared the α=0.05 tail). Per-sector baseline re-computed per daemon cycle ` +
+      `from raw events + PIT constituents + GICS map (ADR-042 Option a; ADR-053 statistic; ` +
+      `sell signal ~30-50% diluted vs buys per Lakonishok-Lee 2001 §4).`,
     );
   } else {
     lines.push(

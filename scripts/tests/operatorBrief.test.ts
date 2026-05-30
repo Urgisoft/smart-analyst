@@ -1364,7 +1364,7 @@ describe('composeMorningBrief — Form 4 insider section wiring', () => {
         ],
         inputsAvailableAggregate: 0,
         inputsAvailablePerTicker: 0,
-        version: 'form_4_insider_v2',
+        version: 'form_4_insider_v3',
       }),
       now: () => FIXED_NOW,
     });
@@ -1381,7 +1381,7 @@ describe('composeMorningBrief — Form 4 insider section wiring', () => {
     // Composer-stamped CIK-only count (one row has empty CIK).
     assert.equal(brief.formFour!.tickersWithCikCount, 1);
     assert.equal(brief.formFour!.watchUniverseTickerCount, 2);
-    assert.equal(brief.formFour!.compositeVersion, 'form_4_insider_v2');
+    assert.equal(brief.formFour!.compositeVersion, 'form_4_insider_v3');
   });
 
   // T-OB-F4-2 — graceful-degrade on fetcher throw (mirrors prior A5 panels).
@@ -1421,7 +1421,7 @@ describe('buildForm4InsiderSection', () => {
       bdSinceLastQuery: 2,
       flaggedSectors: [{
         sector: 'Energy', sectorSize: 22, clusterRateT: 0.085,
-        z: 2.4, baselineSize: 503,
+        zEmp: 2.4, exceedance: 0.0099, effectiveSample: 95, baselineSize: 503,
       }],
       form4ClusterFlag: true,
       maxAggregateZ: null,
@@ -1440,7 +1440,7 @@ describe('buildForm4InsiderSection', () => {
       ],
       inputsAvailableAggregate: 503,
       inputsAvailablePerTicker: 0,
-      version: 'form_4_insider_v2',
+      version: 'form_4_insider_v3',
     });
     assert.ok(section !== null);
     assert.equal(section!.evaluatedAt, '2026-05-19T13:30:00.123Z');
@@ -1456,7 +1456,7 @@ describe('buildForm4InsiderSection', () => {
     assert.equal(section!.perTickerRows[0].insiderNetDollar90d, 2_300_000);
     assert.equal(section!.tickersWithCikCount, 1);
     assert.equal(section!.watchUniverseTickerCount, 1);
-    assert.equal(section!.compositeVersion, 'form_4_insider_v2');
+    assert.equal(section!.compositeVersion, 'form_4_insider_v3');
   });
 
   it('stamps CIK-only count separately from sector-gated inputsAvailablePerTicker', async () => {
@@ -1495,7 +1495,7 @@ describe('buildForm4InsiderSection', () => {
       ],
       inputsAvailableAggregate: 0,
       inputsAvailablePerTicker: 0,
-      version: 'form_4_insider_v2',
+      version: 'form_4_insider_v3',
     });
     assert.ok(section !== null);
     assert.equal(section!.tickersWithCikCount, 2);
@@ -1522,7 +1522,7 @@ describe('buildForm4InsiderSection', () => {
       perTickerRows: [],
       inputsAvailableAggregate: 8,
       inputsAvailablePerTicker: 0,
-      version: 'form_4_insider_v2',
+      version: 'form_4_insider_v3',
     });
     assert.ok(section !== null);
     assert.equal(section!.maxAggregateZ, 0.91);
@@ -1546,23 +1546,24 @@ describe('buildForm4InsiderSection', () => {
       maxAggregateZSector: null,
       flaggedSellSectors: [{
         sector: 'Energy', sectorSize: 22, clusterRateT: 0.182,
-        z: -2.81, baselineSize: 503,
+        zEmp: 2.31, exceedance: 0.0104, effectiveSample: 88, baselineSize: 503,
       }],
       form4SellClusterFlag: true,
-      maxAggregateZSell: -2.81,
+      maxAggregateZSell: 2.31,
       maxAggregateZSellSector: 'Energy',
       perTickerRows: [],
       inputsAvailableAggregate: 11,
       inputsAvailablePerTicker: 0,
-      version: 'form_4_insider_v2',
+      version: 'form_4_insider_v3',
     });
     assert.ok(section !== null);
     assert.equal(section!.form4SellClusterFlag, true);
-    assert.equal(section!.maxAggregateZSell, -2.81);
+    assert.equal(section!.maxAggregateZSell, 2.31);
     assert.equal(section!.maxAggregateZSellSector, 'Energy');
     assert.equal(section!.flaggedSellSectors.length, 1);
     assert.equal(section!.flaggedSellSectors[0].sector, 'Energy');
-    assert.equal(section!.flaggedSellSectors[0].z, -2.81);
+    assert.equal(section!.flaggedSellSectors[0].zEmp, 2.31);
+    assert.equal(section!.flaggedSellSectors[0].exceedance, 0.0104);
     assert.equal(section!.flaggedSellSectors[0].clusterRateT, 0.182);
     // Buy-side fields stay independent (cold-start defaults here).
     assert.equal(section!.form4ClusterFlag, false);

@@ -866,7 +866,9 @@ function fixtureSnapshot(overrides: Partial<Form4InsiderSnapshot> = {}): Form4In
       sector: 'Information Technology',
       sectorSize: 70,
       clusterRateT: 0.071,
-      z: 2.4,
+      zEmp: 2.4,
+      exceedance: 0.0099,
+      effectiveSample: 120,
       baselineSize: 503,
     }],
     form4ClusterFlag: true,
@@ -913,7 +915,10 @@ describe('writeSnapshot', () => {
     assert.equal(perTicker[0].insiderClusterBuyFlag, false);
     const flagged = JSON.parse(row.flagged_sectors_json as string);
     assert.equal(flagged[0].sector, 'Information Technology');
-    assert.equal(flagged[0].z, 2.4);
+    // ADR-053: the flagged-sector JSON carries zEmp + exceedance + effectiveSample.
+    assert.equal(flagged[0].zEmp, 2.4);
+    assert.equal(flagged[0].exceedance, 0.0099);
+    assert.equal(flagged[0].effectiveSample, 120);
     assert.equal(flagged[0].clusterRateT, 0.071);
   });
 
@@ -921,9 +926,8 @@ describe('writeSnapshot', () => {
     const { repo, fake } = makeRepo();
     await repo.writeSnapshot(fixtureSnapshot());
     const row = fake.inserts[0].values[0];
-    // ADR-052 D5 — version bumped to v2 (EDGAR-canonical cluster path +
-    // coverage-homogeneous baseline = universe-definition change).
-    assert.equal(row.composite_version, 'form_4_insider_v2');
+    // ADR-053 D6 — version bumped to v3 (empirical-exceedance aggregate statistic).
+    assert.equal(row.composite_version, 'form_4_insider_v3');
     assert.equal(row.version, undefined);
   });
 
@@ -1123,22 +1127,25 @@ describe('G2-SELL-G3-F4 — sell-cluster persistence (s95 #2)', () => {
   it('G2-SELL-G3-F4-1: writeSnapshot stamps all 4 sell-side columns from the snapshot', async () => {
     const { repo, fake } = makeRepo();
     await repo.writeSnapshot(fixtureSnapshot({
+      // ADR-053: zEmp ≥ 0; a flagged sell sector cleared the α-tail (p ≤ 0.05).
       flaggedSellSectors: [{
         sector: 'Energy', sectorSize: 22,
-        clusterRateT: 0.182, z: -2.81, baselineSize: 503,
+        clusterRateT: 0.182, zEmp: 2.31, exceedance: 0.0104,
+        effectiveSample: 88, baselineSize: 503,
       }],
       form4SellClusterFlag: true,
-      maxAggregateZSell: -2.81,
+      maxAggregateZSell: 2.31,
       maxAggregateZSellSector: 'Energy',
     }));
     const row = fake.inserts[0].values[0];
     assert.equal(row.form_4_sell_cluster_flag, 1);
-    assert.equal(row.max_aggregate_z_sell, -2.81);
+    assert.equal(row.max_aggregate_z_sell, 2.31);
     assert.equal(row.max_aggregate_z_sell_sector, 'Energy');
     const flaggedSell = JSON.parse(row.flagged_sell_sectors_json as string);
     assert.equal(flaggedSell.length, 1);
     assert.equal(flaggedSell[0].sector, 'Energy');
-    assert.equal(flaggedSell[0].z, -2.81);
+    assert.equal(flaggedSell[0].zEmp, 2.31);
+    assert.equal(flaggedSell[0].exceedance, 0.0104);
     // Cold-start pass-through: all four fields null/false/[]/null.
     await repo.writeSnapshot(fixtureSnapshot({
       flaggedSellSectors: [],
@@ -1171,20 +1178,22 @@ describe('G2-SELL-G3-F4 — sell-cluster persistence (s95 #2)', () => {
       form_4_sell_cluster_flag: 1,
       flagged_sell_sectors_json: JSON.stringify([{
         sector: 'Energy', sectorSize: 22,
-        clusterRateT: 0.182, z: -2.81, baselineSize: 503,
+        clusterRateT: 0.182, zEmp: 2.31, exceedance: 0.0104,
+        effectiveSample: 88, baselineSize: 503,
       }]),
-      max_aggregate_z_sell: -2.81,
+      max_aggregate_z_sell: 2.31,
       max_aggregate_z_sell_sector: 'Energy',
     }]);
     const snap = await populated.repo.loadLatestSnapshot();
     assert.ok(snap);
     const s = snap as Form4InsiderSnapshot;
     assert.equal(s.form4SellClusterFlag, true);
-    assert.equal(s.maxAggregateZSell, -2.81);
+    assert.equal(s.maxAggregateZSell, 2.31);
     assert.equal(s.maxAggregateZSellSector, 'Energy');
     assert.equal(s.flaggedSellSectors.length, 1);
     assert.equal(s.flaggedSellSectors[0].sector, 'Energy');
-    assert.equal(s.flaggedSellSectors[0].z, -2.81);
+    assert.equal(s.flaggedSellSectors[0].zEmp, 2.31);
+    assert.equal(s.flaggedSellSectors[0].exceedance, 0.0104);
     // Pre-migration / cold-start row resolves at sell-side defaults via DDL
     // DEFAULTs + Nullable semantics. The empty-string DEFAULT on
     // flagged_sell_sectors_json parses as malformed → []; same posture as
