@@ -277,8 +277,58 @@ coverage-gating is the **interim** correctness fix that holds until D7 lands.
 - Phase C promotion — operator-gated (orchestration §7.1 item 8); unreachable
   until a non-vacuous PASS-ALL exists, which requires D7.
 
+## Addendum — D7 implemented via SEC bulk Form 345 data sets (2026-05-30, s96 #36 Cycle 39)
+
+D7 (the EDGAR coverage backfill) was originally framed as an operator-paced
+per-filing EDGAR-XML crawl (`scripts/_d7_form4_backfill_driver.sh`, ~15-25h,
+~200k individual XML+index fetches). That mechanism is superseded by SEC's own
+**bulk Form 345 (insider) quarterly data sets** (`https://www.sec.gov/files/
+structureddata/data/insider-transactions-data-sets/{YYYY}q{N}_form345.zip`,
+2019q1→present, ~8 MB/quarter), parsed by `scripts/sec_edgar_form345_bulk_ingest.py`.
+A handful of ZIP downloads + TSV parse replaces the multi-hour crawl (minutes,
+not hours), at the **same EDGAR-canonical provenance** — so it satisfies D1.
+
+**Corrected attribution (verified source breakdown, this cycle).** The
+EDGAR-P/S gap is **2024-06 … 2025-10** (17 months), where `insider_trades` has
+**0 EDGAR P/S rows** — only Finnhub (~239–654 P/S/mo). Since D1 excludes Finnhub
+from the cluster path, those days have 0 EDGAR coverage → never admitted to the
+z-baseline (the real n=203 admitted-day floor). **2025-11 onward already carries
+full EDGAR P/S** (~10k/mo). (An interim handoff mis-attributed the gap to a
+"Cycle-32 SP500-filtered EDGAR backfill"; the verified cause is Finnhub-only-P/S
++ the D1 exclusion. SP500-filtered EDGAR, if it ran, contributed mostly non-P/S
+codes — large-caps rarely make open-market P/S — which is why full-market EDGAR
+is required to populate the P/S coverage floor.)
+
+**Source tag = `sec_edgar_form4_xml` (the canonical equivalence class).** The
+bulk rows carry the real EDGAR reporting-person CIK, so they belong in the SAME
+identity-valid class D1 defines; the `source` field gates identity validity (real
+CIK vs synthetic name-hash), NOT the fetch mechanism. Tagging them with the
+existing canonical literal means they auto-pass `filterTradesToCanonicalSource`
+AND the D2 coverage-floor query with **zero composite/repository change** (and no
+risk of a missed filter site silently dropping them from coverage). No new
+`AttributionSource`/source value is introduced; no DDL.
+
+**Equivalence verified (cross-check, dry-run, full-market overlap month 2025-12,
+bulk-2025q4 vs live-XML rows):** 99.31% `(issuer_cik, accession, transaction_id)`
+key overlap; `transaction_id` numbering matches the XML path 100% on all 4,489
+multi-transaction filings (SK-ascending = XML document order → ReplacingMergeTree
+collapses bulk-vs-XML rows for the same filing cleanly); `accepted_at` (the F4-10
+anchor, from `SUBMISSION.FILING_DATE`@00:00) agrees on date; the only field diffs
+are SEC's own price rounding (1–2 dp in the bulk TSV vs full XML precision —
+immaterial to the identity-based cluster path; a minor precision loss on the
+informational net-dollar). The bulk set is in fact **more complete** than the XML
+crawl (it caught 158 keys the crawl missed, incl. an XML-path under-capture of
+some multi-transaction filings). Composite-worker build + Critic AUTO-APPROVE.
+
+**Applied window:** quarters 2024q2 … 2025q4 (covers 2024-04 … 2025-12, fully
+spanning the trailing-730d baseline window for a current snapshot; already-EDGAR-
+covered months dedup idempotently). OQ-C38-2 (full 2013–2026 parity) is then just
+more quarters — the same free, fast mechanism. The result of the post-backfill
+pooled `effectiveEvents` measurement (OQ-C38-1) is tracked in HANDOFF, not here.
+
 ## Cross-references
 
+- `scripts/sec_edgar_form345_bulk_ingest.py` — the bulk-dataset ingest (this addendum).
 - `docs/specs/adr-051-layer0-phase-b-deflation-pipeline.md` — the Phase-B
   pattern this composite will (eventually) run; Decision 5 (anti-shopping),
   Decision 8 (version-pin trail).
