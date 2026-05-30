@@ -3,7 +3,9 @@
 Last updated: 2026-05-30 (session 96 #38 — **Cycles 40-41: completion-phase data work DONE + the
 MAJOR finding — validation COMPLETE, comprehensive NULL: 5 aggregate composites = beta, form_4/exec =
 insufficient, AND single-stock cross-sectional (survivorship-free Polygon, all cap tiers) = null too.
-ADR-056 (PROPOSED) documents it. NOTHING is tradeable after deflation. Operator: ratify-conclude vs paid-revisit.**) The one
+ADR-056 is now ACCEPTED (operator ratified 2026-05-30 → CONCLUDE the null). NOTHING is tradeable after
+deflation. The project's deliverable = the validated deflation pipeline + the honest negative result.
+Validation phase is CLOSED — do NOT restart it or build more composites.**) The one
 un-disproven direction is cross-sectional single-stock (equity_xs), blocked only by survivorship-free
 price data — reachable via Polygon.io free tier (needs a free key). **NEXT on `continue`:** operator
 decision — pursue single-stock via Polygon, OR conclude the null. Plus two data bugs to fix if continuing
@@ -99,13 +101,14 @@ deeper EDGAR insider backfill) and it can be tested for real. This is where alph
 
 ## Next stage
 ### On `continue` — this is an operator-judgment fork, surface it; don't auto-build
-1. **THE decision (operator):** validation is COMPLETE — 7 nulls, single-stock included (survivorship-free,
-   all cap tiers). **ADR-056 (PROPOSED)** documents the comprehensive null. Operator either (a) **RATIFIES
-   ADR-056** → conclude: deliverable = the validated pipeline + honest negative, stop building; or (b)
-   pursues **paid deep-history** (Q-9) for a 2008-2026 single-stock window — orchestrator recommends AGAINST
-   on current evidence. Do NOT build more aggregate composites (5/5 beta). Do NOT relax gates / retune
-   (anti-shopping). The live per-symbol Bigdata.com analysis tool is unaffected (no alpha claim) — available
-   as decision-support anytime.
+1. **DECIDED — ADR-056 ACCEPTED (operator chose conclude, 2026-05-30).** Validation phase is CLOSED.
+   The project's deliverable is the validated deflation pipeline + the honest comprehensive null. On
+   `continue`: do NOT restart validation, do NOT build more composites, do NOT pursue paid deep-history
+   (operator declined), do NOT relax gates. There is no pending build. If the operator opens new work, it
+   would be a NEW direction (their initiative), not a continuation of the composite-validation line.
+2. **Still available (no alpha claim, unaffected by the null):** the live per-symbol Bigdata.com analysis
+   tool ("analyze \<TICKER\>") as decision-support; the daily-data pipeline (EDGAR/FINRA/Polygon ingests)
+   if the operator wants ongoing data collection. Both are optional, operator-initiated.
 2. **If concluding the null:** write an ADR documenting "alternative-data market-timing composites — null
    result" + the validated-pipeline deliverable. Stop adding composites.
 3. **Lower-priority data fixes (only if continuing the aggregate line, which the evidence discourages):**

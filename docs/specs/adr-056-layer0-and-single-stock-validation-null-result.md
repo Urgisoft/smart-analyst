@@ -1,6 +1,6 @@
 # ADR-056 — Layer-0 + single-stock validation: comprehensive null result
 
-**Status:** PROPOSED (operator ratification required — this concludes the project's core research thesis).
+**Status:** Accepted (operator-ratified 2026-05-30, s96 #38 — operator chose path (A): conclude the null. The deliverable is the validated pipeline + the honest negative; do not pursue paid deep-history; stop building composites).
 **Date:** 2026-05-30 (s96 #38, Cycles 40-41).
 **Owner:** Vector Core orchestrator. **Supersedes:** none. **Related:** ADR-051 (deflation pipeline),
 ADR-052/053/054/055 (form_4 four-layer template).
