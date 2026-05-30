@@ -234,6 +234,33 @@ be the obvious diagnosis.
 - Whether to re-label the sentinel source in a Phase 9+ schema cleanup
   (deferred per "Why not re-label" above).
 
+## Re-verification (2026-05-30, session 96 #36 Cycle 39)
+
+GAP-16 was re-examined when the Cycle-39 "Next stage" menu still listed it as an open
+reconciliation gap (stale — this ADR closed it in Cycle 6). A fresh probe of
+`quantlab.bt_runs_regime FINAL` confirms ADR-047's guarantees hold on the grown dataset
+and resolves the §"Side-finding" item:
+
+- **The `phase1_v3` backfill (the side-finding) has since completed.** The table now
+  holds BOTH classifiers, each identical: `phase1_v2` = 118,665 `window` + 78,399
+  `sentinel_no_trades`; `phase1_v3` = 118,665 `window` + 78,399 `sentinel_no_trades`
+  (total FINAL = 394,128). The per-classifier sentinel count is UNCHANGED from Cycle 6
+  (78,399) — the table doubled only because v3 was added, NOT because new sentinels
+  accrued. The pattern is deterministic + byte-identical across classifiers, which is
+  itself strong evidence it is by-design, not drift.
+- **Content-shape integrity holds: 0 violations.** Every `sentinel_no_trades` row still
+  has `total_days=0` ∧ `dominant_regime='unknown'` ∧ empty `regime_distribution`; 0
+  non-sentinel rows have `total_days=0`. No row masquerades as a sentinel-by-content
+  while mislabelled-by-source, or vice versa (P5/P6 still true).
+- **The read-side guard is intact.** `fetchBtRunsByRegime`
+  ([bt_runs_regime.ts:522-524](../../src/server/bt_runs_regime.ts#L522)) still applies
+  `AND a.attribution_source != 'sentinel_no_trades'` whenever `includeSentinels` is
+  falsy (the default) — sentinels remain excluded from every downstream metric.
+
+**Verdict unchanged: keep, documentation-only. GAP-16 remains closed.** The stale
+"open gap" reference is corrected in HANDOFF. No data/schema/type/test change; tsc
+baseline preserved.
+
 ## Cross-references
 
 - `docs/specs/regime-backtest-attribution-component5.md` — the SPEC this

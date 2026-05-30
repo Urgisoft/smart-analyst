@@ -176,7 +176,10 @@ unit (v5).
 3. **If pooled < 20 post-D7-gap:** OQ-C38-2 — extend the backfill multi-year (edit the driver's months
    array further back), then re-measure. Do NOT lower the floor.
 4. **Else (independent):** apply the four-layer template to another EDGAR/FINRA composite (OQ-052-3);
-   or resume a deferred reconciliation gap (GAP-16 sentinels; GAP-13 Quartz doc; GAP-10 CI/CD).
+   or resume a deferred reconciliation gap (GAP-13 Quartz doc; GAP-10 CI/CD). **GAP-16 sentinels is
+   CLOSED** — ADR-047 (Cycle 6) decided keep/documentation-only; re-verified Cycle 39 (the `phase1_v3`
+   backfill since completed, sentinel pattern stable + identical across v2/v3 at 78,399 each, 0
+   content-shape violations, read-side `includeSentinels=false` guard intact). Do NOT re-investigate.
 
 ---
 
