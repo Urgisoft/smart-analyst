@@ -70,6 +70,86 @@ export const OOS_START_DATE = '2021-01-01';
 /** SPY token-address for beta-neutralization (spec §3.3). */
 export const SPY_TOKEN_ADDRESS = 'SPY_USD';
 
+// ── Cap-tier stratification (survivorship-free Polygon re-run) ─────────────────
+//
+// The prior `equity_xs_v1` ran a single BLENDED long-short over the survivorship-
+// biased `candles` source. The honest re-run reads the survivorship-free
+// `equity_daily_polygon` full-market panel AND stratifies the verdict by cap
+// tier. Rationale (documented per the three-criterion test): the insider /
+// cross-sectional anomaly is documented to concentrate in smaller, less-analyzed
+// names (Lakonishok-Lee 2001 RFS §IV; Hong-Lim-Stein 2000 J.Finance on analyst
+// coverage and the momentum/information-diffusion premium — recalled by
+// title/venue, NOT re-verified this session; named as the design's prior, not a
+// committed quantitative claim). A single BLENDED test pools mega-caps (where the
+// edge is arbitraged away) with small/mid-caps (where it may survive), so a
+// blended null can MASK a small/mid signal. Per-tier verdicts surface it.
+//
+// **The tier cuts are FIXED dollar-volume bands, NOT tuned** (anti-shopping;
+// AFML §11.4). They are round daily-dollar-volume tradeability thresholds, the
+// same kind of fixed band a desk uses to bucket names by executability — not a
+// grid searched against the validation result.
+
+/** Cap-tier label. `blended` is the all-tier baseline (no size partition). */
+export type CapTier = 'mega' | 'large' | 'mid' | 'small' | 'blended';
+
+/**
+ * Fixed daily-dollar-volume band edges (USD/day), as a size/tradeability proxy:
+ *   - mega:  ≥ $1B/d
+ *   - large: $100M – $1B/d
+ *   - mid:   $10M – $100M/d
+ *   - small: $1M – $10M/d
+ *   - micro: < $1M/d  → EXCLUDED as untradeable (never a tier).
+ * These are FIXED, round bands (not percentiles, not swept).
+ */
+export const TIER_BAND_MEGA = 1e9;
+export const TIER_BAND_LARGE = 1e8;
+export const TIER_BAND_MID = 1e7;
+export const TIER_BAND_MICRO = 1e6; // names below this are dropped as untradeable
+
+/** The four tradeable tiers, in descending size order. `blended` is separate. */
+export const CAP_TIERS: Exclude<CapTier, 'blended'>[] = ['mega', 'large', 'mid', 'small'];
+
+/**
+ * Map a daily dollar-volume to its fixed cap tier, or `null` if it is micro
+ * (< $1M/d, untradeable, excluded). Pure; uses the FIXED bands above.
+ *
+ * Boundary convention (half-open, lower-inclusive): a name at exactly $1B/d is
+ * `mega`; at exactly $1M/d is `small`; strictly below $1M/d is micro → null.
+ * Non-finite / non-positive dollar-volume → null (excluded; cannot be sized).
+ */
+export function tierForDollarVolume(dollarVol: number): Exclude<CapTier, 'blended'> | null {
+  if (!Number.isFinite(dollarVol) || dollarVol < TIER_BAND_MICRO) return null;
+  if (dollarVol >= TIER_BAND_MEGA) return 'mega';
+  if (dollarVol >= TIER_BAND_LARGE) return 'large';
+  if (dollarVol >= TIER_BAND_MID) return 'mid';
+  return 'small'; // [1e6, 1e7)
+}
+
+/**
+ * Partition a rebalance snapshot's feature rows into per-tier sub-snapshots by
+ * each name's `advDollar` (20-day average daily dollar-volume — the size proxy).
+ * Micro names (< $1M/d) are dropped entirely. Returns a map tier → the rows that
+ * fall in that tier (a NEW snapshot per tier; input not mutated). Used to run the
+ * within-tier Q5−Q1 portfolio (rank + leg-form WITHIN each tier).
+ *
+ * `advDollar` (not a single-day close×volume) is the partition key deliberately:
+ * a 20-day average is a far more stable size classifier than one noisy session,
+ * and it is the same quantity the liquidity gate already uses — so a name's tier
+ * does not flicker rebalance-to-rebalance on a single volume spike.
+ */
+export function bucketSnapshotByTier(
+  snapshot: RebalanceSnapshot,
+): Map<Exclude<CapTier, 'blended'>, RebalanceSnapshot> {
+  const out = new Map<Exclude<CapTier, 'blended'>, RebalanceSnapshot>();
+  for (const tier of CAP_TIERS) out.set(tier, { date: snapshot.date, rows: [] });
+  for (const r of snapshot.rows) {
+    const tier = tierForDollarVolume(r.advDollar);
+    if (tier === null) continue; // micro → dropped
+    out.get(tier)!.rows.push(r);
+  }
+  return out;
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 /** One ticker's eligible-day feature row at a rebalance date. */
