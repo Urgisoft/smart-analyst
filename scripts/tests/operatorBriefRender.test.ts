@@ -3239,7 +3239,7 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         form4SellClusterFlag: false,
         maxAggregateZSell: null,
         maxAggregateZSellSector: null,
-        compositeVersion: 'form_4_insider_v4',
+        compositeVersion: 'form_4_insider_v5',
       },
     }));
     assert.match(md, /## 15\. Form 4 insider activity — CLUSTER/);
@@ -3339,7 +3339,7 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         form4SellClusterFlag: false,
         maxAggregateZSell: 0.8,
         maxAggregateZSellSector: 'Utilities',
-        compositeVersion: 'form_4_insider_v4',
+        compositeVersion: 'form_4_insider_v5',
       },
     }));
     // ADR-053/054: zEmp/exceedance + Events (guard metric) + nz-days (diagnostic)
@@ -3372,7 +3372,7 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         form4SellClusterFlag: false,
         maxAggregateZSell: 0.5,
         maxAggregateZSellSector: 'Utilities',
-        compositeVersion: 'form_4_insider_v4',
+        compositeVersion: 'form_4_insider_v5',
       },
     }));
     assert.match(md, /\*\*Aggregate \(SPY 500 cluster-buy rate by GICS sector\):\*\* No sectors flagged today/);
@@ -3402,7 +3402,7 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         form4SellClusterFlag: false,
         maxAggregateZSell: null,
         maxAggregateZSellSector: null,
-        compositeVersion: 'form_4_insider_v4',
+        compositeVersion: 'form_4_insider_v5',
       },
     }));
     // Both directions guard-suppressed → honest under-review header + branch.
@@ -3473,7 +3473,7 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 58,
         watchUniverseTickerCount: 60,
-        compositeVersion: 'form_4_insider_v4',
+        compositeVersion: 'form_4_insider_v5',
       },
     }));
     // Sell-side LIVE branch: panel header + zEmp/exceedance + Events/nz-days table.
@@ -3504,7 +3504,7 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 58,
         watchUniverseTickerCount: 60,
-        compositeVersion: 'form_4_insider_v4',
+        compositeVersion: 'form_4_insider_v5',
       },
     }));
     assert.match(md, /\*\*Aggregate \(SPY 500 cluster-sell rate by GICS sector\):\*\* No sectors flagged today/);

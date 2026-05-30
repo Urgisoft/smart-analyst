@@ -45,6 +45,7 @@ import {
   EDGAR_CANONICAL_SOURCE,
   countNonZeroRuns,
   type Form4InsiderSnapshot,
+  type Form4InsiderPooledStat,
 } from '../../src/server/form_4_insider.js';
 import { assertCHGrammar } from './_chGrammarCheck.js';
 
@@ -610,7 +611,7 @@ describe('populateSectorsForCycle (POPSEC-F4-1..4)', () => {
       ],
     );
 
-    const sectors = await repo.populateSectorsForCycle(POPSEC_ASOF);
+    const { sectors } = await repo.populateSectorsForCycle(POPSEC_ASOF);
 
     const constituentsQuery = fake.queries.find(q =>
       q.query.includes('effective_date <= {asOfEnd:Date}'),
@@ -678,7 +679,7 @@ describe('populateSectorsForCycle (POPSEC-F4-1..4)', () => {
       ],
     );
 
-    const sectors = await repo.populateSectorsForCycle(POPSEC_ASOF);
+    const { sectors } = await repo.populateSectorsForCycle(POPSEC_ASOF);
 
     const it_ = sectors.find(s => s.sector === 'Information Technology');
     const ind = sectors.find(s => s.sector === 'Industrials');
@@ -728,7 +729,7 @@ describe('populateSectorsForCycle (POPSEC-F4-1..4)', () => {
     fake.route(isVolumeQuery, fullCoverageVolumeRows(coverageStart, VOL_READ_END, 1000));
     fake.route(q => q.includes('transaction_code IN'), []);
 
-    const sectors = await repo.populateSectorsForCycle(POPSEC_ASOF);
+    const { sectors } = await repo.populateSectorsForCycle(POPSEC_ASOF);
     assert.equal(sectors.length, 1);
     assert.equal(sectors[0].sector, 'Information Technology');
     assert.equal(sectors[0].sectorSize, 1);
@@ -774,7 +775,7 @@ describe('populateSectorsForCycle (POPSEC-F4-1..4)', () => {
     fake.route(isVolumeQuery, fullCoverageVolumeRows(VOL_READ_START, VOL_READ_END, 1000));
     fake.route(q => q.includes('transaction_code IN'), []);
 
-    const sectors = await repo.populateSectorsForCycle(POPSEC_ASOF);
+    const { sectors } = await repo.populateSectorsForCycle(POPSEC_ASOF);
     assert.equal(sectors.length, 1);
     assert.equal(sectors[0].trades.length, 0);
     // Full coverage → all ~730 panel days admitted, each rate=0 (real zero
@@ -821,7 +822,7 @@ describe('populateSectorsForCycle (POPSEC-F4-1..4)', () => {
       ],
     );
 
-    const sectors = await repo.populateSectorsForCycle(POPSEC_ASOF);
+    const { sectors } = await repo.populateSectorsForCycle(POPSEC_ASOF);
     assert.equal(sectors.length, 1);
     const baseline = sectors[0].baseline2y;
     // At sectorSize=1 each rate ∈ {0, 1}.
@@ -841,7 +842,7 @@ describe('populateSectorsForCycle (POPSEC-F4-1..4)', () => {
   it('POPSEC-F4-4: cold-start (empty PIT panel + empty constituents) returns []', async () => {
     const { repo, fake } = makeRepo();
     fake.route(_ => true, []);
-    const sectors = await repo.populateSectorsForCycle(POPSEC_ASOF);
+    const { sectors } = await repo.populateSectorsForCycle(POPSEC_ASOF);
     assert.equal(sectors.length, 0);
   });
 
@@ -883,7 +884,7 @@ describe('populateSectorsForCycle (POPSEC-F4-1..4)', () => {
     // n' and FakeClickHouse is first-match).
     fake.route(isVolumeQuery, [{ day: floorDay, n: EDGAR_COVERAGE_FLOOR }]);
     fake.route(q => q.includes('transaction_code IN'), []);
-    const sectorsA = await repo.populateSectorsForCycle(POPSEC_ASOF);
+    const { sectors: sectorsA } = await repo.populateSectorsForCycle(POPSEC_ASOF);
     const baselineDaysA = sectorsA[0].baseline2y.length;
     assert.ok(baselineDaysA >= 1, 'at-floor day is admitted (sum == floor passes)');
 
@@ -900,15 +901,114 @@ describe('populateSectorsForCycle (POPSEC-F4-1..4)', () => {
     repoB.fake.route(q => q.includes('effective_date = ('), [{ ticker: 'AAPL' }]);
     repoB.fake.route(isVolumeQuery, [{ day: floorDay, n: EDGAR_COVERAGE_FLOOR - 1 }]);
     repoB.fake.route(q => q.includes('transaction_code IN'), []);
-    const sectorsB = await repoB.repo.populateSectorsForCycle(POPSEC_ASOF);
+    const { sectors: sectorsB } = await repoB.repo.populateSectorsForCycle(POPSEC_ASOF);
     assert.ok(
       sectorsB[0].baseline2y.length < baselineDaysA,
       `floor-1 day is EXCLUDED → fewer admitted days than at-floor (A=${baselineDaysA}, B=${sectorsB[0].baseline2y.length})`,
     );
   });
+
+  // POPSEC-F4-POOL — ADR-055 D1: the index-level POOLED baselines are emitted
+  // alongside the per-sector arrays, over the SAME admitted-day set, in ascending
+  // chronological order.
+  it('POPSEC-F4-POOL-1: pooled baselines are emitted with the admitted-day cardinality + issuer-weighted across sectors', async () => {
+    const { repo, fake } = makeRepo();
+    // TWO sectors of DIFFERENT size so the pool is issuer-weighted (Σnum/Σden),
+    // not mean-of-rates. Both present across the full window.
+    fake.route(q => q.includes('effective_date <= {asOfEnd:Date}'),
+      [makePanelConstituentsRow('AAA', '2024-05-19'), makePanelConstituentsRow('BBB', '2024-05-19')],
+    );
+    fake.route(q => q.includes('ticker IN') && q.includes('snapshot_date <= {asOfEnd:Date}'),
+      [
+        { ticker: 'AAA', gics_sector: 'Information Technology', snapshot_date: '2024-01-01' },
+        { ticker: 'BBB', gics_sector: 'Financials', snapshot_date: '2024-01-01' },
+      ],
+    );
+    fake.route(q => q.includes('FROM quantlab.gics_sector_map FINAL') && q.includes('snapshot_date <= {asOfEnd:Date}'),
+      [
+        { ticker: 'AAA', gics_sector: 'Information Technology', snapshot_date: '2024-01-01' },
+        { ticker: 'BBB', gics_sector: 'Financials', snapshot_date: '2024-01-01' },
+      ],
+    );
+    fake.route(q => q.includes('effective_date = ('), [{ ticker: 'AAA' }, { ticker: 'BBB' }]);
+    fake.route(isVolumeQuery, fullCoverageVolumeRows(VOL_READ_START, VOL_READ_END, 1000));
+    fake.route(q => q.includes('transaction_code IN'), []); // no trades → every pooled rate 0
+    const { sectors, pooledBaseline2y, pooledBaseline2ySell } =
+      await repo.populateSectorsForCycle(POPSEC_ASOF);
+    // Two sectors emitted.
+    assert.equal(sectors.length, 2);
+    // The pooled baseline shares the per-sector admitted-day cardinality (every
+    // admitted day where ANY sector had memberCount>0 → one pooled entry; here
+    // both sectors share the full window so it matches the per-sector length).
+    assert.ok(pooledBaseline2y.length > 0, 'pooled baseline emitted');
+    assert.equal(pooledBaseline2y.length, sectors[0].baseline2y.length,
+      'pooled baseline shares the admitted-day cardinality');
+    assert.equal(pooledBaseline2ySell.length, pooledBaseline2y.length,
+      'pooled buy + sell share the admitted-day cardinality');
+    // No trades → every pooled rate is 0 (a real zero observation on covered days).
+    for (const r of pooledBaseline2y) assert.equal(r, 0);
+    for (const r of pooledBaseline2ySell) assert.equal(r, 0);
+  });
+
+  it('POPSEC-F4-POOL-2 (ADR-054 D1): pooled baseline is chronologically ASCENDING — one cluster event collapses to ONE run', async () => {
+    // Mirror POPSEC-F4-ORDER but for the POOLED series. ONE cluster event (3
+    // distinct EDGAR buyers on AAA within a 2-day span ~365d before asOf) at
+    // sectorSize 1 → pooled rate 1/1 = 1 for the ~30 admitted days whose trailing
+    // 30d window contains it, then 0 — ONE contiguous plateau in chronological
+    // order over the POOLED series. If the pooled-day ordering were broken, the
+    // run count would exceed 1.
+    const { repo, fake } = makeRepo();
+    fake.route(q => q.includes('effective_date <= {asOfEnd:Date}'),
+      [makePanelConstituentsRow('AAA', '2024-05-19')],
+    );
+    fake.route(q => q.includes('ticker IN') && q.includes('snapshot_date <= {asOfEnd:Date}'),
+      [{ ticker: 'AAA', gics_sector: 'Information Technology', snapshot_date: '2024-01-01' }],
+    );
+    fake.route(q => q.includes('FROM quantlab.gics_sector_map FINAL') && q.includes('snapshot_date <= {asOfEnd:Date}'),
+      [{ ticker: 'AAA', gics_sector: 'Information Technology', snapshot_date: '2024-01-01' }],
+    );
+    fake.route(q => q.includes('effective_date = ('), [{ ticker: 'AAA' }]);
+    fake.route(isVolumeQuery, fullCoverageVolumeRows(VOL_READ_START, VOL_READ_END, 1000));
+    const eventDay = '2025-05-18';
+    fake.route(q => q.includes('transaction_code IN'),
+      [
+        makeTradeRow({ ticker: 'AAA', personCik: '00001', code: 'P', acceptedAt: `${eventDay} 09:30:00`, transactionId: 1 }),
+        makeTradeRow({ ticker: 'AAA', personCik: '00002', code: 'P', acceptedAt: `${eventDay} 10:00:00`, transactionId: 2 }),
+        makeTradeRow({ ticker: 'AAA', personCik: '00003', code: 'P', acceptedAt: '2025-05-19 09:30:00', transactionId: 3 }),
+      ],
+    );
+    const { pooledBaseline2y } = await repo.populateSectorsForCycle(POPSEC_ASOF);
+    for (const r of pooledBaseline2y) assert.ok(r === 0 || r === 1, `pooled rate must be 0 or 1, got ${r}`);
+    const nonZeroDays = pooledBaseline2y.filter(r => r > 0).length;
+    assert.ok(nonZeroDays > 0, 'the cluster event produces a non-zero pooled plateau');
+    assert.equal(
+      countNonZeroRuns(pooledBaseline2y), 1,
+      `one cluster event must collapse to ONE run over the ascending POOLED baseline ` +
+      `(got ${countNonZeroRuns(pooledBaseline2y)} runs across ${nonZeroDays} non-zero days)`,
+    );
+  });
+
+  it('POPSEC-F4-POOL-3: cold-start (empty PIT panel) → pooled baselines empty', async () => {
+    const { repo, fake } = makeRepo();
+    fake.route(_ => true, []);
+    const { sectors, pooledBaseline2y, pooledBaseline2ySell } =
+      await repo.populateSectorsForCycle(POPSEC_ASOF);
+    assert.equal(sectors.length, 0);
+    assert.deepEqual(pooledBaseline2y, []);
+    assert.deepEqual(pooledBaseline2ySell, []);
+  });
 });
 
 // ───── writeSnapshot ────────────────────────────────────────────────
+
+/** ADR-055 (v5) — a cold-start pooled stat for snapshot fixtures. */
+function coldStartPooled(over: Partial<Form4InsiderPooledStat> = {}): Form4InsiderPooledStat {
+  return {
+    pooledRateT: null, zEmp: null, exceedance: null,
+    effectiveEvents: 0, effectiveSample: 0, baselineSize: 0, insufficientData: true,
+    ...over,
+  };
+}
 
 function fixtureSnapshot(overrides: Partial<Form4InsiderSnapshot> = {}): Form4InsiderSnapshot {
   return {
@@ -932,6 +1032,9 @@ function fixtureSnapshot(overrides: Partial<Form4InsiderSnapshot> = {}): Form4In
     form4SellClusterFlag: false,
     maxAggregateZSell: null,
     maxAggregateZSellSector: null,
+    // ADR-055 (v5) — GATED pooled-stat metadata; cold-start by default.
+    pooledBuyStat: coldStartPooled(),
+    pooledSellStat: coldStartPooled(),
     perTickerRows: [{
       ticker: 'AAPL', cik: '0000320193', sector: null,
       insiderBuyCount90d: 2,
@@ -967,7 +1070,10 @@ describe('writeSnapshot', () => {
     assert.equal(perTicker[0].insiderBuyCount90d, 2);
     assert.equal(perTicker[0].insiderNetDollar90d, 89500);
     assert.equal(perTicker[0].insiderClusterBuyFlag, false);
-    const flagged = JSON.parse(row.flagged_sectors_json as string);
+    // ADR-055 D5 (v5): flagged_sectors_json is now the wrapper { sectors, pooled }
+    // (NO DDL — the per-sector list is informational; the pooled stat is gated).
+    const decoded = JSON.parse(row.flagged_sectors_json as string);
+    const flagged = decoded.sectors;
     assert.equal(flagged[0].sector, 'Information Technology');
     // ADR-053/054: the flagged-sector JSON carries zEmp + exceedance +
     // effectiveEvents (ADR-054 guard metric) + effectiveSample (diagnostic m).
@@ -976,15 +1082,18 @@ describe('writeSnapshot', () => {
     assert.equal(flagged[0].effectiveEvents, 24);
     assert.equal(flagged[0].effectiveSample, 120);
     assert.equal(flagged[0].clusterRateT, 0.071);
+    // ADR-055: the GATED pooled-stat metadata rides in the same column.
+    assert.ok(decoded.pooled, 'pooled stat present in flagged_sectors_json');
+    assert.equal(decoded.pooled.insufficientData, true); // cold-start fixture
   });
 
   it('maps version → composite_version column (load-bearing: snapshot DDL has no DEFAULT)', async () => {
     const { repo, fake } = makeRepo();
     await repo.writeSnapshot(fixtureSnapshot());
     const row = fake.inserts[0].values[0];
-    // ADR-054 D4 — version bumped to v4 (event-count effective-sample guard;
-    // the empirical-exceedance aggregate statistic from v3/ADR-053 is unchanged).
-    assert.equal(row.composite_version, 'form_4_insider_v4');
+    // ADR-055 D4 — version bumped to v5 (cross-sectional pooled gated unit; the
+    // empirical-exceedance statistic + event-floor guard are unchanged).
+    assert.equal(row.composite_version, 'form_4_insider_v5');
     assert.equal(row.version, undefined);
   });
 
@@ -1005,7 +1114,11 @@ describe('writeSnapshot', () => {
     const row = fake.inserts[0].values[0];
     assert.equal(row.last_edgar_query_at, null);
     assert.equal(row.bd_since_last_query, null);
-    assert.equal(row.flagged_sectors_json, '[]');
+    // ADR-055 D5 (v5): flagged_sectors_json is the wrapper { sectors: [], pooled }
+    // even when there are no flagged sectors (the pooled stat always rides along).
+    const decoded = JSON.parse(row.flagged_sectors_json as string);
+    assert.deepEqual(decoded.sectors, []);
+    assert.ok(decoded.pooled);
     assert.equal(row.per_ticker_json, '[]');
   });
 
@@ -1088,6 +1201,65 @@ describe('loadLatestSnapshot', () => {
     assert.equal(s.version, 'form_4_insider_v1');
     assert.ok(s.lastEdgarQueryAt instanceof Date);
     assert.equal((s.lastEdgarQueryAt as Date).toISOString().slice(0, 19), '2026-05-14T10:35:21');
+    // ADR-055 D5: a LEGACY bare-array flagged_sectors_json decodes to a cold-start
+    // pooled stat (the pooled construct did not exist pre-v5).
+    assert.equal(s.pooledBuyStat.insufficientData, true);
+    assert.equal(s.pooledBuyStat.pooledRateT, null);
+  });
+
+  it('ADR-055 (v5): round-trips the wrapper { sectors, pooled } from flagged_sectors_json (NO DDL)', async () => {
+    const { repo, fake } = makeRepo();
+    const wrapper = JSON.stringify({
+      sectors: [{
+        sector: 'Information Technology', sectorSize: 70, clusterRateT: 0.071,
+        zEmp: 2.4, exceedance: 0.0099, effectiveEvents: 24, effectiveSample: 120, baselineSize: 503,
+      }],
+      pooled: {
+        pooledRateT: 0.03, zEmp: 2.31, exceedance: 0.0104,
+        effectiveEvents: 22, effectiveSample: 95, baselineSize: 503, insufficientData: false,
+      },
+    });
+    const sellWrapper = JSON.stringify({
+      sectors: [],
+      pooled: {
+        pooledRateT: 0.0, zEmp: null, exceedance: null,
+        effectiveEvents: 18, effectiveSample: 60, baselineSize: 400, insufficientData: true,
+      },
+    });
+    fake.route(_ => true, [{
+      snapshot_date: '2026-05-19',
+      computed_at_ms: String(DATE.getTime()),
+      last_edgar_query_at: null,
+      bd_since_last_query: null,
+      form_4_cluster_flag: 1,
+      flagged_sectors_json: wrapper,
+      per_ticker_json: '[]',
+      inputs_available_aggregate: '11',
+      inputs_available_per_ticker: '0',
+      composite_version: 'form_4_insider_v5',
+      max_aggregate_z: 2.31,
+      max_aggregate_z_sector: 'S&P 500',
+      form_4_sell_cluster_flag: 0,
+      flagged_sell_sectors_json: sellWrapper,
+      max_aggregate_z_sell: null,
+      max_aggregate_z_sell_sector: null,
+    }]);
+    const snap = await repo.loadLatestSnapshot();
+    assert.ok(snap);
+    const s = snap as Form4InsiderSnapshot;
+    // Per-sector informational list recovered.
+    assert.equal(s.flaggedSectors.length, 1);
+    assert.equal(s.flaggedSectors[0].sector, 'Information Technology');
+    // Pooled gated-stat metadata recovered.
+    assert.equal(s.pooledBuyStat.pooledRateT, 0.03);
+    assert.equal(s.pooledBuyStat.zEmp, 2.31);
+    assert.equal(s.pooledBuyStat.effectiveEvents, 22);
+    assert.equal(s.pooledBuyStat.insufficientData, false);
+    // Sell-side pooled (under-the-floor → insufficientData) recovered too.
+    assert.equal(s.flaggedSellSectors.length, 0);
+    assert.equal(s.pooledSellStat.effectiveEvents, 18);
+    assert.equal(s.pooledSellStat.insufficientData, true);
+    assert.equal(s.version, 'form_4_insider_v5');
   });
 
   it('handles malformed per_ticker_json by degrading to empty array', async () => {
@@ -1200,12 +1372,15 @@ describe('G2-SELL-G3-F4 — sell-cluster persistence (s95 #2)', () => {
     assert.equal(row.form_4_sell_cluster_flag, 1);
     assert.equal(row.max_aggregate_z_sell, 2.31);
     assert.equal(row.max_aggregate_z_sell_sector, 'Energy');
-    const flaggedSell = JSON.parse(row.flagged_sell_sectors_json as string);
+    // ADR-055 D5 (v5): flagged_sell_sectors_json is the wrapper { sectors, pooled }.
+    const sellDecoded = JSON.parse(row.flagged_sell_sectors_json as string);
+    const flaggedSell = sellDecoded.sectors;
     assert.equal(flaggedSell.length, 1);
     assert.equal(flaggedSell[0].sector, 'Energy');
     assert.equal(flaggedSell[0].zEmp, 2.31);
     assert.equal(flaggedSell[0].exceedance, 0.0104);
-    // Cold-start pass-through: all four fields null/false/[]/null.
+    assert.ok(sellDecoded.pooled, 'pooled sell stat present in flagged_sell_sectors_json');
+    // Cold-start pass-through: flag/z/sector null; the wrapper carries empty sectors.
     await repo.writeSnapshot(fixtureSnapshot({
       flaggedSellSectors: [],
       form4SellClusterFlag: false,
@@ -1216,7 +1391,9 @@ describe('G2-SELL-G3-F4 — sell-cluster persistence (s95 #2)', () => {
     assert.equal(row2.form_4_sell_cluster_flag, 0);
     assert.equal(row2.max_aggregate_z_sell, null);
     assert.equal(row2.max_aggregate_z_sell_sector, null);
-    assert.equal(row2.flagged_sell_sectors_json, '[]');
+    const sellDecoded2 = JSON.parse(row2.flagged_sell_sectors_json as string);
+    assert.deepEqual(sellDecoded2.sectors, []);
+    assert.ok(sellDecoded2.pooled);
   });
 
   it('G2-SELL-G3-F4-2: loadLatestSnapshot recovers all 4 sell-side columns from the CH row', async () => {

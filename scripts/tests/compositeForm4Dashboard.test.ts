@@ -64,16 +64,29 @@ function snap(over: Partial<Form4InsiderSnapshot> = {}): Form4InsiderSnapshot {
       zEmp: 2.31, exceedance: 0.0104, effectiveEvents: 22, effectiveSample: 95, baselineSize: 400,
     }],
     form4ClusterFlag: true,
+    // ADR-055 (v5): maxAggregateZ is the POOLED zEmp; the sector label is the
+    // index 'S&P 500'. (This fixture exercises the dashboard projection, which
+    // passes these through transparently from the snapshot.)
     maxAggregateZ: 2.31,
-    maxAggregateZSector: 'Health Care',
+    maxAggregateZSector: 'S&P 500',
     flaggedSellSectors: [],
     form4SellClusterFlag: false,
     maxAggregateZSell: 1.73,
-    maxAggregateZSellSector: 'Information Technology',
+    maxAggregateZSellSector: 'S&P 500',
+    // ADR-055 (v5): GATED pooled-stat metadata. Buy stat fired (the source of the
+    // 2.31 zEmp); sell stat under the floor (insufficientData) here.
+    pooledBuyStat: {
+      pooledRateT: 0.04, zEmp: 2.31, exceedance: 0.0104,
+      effectiveEvents: 22, effectiveSample: 95, baselineSize: 400, insufficientData: false,
+    },
+    pooledSellStat: {
+      pooledRateT: 0.02, zEmp: 1.73, exceedance: 0.04,
+      effectiveEvents: 21, effectiveSample: 70, baselineSize: 400, insufficientData: false,
+    },
     perTickerRows: [ptRow()],
     inputsAvailableAggregate: 11,
     inputsAvailablePerTicker: 60,
-    version: 'form_4_insider_v4',
+    version: 'form_4_insider_v5',
     ...over,
   };
 }
@@ -173,12 +186,12 @@ describe('form_4 projectPayload', () => {
     const p = projectPayload(snap(), hist, 365, NOW);
     assert.equal(p.composite, 'form_4_insider');
     assert.equal(p.hasData, true);
-    assert.equal(p.compositeVersion, 'form_4_insider_v4');
+    assert.equal(p.compositeVersion, 'form_4_insider_v5');
     assert.equal(p.verdict, 'buy_cluster');                // buy flag only
     assert.equal(p.snapshotDate, '2026-05-22');            // from last history row
     assert.equal(p.staleDays, 6);
     const m = new Map(p.metrics.map(x => [x.key, x.value]));
-    // ADR-053: bounded zEmp from the latest snap fixture (was the old Gaussian 5.57).
+    // ADR-055: maxAggregateZ is the bounded POOLED zEmp (was per-sector max).
     assert.equal(m.get('maxAggregateZ'), 2.31);
     assert.equal(m.get('maxAggregateZSell'), 1.73);
     assert.equal(m.get('sellClusterTickers'), 1);          // the one perTicker row has sell cluster
@@ -189,8 +202,8 @@ describe('form_4 projectPayload', () => {
     assert.equal(p.inputsTotal, INPUTS_TOTAL);
     assert.equal(p.inputsPresent, INPUT_AGG | INPUT_PER_TICKER);
     assert.equal(p.inputsPresentCount, 2);
-    // context carries the named sectors + granular counts
-    assert.ok(p.context?.some(c => c.value.startsWith('Health Care')));
+    // context carries the index-level pool label + granular counts (ADR-055 D5).
+    assert.ok(p.context?.some(c => c.value.startsWith('S&P 500')));
     assert.ok(p.context?.some(c => c.value === '11/11 sectors'));
     // drill present
     assert.ok(p.drill);

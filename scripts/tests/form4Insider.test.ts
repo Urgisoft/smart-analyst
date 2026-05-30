@@ -32,12 +32,14 @@ import {
   daysSinceLatestTradeByCode,
   flagInsiderCluster,
   computeSectorClusterRate,
+  computeSectorClusterCount,
   computeZ,
   computeEmpiricalExceedance,
   countNonZeroRuns,
   flagForm4Cluster,
   flagForm4ClusterEmpirical,
   evaluateForm4InsiderComposite,
+  POOLED_AGGREGATE_LABEL,
   type InsiderTrade,
   type Form4InsiderInputs,
 } from '../../src/server/form_4_insider.js';
@@ -80,7 +82,11 @@ function makeTrade(overrides: Partial<InsiderTrade> = {}): InsiderTrade {
   };
 }
 
-/** Build composite inputs with overrides. */
+/** Build composite inputs with overrides.
+ *  ADR-055 (v5): `pooledBaseline2y` / `pooledBaseline2ySell` default to `[]` so
+ *  the GATED pooled aggregate is cold-start (insufficient data) unless a test
+ *  supplies them. Tests that exercise the aggregate FIRING path must pass a
+ *  pooled baseline; per-sector-only fixtures (informational) leave them empty. */
 function makeInputs(overrides: Partial<Form4InsiderInputs> = {}): Form4InsiderInputs {
   return {
     asOf: ASOF,
@@ -88,8 +94,27 @@ function makeInputs(overrides: Partial<Form4InsiderInputs> = {}): Form4InsiderIn
     bdSinceLastQuery: 0,
     perTicker: [],
     sectors: [],
+    pooledBaseline2y: [],
+    pooledBaseline2ySell: [],
     ...overrides,
   };
+}
+
+/** ADR-055/054 helper — build a baseline with `events` ISOLATED non-zero days
+ *  (each separated by a single zero) = `events` distinct maximal non-zero runs,
+ *  padded with trailing zeros to length `n`. Small non-zero value so a larger
+ *  `today` exceeds every baseline day. Used to construct POOLED-baseline fixtures
+ *  with a precise `effectiveEvents` count under the ADR-054 event-floor guard.
+ *  (Duplicate of the later module-scope `makeEventBaseline`; hoisted here so the
+ *  aggregate-firing tests can build pooled baselines.) */
+function eventBaseline(events: number, n: number, val = 0.01): number[] {
+  const b: number[] = [];
+  for (let i = 0; i < events; i++) {
+    b.push(val);
+    if (b.length < n) b.push(0);
+  }
+  while (b.length < n) b.push(0);
+  return b.slice(0, n);
 }
 
 // ── T-F4-1: insider_buy_count_90d counts only code "P" in window ────────────
@@ -717,12 +742,15 @@ describe('flagForm4Cluster (T-F4-14)', () => {
     assert.equal(flagForm4Cluster([null, 1.5, null, -1.8]), false);
   });
 
-  it('via composite: surfaces flaggedSectors when the empirical α-tail fires', () => {
-    // ADR-054: the baseline must contain ≥ EVENT_FLOOR=20 distinct INDEPENDENT
-    // events (maximal non-zero runs) to be valid — a contiguous non-zero run is
-    // ONE event and would be guard-suppressed. Lay 25 isolated small non-zero
-    // days (separated by zeros) → 25 events, n=50 ≥ 30; today's 0.20 rate exceeds
-    // every baseline day → exceedance ≤ α → fires.
+  it('via composite: surfaces informational flaggedSectors AND fires the pooled aggregate flag (ADR-055)', () => {
+    // ADR-054: baselines must contain ≥ EVENT_FLOOR=20 distinct INDEPENDENT events
+    // (maximal non-zero runs). Lay 25 isolated small non-zero days (separated by
+    // zeros) → 25 events, n=50 ≥ 30; today's rate exceeds every baseline day.
+    // ADR-055 (v5): the per-sector `baseline2y` drives the INFORMATIONAL
+    // flaggedSectors list; the GATED `form4ClusterFlag` derives from the POOLED
+    // baseline. Here the single sector (6 cluster tickers / 30) pools to
+    // pooledRate = 6/30 = 0.20; both baselines have 25 isolated events so both the
+    // per-sector AND pooled stats fire.
     const baseline: number[] = [];
     for (let i = 0; i < 25; i++) {
       baseline.push(0.02 + ((i % 4) - 1.5) * 0.005);
@@ -749,22 +777,65 @@ describe('flagForm4Cluster (T-F4-14)', () => {
         baseline2y: baseline,
         baseline2ySell: [],
       }],
+      // ADR-055: the pooled baseline GATES form4ClusterFlag. Same isolated-event
+      // shape, all values < 0.20 so the pooled rate 0.20 exceeds every day.
+      pooledBaseline2y: baseline,
     });
     const snap = evaluateForm4InsiderComposite(inputs);
+    // Informational per-sector layer still populated (ADR-055 D2).
     assert.equal(snap.flaggedSectors.length, 1);
     const flagged = snap.flaggedSectors[0];
     assert.equal(flagged.sector, 'Information Technology');
     assert.equal(flagged.sectorSize, 30);
     assertClose(flagged.clusterRateT, 6 / 30);
-    // ADR-053: a flagged sector cleared the empirical α-tail; zEmp is bounded.
     assert.ok(flagged.exceedance <= FORM_4_EXCEEDANCE_ALPHA);
     assert.ok(flagged.zEmp >= 0 && flagged.zEmp < 2.6,
       `zEmp must be bounded, got ${flagged.zEmp}`);
+    // GATED aggregate fires from the POOLED stat (ADR-055 D1).
     assert.equal(snap.form4ClusterFlag, true);
+    assertClose(snap.pooledBuyStat.pooledRateT, 6 / 30);
+    assert.equal(snap.maxAggregateZSector, POOLED_AGGREGATE_LABEL);
+    assert.ok((snap.maxAggregateZ ?? 0) >= 0 && (snap.maxAggregateZ ?? 0) < 2.6);
   });
 
-  it('cold-start baseline does NOT flag cluster', () => {
-    // 6 cluster-buy tickers — but the baseline is empty (cold start)
+  it('ADR-055: per-sector flag does NOT gate — a flagged sector with NO pooled baseline yields form4ClusterFlag=false', () => {
+    // The whole point of ADR-055 D2: per-sector is INFORMATIONAL. A sector that
+    // clears its own α-tail still does NOT fire the aggregate when the POOLED
+    // baseline is cold-start (empty). The informational flaggedSectors list is
+    // populated; the gated flag is false.
+    const baseline: number[] = [];
+    for (let i = 0; i < 25; i++) {
+      baseline.push(0.02 + ((i % 4) - 1.5) * 0.005);
+      baseline.push(0);
+    }
+    const sectorTrades: InsiderTrade[] = [];
+    for (let ti = 0; ti < 6; ti++) {
+      const ticker = `T${ti}`;
+      for (let pi = 0; pi < 3; pi++) {
+        sectorTrades.push(makeTrade({
+          issuerTicker: ticker, accession: `${ticker}-${pi}`,
+          transactionCode: 'P', personCik: `0001${ti}${pi}00001`,
+          acceptedAt: new Date(ASOF.getTime() - (5 + pi * 2) * DAY_MS),
+        }));
+      }
+    }
+    const inputs = makeInputs({
+      sectors: [{
+        sector: 'Information Technology', sectorSize: 30,
+        trades: sectorTrades, baseline2y: baseline, baseline2ySell: [],
+      }],
+      // pooledBaseline2y defaults to [] → pooled stat cold-start → flag false.
+    });
+    const snap = evaluateForm4InsiderComposite(inputs);
+    assert.equal(snap.flaggedSectors.length, 1, 'per-sector informational layer still fires');
+    assert.equal(snap.form4ClusterFlag, false, 'pooled gate cold-start → aggregate flag false');
+    assert.equal(snap.maxAggregateZ, null);
+    assert.equal(snap.maxAggregateZSector, null);
+    assert.equal(snap.pooledBuyStat.insufficientData, true);
+  });
+
+  it('cold-start baseline does NOT flag cluster (both per-sector AND pooled empty)', () => {
+    // 6 cluster-buy tickers — but both baselines are empty (cold start)
     const sectorTrades: InsiderTrade[] = [];
     for (let ti = 0; ti < 6; ti++) {
       const ticker = `T${ti}`;
@@ -1004,31 +1075,27 @@ describe('S93-37 load-bearing: composite filters off-set codes (cross-cutting)',
   });
 });
 
-// ── MAXZ-F4-{1..4} aggregate-layer max-|z| observability ────────────────────
-// SPEC docs/specs/gics-sector-baseline-computation.md §5.2 + §2.
-// ADR-042 §1 Decision §1 — maxAggregateZ / maxAggregateZSector exposed at the
-// composite-evaluator boundary for the brief renderer's §1.4 LIVE branch.
+// ── MAXZ-F4-{1..4} aggregate-layer observability — POOLED (ADR-055 v5) ───────
+// Pre-v5 these pinned the MAX-over-sectors zEmp. ADR-055 (v5) changes the GATED
+// unit to the index-level POOLED stat: `maxAggregateZ` = the pooled zEmp;
+// `maxAggregateZSector` = the literal 'S&P 500' (the unit is the index, ADR-055
+// D5), not a GICS sector argmax. These tests now pin the pooled semantics.
 
-describe('aggregate-layer maxAggregateZ + maxAggregateZSector (MAXZ-F4-1..4)', () => {
-  // ADR-054 (OQ-C36-1): the validity guard now counts distinct INDEPENDENT
-  // EVENTS (maximal non-zero runs), not non-zero days, and requires
-  // effectiveEvents ≥ EVENT_FLOOR = 20. A baseline of contiguous non-zero values
-  // is ONE event and would be suppressed; the helper therefore lays the non-zero
-  // values as ISOLATED events (separated by zeros) so a genuine anomaly fixture
-  // clears the event floor. 25 small (~0.02) isolated non-zero days → 25 events,
-  // n=50 ≥ 30; today's cluster-rate (≥ 0.1) exceeds every baseline day → fires.
+describe('aggregate-layer maxAggregateZ + maxAggregateZSector — POOLED (MAXZ-F4-1..4 / ADR-055)', () => {
+  // ADR-054: isolated non-zero events (separated by zeros) so the baseline clears
+  // EVENT_FLOOR = 20 distinct events. 25 events, n=50 ≥ 30; all values ≤ 0.0275 so
+  // a larger pooled rate today exceeds every baseline day.
   function makeBaseline(): number[] {
     const b: number[] = [];
     for (let i = 0; i < 25; i++) {
-      b.push(0.02 + ((i % 4) - 1.5) * 0.005); // an isolated non-zero event
-      b.push(0);                              // a zero separating it from the next
+      b.push(0.02 + ((i % 4) - 1.5) * 0.005);
+      b.push(0);
     }
-    return b; // length 50, 25 distinct events, all values ≤ 0.0275
+    return b;
   }
 
   // Build trades that produce a buy-cluster fire on `tickerCount` distinct
   // tickers in a sector (≥ 3 distinct personCiks per ticker within 30d).
-  // Mirrors the existing T-F4 "via composite" test pattern.
   function makeSectorClusterTrades(tickerCount: number): InsiderTrade[] {
     const trades: InsiderTrade[] = [];
     for (let ti = 0; ti < tickerCount; ti++) {
@@ -1045,43 +1112,27 @@ describe('aggregate-layer maxAggregateZ + maxAggregateZSector (MAXZ-F4-1..4)', (
     return trades;
   }
 
-  // Replicate the evaluator's per-sector cluster-rate derivation so the
-  // expected-z computation is byte-identical to the evaluator's path.
-  function expectedRate(
-    trades: ReadonlyArray<InsiderTrade>,
-    sectorSize: number,
-  ): number | null {
-    const deduped = dedupeTrades(trades);
-    const psFiltered = filterTradesToHighSignalCodes(deduped);
-    const inWindow = filterTradesInWindow(psFiltered, ASOF, ROLLING_WINDOW_DAYS);
-    return computeSectorClusterRate(inWindow, sectorSize, ASOF);
-  }
-
-  it('MAXZ-F4-1: maxAggregateZ is the max bounded zEmp across valid sectors (ADR-053)', () => {
+  it('MAXZ-F4-1 (ADR-055): maxAggregateZ is the POOLED bounded zEmp (NOT max-over-sectors)', () => {
     const baseline = makeBaseline();
+    // 3 sectors, sizes 30/30/30, 8+2+4 = 14 cluster tickers → pooledRate = 14/90.
     const inputs = makeInputs({
       sectors: [
         { sector: 'Energy', sectorSize: 30, trades: makeSectorClusterTrades(8), baseline2y: baseline, baseline2ySell: [] },
         { sector: 'Health Care', sectorSize: 30, trades: makeSectorClusterTrades(2), baseline2y: baseline, baseline2ySell: [] },
         { sector: 'Materials', sectorSize: 30, trades: makeSectorClusterTrades(4), baseline2y: baseline, baseline2ySell: [] },
       ],
+      pooledBaseline2y: baseline,
     });
     const snap = evaluateForm4InsiderComposite(inputs);
-    const expected = inputs.sectors.map((s) => ({
-      sector: s.sector,
-      zEmp: computeEmpiricalExceedance(expectedRate(s.trades, s.sectorSize), s.baseline2y).zEmp,
-    }));
-    let bestZ: number | null = null;
-    for (const r of expected) {
-      if (r.zEmp != null && (bestZ == null || r.zEmp > bestZ)) bestZ = r.zEmp;
-    }
-    assert.ok(bestZ != null, 'expected at least one non-null zEmp in test setup');
-    assert.equal(snap.maxAggregateZ, bestZ);
-    // Bounded — never a fabricated σ.
+    // The pooled rate is the issuer-weighted pool 14/90 (≈ 0.1556), which exceeds
+    // every baseline day → fires; maxAggregateZ is the pooled zEmp (bounded).
+    assertClose(snap.pooledBuyStat.pooledRateT, 14 / 90);
+    const pooledZ = computeEmpiricalExceedance(14 / 90, baseline).zEmp;
+    assert.equal(snap.maxAggregateZ, pooledZ);
     assert.ok((snap.maxAggregateZ ?? 0) >= 0 && (snap.maxAggregateZ ?? 0) < 2.6);
   });
 
-  it('MAXZ-F4-2: maxAggregateZSector names the sector with max zEmp', () => {
+  it('MAXZ-F4-2 (ADR-055): maxAggregateZSector is the literal S&P 500 (the index unit)', () => {
     const baseline = makeBaseline();
     const inputs = makeInputs({
       sectors: [
@@ -1089,39 +1140,30 @@ describe('aggregate-layer maxAggregateZ + maxAggregateZSector (MAXZ-F4-1..4)', (
         { sector: 'Health Care', sectorSize: 30, trades: makeSectorClusterTrades(2), baseline2y: baseline, baseline2ySell: [] },
         { sector: 'Materials', sectorSize: 30, trades: makeSectorClusterTrades(4), baseline2y: baseline, baseline2ySell: [] },
       ],
+      pooledBaseline2y: baseline,
     });
     const snap = evaluateForm4InsiderComposite(inputs);
-    const expected = inputs.sectors.map((s) => ({
-      sector: s.sector,
-      zEmp: computeEmpiricalExceedance(expectedRate(s.trades, s.sectorSize), s.baseline2y).zEmp,
-    }));
-    let bestZ = -Infinity;
-    let expectedSector: string | null = null;
-    for (const r of expected) {
-      // Lexicographic tie-break mirrors the evaluator.
-      if (r.zEmp != null && (r.zEmp > bestZ || (r.zEmp === bestZ && (expectedSector == null || r.sector < expectedSector)))) {
-        bestZ = r.zEmp;
-        expectedSector = r.sector;
-      }
-    }
-    assert.equal(snap.maxAggregateZSector, expectedSector);
-    // Energy has the highest cluster-rate (8 tickers) → strongest exceedance.
-    assert.equal(snap.maxAggregateZSector, 'Energy');
+    assert.equal(snap.maxAggregateZSector, POOLED_AGGREGATE_LABEL);
+    assert.equal(snap.maxAggregateZSector, 'S&P 500');
   });
 
-  it('MAXZ-F4-3: both fields null when all sector z\'s are null (cold-start)', () => {
+  it('MAXZ-F4-3 (ADR-055): both fields null when the POOLED baseline is cold-start', () => {
+    // Per-sector baselines present but the POOLED baseline empty → pooled stat
+    // guard-suppressed → maxAggregateZ + sector null (the gated unit is pooled).
+    const baseline = makeBaseline();
     const inputs = makeInputs({
       sectors: [
-        { sector: 'Energy', sectorSize: 30, trades: makeSectorClusterTrades(8), baseline2y: [], baseline2ySell: [] },
-        { sector: 'Materials', sectorSize: 30, trades: makeSectorClusterTrades(4), baseline2y: [], baseline2ySell: [] },
+        { sector: 'Energy', sectorSize: 30, trades: makeSectorClusterTrades(8), baseline2y: baseline, baseline2ySell: [] },
+        { sector: 'Materials', sectorSize: 30, trades: makeSectorClusterTrades(4), baseline2y: baseline, baseline2ySell: [] },
       ],
+      // pooledBaseline2y defaults to [] → pooled cold-start.
     });
     const snap = evaluateForm4InsiderComposite(inputs);
     assert.equal(snap.maxAggregateZ, null);
     assert.equal(snap.maxAggregateZSector, null);
   });
 
-  it('MAXZ-F4-4: ties broken lexicographically (earlier sector name wins; input order-independent)', () => {
+  it('MAXZ-F4-4 (ADR-055): pooled maxAggregateZ is input-order-independent', () => {
     const baseline = makeBaseline();
     const trades = makeSectorClusterTrades(5);
     const inputsA = makeInputs({
@@ -1129,18 +1171,23 @@ describe('aggregate-layer maxAggregateZ + maxAggregateZSector (MAXZ-F4-1..4)', (
         { sector: 'Materials', sectorSize: 40, trades, baseline2y: baseline, baseline2ySell: [] },
         { sector: 'Energy', sectorSize: 40, trades, baseline2y: baseline, baseline2ySell: [] },
       ],
+      pooledBaseline2y: baseline,
     });
     const inputsB = makeInputs({
       sectors: [
         { sector: 'Energy', sectorSize: 40, trades, baseline2y: baseline, baseline2ySell: [] },
         { sector: 'Materials', sectorSize: 40, trades, baseline2y: baseline, baseline2ySell: [] },
       ],
+      pooledBaseline2y: baseline,
     });
     const snapA = evaluateForm4InsiderComposite(inputsA);
     const snapB = evaluateForm4InsiderComposite(inputsB);
-    assert.equal(snapA.maxAggregateZSector, 'Energy');
-    assert.equal(snapB.maxAggregateZSector, 'Energy');
+    // Same sectors, same pool (5+5 = 10 tickers / 80) regardless of input order.
+    assert.equal(snapA.maxAggregateZSector, POOLED_AGGREGATE_LABEL);
+    assert.equal(snapB.maxAggregateZSector, POOLED_AGGREGATE_LABEL);
     assert.equal(snapA.maxAggregateZ, snapB.maxAggregateZ);
+    assertClose(snapA.pooledBuyStat.pooledRateT, 10 / 80);
+    assertClose(snapB.pooledBuyStat.pooledRateT, 10 / 80);
   });
 });
 
@@ -1220,10 +1267,12 @@ describe('F4-12 v2 sell-cluster sector aggregation (G2-SELL-*)', () => {
   });
 
   // G2-SELL-F4-3 — orchestrator emits form4SellClusterFlag=true on sell-side anomaly.
-  it('G2-SELL-F4-3: form4SellClusterFlag fires on sell-side empirical α-tail (ADR-053)', () => {
+  it('G2-SELL-F4-3: form4SellClusterFlag fires on the POOLED sell α-tail (ADR-055)', () => {
     const baseline = makeBaseline();
-    // 6 sell-cluster tickers in sector of 30 → sell-rate = 0.20, well above
-    // every baseline day → exceedance ≤ α → fires.
+    // 6 sell-cluster tickers in sector of 30 → pooled sell-rate = 6/30 = 0.20,
+    // well above every baseline day → exceedance ≤ α → fires. The GATED sell flag
+    // derives from the POOLED sell baseline (ADR-055); the per-sector
+    // flaggedSellSectors list is informational.
     const inputs = makeInputs({
       sectors: [{
         sector: 'Information Technology',
@@ -1232,6 +1281,7 @@ describe('F4-12 v2 sell-cluster sector aggregation (G2-SELL-*)', () => {
         baseline2y: [],
         baseline2ySell: baseline,
       }],
+      pooledBaseline2ySell: baseline,
     });
     const snap = evaluateForm4InsiderComposite(inputs);
     assert.equal(snap.form4SellClusterFlag, true);
@@ -1242,17 +1292,19 @@ describe('F4-12 v2 sell-cluster sector aggregation (G2-SELL-*)', () => {
     assertClose(flagged.clusterRateT, 6 / 30);
     assert.ok(flagged.exceedance <= FORM_4_EXCEEDANCE_ALPHA);
     assert.ok(flagged.zEmp >= 0 && flagged.zEmp < 2.6);
-    // Buy-side independent: cold-start baseline2y → buy-stat null → buy-flag false.
+    // Pooled sell stat is the gated unit; sector label is the index.
+    assertClose(snap.pooledSellStat.pooledRateT, 6 / 30);
+    assert.equal(snap.maxAggregateZSellSector, POOLED_AGGREGATE_LABEL);
+    // Buy-side independent: empty pooled buy baseline → buy-flag false.
     assert.equal(snap.form4ClusterFlag, false);
     assert.equal(snap.flaggedSectors.length, 0);
   });
 
-  // G2-SELL-F4-4 — buy + sell flags are independent; both can fire concurrently.
-  // The independence invariant is about the FLAGS. ADR-053: the empirical tail is
-  // ONE-SIDED, so a zero-rate today (Financials buy, Energy sell) yields
-  // exceedance ≈ 1.0 → zEmp 0 → does NOT fire its opposite direction; only the
-  // direction whose trades match fires.
-  it('G2-SELL-F4-4: buy + sell flags are independent (both can fire concurrently)', () => {
+  // G2-SELL-F4-4 — buy + sell pooled flags are independent; both can fire
+  // concurrently. ADR-055: the gated flags derive from the POOLED buy/sell stats.
+  // Energy contributes the buy cluster, Financials the sell cluster; pooled buy
+  // rate = 6/60 = 0.1 and pooled sell rate = 6/60 = 0.1 both exceed the baseline.
+  it('G2-SELL-F4-4: pooled buy + sell flags are independent (both can fire concurrently)', () => {
     const baseline = makeBaseline();
     const inputs = makeInputs({
       sectors: [
@@ -1273,56 +1325,56 @@ describe('F4-12 v2 sell-cluster sector aggregation (G2-SELL-*)', () => {
           baseline2ySell: baseline,
         },
       ],
+      pooledBaseline2y: baseline,
+      pooledBaseline2ySell: baseline,
     });
     const snap = evaluateForm4InsiderComposite(inputs);
-    assert.equal(snap.form4ClusterFlag, true, 'buy-side flag fires');
-    assert.equal(snap.form4SellClusterFlag, true, 'sell-side flag fires');
+    assert.equal(snap.form4ClusterFlag, true, 'pooled buy flag fires');
+    assert.equal(snap.form4SellClusterFlag, true, 'pooled sell flag fires');
+    // Informational per-sector lists still carry the contributing sectors (D2).
     const flaggedBuyByName = new Set(snap.flaggedSectors.map(f => f.sector));
     const flaggedSellByName = new Set(snap.flaggedSellSectors.map(f => f.sector));
-    // Each direction's primary-anomaly sector appears in its own bucket.
     assert.ok(flaggedBuyByName.has('Energy'),
-      'Energy (positive buy-cluster anomaly) flagged on buy-side');
+      'Energy (buy-cluster) in the informational buy list');
     assert.ok(flaggedSellByName.has('Financials'),
-      'Financials (positive sell-cluster anomaly) flagged on sell-side');
-    // Look at the max-z sectors: max |z| on each direction must be the sector
-    // whose actual trades match that direction.
-    assert.equal(snap.maxAggregateZSector, 'Energy',
-      'max |z| on buy-side is Energy (positive z dominates)');
-    assert.equal(snap.maxAggregateZSellSector, 'Financials',
-      'max |z| on sell-side is Financials (positive z dominates)');
+      'Financials (sell-cluster) in the informational sell list');
+    // ADR-055 D5: the gated sector label is the index (pool), not a GICS argmax.
+    assert.equal(snap.maxAggregateZSector, POOLED_AGGREGATE_LABEL);
+    assert.equal(snap.maxAggregateZSellSector, POOLED_AGGREGATE_LABEL);
+    assertClose(snap.pooledBuyStat.pooledRateT, 6 / 60);
+    assertClose(snap.pooledSellStat.pooledRateT, 6 / 60);
   });
 
-  // G2-SELL-F4-5 — maxAggregateZSell + sector are populated symmetrically;
-  // tie-break is the same lexicographic rule as the buy-side counterpart.
-  it('G2-SELL-F4-5: maxAggregateZSell + maxAggregateZSellSector populated symmetrically', () => {
+  // G2-SELL-F4-5 — pooled sell stat populated; maxAggregateZSellSector = index.
+  it('G2-SELL-F4-5: pooled maxAggregateZSell + maxAggregateZSellSector populated (ADR-055)', () => {
     const baseline = makeBaseline();
-    // Two sectors with IDENTICAL sell trade panels — z's tie; lexicographic
-    // tie-break picks the earlier name ("Energy" < "Materials").
+    // Two sectors with sell trade panels; pooled sell rate = (5+5)/80 = 0.125.
     const trades = makeSectorClusterTrades(5, 'S');
     const inputs = makeInputs({
       sectors: [
         { sector: 'Materials', sectorSize: 40, trades, baseline2y: [], baseline2ySell: baseline },
         { sector: 'Energy', sectorSize: 40, trades, baseline2y: [], baseline2ySell: baseline },
       ],
+      pooledBaseline2ySell: baseline,
     });
     const snap = evaluateForm4InsiderComposite(inputs);
-    assert.equal(snap.maxAggregateZSellSector, 'Energy');
+    assert.equal(snap.maxAggregateZSellSector, POOLED_AGGREGATE_LABEL);
     assert.ok(snap.maxAggregateZSell != null && Math.abs(snap.maxAggregateZSell) > 0);
-    // Buy-side stays null (empty buy baseline).
+    assertClose(snap.pooledSellStat.pooledRateT, 10 / 80);
+    // Buy-side stays null (empty pooled buy baseline).
     assert.equal(snap.maxAggregateZ, null);
     assert.equal(snap.maxAggregateZSector, null);
   });
 
-  // G2-SELL-F4-6 — cold-start (empty sell baseline) → form4SellClusterFlag=false,
-  // flaggedSellSectors=[], maxAggregateZSell=null, maxAggregateZSellSector=null.
-  it('G2-SELL-F4-6: cold-start (empty baseline2ySell) → sell-side fields cold-start', () => {
+  // G2-SELL-F4-6 — cold-start (empty pooled sell baseline) → sell-side cold-start.
+  it('G2-SELL-F4-6: cold-start (empty pooledBaseline2ySell) → sell-side fields cold-start', () => {
     const snapEmpty = evaluateForm4InsiderComposite(makeInputs());
     assert.equal(snapEmpty.form4SellClusterFlag, false);
     assert.deepEqual([...snapEmpty.flaggedSellSectors], []);
     assert.equal(snapEmpty.maxAggregateZSell, null);
     assert.equal(snapEmpty.maxAggregateZSellSector, null);
 
-    // Even with a sell-cluster fixture, empty baseline2ySell forces cold-start.
+    // Even with a sell-cluster fixture, empty pooled sell baseline forces cold-start.
     const inputs = makeInputs({
       sectors: [{
         sector: 'Information Technology',
@@ -1340,13 +1392,174 @@ describe('F4-12 v2 sell-cluster sector aggregation (G2-SELL-*)', () => {
   });
 });
 
+// ── ADR-055 (v5) — cross-sectional POOLED construct ─────────────────────────
+//
+// The GATED aggregate unit is the index-level pooled cluster-rate
+// `Σ_sectors clusterTickers / Σ_sectors sectorSize` (issuer-weighted), fed through
+// the ADR-053 exceedance + ADR-054 event-floor guard VERBATIM. Per-sector is
+// demoted to INFORMATIONAL (D2). Tests pin: the pooled reducer is Σnum/Σden (NOT
+// mean-of-rates); computeSectorClusterCount golden + the refactor identity;
+// pooled effectiveEvents via countNonZeroRuns; pooled exceedance identity; the
+// per-sector-does-not-gate rule; the honest under_review suppression today.
+
+describe('computeSectorClusterCount (ADR-055 D1 numerator)', () => {
+  function clusterTrades(ticker: string, distinctBuyers: number, code: 'P' | 'S' = 'P'): InsiderTrade[] {
+    const out: InsiderTrade[] = [];
+    for (let i = 0; i < distinctBuyers; i++) {
+      out.push(makeTrade({
+        issuerTicker: ticker, accession: `${ticker}-${code}-${i}`, transactionCode: code,
+        personCik: `${ticker}P${i}`, acceptedAt: new Date(ASOF.getTime() - (3 + i) * DAY_MS),
+      }));
+    }
+    return out;
+  }
+
+  it('counts UNIQUE tickers with ≥3 distinct insiders (golden vector)', () => {
+    const trades = [
+      ...clusterTrades('AAA', 3), // clusters
+      ...clusterTrades('BBB', 4), // clusters
+      ...clusterTrades('CCC', 2), // does NOT cluster (<3)
+    ];
+    assert.equal(computeSectorClusterCount(trades, ASOF, BUY_CODE), 2);
+    // Direction isolation: zero sell clusters in this all-buy panel.
+    assert.equal(computeSectorClusterCount(trades, ASOF, SELL_CODE), 0);
+  });
+
+  it('refactor identity: computeSectorClusterRate === computeSectorClusterCount / size (byte-identical)', () => {
+    const fixtures: Array<{ trades: InsiderTrade[]; size: number }> = [
+      { trades: [...clusterTrades('AAA', 3), ...clusterTrades('BBB', 3), ...clusterTrades('CCC', 2)], size: 30 },
+      { trades: [...clusterTrades('AAA', 5)], size: 50 },
+      { trades: [...clusterTrades('AAA', 3, 'S'), ...clusterTrades('BBB', 4, 'S')], size: 25 },
+      { trades: [], size: 40 },
+    ];
+    for (const { trades, size } of fixtures) {
+      for (const dir of [BUY_CODE, SELL_CODE] as const) {
+        const count = computeSectorClusterCount(trades, ASOF, dir);
+        const rate = computeSectorClusterRate(trades, size, ASOF, dir);
+        assert.equal(rate, count / size,
+          `rate must equal count/size for dir=${dir} size=${size} (count=${count})`);
+      }
+    }
+    // sectorSize ≤ 0 → rate null (the count is still defined, but no rate).
+    assert.equal(computeSectorClusterRate([], 0, ASOF), null);
+  });
+});
+
+describe('pooled reducer (ADR-055 D1 — Σnum/Σden, NOT mean-of-rates)', () => {
+  // Build a sector with `clusterTickers` distinct cluster-tickers (each 3 buyers).
+  function sectorWith(clusterTickers: number, code: 'P' | 'S' = 'P'): InsiderTrade[] {
+    const out: InsiderTrade[] = [];
+    for (let ti = 0; ti < clusterTickers; ti++) {
+      for (let pi = 0; pi < 3; pi++) {
+        out.push(makeTrade({
+          issuerTicker: `S${ti}`, accession: `S${ti}-${pi}`, transactionCode: code,
+          personCik: `S${ti}P${pi}`, acceptedAt: new Date(ASOF.getTime() - (3 + pi) * DAY_MS),
+        }));
+      }
+    }
+    return out;
+  }
+
+  it('pooledRate is the ISSUER-WEIGHTED pool Σnum/Σden, and is NOT mean(per-sector rate)', () => {
+    // Two sectors of DIFFERENT size so issuer-weighted ≠ unweighted mean:
+    //   A: 2 cluster tickers / size 20 → per-sector rate 0.10
+    //   B: 1 cluster ticker  / size 80 → per-sector rate 0.0125
+    // Pooled (issuer-weighted) = (2 + 1) / (20 + 80) = 3/100 = 0.03.
+    // mean(rates)              = (0.10 + 0.0125) / 2 = 0.05625.  ← WRONG unit.
+    const baseline = eventBaseline(25, 50, 0.001); // 25 events, all tiny → today exceeds
+    const inputs = makeInputs({
+      sectors: [
+        { sector: 'A', sectorSize: 20, trades: sectorWith(2), baseline2y: [], baseline2ySell: [] },
+        { sector: 'B', sectorSize: 80, trades: sectorWith(1), baseline2y: [], baseline2ySell: [] },
+      ],
+      pooledBaseline2y: baseline,
+    });
+    const snap = evaluateForm4InsiderComposite(inputs);
+    const pooled = snap.pooledBuyStat.pooledRateT;
+    assertClose(pooled, 3 / 100); // = 0.03 issuer-weighted
+    // It must NOT be the unweighted mean (0.05625).
+    assert.ok(
+      pooled != null && Math.abs(pooled - 0.05625) > 1e-6,
+      `pooledRate must NOT equal mean-of-rates (got ${pooled}, mean would be 0.05625)`,
+    );
+  });
+
+  it('pooled effectiveEvents = countNonZeroRuns(pooledBaseline) (a plateau → 1 event)', () => {
+    // A pooled baseline that is one contiguous non-zero plateau → ONE event →
+    // effectiveEvents=1 < EVENT_FLOOR → guard-suppressed.
+    const plateau = [
+      ...Array.from({ length: 35 }, () => 0.05),
+      ...Array.from({ length: 5 }, () => 0),
+    ];
+    assert.equal(countNonZeroRuns(plateau), 1);
+    const inputs = makeInputs({
+      sectors: [{ sector: 'A', sectorSize: 30, trades: [], baseline2y: [], baseline2ySell: [] }],
+      pooledBaseline2y: plateau,
+    });
+    const snap = evaluateForm4InsiderComposite(inputs);
+    assert.equal(snap.pooledBuyStat.effectiveEvents, 1);
+    assert.equal(snap.pooledBuyStat.insufficientData, true);
+    assert.equal(snap.form4ClusterFlag, false);
+    assert.equal(snap.maxAggregateZ, null);
+  });
+
+  it('pooled exceedance is the SAME computeEmpiricalExceedance identity, just on the pooled series', () => {
+    // 6 cluster tickers / 30 → pooled rate 0.2; baseline 50 isolated events.
+    const baseline = eventBaseline(50, 100, 0.02);
+    const inputs = makeInputs({
+      sectors: [{ sector: 'A', sectorSize: 30, trades: sectorWith(6), baseline2y: [], baseline2ySell: [] }],
+      pooledBaseline2y: baseline,
+    });
+    const snap = evaluateForm4InsiderComposite(inputs);
+    // Recompute the exceedance directly on the pooled rate + baseline — the
+    // composite must call the IDENTICAL function (just on the pooled input).
+    const direct = computeEmpiricalExceedance(6 / 30, baseline);
+    assert.equal(snap.pooledBuyStat.exceedance, direct.exceedance);
+    assert.equal(snap.pooledBuyStat.zEmp, direct.zEmp);
+    assert.equal(snap.pooledBuyStat.effectiveEvents, direct.effectiveEvents);
+    assert.equal(snap.pooledBuyStat.baselineSize, direct.baselineSize);
+    assert.equal(snap.maxAggregateZ, direct.zEmp);
+  });
+
+  it('suppression TODAY — a realistic sparse pooled baseline (events < 20) → under_review (flag false, maxZ null)', () => {
+    // ADR-055 D3 honest pre-D7 state: even pooled, the event count is below the
+    // floor. 15 isolated events < EVENT_FLOOR=20 → insufficientData → flag false,
+    // maxAggregateZ null, pooledStat.insufficientData true. The floor is NOT
+    // lowered (anti-shopping) — the construct is correct, the data is not enough.
+    const sparse = eventBaseline(15, 50, 0.02); // 15 events < 20
+    const inputs = makeInputs({
+      sectors: [{ sector: 'A', sectorSize: 30, trades: sectorWith(6), baseline2y: [], baseline2ySell: [] }],
+      pooledBaseline2y: sparse,
+    });
+    const snap = evaluateForm4InsiderComposite(inputs);
+    assert.equal(snap.pooledBuyStat.effectiveEvents, 15);
+    assert.ok(snap.pooledBuyStat.effectiveEvents < EVENT_FLOOR);
+    assert.equal(snap.pooledBuyStat.insufficientData, true);
+    assert.equal(snap.form4ClusterFlag, false);
+    assert.equal(snap.maxAggregateZ, null);
+    assert.equal(snap.maxAggregateZSector, null);
+  });
+
+  it('pooled cold-start (no sectors / empty pooled baseline) → insufficientData, flag false', () => {
+    const snap = evaluateForm4InsiderComposite(makeInputs());
+    assert.equal(snap.pooledBuyStat.pooledRateT, null);
+    assert.equal(snap.pooledBuyStat.insufficientData, true);
+    assert.equal(snap.pooledSellStat.insufficientData, true);
+    assert.equal(snap.form4ClusterFlag, false);
+    assert.equal(snap.form4SellClusterFlag, false);
+    assert.equal(snap.maxAggregateZ, null);
+    assert.equal(snap.maxAggregateZSell, null);
+  });
+});
+
 // ── Constants sanity ────────────────────────────────────────────────────────
 
 describe('constants (sanity)', () => {
   it('exposes the expected SPEC-pinned values', () => {
-    // ADR-054 (OQ-C36-1): version bumped to v4 (event-count effective-sample
-    // guard; the empirical-exceedance statistic from v3/ADR-053 is unchanged).
-    assert.equal(FORM_4_INSIDER_COMPOSITE_VERSION, 'form_4_insider_v4');
+    // ADR-055 (OQ-C37-3): version bumped to v5 (cross-sectional POOLED gated unit;
+    // the empirical-exceedance statistic + event-floor guard are unchanged — only
+    // the series the gate runs on changed from 11 per-sector to 1 index-level).
+    assert.equal(FORM_4_INSIDER_COMPOSITE_VERSION, 'form_4_insider_v5');
     assert.equal(ROLLING_WINDOW_DAYS, 90);
     assert.equal(CLUSTER_WINDOW_DAYS, 30);
     assert.equal(CLUSTER_INSIDER_THRESHOLD, 3);
@@ -1363,6 +1576,8 @@ describe('constants (sanity)', () => {
     assert.deepEqual([...HIGH_SIGNAL_TRANSACTION_CODES], ['P', 'S']);
     assert.equal(BUY_CODE, 'P');
     assert.equal(SELL_CODE, 'S');
+    // ADR-055 D5: the index-level aggregate label (the gated unit is the pool).
+    assert.equal(POOLED_AGGREGATE_LABEL, 'S&P 500');
   });
 });
 
@@ -1554,6 +1769,8 @@ describe('ADR-052 source-provenance normalization (D1/D3/D4)', () => {
     // CONTROL: the SAME 3 distinct buyers but ALL EDGAR → cluster fires → rate
     // = 1/30 > 0 → positive z → flagged with a positive rate. This proves the
     // exclusion in the contaminated case is the Finnhub source, not the data.
+    // ADR-055: the gated maxAggregateZ is the POOLED zEmp (pooled rate 1/30 here);
+    // a pooled baseline is supplied so it resolves to a positive z.
     const control = makeInputs({
       sectors: [{
         sector: 'Information Technology', sectorSize: 30,
@@ -1567,11 +1784,15 @@ describe('ADR-052 source-provenance normalization (D1/D3/D4)', () => {
         ],
         baseline2y: baseline, baseline2ySell: [],
       }],
+      pooledBaseline2y: baseline,
     });
     const snapGood = evaluateForm4InsiderComposite(control);
+    // Informational per-sector layer still fires with the positive rate (D2).
     assert.equal(snapGood.flaggedSectors.length, 1);
     assertClose(snapGood.flaggedSectors[0].clusterRateT, 1 / 30);
-    assert.ok((snapGood.maxAggregateZ ?? -1) > 0, 'all-EDGAR cluster yields a positive z');
+    // The GATED pooled z is positive (pooled rate 1/30 > the baseline values).
+    assert.ok((snapGood.maxAggregateZ ?? -1) > 0, 'all-EDGAR cluster yields a positive pooled z');
+    assertClose(snapGood.pooledBuyStat.pooledRateT, 1 / 30);
   });
 
   it('T-F4-ADR052-5: an absent/empty source is fail-closed (dropped from cluster identity)', () => {
@@ -1827,17 +2048,19 @@ describe('evaluateForm4InsiderComposite — ADR-053 aggregate end-to-end', () =>
     assert.equal(snap.inputsAvailableAggregate, 1);
   });
 
-  it('T-F4-ADR053-E2E-2: a genuine anomaly with ≥ 20 independent events fires with a bounded zEmp', () => {
+  it('T-F4-ADR053-E2E-2: a genuine POOLED anomaly with ≥ 20 independent events fires with a bounded zEmp (ADR-055)', () => {
     // ADR-054: the baseline needs ≥ EVENT_FLOOR=20 distinct INDEPENDENT events
     // (maximal non-zero runs). Lay 100 isolated small non-zero days (each
-    // separated by a zero) → 100 events, n=200; today's 0.2 rate exceeds every
-    // baseline day → exceedance ≤ α → fires with a bounded zEmp.
+    // separated by a zero) → 100 events, n=200; today's pooled rate 0.2 exceeds
+    // every baseline day → exceedance ≤ α → fires with a bounded zEmp.
+    // ADR-055 (v5): the GATED unit is the POOLED stat; the sector label is the
+    // index ('S&P 500'), not the GICS argmax.
     const baseline: number[] = [];
     for (let i = 0; i < 100; i++) {
       baseline.push(0.005 + (i / 100) * 0.02); // isolated non-zero event (≤ 0.025)
       baseline.push(0);
     }
-    // 6 cluster-buy tickers in a sector of 30 → rate 0.2 exceeds all baseline.
+    // 6 cluster-buy tickers in a sector of 30 → pooled rate 6/30 = 0.2 exceeds all.
     const trades: InsiderTrade[] = [];
     for (let ti = 0; ti < 6; ti++) {
       for (let pi = 0; pi < 3; pi++) {
@@ -1853,12 +2076,15 @@ describe('evaluateForm4InsiderComposite — ADR-053 aggregate end-to-end', () =>
         sector: 'Information Technology', sectorSize: 30,
         trades, baseline2y: baseline, baseline2ySell: [],
       }],
+      pooledBaseline2y: baseline,
     }));
     assert.equal(snap.form4ClusterFlag, true);
+    // Informational per-sector list still fires (D2).
     assert.equal(snap.flaggedSectors.length, 1);
     assert.ok(snap.maxAggregateZ != null && snap.maxAggregateZ >= 1.645);
     assert.ok(snap.maxAggregateZ != null && snap.maxAggregateZ < 3,
       `maxAggregateZ ${snap.maxAggregateZ} must be bounded, never 14σ`);
-    assert.equal(snap.maxAggregateZSector, 'Information Technology');
+    assert.equal(snap.maxAggregateZSector, POOLED_AGGREGATE_LABEL);
+    assertClose(snap.pooledBuyStat.pooledRateT, 6 / 30);
   });
 });

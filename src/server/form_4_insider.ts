@@ -165,8 +165,43 @@ import { invNormCDF } from '../lib/psr.js';
  *  itself are ALL unchanged — zero new free parameters (`EVENT_FLOOR` derives
  *  solely from the existing α; anti-shopping per ADR-051 Decision 5 / AFML
  *  §11.4). v3 snapshots persist as historical record; the re-backfill writes v4
- *  rows. */
-export const FORM_4_INSIDER_COMPOSITE_VERSION = 'form_4_insider_v4' as const;
+ *  rows.
+ *
+ *  **v5 (ADR-055 D4 — OQ-C37-3 resolution):** the gated UNIT of the aggregate
+ *  signal changes — from a MAX over 11 per-sector empirical-exceedance tests to a
+ *  SINGLE cross-sectional POOLED test. The pooled (index-level) cluster-rate is
+ *  `pooledRate(t) = Σ_sectors clusterTickers_s(t) / Σ_sectors sectorSize_s(t)` per
+ *  direction = "the fraction of the S&P 500 with an insider cluster at t" — the
+ *  ISSUER-WEIGHTED pool of the per-sector rates (weights = sector sizes), NOT the
+ *  unweighted mean. `form4ClusterFlag` / `form4SellClusterFlag` +
+ *  `maxAggregateZ[Sell]` now derive from THIS pooled statistic, fed through the
+ *  ADR-053 `computeEmpiricalExceedance` + the ADR-054 `countNonZeroRuns` /
+ *  `EVENT_FLOOR` guard — both REUSED VERBATIM (only the series changes: 11 → 1).
+ *  The 11 per-sector rates + flagged-sector lists are RETAINED for the dashboard
+ *  as INFORMATIONAL color (ADR-055 D2) but NEVER individually statistically gated
+ *  — no per-sector flag feeds the aggregate flag, the Phase-B campaign, or
+ *  Phase-C. Rationale (ADR-055): pooling removes the implicit 11-way
+ *  multiple-testing burden at the source (Harvey-Liu-Zhu 2016 §II), has sharper
+ *  empirical-tail resolution (a near-continuous index-level rate vs a coarse
+ *  small-denominator per-sector rate; Aronson Ch. 6–7), and matches the regime
+ *  consumer's market-level "are insiders, in aggregate, accumulating or
+ *  distributing?" decision. ZERO new free parameters (same α, `MIN_Z_BASELINE`,
+ *  `EVENT_FLOOR`; one series instead of 11 — anti-shopping per AFML §11.4 /
+ *  ADR-051 Decision 5). The empirical-exceedance statistic + the event-floor
+ *  guard + α + the firing test are ALL unchanged; only the series changes. This
+ *  changes the aggregate-flag + `max_aggregate_z[_sell]` semantics, so it is
+ *  version-pinned per ADR-051 Decision 8. NO DDL (ADR-055 D5): the existing
+ *  Nullable `max_aggregate_z[_sector][_sell][_sell_sector]` columns now carry the
+ *  POOLED values (`_sector` becomes the literal "S&P 500" or null); the pooled
+ *  `effectiveEvents`/`baselineSize`/`exceedance` + the per-sector informational
+ *  lists ride in the existing schemaless `flagged_sectors_json` /
+ *  `flagged_sell_sectors_json`. v4 snapshots persist as historical record; the
+ *  re-backfill writes v5. NOTE: the pooled event count is BELOW `EVENT_FLOOR` at
+ *  current EDGAR coverage (ADR-055 D3 measured pooled events ≤ 15 buy / 19 sell <
+ *  20), so the aggregate is honestly `under_review` until ADR-052 D7 lengthens the
+ *  continuous baseline — the construct is correct; the data is not yet sufficient,
+ *  and the floor is NOT lowered (anti-shopping). */
+export const FORM_4_INSIDER_COMPOSITE_VERSION = 'form_4_insider_v5' as const;
 export type Form4InsiderCompositeVersion = typeof FORM_4_INSIDER_COMPOSITE_VERSION;
 
 /** ADR-052 D1 — the canonical source for all cluster-identity computations.
@@ -189,6 +224,12 @@ export type Form4InsiderCompositeVersion = typeof FORM_4_INSIDER_COMPOSITE_VERSI
  *  (D3) and may still power identity-agnostic per-ticker raw counts WITH a
  *  source-mix label. */
 export const EDGAR_CANONICAL_SOURCE = 'sec_edgar_form4_xml' as const;
+
+/** ADR-055 D5 (v5) — the unit of the gated aggregate signal is now the
+ *  cross-sectional INDEX, not a GICS sector. `maxAggregateZSector` /
+ *  `maxAggregateZSellSector` carry this literal (instead of a GICS sector name)
+ *  when the pooled statistic is valid, and null when it is guard-suppressed. */
+export const POOLED_AGGREGATE_LABEL = 'S&P 500' as const;
 
 // ── SPEC-pinned thresholds (re-tuning bumps composite version) ──────────────
 
@@ -489,24 +530,28 @@ export function daysSinceLatestTradeByCode(
 
 // ── Sector-aggregate pure functions ─────────────────────────────────────────
 
-/** Sector cluster rate per F4-6 (buy-side) and F4-12 (v2 sell-side):
- *  `count(tickers in sector with insiderCluster<Direction>Flag) / sectorSize`.
+/** Count of UNIQUE tickers in a sector with an insider cluster of `direction`
+ *  per F4-6 (buy) / F4-12 (sell): a ticker counts iff ≥ `CLUSTER_INSIDER_THRESHOLD`
+ *  distinct `personCik` transacted in `direction` within the trailing
+ *  `CLUSTER_WINDOW_DAYS` window. The INTEGER numerator of the cluster rate.
  *
  *  Counts UNIQUE tickers (not raw trades) — a single mega-insider mega-cluster
- *  on one ticker contributes 1 to the numerator regardless of trade volume.
- *  Returns null when `sectorSize <= 0` (degenerate sector).
+ *  on one ticker contributes 1 regardless of trade volume.
  *
- *  `direction` defaults to `BUY_CODE` ('P') so existing call sites + tests
- *  retain byte-equal behavior. Pass `SELL_CODE` ('S') for the v2 sell-side
- *  aggregate (S95-1). Direction is enforced at the type level via the
+ *  ADR-055 D1 — extracted from `computeSectorClusterRate` so the cross-sectional
+ *  POOLED rate (`Σ clusterTickers / Σ sectorSize` across sectors) can accumulate
+ *  the INTEGER numerator per sector without re-deriving the by-ticker grouping.
+ *  `computeSectorClusterRate` is now `count / size` over this function, so its
+ *  observable behavior is byte-identical (the existing per-sector tests pin it).
+ *
+ *  `direction` defaults to `BUY_CODE` ('P'); pass `SELL_CODE` ('S') for the
+ *  sell-side. Direction is enforced at the type level via the
  *  `HighSignalTransactionCode` union — A/M/F/G/etc. cannot be passed. */
-export function computeSectorClusterRate(
+export function computeSectorClusterCount(
   sectorTrades: ReadonlyArray<InsiderTrade>,
-  sectorSize: number,
   asOf: Date,
   direction: HighSignalTransactionCode = BUY_CODE,
-): number | null {
-  if (sectorSize <= 0) return null;
+): number {
   // Group trades by issuerTicker, then compute per-ticker cluster flag.
   const byTicker = new Map<string, InsiderTrade[]>();
   for (const t of sectorTrades) {
@@ -524,7 +569,34 @@ export function computeSectorClusterRate(
     );
     if (flagInsiderCluster(distinctInsiders)) clusterTickerCount++;
   }
-  return clusterTickerCount / sectorSize;
+  return clusterTickerCount;
+}
+
+/** Sector cluster rate per F4-6 (buy-side) and F4-12 (v2 sell-side):
+ *  `count(tickers in sector with insiderCluster<Direction>Flag) / sectorSize`.
+ *
+ *  Counts UNIQUE tickers (not raw trades) — a single mega-insider mega-cluster
+ *  on one ticker contributes 1 to the numerator regardless of trade volume.
+ *  Returns null when `sectorSize <= 0` (degenerate sector).
+ *
+ *  ADR-055 D1 — now a thin `count / size` wrapper over `computeSectorClusterCount`
+ *  (the by-ticker grouping lives there) so the pooled numerator can reuse the same
+ *  count without duplication. Observable behavior is UNCHANGED (byte-identical to
+ *  the pre-v5 inline implementation; pinned by the existing T-F4-11 + the
+ *  refactor-identity test).
+ *
+ *  `direction` defaults to `BUY_CODE` ('P') so existing call sites + tests
+ *  retain byte-equal behavior. Pass `SELL_CODE` ('S') for the v2 sell-side
+ *  aggregate (S95-1). Direction is enforced at the type level via the
+ *  `HighSignalTransactionCode` union — A/M/F/G/etc. cannot be passed. */
+export function computeSectorClusterRate(
+  sectorTrades: ReadonlyArray<InsiderTrade>,
+  sectorSize: number,
+  asOf: Date,
+  direction: HighSignalTransactionCode = BUY_CODE,
+): number | null {
+  if (sectorSize <= 0) return null;
+  return computeSectorClusterCount(sectorTrades, asOf, direction) / sectorSize;
 }
 
 /** Count the number of maximal runs of consecutive strictly-positive (`> 0`)
@@ -827,6 +899,38 @@ export interface Form4InsiderFlaggedSector {
   baselineSize: number;
 }
 
+/** ADR-055 D2 (v5) — the GATED pooled (index-level) statistic's metadata, per
+ *  direction, surfaced so the dashboard can show "the fraction of the S&P 500
+ *  with an insider cluster + its empirical-tail p" as THE gated signal (the
+ *  per-sector list is informational only). Rides in the existing schemaless
+ *  `flagged_sectors_json` / `flagged_sell_sectors_json` (NO DDL — ADR-055 D5).
+ *  `pooledRateT` is null when the pool denominator was ≤ 0 (degenerate); the
+ *  exceedance/zEmp fields are null when the ADR-053/054 guard suppressed
+ *  (insufficient data — the honest pre-D7 state). */
+export interface Form4InsiderPooledStat {
+  /** Today's pooled rate `Σ clusterTickers / Σ sectorSize` (issuer-weighted),
+   *  or null when the pool denominator was ≤ 0. */
+  pooledRateT: number | null;
+  /** Bounded empirical z-equivalent of the pooled exceedance (ADR-053). Null when
+   *  the guard suppressed (insufficient data). Identical to `maxAggregateZ[Sell]`
+   *  when non-null (this IS the gated stat post-v5). */
+  zEmp: number | null;
+  /** One-sided empirical upper-tail p-value of the pooled rate (ADR-053). Null
+   *  when guard-suppressed. `≤ α` ⟺ the aggregate flag fired. */
+  exceedance: number | null;
+  /** ADR-054 guard metric — distinct INDEPENDENT events (maximal non-zero runs)
+   *  in the chronologically-ordered POOLED baseline. The aggregate is Phase-B-
+   *  ready iff this `≥ EVENT_FLOOR` (ADR-055 D3). Below the floor today. */
+  effectiveEvents: number;
+  /** Diagnostic — non-zero days `m` in the pooled baseline (over-counts events
+   *  by the cluster-window length; NOT a gate post-ADR-054). */
+  effectiveSample: number;
+  /** Count of finite pooled-baseline observations `n`. */
+  baselineSize: number;
+  /** True when a validity guard failed → the aggregate is `under_review`. */
+  insufficientData: boolean;
+}
+
 /** Inputs to the composite evaluator. The repository (A4) assembles these
  *  from CH reads of `insider_trades` + `cik_ticker_map` + `sp500_constituents`
  *  PIT + the GICS-sector mapping + per-sector trailing-2y daily cluster-rate
@@ -876,6 +980,28 @@ export interface Form4InsiderInputs {
      *  short/empty baseline via the MIN_Z_BASELINE=30 floor. */
     baseline2ySell: ReadonlyArray<number>;
   }>;
+
+  /** ADR-055 D1 (v5) — the INDEX-LEVEL pooled cluster-rate baseline for the
+   *  GATED aggregate signal. One value per ADMITTED baseline day (the SAME
+   *  ADR-052-D2 coverage-admitted day set the per-sector baselines use), in
+   *  ASCENDING CHRONOLOGICAL ORDER (load-bearing per ADR-054 D1 —
+   *  `countNonZeroRuns` runs over the ordered series). Each value is the
+   *  issuer-weighted pool `Σ_sectors clusterTickers_s(day) / Σ_sectors
+   *  memberCount_s(day)` over sectors with `memberCount > 0` that day = "fraction
+   *  of the S&P 500 with an insider BUY cluster on that day." This is NOT the mean
+   *  of the per-sector rates (which would equal-weight sectors of size 21..79);
+   *  it is `Σ numerator / Σ denominator` (issuer-weighted). The pooled aggregate
+   *  flag / `maxAggregateZ` derive from `computeEmpiricalExceedance(today's pooled
+   *  rate, this baseline)`. Pass `[]` for cold-start / pre-v5 wiring; the
+   *  composite handles a short/empty baseline via the MIN_Z_BASELINE + EVENT_FLOOR
+   *  guards (it suppresses to insufficient-data). The per-sector `baseline2y[]`
+   *  arrays survive as INFORMATIONAL color (ADR-055 D2). */
+  pooledBaseline2y: ReadonlyArray<number>;
+  /** ADR-055 D1 (v5) — the sell-side index-level pooled cluster-rate baseline.
+   *  Mirror of `pooledBaseline2y` for the cluster-SELL rate; same admitted-day
+   *  set, same ascending chronological order, same issuer-weighted pool. Pass
+   *  `[]` for cold-start. */
+  pooledBaseline2ySell: ReadonlyArray<number>;
 }
 
 /** Output snapshot — mirrors SPEC §5.5 + CH column shape (see A3 migration). */
@@ -884,36 +1010,56 @@ export interface Form4InsiderSnapshot {
   lastEdgarQueryAt: Date | null;
   bdSinceLastQuery: number | null;
 
+  /** ADR-055 D2 (v5): the per-sector flagged list is now INFORMATIONAL ONLY —
+   *  retained + rendered (which sectors are clustering, with their `effectiveEvents`)
+   *  but NEVER statistically gated. It does NOT drive `form4ClusterFlag` (which now
+   *  derives from the pooled stat). The dashboard MUST label it "informational —
+   *  not statistically calibrated (per-sector events too sparse; see ADR-055)".
+   *  Pre-v5 (ADR-053/054) this was the gating list; post-v5 it is color. */
   flaggedSectors: ReadonlyArray<Form4InsiderFlaggedSector>;
+  /** ADR-055 D1 (v5): fires iff the index-level POOLED cluster-BUY rate's
+   *  empirical-exceedance `p ≤ α` (the gated unit is now the cross-sectional pool,
+   *  NOT a max over 11 per-sector tests). A per-sector sector clearing α does NOT
+   *  fire this flag (per-sector is informational, ADR-055 D2). False when the
+   *  pooled stat is guard-suppressed (insufficient data — the honest pre-D7
+   *  `under_review` state). Pre-v5 this was `ANY sector p ≤ α`. */
   form4ClusterFlag: boolean;
 
-  /** ADR-053: the MAX bounded empirical z-equivalent (`zEmp`) across all VALID
-   *  sectors (zEmp ≥ 0, so this is just the max — no abs needed). Null when
-   *  every sector is guard-suppressed/cold-start (insufficient data). This is
-   *  the BOUNDED display value stored in `max_aggregate_z`; a fabricated 14σ is
-   *  impossible. (Pre-v3 this carried the unbounded Gaussian z.) Per SPEC
-   *  docs/specs/adr-053-form4-aggregate-sparse-rate-statistic.md §2; consumed by
-   *  the brief renderer's §1.4 branch. */
+  /** ADR-055 D1 (v5): the BOUNDED empirical z-equivalent (`zEmp`) of the
+   *  index-level POOLED cluster-BUY rate (no longer the max over per-sector
+   *  zEmp). Null when the pooled stat is guard-suppressed/cold-start (insufficient
+   *  data). Stored in `max_aggregate_z`; a fabricated 14σ is impossible (bounded by
+   *  baseline resolution). Per SPEC docs/specs/phase-b-form_4_v1.md §1 Part A;
+   *  consumed by the brief renderer's §1.4 branch + the composite dashboard. */
   maxAggregateZ: number | null;
-  /** Sector name with max `zEmp`. Null when `maxAggregateZ` is null. Ties broken
-   *  lexicographically (earlier sector name wins; deterministic across runs). */
+  /** ADR-055 D5 (v5): the literal `'S&P 500'` when the pooled buy stat is VALID
+   *  (the unit is the index, not a GICS sector), else null. Stored in
+   *  `max_aggregate_z_sector`. (Pre-v5 this named the per-sector argmax.) */
   maxAggregateZSector: string | null;
 
-  /** v2 sell-side aggregate, mirror of `flaggedSectors` for the
-   *  cluster-SELL-rate track. F4-12 (S95-1). Empty when no sector FIRES under
-   *  ADR-053 (`p ≤ α`). */
+  /** ADR-055 D2 (v5) — sell-side per-sector flagged list, INFORMATIONAL ONLY
+   *  (mirror of `flaggedSectors`; non-gating). F4-12 (S95-1). */
   flaggedSellSectors: ReadonlyArray<Form4InsiderFlaggedSector>;
-  /** v2 sell-side `form4ClusterFlag` mirror — fires (ADR-053) when ANY valid
-   *  sector's sell-side empirical-exceedance `p ≤ α`. Independent of
-   *  `form4ClusterFlag`; both can fire simultaneously or in isolation. */
+  /** ADR-055 D1 (v5): sell-side `form4ClusterFlag` mirror — fires iff the
+   *  index-level POOLED cluster-SELL rate's empirical-exceedance `p ≤ α`.
+   *  Independent of `form4ClusterFlag`; both can fire simultaneously or in
+   *  isolation. False when the pooled sell stat is guard-suppressed. */
   form4SellClusterFlag: boolean;
-  /** v2 sell-side `maxAggregateZ` mirror — max sell-side `zEmp`. Null when all
-   *  sell-side sectors are guard-suppressed/cold-start (incl. empty
-   *  `baseline2ySell`). */
+  /** ADR-055 D1 (v5): the BOUNDED `zEmp` of the index-level POOLED cluster-SELL
+   *  rate (no longer max-over-sectors). Null when the pooled sell stat is
+   *  guard-suppressed/cold-start (incl. empty `pooledBaseline2ySell`). */
   maxAggregateZSell: number | null;
-  /** v2 sell-side `maxAggregateZSector` mirror. Same lexicographic
-   *  tie-break as the buy-side counterpart. */
+  /** ADR-055 D5 (v5): the literal `'S&P 500'` when the pooled sell stat is VALID,
+   *  else null. (Pre-v5 this named the per-sector sell argmax.) */
   maxAggregateZSellSector: string | null;
+
+  /** ADR-055 D2 (v5) — the GATED pooled BUY statistic's metadata (pooled rate +
+   *  exceedance + `effectiveEvents` + baselineSize), so the dashboard can show the
+   *  index-level signal explicitly. Rides in `flagged_sectors_json` (NO DDL). */
+  pooledBuyStat: Form4InsiderPooledStat;
+  /** ADR-055 D2 (v5) — the GATED pooled SELL statistic's metadata. Rides in
+   *  `flagged_sell_sectors_json` (NO DDL). */
+  pooledSellStat: Form4InsiderPooledStat;
 
   perTickerRows: ReadonlyArray<Form4InsiderPerTickerRow>;
 
@@ -930,12 +1076,15 @@ export interface Form4InsiderSnapshot {
  *    1. Per-ticker: dedupe + code-filter + window-filter trades; derive
  *       per-direction counts, distinct-insider counts, net dollar, and the
  *       30d cluster flags (per direction).
- *    2. Sector-aggregate (ADR-053): per sector, compute cluster_rate_t (tickers
- *       with cluster-flag fired / sector_size) and the one-sided empirical
- *       upper-tail exceedance vs the trailing-2y baseline (with the
- *       effective-sample guard). Emit a flaggedSectors row when the sector is
- *       VALID and fires (`p ≤ α`). `maxAggregateZ[Sell]` = max bounded `zEmp`
- *       across valid sectors.
+ *    2. Sector-aggregate (ADR-055 v5): the GATED unit is the cross-sectional
+ *       POOLED cluster-rate `pooledRate = Σ_sectors clusterTickers / Σ_sectors
+ *       sectorSize` (issuer-weighted), fed through the ADR-053 empirical-exceedance
+ *       statistic + ADR-054 event-floor guard (reused verbatim). `form4ClusterFlag`
+ *       / `form4SellClusterFlag` + `maxAggregateZ[Sell]` derive from THIS pooled
+ *       stat. The per-sector exceedances are STILL computed → `flaggedSectors[]` /
+ *       `flaggedSellSectors[]` survive as INFORMATIONAL color (ADR-055 D2) but never
+ *       gate. `maxAggregateZSector` = the literal 'S&P 500' when the pooled stat is
+ *       valid (the unit is the index, ADR-055 D5).
  *    3. Compose into the snapshot shape.
  *
  *  No I/O. No side effects. Re-runnable with identical inputs.
@@ -1018,23 +1167,29 @@ export function evaluateForm4InsiderComposite(
     });
   }
 
-  // Sector-aggregate layer — buy-side (F4-6) and sell-side (F4-12 v2) run in
-  // parallel; each direction has its own baseline + ADR-053 empirical-exceedance
-  // statistic + flagged-set. The Gaussian z (`computeZ`) is RETIRED from this
-  // path (it is invalid on the sparse zero-inflated EDGAR-only baseline — one
-  // ordinary clustered ticker → 14σ; ADR-053). `maxAggregateZ[Sell]` now carries
-  // the BOUNDED empirical z-equivalent `zEmp` (≥ 0; max, no abs).
+  // Sector-aggregate layer (ADR-055 v5) — the GATED unit is the cross-sectional
+  // POOLED cluster-rate, NOT a max over 11 per-sector tests. Two things happen in
+  // the sector loop:
+  //   1. Per-sector exceedances are STILL computed → `flaggedSectors[]` /
+  //      `flaggedSellSectors[]` survive as INFORMATIONAL color (ADR-055 D2). They
+  //      no longer gate anything (no `form4ClusterFlag` derivation, no max reducer).
+  //   2. The pooled NUMERATOR (Σ clusterTickers) and DENOMINATOR (Σ sectorSize) are
+  //      accumulated across sectors so the index-level pooled rate
+  //      `pooledRate = Σ num / Σ den` (issuer-weighted, NOT mean-of-rates) can be
+  //      fed through `computeEmpiricalExceedance` against the pooled baseline.
+  // The Gaussian z (`computeZ`) stays RETIRED; the ADR-053 statistic + ADR-054
+  // event-floor guard are reused VERBATIM — only the series changes (11 → 1).
   const flaggedSectors: Form4InsiderFlaggedSector[] = [];
   const flaggedSellSectors: Form4InsiderFlaggedSector[] = [];
-  const sectorExceedances: (number | null)[] = [];
-  const sectorSellExceedances: (number | null)[] = [];
   let inputsAvailableAggregate = 0;
-  let maxZEmp = -Infinity;
-  let maxAggregateZ: number | null = null;
-  let maxAggregateZSector: string | null = null;
-  let maxZEmpSell = -Infinity;
-  let maxAggregateZSell: number | null = null;
-  let maxAggregateZSellSector: string | null = null;
+  // ADR-055 D1 — pooled (index-level) numerator + denominator accumulators. The
+  // numerator is the INTEGER clustered-ticker count (computeSectorClusterCount);
+  // the denominator is the sector size. The pooled rate is Σnum/Σden — issuer-
+  // weighted, NOT the unweighted mean of per-sector rates (which would equal-weight
+  // a size-21 sector with a size-79 one and is WRONG; ADR-055 D1 load-bearing).
+  let pooledNumBuy = 0;
+  let pooledNumSell = 0;
+  let pooledDen = 0;
   for (const s of inputs.sectors) {
     const dedupedSectorTrades = dedupeTrades(s.trades);
     const psFilteredSectorTrades = filterTradesToHighSignalCodes(dedupedSectorTrades);
@@ -1049,47 +1204,30 @@ export function evaluateForm4InsiderComposite(
     // if it is ever fed a dual-source panel.
     const edgarSectorTrades = filterTradesToCanonicalSource(inWindowSectorTrades);
 
+    // ADR-055 D1 — accumulate the pooled numerator (INTEGER clustered-ticker count)
+    // + denominator (sector size). Only sectors with sectorSize > 0 contribute to
+    // the pool (a degenerate sector has no issuers to cluster). The clustered-ticker
+    // count is well-defined even for sectorSize ≤ 0 (it's a count over the trades),
+    // but it can only enter the pool alongside a positive denominator.
+    if (s.sectorSize > 0) {
+      pooledNumBuy += computeSectorClusterCount(edgarSectorTrades, inputs.asOf, BUY_CODE);
+      pooledNumSell += computeSectorClusterCount(edgarSectorTrades, inputs.asOf, SELL_CODE);
+      pooledDen += s.sectorSize;
+      inputsAvailableAggregate++;
+    }
+
+    // ADR-053 per-sector statistic — RETAINED but INFORMATIONAL ONLY (ADR-055 D2).
+    // A guard-suppressed sector returns null exceedance/zEmp and is excluded from
+    // the (informational) flagged list. NO max reducer, NO flag derivation here.
     const rateBuy = computeSectorClusterRate(
       edgarSectorTrades, s.sectorSize, inputs.asOf, BUY_CODE,
     );
     const rateSell = computeSectorClusterRate(
       edgarSectorTrades, s.sectorSize, inputs.asOf, SELL_CODE,
     );
-    // ADR-053 — one-sided empirical upper-tail exceedance + effective-sample
-    // guard. A guard-suppressed sector returns null exceedance/zEmp and is
-    // EXCLUDED from both the flagged list and the max reducer (insufficient
-    // data is not an anomaly).
     const buyStat = computeEmpiricalExceedance(rateBuy, s.baseline2y);
     const sellStat = computeEmpiricalExceedance(rateSell, s.baseline2ySell);
-    sectorExceedances.push(buyStat.exceedance);
-    sectorSellExceedances.push(sellStat.exceedance);
-    if (s.sectorSize > 0) inputsAvailableAggregate++;
-    if (buyStat.zEmp != null) {
-      const zEmp = buyStat.zEmp;
-      // Tie-break: lexicographically earlier sector name wins. Order-independent
-      // across permutations of inputs.sectors per SPEC §5.2 MAXZ-*-4.
-      if (
-        zEmp > maxZEmp ||
-        (zEmp === maxZEmp && (maxAggregateZSector == null || s.sector < maxAggregateZSector))
-      ) {
-        maxZEmp = zEmp;
-        maxAggregateZ = zEmp;
-        maxAggregateZSector = s.sector;
-      }
-    }
-    if (sellStat.zEmp != null) {
-      const zEmpSell = sellStat.zEmp;
-      if (
-        zEmpSell > maxZEmpSell ||
-        (zEmpSell === maxZEmpSell
-          && (maxAggregateZSellSector == null || s.sector < maxAggregateZSellSector))
-      ) {
-        maxZEmpSell = zEmpSell;
-        maxAggregateZSell = zEmpSell;
-        maxAggregateZSellSector = s.sector;
-      }
-    }
-    // Fire only for VALID sectors that clear the empirical-tail threshold.
+    // Informational flagged list (per-sector p ≤ α). Does NOT gate the aggregate.
     if (
       !buyStat.insufficientData &&
       buyStat.exceedance != null &&
@@ -1127,8 +1265,49 @@ export function evaluateForm4InsiderComposite(
       });
     }
   }
-  const form4ClusterFlag = flagForm4ClusterEmpirical(sectorExceedances);
-  const form4SellClusterFlag = flagForm4ClusterEmpirical(sectorSellExceedances);
+
+  // ADR-055 D1 — the GATED pooled statistic. pooledRate = Σ clusterTickers / Σ
+  // sectorSize (issuer-weighted). Null when no sector had a positive denominator
+  // (cold-start / degenerate). The ADR-053 exceedance + ADR-054 event-floor guard
+  // run VERBATIM on the pooled rate vs the pooled baseline (the only change from
+  // v4: the series is the index-level pool, not a per-sector series).
+  const pooledRateBuyT = pooledDen > 0 ? pooledNumBuy / pooledDen : null;
+  const pooledRateSellT = pooledDen > 0 ? pooledNumSell / pooledDen : null;
+  const pooledBuyExc = computeEmpiricalExceedance(pooledRateBuyT, inputs.pooledBaseline2y);
+  const pooledSellExc = computeEmpiricalExceedance(pooledRateSellT, inputs.pooledBaseline2ySell);
+
+  // The aggregate flags derive from the POOLED exceedance ONLY (ADR-055 D1). A
+  // per-sector sector clearing α does NOT fire the flag (it's informational).
+  const form4ClusterFlag =
+    pooledBuyExc.exceedance != null && pooledBuyExc.exceedance <= FORM_4_EXCEEDANCE_ALPHA;
+  const form4SellClusterFlag =
+    pooledSellExc.exceedance != null && pooledSellExc.exceedance <= FORM_4_EXCEEDANCE_ALPHA;
+  // `maxAggregateZ[Sell]` = the pooled `zEmp` (no longer max-over-sectors).
+  // `_sector` is the literal 'S&P 500' when the pooled stat is valid (ADR-055 D5 —
+  // the unit is the index), else null.
+  const maxAggregateZ = pooledBuyExc.zEmp;
+  const maxAggregateZSector = pooledBuyExc.zEmp != null ? POOLED_AGGREGATE_LABEL : null;
+  const maxAggregateZSell = pooledSellExc.zEmp;
+  const maxAggregateZSellSector = pooledSellExc.zEmp != null ? POOLED_AGGREGATE_LABEL : null;
+
+  const pooledBuyStat: Form4InsiderPooledStat = {
+    pooledRateT: pooledRateBuyT,
+    zEmp: pooledBuyExc.zEmp,
+    exceedance: pooledBuyExc.exceedance,
+    effectiveEvents: pooledBuyExc.effectiveEvents,
+    effectiveSample: pooledBuyExc.effectiveSample,
+    baselineSize: pooledBuyExc.baselineSize,
+    insufficientData: pooledBuyExc.insufficientData,
+  };
+  const pooledSellStat: Form4InsiderPooledStat = {
+    pooledRateT: pooledRateSellT,
+    zEmp: pooledSellExc.zEmp,
+    exceedance: pooledSellExc.exceedance,
+    effectiveEvents: pooledSellExc.effectiveEvents,
+    effectiveSample: pooledSellExc.effectiveSample,
+    baselineSize: pooledSellExc.baselineSize,
+    insufficientData: pooledSellExc.insufficientData,
+  };
 
   return {
     snapshotDate: inputs.asOf,
@@ -1145,6 +1324,9 @@ export function evaluateForm4InsiderComposite(
     maxAggregateZSell,
     maxAggregateZSellSector,
 
+    pooledBuyStat,
+    pooledSellStat,
+
     perTickerRows,
 
     inputsAvailableAggregate,
@@ -1155,9 +1337,24 @@ export function evaluateForm4InsiderComposite(
 
 /**
  * What could break this:
+ *   - **Cross-sectional POOLED unit (ADR-055 — OQ-C37-3; v5).** The aggregate flag
+ *     + `maxAggregateZ[Sell]` now derive from the INDEX-LEVEL pooled cluster-rate
+ *     `Σ_sectors clusterTickers / Σ_sectors sectorSize` (issuer-weighted), NOT a
+ *     MAX over 11 per-sector tests. The pool MUST be `Σ numerator / Σ denominator`
+ *     (issuer-weighted) — `mean(per-sector rate)` is WRONG (it equal-weights a
+ *     size-21 sector against a size-79 one). A regression that reverted to the
+ *     max-over-sectors reducer would resurrect the 11-way multiple-testing burden
+ *     (HLZ 2016 §II) ADR-055 closed. The per-sector `flaggedSectors[]` lists are
+ *     INFORMATIONAL ONLY (ADR-055 D2) — any consumer/reader that gates on a
+ *     per-sector form_4 flag is using a NON-calibrated signal. The pooled stat is
+ *     the gated unit; `maxAggregateZSector` = 'S&P 500' (the index) when valid. At
+ *     current EDGAR coverage the pooled event count is BELOW `EVENT_FLOOR` (ADR-055
+ *     D3: pooled events ≤ 15 buy / 19 sell < 20), so the aggregate honestly
+ *     suppresses to `under_review`; the floor is NOT lowered (anti-shopping —
+ *     AFML §11.4). The construct is correct; coverage (ADR-052 D7) is the gate.
  *   - **Aggregate anomaly statistic (ADR-053 — S96-163) + effective-sample guard
- *     (ADR-054 — OQ-C36-1).** The aggregate flag + `maxAggregateZ[Sell]` derive
- *     from the one-sided EMPIRICAL EXCEEDANCE statistic
+ *     (ADR-054 — OQ-C36-1).** The pooled aggregate flag + `maxAggregateZ[Sell]`
+ *     derive from the one-sided EMPIRICAL EXCEEDANCE statistic
  *     (`computeEmpiricalExceedance`), NOT the Gaussian z (`computeZ`, retired from
  *     this path). The Gaussian z is invalid on the sparse, zero-inflated
  *     EDGAR-only coverage-gated baseline (one ordinary clustered ticker fabricated

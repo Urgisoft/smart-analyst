@@ -407,7 +407,7 @@ export const form4InsiderDescriptor: CompositeDescriptor = {
   title: 'VECTOR_INSIDER · Form 4 Cluster',
   accent: 'emerald',
   subtitle:
-    'SEC Form 4 open-market insider clusters ({P}urchase / {S}ale), aggregated to GICS sectors. Aggregate anomaly = one-sided empirical-exceedance (ADR-053; bounded zEmp, NOT a Gaussian z). Buy-side is the load-bearing signal (Lakonishok-Lee 2001 §3); the sell-side track is informationally weaker (~30-50% diluted, §4). Per-ticker drill = equity-midcap watch universe. Informational only; does not fire phase1_v3. Aggregate not Phase-B-usable until the EDGAR coverage backfill (ADR-052 D7).',
+    'SEC Form 4 open-market insider clusters ({P}urchase / {S}ale). The GATED aggregate is the CROSS-SECTIONAL POOLED cluster-rate (ADR-055): Σ clustered tickers ÷ Σ S&P-500 size = "fraction of the index with an insider cluster," scored by the one-sided empirical-exceedance (bounded zEmp, NOT a Gaussian z). The 11 per-sector rates are INFORMATIONAL only — not statistically calibrated (per-sector events too sparse; ADR-055). Buy-side is the load-bearing signal (Lakonishok-Lee 2001 §3); the sell-side is weaker (~30-50% diluted, §4). Per-ticker drill = equity-midcap watch universe. Informational only; does not fire phase1_v3. Aggregate not Phase-B-usable until the EDGAR coverage backfill (ADR-052 D7) — even pooled, the event count is below the floor today.',
   specPath: 'docs/specs/event-driven-filings-processor.md',
   ingestHint: [
     '# 1. Ensure schema exists (idempotent — three-table co-bootstrap):',
@@ -424,19 +424,19 @@ export const form4InsiderDescriptor: CompositeDescriptor = {
   metrics: [
     {
       key: 'maxAggregateZ',
-      label: 'Buy-cluster max sector zEmp',
+      label: 'Pooled buy-cluster zEmp (index)',
       short: 'Buy-zEmp',
       unit: 'z', warnAbs: 1.645, critAbs: 2.6,
       glossary:
-        'ADR-053: largest BOUNDED empirical z-equivalent (zEmp) across all GICS sectors of the sector’s cluster-BUY rate (tickers with ≥3 distinct insiders buying in 30d ÷ sector size) vs its trailing-2y EDGAR-only baseline. zEmp = the normal quantile of a one-sided empirical-exceedance p-value — NOT a Gaussian z (the old z fabricated up to 14σ on the sparse baseline). zEmp ≥ 1.645 ⟺ the sector cleared the α=0.05 empirical tail (it fired). Bounded by the baseline resolution (≈2.58 at ~204 days); a value past ~3 would itself be a bug. Null when every sector is guard-suppressed (insufficient EDGAR data — pre-D7).',
+        'ADR-055 (v5): the BOUNDED empirical z-equivalent (zEmp) of the INDEX-LEVEL POOLED cluster-BUY rate (Σ clustered tickers ÷ Σ S&P-500 size, issuer-weighted = "fraction of the index with an insider buy-cluster") vs the trailing-2y pooled EDGAR-only baseline. This REPLACES the pre-v5 max-over-sectors zEmp (which carried an implicit 11-way multiple test, HLZ 2016 §II). zEmp = the normal quantile of a one-sided empirical-exceedance p — NOT a Gaussian z (the old z fabricated up to 14σ on the sparse baseline). zEmp ≥ 1.645 ⟺ the pool cleared the α=0.05 empirical tail (it fired). Bounded by the baseline resolution (≈2.58); a value past ~3 would itself be a bug. Null when the pooled stat is guard-suppressed (pooled events < 20 — the honest pre-D7 state).',
     },
     {
       key: 'maxAggregateZSell',
-      label: 'Sell-cluster max sector zEmp',
+      label: 'Pooled sell-cluster zEmp (index)',
       short: 'Sell-zEmp',
       unit: 'z', warnAbs: 1.645, critAbs: 2.6,
       glossary:
-        'Sell-side mirror of the buy zEmp: largest bounded empirical z-equivalent of any sector’s cluster-SELL rate vs its OWN trailing-2y EDGAR-only baseline (ADR-053 empirical-exceedance statistic). Weaker signal than the buy side per Lakonishok-Lee 2001 §4. Null when every sell-side sector is guard-suppressed.',
+        'Sell-side mirror: the bounded empirical z-equivalent of the INDEX-LEVEL POOLED cluster-SELL rate vs its own trailing-2y pooled baseline (ADR-055). Weaker signal than the buy side per Lakonishok-Lee 2001 §4. Null when the pooled sell stat is guard-suppressed.',
     },
     {
       key: 'buyClusterTickers',
@@ -454,54 +454,54 @@ export const form4InsiderDescriptor: CompositeDescriptor = {
     },
     {
       key: 'flaggedBuySectors',
-      label: 'Flagged buy sectors (p≤0.05)',
-      short: 'BuySec',
+      label: 'Buy sectors flagged — INFORMATIONAL (ADR-055)',
+      short: 'BuySec*',
       unit: 'raw',
-      glossary: 'ADR-053: number of GICS sectors whose buy-cluster-rate cleared the α=0.05 empirical upper-tail this snapshot (a valid sector with exceedance p≤0.05).',
+      glossary: 'INFORMATIONAL ONLY — NOT statistically calibrated (per-sector events too sparse; ADR-055 D2). Number of GICS sectors whose per-sector buy-cluster-rate cleared the α=0.05 empirical tail. Per-sector tails CANNOT be calibrated (≤2-3 events vs a floor of 20), so this is forensic color — which sectors are clustering — NOT a gated signal. The GATED signal is the pooled zEmp above; a flagged sector here does NOT fire the aggregate.',
     },
     {
       key: 'flaggedSellSectors',
-      label: 'Flagged sell sectors (p≤0.05)',
-      short: 'SellSec',
+      label: 'Sell sectors flagged — INFORMATIONAL (ADR-055)',
+      short: 'SellSec*',
       unit: 'raw',
-      glossary: 'ADR-053: number of GICS sectors whose sell-cluster-rate cleared the α=0.05 empirical upper-tail this snapshot.',
+      glossary: 'INFORMATIONAL ONLY — NOT statistically calibrated (ADR-055 D2). Number of GICS sectors whose per-sector sell-cluster-rate cleared the α=0.05 empirical tail. Forensic color, not a gated signal — the gated signal is the pooled sell zEmp.',
     },
   ],
   flags: [
     {
       key: 'form4ClusterFlag',
-      label: 'Buy-side sector cluster',
-      whenTrue: 'ADR-053: at least one valid GICS sector’s cluster-BUY rate cleared the α=0.05 empirical upper-tail vs its 2y baseline — concentrated insider buying somewhere in the index.',
+      label: 'Pooled buy-cluster (index)',
+      whenTrue: 'ADR-055: the INDEX-LEVEL POOLED cluster-BUY rate cleared the α=0.05 empirical tail vs its 2y pooled baseline — broad insider buying across the S&P 500 (a market-breadth signal, not one sector). Per-sector flags are informational and do NOT fire this.',
     },
     {
       key: 'form4SellClusterFlag',
-      label: 'Sell-side sector cluster',
-      whenTrue: 'ADR-053: at least one valid sector’s cluster-SELL rate cleared the α=0.05 empirical upper-tail — concentrated insider selling (weaker signal per LL §4).',
+      label: 'Pooled sell-cluster (index)',
+      whenTrue: 'ADR-055: the INDEX-LEVEL POOLED cluster-SELL rate cleared the α=0.05 empirical tail — broad insider selling across the index (weaker signal per LL §4).',
     },
   ],
   metricGroups: [
     {
       key: 'buy',
-      label: 'Buy-side cluster — bullish, load-bearing (Lakonishok-Lee 2001 §3)',
+      label: 'Pooled buy-cluster (index) — gated; bullish, load-bearing (LL 2001 §3). Per-sector list = informational (ADR-055)',
       accent: 'emerald',
       metricKeys: ['maxAggregateZ', 'buyClusterTickers', 'flaggedBuySectors'],
       flagKeys: ['form4ClusterFlag'],
     },
     {
       key: 'sell',
-      label: 'Sell-side cluster — weaker signal, ~30-50% diluted (Lakonishok-Lee 2001 §4)',
+      label: 'Pooled sell-cluster (index) — gated; weaker, ~30-50% diluted (LL 2001 §4). Per-sector list = informational (ADR-055)',
       accent: 'rose',
       metricKeys: ['maxAggregateZSell', 'sellClusterTickers', 'flaggedSellSectors'],
       flagKeys: ['form4SellClusterFlag'],
     },
   ],
   verdicts: {
-    dual_cluster: { tone: 'warn', meaning: 'Both buy- AND sell-side sector clusters firing — divergent insider activity across different sectors.' },
-    buy_cluster: { tone: 'calm', meaning: 'Concentrated insider BUYING in ≥1 sector (|z|>2) — the load-bearing bullish signal (LL 2001: buys are informative).' },
-    sell_cluster: { tone: 'elevated', meaning: 'Concentrated insider SELLING in ≥1 sector — informationally weaker (~30-50% diluted by tax/diversification motives).' },
-    normal: { tone: 'neutral', meaning: 'ADR-053: valid statistics computed for ≥1 sector, but no sector cleared the α=0.05 empirical upper-tail (buy or sell).' },
-    under_review: { tone: 'unknown', meaning: 'Insufficient data / statistic under review (ADR-053 + ADR-054). The validity guard counts distinct INDEPENDENT cluster events (ADR-054), not non-zero days — one 30-day rolling-window plateau is ONE event. Sector baselines exist but every sector has fewer than ⌈1/α⌉ = 20 independent cluster events, so the empirical 5% tail cannot be resolved. Not usable until the EDGAR coverage backfill (ADR-052 D7) yields enough independent events.' },
-    unknown: { tone: 'unknown', meaning: 'The aggregate-sector layer had no sector with any 2y baseline — could not classify (true cold-start).' },
+    dual_cluster: { tone: 'warn', meaning: 'Both the pooled buy- AND pooled sell-side aggregate cleared the α-tail (ADR-055) — broad two-sided insider activity across the index.' },
+    buy_cluster: { tone: 'calm', meaning: 'The INDEX-LEVEL POOLED insider-BUY rate cleared the α-tail (ADR-055) — broad insider accumulation across the S&P 500, the load-bearing bullish signal (LL 2001: buys are informative).' },
+    sell_cluster: { tone: 'elevated', meaning: 'The INDEX-LEVEL POOLED insider-SELL rate cleared the α-tail (ADR-055) — broad insider distribution; informationally weaker (~30-50% diluted by tax/diversification motives).' },
+    normal: { tone: 'neutral', meaning: 'ADR-055: the pooled statistic is valid but neither the pooled buy nor pooled sell rate cleared the α=0.05 empirical tail.' },
+    under_review: { tone: 'unknown', meaning: 'Insufficient data / statistic under review (ADR-055 + ADR-054 + ADR-053). The GATED unit is now the CROSS-SECTIONAL POOLED rate (ADR-055); the validity guard counts distinct INDEPENDENT cluster events (ADR-054), not non-zero days. Even pooled, the index-level event count is below the ⌈1/α⌉=20 floor at current EDGAR coverage (measured ≤15 buy / 19 sell), so the empirical 5% tail cannot yet be resolved. The floor is NOT lowered (anti-shopping); not usable until the EDGAR coverage backfill (ADR-052 D7) lengthens the continuous baseline. Per-sector tails are structurally hopeless (≤2-3 events) and are informational only.' },
+    unknown: { tone: 'unknown', meaning: 'No constituent panel / no pooled baseline at all — could not classify (true cold-start).' },
   },
   defaultTone: 'neutral',
   inputBits: [

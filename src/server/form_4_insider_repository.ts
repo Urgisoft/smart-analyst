@@ -69,6 +69,7 @@ import {
   SELL_CODE,
   EDGAR_CANONICAL_SOURCE,
   computeSectorClusterRate,
+  computeSectorClusterCount,
   evaluateForm4InsiderComposite,
   FORM_4_INSIDER_COMPOSITE_VERSION,
   HIGH_SIGNAL_TRANSACTION_CODES,
@@ -76,6 +77,7 @@ import {
   type Form4InsiderFlaggedSector,
   type Form4InsiderInputs,
   type Form4InsiderPerTickerRow,
+  type Form4InsiderPooledStat,
   type Form4InsiderSnapshot,
   type InsiderTrade,
 } from './form_4_insider.js';
@@ -228,6 +230,17 @@ interface RawSnapshotRow {
   flagged_sell_sectors_json: string;
   max_aggregate_z_sell: number | string | null;
   max_aggregate_z_sell_sector: string | null;
+}
+
+/** ADR-055 D1 (v5) — the return shape of `populateSectorsForCycle`. Carries the
+ *  per-sector array (unchanged; now INFORMATIONAL per ADR-055 D2) PLUS the two
+ *  index-level pooled baselines that feed the GATED aggregate statistic. The
+ *  pooled baselines run over the SAME ADR-052-D2 admitted-day set as the per-sector
+ *  baselines, in ascending chronological order (load-bearing per ADR-054 D1). */
+export interface PopulateSectorsResult {
+  sectors: Form4InsiderInputs['sectors'];
+  pooledBaseline2y: number[];
+  pooledBaseline2ySell: number[];
 }
 
 export class Form4InsiderRepository {
@@ -542,7 +555,7 @@ export class Form4InsiderRepository {
     watchUniverse: readonly string[],
     _constituents: readonly string[],
   ): Promise<Form4InsiderInputs> {
-    const [latestAccepted, cikByTicker, sectorByTicker, perTickerTrades, sectors] =
+    const [latestAccepted, cikByTicker, sectorByTicker, perTickerTrades, sectorResult] =
       await Promise.all([
         this.readLatestAcceptedAt(asOf),
         this.readCikByTicker(watchUniverse),
@@ -567,7 +580,10 @@ export class Form4InsiderRepository {
       lastEdgarQueryAt: latestAccepted,
       bdSinceLastQuery,
       perTicker,
-      sectors,
+      sectors: sectorResult.sectors,
+      // ADR-055 D1 (v5) — the index-level pooled baselines for the GATED aggregate.
+      pooledBaseline2y: sectorResult.pooledBaseline2y,
+      pooledBaseline2ySell: sectorResult.pooledBaseline2ySell,
     };
   }
 
@@ -626,7 +642,7 @@ export class Form4InsiderRepository {
    */
   async populateSectorsForCycle(
     asOf: Date,
-  ): Promise<Form4InsiderInputs['sectors']> {
+  ): Promise<PopulateSectorsResult> {
     const oneDay = 24 * 60 * 60 * 1000;
     const baselineStart = new Date(asOf.getTime() - BASELINE_CALENDAR_DAYS * oneDay);
     const baselineEnd = new Date(asOf.getTime() - oneDay);
@@ -642,7 +658,9 @@ export class Form4InsiderRepository {
       this.readSp500ConstituentsPIT(asOf),
     ]);
 
-    if (todayConstituents.length === 0 && panel.length === 0) return [];
+    if (todayConstituents.length === 0 && panel.length === 0) {
+      return { sectors: [], pooledBaseline2y: [], pooledBaseline2ySell: [] };
+    }
 
     // ADR-052 D2 coverage lookback: extend the daily-volume read back an extra
     // EDGAR_COVERAGE_WINDOW_DAYS before baselineStart so the EARLIEST panel
@@ -725,6 +743,21 @@ export class Form4InsiderRepository {
       baseline2ySell: number[];
     }> = [];
 
+    // ADR-055 D1 (v5) — the index-level POOLED baseline accumulator, keyed by
+    // admitted day. For each admitted day we accumulate, ACROSS sectors with
+    // memberCount > 0:
+    //   numBuy  += computeSectorClusterCount(sectorTrades, dayAsOf, BUY_CODE)
+    //   numSell += computeSectorClusterCount(sectorTrades, dayAsOf, SELL_CODE)
+    //   den     += memberCount
+    // The pooled rate for the day is then `num / den` (issuer-weighted — Σnum/Σden,
+    // NOT the mean of per-sector rates). Reuses the EXACT per-day mechanics of the
+    // per-sector loop (same `dayAsOf`, same admitted-day gate, same cluster-count
+    // grouping via the now-shared computeSectorClusterCount). Pooled baseline arrays
+    // are built AFTER the loop, iterating the sorted day keys (ascending
+    // chronological — LOAD-BEARING per ADR-054 D1; countNonZeroRuns runs over the
+    // ordered pooled series too).
+    const pooledByDay = new Map<string, { numBuy: number; numSell: number; den: number }>();
+
     for (const sector of sortedSectors) {
       const panelDays = panelBySectorByDay.get(sector);
       const sectorTrades = sectorTradesAll.get(sector) ?? [];
@@ -752,20 +785,27 @@ export class Form4InsiderRepository {
           // rate=0 below.
           if (!admittedDays.has(day)) continue;
           const dayAsOf = new Date(day + 'T23:59:59.999Z');
-          // computeSectorClusterRate internally applies CLUSTER_WINDOW_DAYS=30
-          // per ticker via countDistinctInsidersByCode; trades outside the
-          // 30d cluster window don't affect the distinct-insider count.
-          // Buy-side (F4-6) and sell-side (F4-12 v2 / S95-1) baselines are
-          // computed from the SAME trade panel — the direction param selects
-          // BUY_CODE vs SELL_CODE at the per-ticker distinct-insider count.
-          const rateBuy = computeSectorClusterRate(
-            sectorTrades, memberCount, dayAsOf, BUY_CODE,
-          );
-          if (rateBuy != null) baseline2y.push(rateBuy);
-          const rateSell = computeSectorClusterRate(
-            sectorTrades, memberCount, dayAsOf, SELL_CODE,
-          );
-          if (rateSell != null) baseline2ySell.push(rateSell);
+          // ADR-055 D1 — the integer clustered-ticker counts per direction. These
+          // are the pooled NUMERATOR contributions for this (sector, day) and ALSO
+          // the per-sector rate numerator (rate = count / memberCount), so we
+          // compute the count once and reuse it for both. Reusing the count keeps
+          // the per-sector baseline byte-identical to the pre-v5 path (which called
+          // computeSectorClusterRate, now itself count/size over this same count).
+          // computeSectorClusterCount internally applies CLUSTER_WINDOW_DAYS=30 per
+          // ticker via countDistinctInsidersByCode; trades outside the 30d cluster
+          // window don't affect the distinct-insider count. Buy-side (F4-6) and
+          // sell-side (F4-12 v2 / S95-1) come from the SAME trade panel — the
+          // direction param selects BUY_CODE vs SELL_CODE at the distinct count.
+          const countBuy = computeSectorClusterCount(sectorTrades, dayAsOf, BUY_CODE);
+          const countSell = computeSectorClusterCount(sectorTrades, dayAsOf, SELL_CODE);
+          baseline2y.push(countBuy / memberCount);     // per-sector rate (informational)
+          baseline2ySell.push(countSell / memberCount); // per-sector rate (informational)
+          // Accumulate into the index-level pool for this admitted day.
+          const acc = pooledByDay.get(day) ?? { numBuy: 0, numSell: 0, den: 0 };
+          acc.numBuy += countBuy;
+          acc.numSell += countSell;
+          acc.den += memberCount;
+          pooledByDay.set(day, acc);
         }
       }
 
@@ -784,7 +824,23 @@ export class Form4InsiderRepository {
       });
     }
 
-    return out;
+    // ADR-055 D1 — build the index-level pooled baselines from the per-day
+    // accumulator, iterating the sorted (ascending chronological) day keys so the
+    // pooled series carries the same load-bearing chronological order as the
+    // per-sector series. Push `num / den` for days with den > 0 (a day where every
+    // sector had memberCount 0 cannot enter the pool). pooledBuy + pooledSell share
+    // the same admitted-day cardinality (same `den` gate). The two series are
+    // EXACTLY the input to `computeEmpiricalExceedance` for the gated aggregate.
+    const pooledBaseline2y: number[] = [];
+    const pooledBaseline2ySell: number[] = [];
+    for (const day of [...pooledByDay.keys()].sort()) {
+      const acc = pooledByDay.get(day)!;
+      if (acc.den <= 0) continue;
+      pooledBaseline2y.push(acc.numBuy / acc.den);
+      pooledBaseline2ySell.push(acc.numSell / acc.den);
+    }
+
+    return { sectors: out, pooledBaseline2y, pooledBaseline2ySell };
   }
 
   /** Persist one snapshot. Idempotent under
@@ -801,8 +857,15 @@ export class Form4InsiderRepository {
       ? formatDateTime(snapshot.lastEdgarQueryAt)
       : null;
     const perTickerJson = JSON.stringify(snapshot.perTickerRows);
-    const flaggedSectorsJson = JSON.stringify(snapshot.flaggedSectors);
-    const flaggedSellSectorsJson = JSON.stringify(snapshot.flaggedSellSectors);
+    // ADR-055 D5 (v5) — NO DDL: the per-sector flagged list (now INFORMATIONAL,
+    // ADR-055 D2) AND the GATED pooled-stat metadata both ride in the existing
+    // `flagged_sectors_json` / `flagged_sell_sectors_json` String columns via a
+    // backward-compatible wrapper object `{ sectors: [...], pooled: {...} }`. A
+    // legacy bare-array (v4-and-earlier) row still decodes correctly on read
+    // (treated as sectors-only, pooled cold-start). See encodeFlaggedJson /
+    // decodeFlaggedJson.
+    const flaggedSectorsJson = encodeFlaggedJson(snapshot.flaggedSectors, snapshot.pooledBuyStat);
+    const flaggedSellSectorsJson = encodeFlaggedJson(snapshot.flaggedSellSectors, snapshot.pooledSellStat);
     await this.ch.insert({
       table: this.snapshotsTable,
       values: [{
@@ -888,30 +951,21 @@ export class Form4InsiderRepository {
     } catch {
       perTickerRows = [];
     }
-    let flaggedSectors: ReadonlyArray<Form4InsiderFlaggedSector> = [];
-    try {
-      const parsed = JSON.parse(r.flagged_sectors_json);
-      if (Array.isArray(parsed)) {
-        flaggedSectors = parsed as Form4InsiderFlaggedSector[];
-      }
-    } catch {
-      flaggedSectors = [];
-    }
+    // ADR-055 D5 (v5) — decode the wrapper `{ sectors, pooled }` OR a legacy
+    // bare-array (v4-and-earlier) from `flagged_sectors_json`. The per-sector list
+    // is INFORMATIONAL (ADR-055 D2); the pooled stat is the GATED unit. Malformed /
+    // empty-string DEFAULT → sectors [] + pooled cold-start (same degrade posture
+    // as before).
+    const buyDecoded = decodeFlaggedJson(r.flagged_sectors_json);
+    const flaggedSectors = buyDecoded.sectors;
+    const pooledBuyStat = buyDecoded.pooled;
     // Gap #7 v2 sell-cluster F4 G3 persistence wiring (s95 #2). Pre-migration
-    // rows surface as either missing keys on the row (then `?? '...'`
-    // defaults below kick in) OR as the DDL DEFAULT values (UInt8=0,
-    // String='', Nullable=NULL). The empty-string DEFAULT for
-    // flagged_sell_sectors_json parses as malformed → []; the same
-    // try/catch posture as the buy-side counterpart handles it.
-    let flaggedSellSectors: ReadonlyArray<Form4InsiderFlaggedSector> = [];
-    try {
-      const parsed = JSON.parse(r.flagged_sell_sectors_json ?? '');
-      if (Array.isArray(parsed)) {
-        flaggedSellSectors = parsed as Form4InsiderFlaggedSector[];
-      }
-    } catch {
-      flaggedSellSectors = [];
-    }
+    // rows surface as either missing keys on the row OR as the DDL DEFAULT values
+    // (UInt8=0, String='', Nullable=NULL). The empty-string DEFAULT decodes to
+    // sectors [] + pooled cold-start; same posture as the buy-side counterpart.
+    const sellDecoded = decodeFlaggedJson(r.flagged_sell_sectors_json ?? '');
+    const flaggedSellSectors = sellDecoded.sectors;
+    const pooledSellStat = sellDecoded.pooled;
     return {
       snapshotDate: new Date(Number(r.computed_at_ms)),
       lastEdgarQueryAt: lastQueryAt,
@@ -936,6 +990,11 @@ export class Form4InsiderRepository {
       form4SellClusterFlag: Number(r.form_4_sell_cluster_flag ?? 0) === 1,
       maxAggregateZSell: r.max_aggregate_z_sell != null ? Number(r.max_aggregate_z_sell) : null,
       maxAggregateZSellSector: r.max_aggregate_z_sell_sector ?? null,
+      // ADR-055 D2 (v5) — the GATED pooled-stat metadata, recovered from the
+      // wrapper in flagged_sectors_json / flagged_sell_sectors_json (NO DDL).
+      // Legacy rows (bare array) decode to a cold-start pooled stat.
+      pooledBuyStat,
+      pooledSellStat,
       perTickerRows,
       inputsAvailableAggregate: Number(r.inputs_available_aggregate),
       inputsAvailablePerTicker: Number(r.inputs_available_per_ticker),
@@ -1025,6 +1084,69 @@ function nullableNum(v: number | string | null | undefined): number | null {
 }
 
 // ───── helpers ──────────────────────────────────────────────────────────────
+
+/** ADR-055 D5 (v5) — a cold-start pooled stat (every field null/0, insufficient
+ *  data). Used as the decode fallback for legacy bare-array rows + as the empty
+ *  default. */
+function coldStartPooledStat(): Form4InsiderPooledStat {
+  return {
+    pooledRateT: null,
+    zEmp: null,
+    exceedance: null,
+    effectiveEvents: 0,
+    effectiveSample: 0,
+    baselineSize: 0,
+    insufficientData: true,
+  };
+}
+
+/** ADR-055 D5 (v5) — encode the per-sector flagged list (INFORMATIONAL, ADR-055
+ *  D2) + the GATED pooled-stat metadata into ONE schemaless JSON String column
+ *  (`flagged_sectors_json` / `flagged_sell_sectors_json`) — NO DDL. The encoding
+ *  is the wrapper object `{ sectors: [...], pooled: {...} }`. `decodeFlaggedJson`
+ *  reads both this shape AND a legacy bare-array (v4-and-earlier), so the column
+ *  is forward+backward compatible without a migration. */
+function encodeFlaggedJson(
+  sectors: ReadonlyArray<Form4InsiderFlaggedSector>,
+  pooled: Form4InsiderPooledStat,
+): string {
+  return JSON.stringify({ sectors, pooled });
+}
+
+/** ADR-055 D5 (v5) — decode `flagged_sectors_json` into the per-sector flagged
+ *  list + the pooled stat. Accepts THREE shapes (forward+backward compatible, no
+ *  DDL):
+ *    1. v5 wrapper `{ sectors: [...], pooled: {...} }` → both recovered.
+ *    2. legacy bare array `[...]` (v4-and-earlier) → sectors recovered, pooled
+ *       cold-start (the pooled construct did not exist pre-v5).
+ *    3. malformed / empty-string DDL DEFAULT → sectors [] + pooled cold-start
+ *       (same degrade posture as the pre-v5 try/catch). */
+function decodeFlaggedJson(raw: string | null | undefined): {
+  sectors: ReadonlyArray<Form4InsiderFlaggedSector>;
+  pooled: Form4InsiderPooledStat;
+} {
+  try {
+    const parsed = JSON.parse(raw ?? '');
+    if (Array.isArray(parsed)) {
+      // Legacy bare-array (v4-and-earlier): sectors only, pooled cold-start.
+      return { sectors: parsed as Form4InsiderFlaggedSector[], pooled: coldStartPooledStat() };
+    }
+    if (parsed && typeof parsed === 'object') {
+      const obj = parsed as { sectors?: unknown; pooled?: unknown };
+      const sectors = Array.isArray(obj.sectors)
+        ? (obj.sectors as Form4InsiderFlaggedSector[])
+        : [];
+      const pooled =
+        obj.pooled && typeof obj.pooled === 'object'
+          ? (obj.pooled as Form4InsiderPooledStat)
+          : coldStartPooledStat();
+      return { sectors, pooled };
+    }
+  } catch {
+    // fall through to cold-start
+  }
+  return { sectors: [], pooled: coldStartPooledStat() };
+}
 
 function groupTradesByTicker(
   rows: readonly RawTradeRow[],

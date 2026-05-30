@@ -1344,6 +1344,8 @@ describe('composeMorningBrief — Form 4 insider section wiring', () => {
         form4SellClusterFlag: false,
         maxAggregateZSell: null,
         maxAggregateZSellSector: null,
+        pooledBuyStat: { pooledRateT: null, zEmp: null, exceedance: null, effectiveEvents: 0, effectiveSample: 0, baselineSize: 0, insufficientData: true },
+        pooledSellStat: { pooledRateT: null, zEmp: null, exceedance: null, effectiveEvents: 0, effectiveSample: 0, baselineSize: 0, insufficientData: true },
         perTickerRows: [
           {
             ticker: 'QRST', cik: '0000222222', sector: null,
@@ -1364,7 +1366,7 @@ describe('composeMorningBrief — Form 4 insider section wiring', () => {
         ],
         inputsAvailableAggregate: 0,
         inputsAvailablePerTicker: 0,
-        version: 'form_4_insider_v4',
+        version: 'form_4_insider_v5',
       }),
       now: () => FIXED_NOW,
     });
@@ -1381,7 +1383,7 @@ describe('composeMorningBrief — Form 4 insider section wiring', () => {
     // Composer-stamped CIK-only count (one row has empty CIK).
     assert.equal(brief.formFour!.tickersWithCikCount, 1);
     assert.equal(brief.formFour!.watchUniverseTickerCount, 2);
-    assert.equal(brief.formFour!.compositeVersion, 'form_4_insider_v4');
+    assert.equal(brief.formFour!.compositeVersion, 'form_4_insider_v5');
   });
 
   // T-OB-F4-2 — graceful-degrade on fetcher throw (mirrors prior A5 panels).
@@ -1430,6 +1432,8 @@ describe('buildForm4InsiderSection', () => {
       form4SellClusterFlag: false,
       maxAggregateZSell: null,
       maxAggregateZSellSector: null,
+      pooledBuyStat: { pooledRateT: null, zEmp: null, exceedance: null, effectiveEvents: 0, effectiveSample: 0, baselineSize: 0, insufficientData: true },
+      pooledSellStat: { pooledRateT: null, zEmp: null, exceedance: null, effectiveEvents: 0, effectiveSample: 0, baselineSize: 0, insufficientData: true },
       perTickerRows: [
         { ticker: 'QRST', cik: '0000222222', sector: null,
           insiderBuyCount90d: 5, insiderSellCount90d: 0,
@@ -1440,7 +1444,7 @@ describe('buildForm4InsiderSection', () => {
       ],
       inputsAvailableAggregate: 503,
       inputsAvailablePerTicker: 0,
-      version: 'form_4_insider_v4',
+      version: 'form_4_insider_v5',
     });
     assert.ok(section !== null);
     assert.equal(section!.evaluatedAt, '2026-05-19T13:30:00.123Z');
@@ -1456,7 +1460,7 @@ describe('buildForm4InsiderSection', () => {
     assert.equal(section!.perTickerRows[0].insiderNetDollar90d, 2_300_000);
     assert.equal(section!.tickersWithCikCount, 1);
     assert.equal(section!.watchUniverseTickerCount, 1);
-    assert.equal(section!.compositeVersion, 'form_4_insider_v4');
+    assert.equal(section!.compositeVersion, 'form_4_insider_v5');
   });
 
   it('stamps CIK-only count separately from sector-gated inputsAvailablePerTicker', async () => {
@@ -1473,6 +1477,8 @@ describe('buildForm4InsiderSection', () => {
       form4SellClusterFlag: false,
       maxAggregateZSell: null,
       maxAggregateZSellSector: null,
+      pooledBuyStat: { pooledRateT: null, zEmp: null, exceedance: null, effectiveEvents: 0, effectiveSample: 0, baselineSize: 0, insufficientData: true },
+      pooledSellStat: { pooledRateT: null, zEmp: null, exceedance: null, effectiveEvents: 0, effectiveSample: 0, baselineSize: 0, insufficientData: true },
       perTickerRows: [
         { ticker: 'A', cik: '0000000001', sector: null,
           insiderBuyCount90d: 0, insiderSellCount90d: 0,
@@ -1495,7 +1501,7 @@ describe('buildForm4InsiderSection', () => {
       ],
       inputsAvailableAggregate: 0,
       inputsAvailablePerTicker: 0,
-      version: 'form_4_insider_v4',
+      version: 'form_4_insider_v5',
     });
     assert.ok(section !== null);
     assert.equal(section!.tickersWithCikCount, 2);
@@ -1519,10 +1525,12 @@ describe('buildForm4InsiderSection', () => {
       form4SellClusterFlag: false,
       maxAggregateZSell: null,
       maxAggregateZSellSector: null,
+      pooledBuyStat: { pooledRateT: null, zEmp: null, exceedance: null, effectiveEvents: 0, effectiveSample: 0, baselineSize: 0, insufficientData: true },
+      pooledSellStat: { pooledRateT: null, zEmp: null, exceedance: null, effectiveEvents: 0, effectiveSample: 0, baselineSize: 0, insufficientData: true },
       perTickerRows: [],
       inputsAvailableAggregate: 8,
       inputsAvailablePerTicker: 0,
-      version: 'form_4_insider_v4',
+      version: 'form_4_insider_v5',
     });
     assert.ok(section !== null);
     assert.equal(section!.maxAggregateZ, 0.91);
@@ -1551,10 +1559,12 @@ describe('buildForm4InsiderSection', () => {
       form4SellClusterFlag: true,
       maxAggregateZSell: 2.31,
       maxAggregateZSellSector: 'Energy',
+      pooledBuyStat: { pooledRateT: null, zEmp: null, exceedance: null, effectiveEvents: 0, effectiveSample: 0, baselineSize: 0, insufficientData: true },
+      pooledSellStat: { pooledRateT: 0.18, zEmp: 2.31, exceedance: 0.0104, effectiveEvents: 21, effectiveSample: 88, baselineSize: 503, insufficientData: false },
       perTickerRows: [],
       inputsAvailableAggregate: 11,
       inputsAvailablePerTicker: 0,
-      version: 'form_4_insider_v4',
+      version: 'form_4_insider_v5',
     });
     assert.ok(section !== null);
     assert.equal(section!.form4SellClusterFlag, true);
