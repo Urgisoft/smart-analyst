@@ -1,16 +1,16 @@
 # Handoff brief — Vector Core / SignalForge
 
 Last updated: 2026-05-30 (session 96 #37 — **Cycle 40: EDGAR + FINRA ingests REPAIRED → 3 of 4
-empty composites POPULATED; historical backfills RUNNING in background + a 30-min watchdog cron;
-Schedule-13D/G fix worker IN FLIGHT.**) This cycle began the operator-directed **completion phase**
+empty composites POPULATED (all 4 EDGAR/FINRA ingests now repaired — 13D/G fix merged `767901f`);
+historical backfills RUNNING in background + a 30-min watchdog cron (`ad36d490`).**) This cycle began the operator-directed **completion phase**
 (validate/complete EVERYTHING → THEN human-readable UI layer → THEN live trading, dead last — strict
 order, saved to memory `project-phase-ordering-completion-ui-live`). Found that the "empty" Layer-0
 composites were not empty by accident — they were silently broken: FINRA's download endpoint had
 moved (404); a shared EDGAR helper bug 404'd every 8-K body-fetch. Both repaired (free sources, no
-auth, no paid). Three composites now populate; the fourth (13D/G) is a separate query bug being fixed
-by a worker. Historical backfills launched to give Phase B a real window. **NEXT on `continue`:** see
-"Next stage" — resume the backfills + watchdog if the session died, merge the 13D/G worker, then move
-populated composites toward validation.
+auth, no paid). All four now populate — the fourth (13D/G) was a separate FTS-token bug, also fixed +
+merged (`767901f`). Historical backfills launched to give Phase B a real window. **NEXT on `continue`:**
+see "Next stage" — resume the backfills + watchdog if the session died, then move populated composites
+toward validation.
 
 ---
 
@@ -26,7 +26,7 @@ ClickHouse runs in the `quantlab-clickhouse` Docker container. On reboot:
 
 ### ⚠️⚠️ BACKGROUND BACKFILLS + WATCHDOG DIE ON `/clear` — RESUME THEM FIRST
 Cycle 40 launched three historical backfills as **background bash** + a **session-only cron watchdog**
-(`ab8e22f7`, every 30 min). **All of these are DEAD if this chat was `/clear`ed or Claude was closed.**
+(`ad36d490`, every 30 min). **All of these are DEAD if this chat was `/clear`ed or Claude was closed.**
 They are idempotent + resumable. On `continue`, FIRST:
 1. Check liveness: `tasklist | grep -ic python` (0 = dead). Check progress:
    `cat logs/backfill_finra_short_interest.progress`, `cat logs/backfill_exec-departure.progress`,
@@ -35,8 +35,9 @@ They are idempotent + resumable. On `continue`, FIRST:
    - `bash scripts/_backfill_finra_short_interest.sh 2020-01`
    - `bash scripts/_backfill_edgar_monthly.sh exec-departure 2021-01`
    - `bash scripts/_backfill_edgar_monthly.sh 8k-event 2019-01`  ← only AFTER exec-departure COMPLETE (shared EDGAR rate limit)
+   - `bash scripts/_backfill_edgar_monthly.sh 13d-g 2020-01`  ← only AFTER 8k-event COMPLETE (same shared EDGAR rate limit)
 3. RE-CREATE the watchdog: re-run the `loop` skill — `/loop 30m <the watchdog prompt>` (the prompt is
-   in CronCreate job `ab8e22f7`; reproduced in "Files / code state"). It is session-only by design.
+   in CronCreate job `ad36d490`; reproduced in "Files / code state"). It is session-only by design.
 
 ---
 
@@ -50,7 +51,7 @@ is the orchestration's.
 | Q-1 | First real-capital deployment — timing + amount | §7.1.1 | **INDEFINITELY DEFERRED** (s96 #19) — reaffirmed s96 #37: NO live trading until everything validated/bug-free |
 | Q-2 | Capital-deployment-ramp ADR sign-off | s96 #13 | **INDEFINITELY DEFERRED** (s96 #19) |
 | Q-3 | GAP-5 Stooq apikey gate decision | Audit GAP-5 | OPEN — paid subscription |
-| Q-4 | Push **~138** unpushed commits to origin/main | Carry-over (+3 this session: `4872430`, `72a5978`, `defbccf`; +13D/G merge + HANDOFF pending) | OPEN — `git push` operator-gated |
+| Q-4 | Push **~140** unpushed commits to origin/main | Carry-over (+6 this session: `4872430`, `72a5978`, `defbccf`, `59bc1ee`, `767901f`, `c01c8e0` + this HANDOFF) | OPEN — `git push` operator-gated |
 | Q-5 | phase1_v3 CBOE corrupted-input window | Cycle 21 ADR-050 | **CLOSED — ADR-050** |
 | Q-6 | ETF v1 yfinance primary BROKEN (Yahoo `get_shares_full` empty for all 21 ETFs) | s96 #17/+ | **OPEN — orchestration plan set:** replace the dead Yahoo aggregator with **issuer-direct** daily shares-outstanding feeds (iShares cash-flows CSV, ProShares downloads, Vanguard/Invesco) — same free no-auth posture as the working SSGA secondary. Queued behind the current backfills. NOT a paid-data item. |
 | Q-7 | phase1_v3 yield-curve source persistence — Path pick | s96 #18 C19 | **OPEN — operator picks Path** |
@@ -66,7 +67,7 @@ is the orchestration's.
 | `72a5978` | **FINRA scraper repair.** Dead bulk-CSV URL → free anonymous DAPI `POST api.finra.org/data/group/otcMarket/name/consolidatedShortInterest`. Caught a 5,000-row server-cap truncation trap (naive request lost ~77%). Maps onto existing `short_interest` schema (no DDL). 2 files, +837/−123. 39 py tests + 9/9 daemon-wrapper TS. |
 | `defbccf` | **Backfill drivers** `_backfill_finra_short_interest.sh` + `_backfill_edgar_monthly.sh` (resumable backward month-loop, idempotent). |
 | (background, RUNNING) | FINRA backfill 2020-01..now; EDGAR exec-departure 2021-01..now THEN 8k-event 2019-01..now (sequential). |
-| (cron `ab8e22f7`) | 30-min watchdog (session-only): checks/resumes backfills, fixes Tier-1 ingest bugs, reports. |
+| (cron `ad36d490`) | 30-min watchdog (session-only): checks/resumes backfills, fixes Tier-1 ingest bugs, reports. |
 | (worker IN FLIGHT) | Schedule-13D/G query-bug fix (worktree-isolated). |
 | (memory) | `project-phase-ordering-completion-ui-live` saved (completion → UI → live, strict). |
 | (this commit) | This HANDOFF rewrite. |
@@ -124,9 +125,8 @@ four-layer template; ADR-050/051; all prior s73-s96 lock-ins.
 
 ### Default on `continue` — orchestration's call
 0. **FIRST: resume the backfills + watchdog if the session died** (see Restart-recovery ⚠️).
-1. **Merge the Schedule-13D/G fix worker** when it completes: verify worktree base == main HEAD, run its
-   tests, ff-merge/commit, `git worktree remove --force` + `git branch -D`, then re-run `edgar:13d-g:ingest`
-   to confirm rows land.
+1. **Schedule-13D/G fix is MERGED** (`767901f`, FTS token `SCHEDULE 13D`→normalize→`SC 13D`, 76 rows).
+   Its deep backfill runs via the watchdog EDGAR chain (`13d-g`, after 8k-event). Nothing to merge here.
 2. **Let the backfills finish** (watchdog auto-reports/resumes). When COMPLETE, measure the available history
    window per composite (OQ-C40-1) and report in plain language.
 3. **Then begin VALIDATION** of the now-populated composites: calc-correctness checks → Phase B deflation
@@ -154,7 +154,7 @@ layer yet (operator: after completion); auto-open Phase C (Q-8); `git push` (Q-4
 - **Drivers:** `scripts/_backfill_edgar_monthly.sh <exec-departure|8k-event> [START_YM]`,
   `scripts/_backfill_finra_short_interest.sh [START_YM]`. Logs `logs/backfill_*.log`, progress
   `logs/backfill_*.progress` (both gitignored). Backward month-loop; idempotent (ReplacingMergeTree).
-- **Watchdog cron `ab8e22f7`** (session-only, every 30 min). Its prompt: check the three `.progress`/`.log`
+- **Watchdog cron `ad36d490`** (session-only, every 30 min). Its prompt: check the three `.progress`/`.log`
   + CH row counts; classify PROGRESSING/COMPLETE/STUCK; resume dead drivers; fix Tier-1 ingest bugs (worker
   if >1-liner), flag correctness issues; report one line each; CronDelete when all COMPLETE. Re-create with
   the `loop` skill after a `/clear`.
@@ -163,7 +163,7 @@ layer yet (operator: after completion); auto-open Phase C (Q-8); `git push` (Q-4
 - `short_interest` = ~688k+ and climbing (FINRA, back to ~2025-01 and going to 2020).
 - `executive_departures` = 32+ (exec-departure, ~3-4 months in, going to 2021).
 - `eight_k_events` = 45 (8k-event backfill not started yet — waits for exec-departure).
-- `schedule_13d_g_filings` = 0 (worker fixing).
+- `schedule_13d_g_filings` = 76 (FTS-token fix MERGED `767901f`; recent-window only — needs backfill via watchdog chain `13d-g`).
 - `insider_trades` = 787,869 (form_4, from Cycle 39 bulk Form345 — unchanged this cycle).
 
 ### CLIs (for backfill/driver edits)
