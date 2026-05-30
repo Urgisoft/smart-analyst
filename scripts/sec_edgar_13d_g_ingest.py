@@ -16,8 +16,19 @@ acceptance-date filter, CIK→submissions-API resolver) — no XML body parsing
 Architecture:
 
   1. EDGAR Full-Text Search API (efts.sec.gov/LATEST/search-index) → list of
-     Schedule 13D/G filings filtered to `forms=SC 13D,SC 13D/A,SC 13G,SC 13G/A`.
-     Response is JSON.
+     Schedule 13D/G filings. **The FTS `forms=` filter token is `SCHEDULE 13D`
+     (NOT `SC 13D`)** — confirmed by live probe 2026-05-30: `forms=SC 13D`
+     returns `hits.total.value: 0` over ANY window, while `forms=SCHEDULE 13D`
+     returns hundreds/window. EDGAR's full-text index keys these schedules under
+     the long-form token. The response's `form` field then comes back as
+     `SCHEDULE 13D` / `SCHEDULE 13D/A` / `SCHEDULE 13G` / `SCHEDULE 13G/A`, which
+     we NORMALIZE (via `normalize_schedule_form_type`) to the composite-facing
+     `SC 13D` / `SC 13D/A` / `SC 13G` / `SC 13G/A` — the four strings
+     `src/server/schedule_13d_g.ts`'s `SCHEDULE_FORM_TYPES` set requires (XD-1).
+     Response is JSON; fetched paginated + date-split via the shared helpers to
+     survive the 100-hit/page + 10K/query caps. THIS WAS THE ZERO-ROWS BUG: the
+     old `forms=SC 13D,...` query never matched, so 0 filings parsed and the
+     table stayed empty.
   2. For each filing: extract (accession, issuer_cik, filer_cik, form_type,
      accepted_at, period_of_report, filing_url) from the search hit envelope.
      The cover-page body is NEVER fetched in v1 (XD-3 — no Item 4 NLP, no
@@ -102,6 +113,7 @@ from _sec_edgar_helpers import (  # noqa: E402  (sys.path manipulation above)
     cik10,
     ensure_cik_ticker_map_table,
     fetch_edgar,
+    fetch_edgar_search_dated_split,
     filter_by_acceptance_date,
     parse_edgar_search_response,
     parse_submissions_response,
@@ -118,10 +130,58 @@ from _sec_edgar_helpers import (  # noqa: E402  (sys.path manipulation above)
 # ingest traffic from the gap #8 / EK-A1 / F4-A1 streams.
 DEFAULT_USER_AGENT = "SignalForge/schedule-13d-g-ingest u0249898@gmail.com"
 
-# Per XD-1 + XD-12: the v1 form-type set. SC 13D ⇒ active intent declared
-# by filer; SC 13G ⇒ passive intent declared by filer. Amendments (/A) are
-# stored additively per XD-4 with `is_amendment = 1`.
+# Per XD-1 + XD-12: the v1 COMPOSITE-FACING form-type set. SC 13D ⇒ active
+# intent declared by filer; SC 13G ⇒ passive intent declared by filer.
+# Amendments (/A) are stored additively per XD-4 with `is_amendment = 1`. These
+# are the exact strings `src/server/schedule_13d_g.ts`'s SCHEDULE_FORM_TYPES set
+# matches — every row WRITTEN to CH must carry one of these (post-normalization).
 DEFAULT_FORMS_13D_G = ("SC 13D", "SC 13D/A", "SC 13G", "SC 13G/A")
+
+# EDGAR FTS `forms=` QUERY tokens. The full-text index keys Schedule 13D/G
+# under the LONG-FORM `SCHEDULE 13D` token, NOT the short `SC 13D` token the
+# composite uses. Confirmed by live probe 2026-05-30:
+#   forms=SC 13D       -> hits.total.value = 0   (the zero-rows bug)
+#   forms=SCHEDULE 13D -> hits.total.value = 396  (a recent 3-week window)
+# A single `forms=SCHEDULE 13D` query already returns BOTH the base form AND
+# the `/A` amendment (EDGAR treats the amendment as the same root form), but we
+# pass all four explicitly so an operator narrowing via --fts-forms behaves
+# predictably and the query is self-documenting.
+FTS_FORMS_13D_G = ("SCHEDULE 13D", "SCHEDULE 13D/A", "SCHEDULE 13G", "SCHEDULE 13G/A")
+
+# Maps an EDGAR FTS response `form` token → the composite-facing token. The FTS
+# response emits the long-form (`SCHEDULE 13D/A`); the composite + CH schema use
+# the short form (`SC 13D/A`). This normalization is THE bridge between EDGAR's
+# index vocabulary and SCHEDULE_FORM_TYPES in src/server/schedule_13d_g.ts — if
+# it is removed/broken, every parsed filing is dropped by the
+# DEFAULT_FORMS_13D_G filter and the table goes empty again. Defensive: also
+# accepts already-short forms (idempotent) so a --from-file with short tokens
+# still works.
+_SCHEDULE_TO_SC_PREFIX = "SCHEDULE "
+_SC_PREFIX = "SC "
+
+
+def normalize_schedule_form_type(form_type: str) -> str:
+    """Normalize an EDGAR `form` token to the composite-facing short form.
+
+    `SCHEDULE 13D`   -> `SC 13D`
+    `SCHEDULE 13D/A` -> `SC 13D/A`
+    `SCHEDULE 13G`   -> `SC 13G`
+    `SCHEDULE 13G/A` -> `SC 13G/A`
+    `SC 13D` (already short) -> `SC 13D` (idempotent — --from-file safety)
+    anything else            -> returned unchanged (the DEFAULT_FORMS_13D_G
+                                parse-time filter drops it; never silently
+                                coerces an off-set form into the set).
+
+    Whitespace is stripped first; EDGAR has been observed to emit a trailing
+    space on some root-form tokens. We intentionally do NOT case-fold — EDGAR's
+    tokens are upper-case canonical and a lower-case variant would signal an
+    upstream format change worth surfacing (it would simply fail the set filter
+    and be counted as a dropped form, visible in the parse log).
+    """
+    f = form_type.strip()
+    if f.startswith(_SCHEDULE_TO_SC_PREFIX):
+        return _SC_PREFIX + f[len(_SCHEDULE_TO_SC_PREFIX):]
+    return f
 
 
 # ── Argparse ─────────────────────────────────────────────────────────────────
@@ -202,19 +262,24 @@ def build_schedule_13d_g_search_url(
     base: str,
     start_date: _dt.date,
     end_date: _dt.date,
-    forms: str = "SC 13D,SC 13D/A,SC 13G,SC 13G/A",
+    forms: str = ",".join(FTS_FORMS_13D_G),
 ) -> str:
     """Build an EDGAR full-text search URL filtered to Schedule 13D/G filings.
 
     Per XD-1, the v1 universe is exactly the four form types. EDGAR's
-    full-text search accepts comma-separated form filters; the "SC " prefix
-    + the "/A" suffix are part of the form identifier (not a separator).
+    full-text search accepts comma-separated form filters; the "SCHEDULE "
+    prefix + the "/A" suffix are part of the form identifier (not a separator).
+
+    **The `forms=` default is the LONG-FORM `SCHEDULE 13D,...` token set**
+    (FTS_FORMS_13D_G), NOT `SC 13D,...`. `SC 13D` returns 0 hits from EDGAR's
+    full-text index — that was the zero-rows bug. The composite-facing short
+    form (`SC 13D`) is restored downstream by `normalize_schedule_form_type`.
 
     Args:
       base:       EDGAR_SEARCH_BASE (overridable for test fixtures).
       start_date: inclusive YYYY-MM-DD lower bound.
       end_date:   inclusive YYYY-MM-DD upper bound.
-      forms:      form filter (default = all four 13D/G variants).
+      forms:      form filter (default = all four 13D/G FTS variants).
     """
     params = {
         "forms": forms,
@@ -223,6 +288,27 @@ def build_schedule_13d_g_search_url(
         "enddt": end_date.isoformat(),
     }
     return f"{base}?{urllib.parse.urlencode(params)}"
+
+
+def build_schedule_13d_g_search_url_template(
+    base: str,
+    forms: str = ",".join(FTS_FORMS_13D_G),
+) -> str:
+    """Build a date-split URL TEMPLATE with `{startdt}`/`{enddt}` placeholders.
+
+    Consumed by `fetch_edgar_search_dated_split` (shared helper), which fills
+    the placeholders per sub-window. The template MUST NOT URL-encode the
+    placeholders themselves (str.format runs after this returns). The `forms`
+    value IS percent-encoded so the literal spaces / commas / slashes in
+    `SCHEDULE 13D/A` survive. Per XD-6 the 13D/G daily volume is low (~50-200/d),
+    so the helper's default chunking is comfortably under the 10K/query cap;
+    the dated-split is belt-and-suspenders against a future volume spike.
+    """
+    enc_forms = urllib.parse.quote(forms)
+    return (
+        f"{base}?forms={enc_forms}&dateRange=custom"
+        f"&startdt={{startdt}}&enddt={{enddt}}"
+    )
 
 
 # ── 13D/G-specific CIK extraction (XD-7 + §11 watch-out #4) ──────────────────
@@ -509,7 +595,11 @@ def main() -> int:
     start_date = args.start_date or (end_date - _dt.timedelta(days=90))
     snapshot_date = args.snapshot_date or end_date
 
-    # Resolve the JSON source: --from-file > --url > computed-default
+    # Resolve filings from one of three source paths:
+    #   --from-file <path>  → parse a single locally-saved JSON response.
+    #   --url <url>         → fetch + parse a single operator-supplied URL.
+    #   default             → paginated, date-split FTS query over the window
+    #                         (handles the 100-hit/page + 10K/query caps).
     if args.from_file:
         path = Path(args.from_file)
         if not path.exists():
@@ -517,14 +607,19 @@ def main() -> int:
             return 2
         json_bytes = path.read_bytes()
         source_for_log = str(path.name)
-    else:
-        url = args.url or build_schedule_13d_g_search_url(EDGAR_SEARCH_BASE, start_date, end_date)
-        print(f"[edgar-13d-g] fetching {url}")
         try:
-            json_bytes = fetch_edgar(url, user_agent=args.user_agent)
+            filings = parse_edgar_search_response(json_bytes)
+        except (ValueError, json.JSONDecodeError) as e:
+            print(f"[edgar-13d-g] FATAL: JSON parse failed: {e}", file=sys.stderr)
+            return 4
+    elif args.url:
+        source_for_log = args.url
+        print(f"[edgar-13d-g] fetching {args.url}")
+        try:
+            json_bytes = fetch_edgar(args.url, user_agent=args.user_agent)
         except urllib.error.HTTPError as e:
             print(
-                f"[edgar-13d-g] FATAL: HTTP {e.code} fetching {url}. "
+                f"[edgar-13d-g] FATAL: HTTP {e.code} fetching {args.url}. "
                 f"\nThe EDGAR full-text search endpoint may have moved or the "
                 f"query syntax may have changed. Operator paths:"
                 f"\n  1. Pass --url <verified-url> with the corrected endpoint."
@@ -536,22 +631,90 @@ def main() -> int:
             )
             return 3
         except urllib.error.URLError as e:
-            print(f"[edgar-13d-g] FATAL: URL error fetching {url}: {e}", file=sys.stderr)
+            print(f"[edgar-13d-g] FATAL: URL error fetching {args.url}: {e}", file=sys.stderr)
             return 3
-        source_for_log = url
+        try:
+            filings = parse_edgar_search_response(json_bytes)
+        except (ValueError, json.JSONDecodeError) as e:
+            print(f"[edgar-13d-g] FATAL: JSON parse failed: {e}", file=sys.stderr)
+            return 4
+    else:
+        template = build_schedule_13d_g_search_url_template(EDGAR_SEARCH_BASE)
+        source_for_log = f"{template} [{start_date}..{end_date}]"
+        print(
+            f"[edgar-13d-g] fetching (paginated, date-split) forms="
+            f"{','.join(FTS_FORMS_13D_G)} {start_date}..{end_date}"
+        )
+        try:
+            filings = fetch_edgar_search_dated_split(
+                template, start_date, end_date, user_agent=args.user_agent,
+                # 13D/G daily volume is low (~50-200/day per XD-6); a 14-day
+                # chunk stays well under EDGAR's 10K-hit/query cap.
+                max_chunk_days=14,
+            )
+        except urllib.error.HTTPError as e:
+            print(
+                f"[edgar-13d-g] FATAL: HTTP {e.code} fetching FTS for "
+                f"{start_date}..{end_date}. EDGAR FTS may have moved or the "
+                f"query syntax may have changed. Operator paths:"
+                f"\n  1. Pass --url <verified-url> with the corrected endpoint."
+                f"\n  2. Download the JSON manually via browser + pass --from-file <path>."
+                f"\n  3. Narrow --start-date to reduce response size."
+                f"\nEDGAR full-text search is documented at "
+                f"https://www.sec.gov/edgar/sec-api-documentation .",
+                file=sys.stderr,
+            )
+            return 3
+        except urllib.error.URLError as e:
+            print(f"[edgar-13d-g] FATAL: URL error fetching FTS: {e}", file=sys.stderr)
+            return 3
+        except (ValueError, json.JSONDecodeError) as e:
+            print(f"[edgar-13d-g] FATAL: JSON parse failed: {e}", file=sys.stderr)
+            return 4
 
-    print(f"[edgar-13d-g] parsing JSON ({len(json_bytes)} bytes, source={source_for_log})")
-    try:
-        filings = parse_edgar_search_response(json_bytes)
-    except (ValueError, json.JSONDecodeError) as e:
-        print(f"[edgar-13d-g] FATAL: JSON parse failed: {e}", file=sys.stderr)
-        return 4
+    # NORMALIZE the EDGAR FTS `form` token (`SCHEDULE 13D/A`) to the
+    # composite-facing short form (`SC 13D/A`) BEFORE the set filter. The FTS
+    # index keys these schedules under the long-form token, so without this the
+    # DEFAULT_FORMS_13D_G filter below would drop EVERY filing → empty table.
+    raw_count = len(filings)
+    for f in filings:
+        f["form_type"] = normalize_schedule_form_type(f["form_type"])
 
     # Per XD-1 + SPEC §9.3 T-XD13I-12: restrict to Schedule 13D/G form types
     # at parse time. The search URL already filters, but --from-file responses
     # or --url overrides may include other form types.
     filings = [f for f in filings if f["form_type"] in DEFAULT_FORMS_13D_G]
+    dropped_off_set = raw_count - len(filings)
+    if dropped_off_set > 0:
+        print(
+            f"[edgar-13d-g] dropped {dropped_off_set} off-set form types "
+            f"(not in {DEFAULT_FORMS_13D_G})"
+        )
     print(f"[edgar-13d-g] parsed {len(filings)} Schedule 13D/G filings from search response")
+
+    # LOUD ZERO-RESULT GUARD (operator-mandated schema validation). EDGAR
+    # publishes 13D/G filings on every business day (recent windows return
+    # ~50-200/day). A multi-day DEFAULT-PATH query that yields ZERO in-set
+    # filings is NOT a quiet day — it is the form-token regression that caused
+    # the original zero-rows bug (`forms=SC 13D` matched nothing). RAISE rather
+    # than silently write 0 rows. The guard fires only for the default network
+    # path over a >=2-day window: --from-file / --url are operator-explicit and
+    # may legitimately be narrow or empty, and a single-day window can be a
+    # weekend/holiday with genuinely no filings.
+    is_default_network_path = not args.from_file and not args.url
+    window_days = (end_date - start_date).days
+    if is_default_network_path and window_days >= 2 and len(filings) == 0:
+        raise RuntimeError(
+            f"[edgar-13d-g] ZERO Schedule 13D/G filings parsed over "
+            f"{start_date}..{end_date} ({window_days}d). EDGAR publishes 13D/G "
+            f"filings every business day, so zero over a multi-day window means "
+            f"the FTS form token is wrong (the original bug: `forms=SC 13D` "
+            f"matched nothing; the fix uses `forms=SCHEDULE 13D`). Refusing to "
+            f"write an empty result silently. Verify the FTS_FORMS_13D_G tokens "
+            f"({','.join(FTS_FORMS_13D_G)}) still return hits at "
+            f"https://efts.sec.gov/LATEST/search-index?forms=SCHEDULE+13D"
+            f"&dateRange=custom&startdt={start_date}&enddt={end_date} ."
+        )
 
     # SPEC EDF-5 / XD-7: acceptance-date filter — load-bearing anti-leak gate.
     filings_in_window = filter_by_acceptance_date(filings, snapshot_date)

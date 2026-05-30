@@ -122,18 +122,33 @@ SUBMISSIONS_FILER_VANGUARD = json.dumps({
 }).encode("utf-8")
 
 
-# ── T-XD13I-1: URL builder includes forms=SC 13D,SC 13D/A,SC 13G,SC 13G/A ────
+# ── T-XD13I-1: URL builder uses the SCHEDULE 13x FTS tokens (corrected) ──────
+#
+# REGRESSION ROOT CAUSE (fixed 2026-05-30): EDGAR's full-text index keys
+# Schedule 13D/G under the LONG-FORM `SCHEDULE 13D` token. `forms=SC 13D`
+# returned `hits.total.value: 0` over any window → the ingest parsed 0 filings
+# and `schedule_13d_g_filings` stayed empty. The builder now emits
+# `forms=SCHEDULE 13D,...`; the response's `SCHEDULE 13D/A` form is normalized
+# back to the composite-facing `SC 13D/A` by `normalize_schedule_form_type`.
 
-def test_t_xd13i_1_search_url_includes_all_four_form_types():
-    """T-XD13I-1 — URL builder embeds the four-form-type filter (XD-1)."""
+def test_t_xd13i_1_search_url_includes_all_four_fts_form_types():
+    """T-XD13I-1 — URL builder embeds the four SCHEDULE 13x FTS tokens (XD-1).
+
+    The `forms=` value is the LONG-FORM `SCHEDULE 13D,...` token set — the only
+    tokens EDGAR's full-text index actually matches for these schedules.
+    """
     url = xd13g.build_schedule_13d_g_search_url(
         xd13g.EDGAR_SEARCH_BASE,
         _dt.date(2026, 1, 1),
         _dt.date(2026, 5, 22),
     )
-    # urlencode default uses quote_plus which encodes space as '+' and
-    # special chars: ' ' → '+', ',' → '%2C', '/' → '%2F'.
-    assert "forms=SC+13D%2CSC+13D%2FA%2CSC+13G%2CSC+13G%2FA" in url
+    # urlencode default uses quote_plus: ' ' → '+', ',' → '%2C', '/' → '%2F'.
+    assert (
+        "forms=SCHEDULE+13D%2CSCHEDULE+13D%2FA%2CSCHEDULE+13G%2CSCHEDULE+13G%2FA"
+        in url
+    )
+    # The old broken token must NOT be the query default any more.
+    assert "forms=SC+13D%2C" not in url
     assert "startdt=2026-01-01" in url
     assert "enddt=2026-05-22" in url
     assert "dateRange=custom" in url
@@ -145,9 +160,56 @@ def test_t_xd13i_1_search_url_supports_custom_forms_param():
         xd13g.EDGAR_SEARCH_BASE,
         _dt.date(2026, 1, 1),
         _dt.date(2026, 5, 22),
-        forms="SC 13D,SC 13D/A",
+        forms="SCHEDULE 13D,SCHEDULE 13D/A",
     )
-    assert "forms=SC+13D%2CSC+13D%2FA" in url
+    assert "forms=SCHEDULE+13D%2CSCHEDULE+13D%2FA" in url
+
+
+def test_fts_forms_constant_uses_schedule_long_form():
+    """FTS_FORMS_13D_G must carry the long-form tokens EDGAR indexes on."""
+    assert set(xd13g.FTS_FORMS_13D_G) == {
+        "SCHEDULE 13D", "SCHEDULE 13D/A", "SCHEDULE 13G", "SCHEDULE 13G/A",
+    }
+
+
+def test_search_url_template_has_placeholders_and_encoded_forms():
+    """The date-split template keeps {startdt}/{enddt} literal + encodes forms."""
+    tpl = xd13g.build_schedule_13d_g_search_url_template(xd13g.EDGAR_SEARCH_BASE)
+    # Placeholders survive verbatim for str.format in fetch_edgar_search_dated_split.
+    assert "{startdt}" in tpl
+    assert "{enddt}" in tpl
+    assert "from=" not in tpl  # the paginator appends from=
+    # forms value is percent-encoded so the literal spaces/commas/slashes survive.
+    assert "forms=SCHEDULE%2013D" in tpl
+    # Filling the template yields a fetchable URL with both bounds.
+    filled = tpl.format(startdt="2026-05-01", enddt="2026-05-14")
+    assert "startdt=2026-05-01" in filled
+    assert "enddt=2026-05-14" in filled
+
+
+# ── normalize_schedule_form_type: SCHEDULE 13x → SC 13x bridge ───────────────
+
+def test_normalize_schedule_form_type_long_to_short():
+    """SCHEDULE 13D/A (EDGAR FTS) → SC 13D/A (composite-facing)."""
+    assert xd13g.normalize_schedule_form_type("SCHEDULE 13D") == "SC 13D"
+    assert xd13g.normalize_schedule_form_type("SCHEDULE 13D/A") == "SC 13D/A"
+    assert xd13g.normalize_schedule_form_type("SCHEDULE 13G") == "SC 13G"
+    assert xd13g.normalize_schedule_form_type("SCHEDULE 13G/A") == "SC 13G/A"
+
+
+def test_normalize_schedule_form_type_idempotent_on_short_form():
+    """Already-short tokens (e.g. a --from-file with SC 13D) pass through."""
+    assert xd13g.normalize_schedule_form_type("SC 13D") == "SC 13D"
+    assert xd13g.normalize_schedule_form_type("SC 13G/A") == "SC 13G/A"
+
+
+def test_normalize_schedule_form_type_strips_whitespace_and_passes_offset():
+    """Trailing whitespace stripped; off-set forms returned unchanged (dropped later)."""
+    assert xd13g.normalize_schedule_form_type("SCHEDULE 13D ") == "SC 13D"
+    # An off-set form is NOT coerced into the set — it's returned as-is so the
+    # DEFAULT_FORMS_13D_G filter drops it (never silently widens the set).
+    assert xd13g.normalize_schedule_form_type("8-K") == "8-K"
+    assert xd13g.normalize_schedule_form_type("SCHEDULE TO-I") == "SC TO-I"
 
 
 # ── T-XD13I-2: Response parser extracts the seven canonical fields ───────────
@@ -602,6 +664,118 @@ def test_t_xd13i_12_parse_time_form_type_filter_drops_non_13d_g():
 def test_t_xd13i_12_default_forms_set_matches_spec_xd_1():
     """The DEFAULT_FORMS_13D_G constant matches SPEC XD-1's four-form-type set."""
     assert set(xd13g.DEFAULT_FORMS_13D_G) == {"SC 13D", "SC 13D/A", "SC 13G", "SC 13G/A"}
+
+
+# ── Regression: REAL EDGAR-FTS-shaped response (SCHEDULE 13x) → normalized ───
+#
+# This fixture mirrors the LIVE EDGAR FTS response shape captured 2026-05-30
+# (the bug-fix probe): the `form` field is the LONG-FORM token (`SCHEDULE
+# 13D/A`), the date is `file_date` (date-only, no `accepted` key), `ciks` is
+# `[issuer, filer]` order (issuer first, filer = accession prefix second),
+# `period_ending` is null. This is the exact shape the OLD `forms=SC 13D` query
+# would have parsed had it matched — pinning it here proves the
+# normalize → filter path turns the real wire format into composite-facing rows.
+EDGAR_FTS_SCHEDULE_SHAPE_JSON = json.dumps({
+    "hits": {
+        "total": {"value": 4, "relation": "eq"},
+        "hits": [
+            {
+                "_id": "0002135850-26-000002:primary_doc.xml",
+                "_source": {
+                    "adsh": "0002135850-26-000002",
+                    "ciks": ["0001905660", "0002135850"],  # [issuer, filer]
+                    "form": "SCHEDULE 13G/A",
+                    "file_date": "2026-05-22",
+                    "period_ending": None,
+                },
+            },
+            {
+                "_id": "0002104194-26-000015:primary_doc.xml",
+                "_source": {
+                    "adsh": "0002104194-26-000015",
+                    "ciks": ["0002019793", "0002104194"],
+                    "form": "SCHEDULE 13D/A",
+                    "file_date": "2026-05-22",
+                    "period_ending": None,
+                },
+            },
+            {
+                "_id": "0001234567-26-000010:primary_doc.xml",
+                "_source": {
+                    "adsh": "0001234567-26-000010",
+                    "ciks": ["0000320193", "0001234567"],
+                    "form": "SCHEDULE 13D",
+                    "file_date": "2026-05-21",
+                    "period_ending": None,
+                },
+            },
+            {
+                "_id": "0007654321-26-000020:primary_doc.xml",
+                "_source": {
+                    "adsh": "0007654321-26-000020",
+                    "ciks": ["0001045810", "0007654321"],
+                    "form": "SCHEDULE 13G",
+                    "file_date": "2026-05-20",
+                    "period_ending": None,
+                },
+            },
+        ],
+    },
+}).encode("utf-8")
+
+
+def test_fts_schedule_shape_normalizes_to_composite_short_forms():
+    """REAL EDGAR FTS `SCHEDULE 13x` response → composite-facing `SC 13x` rows.
+
+    Pins the end-to-end bridge: parse_edgar_search_response yields the
+    long-form tokens; normalize_schedule_form_type maps them to the short
+    forms; the DEFAULT_FORMS_13D_G filter then keeps all four. Had the
+    normalization been missing, the filter would drop all four and the table
+    would be empty (the zero-rows failure mode).
+    """
+    filings = xd13g.parse_edgar_search_response(EDGAR_FTS_SCHEDULE_SHAPE_JSON)
+    assert len(filings) == 4
+    # Pre-normalization the parser preserves EDGAR's long-form token.
+    assert {f["form_type"] for f in filings} == {
+        "SCHEDULE 13G/A", "SCHEDULE 13D/A", "SCHEDULE 13D", "SCHEDULE 13G",
+    }
+    # Apply the script's normalization (what main() does before the set filter).
+    for f in filings:
+        f["form_type"] = xd13g.normalize_schedule_form_type(f["form_type"])
+    in_set = [f for f in filings if f["form_type"] in xd13g.DEFAULT_FORMS_13D_G]
+    assert len(in_set) == 4  # ALL four survive — the bug would have dropped all.
+    assert {f["form_type"] for f in in_set} == {
+        "SC 13G/A", "SC 13D/A", "SC 13D", "SC 13G",
+    }
+    # Date-only file_date parses to a midnight datetime (acceptance-anchor OK).
+    by_acc = {f["accession"]: f for f in in_set}
+    assert by_acc["0002104194-26-000015"]["accepted_at"] == _dt.datetime(2026, 5, 22, 0, 0, 0)
+
+
+def test_fts_schedule_shape_row_builder_splits_issuer_and_filer():
+    """[issuer, filer] ciks order from the real FTS shape → correct CIK split.
+
+    The real response orders `ciks` as [issuer, filer]; the filer is still the
+    accession prefix and the issuer is the first non-filer entry. Confirms the
+    extraction is order-robust on the REAL wire shape (not just the synthetic
+    [filer, issuer] fixture used elsewhere).
+    """
+    filings = xd13g.parse_edgar_search_response(EDGAR_FTS_SCHEDULE_SHAPE_JSON)
+    for f in filings:
+        f["form_type"] = xd13g.normalize_schedule_form_type(f["form_type"])
+
+    def ticker_resolver(_cik):
+        return {"cik": _cik, "ticker": "X", "former_tickers": [], "company_name": ""}
+
+    rows, _ = xd13g.build_schedule_13d_g_rows(filings, ticker_resolver)
+    by_acc = {r["accession"]: r for r in rows}
+    # adsh 0002104194-26-000015: filer = accession prefix 0002104194,
+    # issuer = the other ciks[] entry 0002019793.
+    r = by_acc["0002104194-26-000015"]
+    assert r["filer_cik"] == "0002104194"
+    assert r["issuer_cik"] == "0002019793"
+    assert r["form_type"] == "SC 13D/A"
+    assert r["is_amendment"] == 1
 
 
 # ── DEFAULT_USER_AGENT carries the contact email (SEC compliance) ────────────
