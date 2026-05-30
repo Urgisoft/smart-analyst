@@ -1,236 +1,157 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-05-30 (session 96 #37 — **Cycle 40: EDGAR + FINRA ingests REPAIRED → 3 of 4
-empty composites POPULATED (all 4 EDGAR/FINRA ingests now repaired — 13D/G fix merged `767901f`);
-historical backfills RUNNING in background + a 30-min watchdog cron (`ad36d490`).**) This cycle began the operator-directed **completion phase**
-(validate/complete EVERYTHING → THEN human-readable UI layer → THEN live trading, dead last — strict
-order, saved to memory `project-phase-ordering-completion-ui-live`). Found that the "empty" Layer-0
-composites were not empty by accident — they were silently broken: FINRA's download endpoint had
-moved (404); a shared EDGAR helper bug 404'd every 8-K body-fetch. Both repaired (free sources, no
-auth, no paid). All four now populate — the fourth (13D/G) was a separate FTS-token bug, also fixed +
-merged (`767901f`). Historical backfills launched to give Phase B a real window. **NEXT on `continue`:**
-see "Next stage" — resume the backfills + watchdog if the session died, then move populated composites
-toward validation.
+Last updated: 2026-05-30 (session 96 #38 — **Cycles 40-41: completion-phase data work DONE + the
+MAJOR finding — 6 of 9 Layer-0 composites now validated, ALL fail the bar (5 beta-not-alpha + 1
+data-walled). The alternative-data-composite-as-market-timer thesis is a NULL result.**) The one
+un-disproven direction is cross-sectional single-stock (equity_xs), blocked only by survivorship-free
+price data — reachable via Polygon.io free tier (needs a free key). **NEXT on `continue`:** operator
+decision — pursue single-stock via Polygon, OR conclude the null. Plus two data bugs to fix if continuing
+(13d_g amendments-only; eight_k needs pooled construct). See "Next stage."
 
 ---
 
 ## 🔌 Restart recovery — ClickHouse is in Docker Desktop
-
-ClickHouse runs in the `quantlab-clickhouse` Docker container. On reboot:
-1. `Start-Process "C:\Program Files\Docker\Docker\Docker Desktop.exe"`
-2. `docker start quantlab-clickhouse`; wait `docker inspect --format '{{.State.Health.Status}}' quantlab-clickhouse` = `healthy`.
-3. Verify: `curl -s "http://127.0.0.1:8123/?user=quantlab&password=quantlab&database=quantlab" --data-binary "SELECT 1"`.
-   (This session: CH up + healthy throughout.)
-
-**Dev server:** `npm run dev` → http://localhost:3000 (not hot-reloading; restart after server edits). NOT running now.
-
-### ⚠️⚠️ BACKGROUND BACKFILLS + WATCHDOG DIE ON `/clear` — RESUME THEM FIRST
-Cycle 40 launched three historical backfills as **background bash** + a **session-only cron watchdog**
-(`ad36d490`, every 30 min). **All of these are DEAD if this chat was `/clear`ed or Claude was closed.**
-They are idempotent + resumable. On `continue`, FIRST:
-1. Check liveness: `tasklist | grep -ic python` (0 = dead). Check progress:
-   `cat logs/backfill_finra_short_interest.progress`, `cat logs/backfill_exec-departure.progress`,
-   `cat logs/backfill_8k-event.progress` (one line per completed month; look for `=== ... COMPLETE ===` in the `.log`).
-2. If dead and NOT complete, RELAUNCH in background (skips done months via `.progress`):
-   - `bash scripts/_backfill_finra_short_interest.sh 2020-01`
-   - `bash scripts/_backfill_edgar_monthly.sh exec-departure 2021-01`
-   - `bash scripts/_backfill_edgar_monthly.sh 8k-event 2019-01`  ← only AFTER exec-departure COMPLETE (shared EDGAR rate limit)
-   - `bash scripts/_backfill_edgar_monthly.sh 13d-g 2020-01`  ← only AFTER 8k-event COMPLETE (same shared EDGAR rate limit)
-3. RE-CREATE the watchdog: re-run the `loop` skill — `/loop 30m <the watchdog prompt>` (the prompt is
-   in CronCreate job `ad36d490`; reproduced in "Files / code state"). It is session-only by design.
+ClickHouse runs in container `quantlab-clickhouse`. On reboot: `Start-Process "C:\Program Files\Docker\Docker\Docker Desktop.exe"` → `docker start quantlab-clickhouse` (wait `docker inspect --format '{{.State.Health.Status}}'` = healthy) → verify `curl -s "http://127.0.0.1:8123/?user=quantlab&password=quantlab&database=quantlab" --data-binary "SELECT 1"`.
+**Dev server:** `npm run dev` → http://localhost:3000 (no hot-reload; restart after server edits). NOT running.
+**No background jobs running.** All 4 EDGAR/FINRA backfills COMPLETE; the 30-min watchdog cron was retired (CronDelete'd). Nothing to resume.
 
 ---
 
 ## Operator queue (real-money triggers only)
-
-**This is the only section the operator reads.** Per the s96 #14 working model, every routine decision
-is the orchestration's.
-
-| # | Item | Source | Status |
-| --- | --- | --- | --- |
-| Q-1 | First real-capital deployment — timing + amount | §7.1.1 | **INDEFINITELY DEFERRED** (s96 #19) — reaffirmed s96 #37: NO live trading until everything validated/bug-free |
-| Q-2 | Capital-deployment-ramp ADR sign-off | s96 #13 | **INDEFINITELY DEFERRED** (s96 #19) |
-| Q-3 | GAP-5 Stooq apikey gate decision | Audit GAP-5 | OPEN — paid subscription |
-| Q-4 | Push **~140** unpushed commits to origin/main | Carry-over (+6 this session: `4872430`, `72a5978`, `defbccf`, `59bc1ee`, `767901f`, `c01c8e0` + this HANDOFF) | OPEN — `git push` operator-gated |
-| Q-5 | phase1_v3 CBOE corrupted-input window | Cycle 21 ADR-050 | **CLOSED — ADR-050** |
-| Q-6 | ETF v1 yfinance primary BROKEN (Yahoo `get_shares_full` empty for all 21 ETFs) | s96 #17/+ | **OPEN — orchestration plan set:** replace the dead Yahoo aggregator with **issuer-direct** daily shares-outstanding feeds (iShares cash-flows CSV, ProShares downloads, Vanguard/Invesco) — same free no-auth posture as the working SSGA secondary. Queued behind the current backfills. NOT a paid-data item. |
-| Q-7 | phase1_v3 yield-curve source persistence — Path pick | s96 #18 C19 | **OPEN — operator picks Path** |
-| Q-8 | Phase C promotion of any Layer-0 composite | Cycle 22 ADR-051 | **DORMANT** — no PASS-ALL + PBO<0.2 yet |
+| # | Item | Status |
+| --- | --- | --- |
+| Q-1 | First real-capital deployment | **INDEFINITELY DEFERRED** — reinforced: NOTHING has passed validation, so nothing is deployable |
+| Q-2 | Capital-deployment-ramp ADR | **INDEFINITELY DEFERRED** |
+| Q-3 | Stooq apikey | **CLOSED-as-dead-end** — tested live: Stooq download works keyless for LISTED names (AAPL 1984→2026) but DROPS delisted (`SIVB.US nie istnieje`). Not a survivorship source. |
+| Q-4 | Push **~150** unpushed commits to origin/main | OPEN — `git push` operator-gated |
+| Q-6 | ETF v1 yfinance primary broken | OPEN — issuer-direct rebuild still queued (lower priority given the null finding) |
+| Q-7 | phase1_v3 yield-curve source | OPEN |
+| Q-8 | Phase C promotion | **DORMANT — nothing is Phase-C-eligible (0 of 6 validated pass)** |
+| **Q-9** | **Single-stock backtest needs survivorship-free prices → Polygon.io FREE tier** (point-in-time delisted prices, 5 calls/min, needs a free API key) OR Kaggle bulk CSVs OR paid (Sharadar/CRSP). **Operator: get a free Polygon key if pursuing single-stock.** | **OPEN — the key fork** |
 
 ---
 
-## What this session delivered (s96 #37 — Cycle 40)
+## THE finding (s96 #38) — read this first
+**6 Layer-0 composites validated via Phase B; 0 pass; the market-timing thesis is null.**
+`phase_b_verdicts` holds: cross_asset_v1, cycle_v1, sector_rot_v1, vol_struct_v1, short_interest_v1 (all
+PARTIAL — **beta not alpha**: at IS-best θ they degenerate to ~long-the-index = buy-and-hold; DSR/PBO/HLZ
+correctly reject), + equity_xs_v1 (insufficient — data wall). form_4 = insufficient (8/20 pooled events).
+**Interpretation:** alternative-data composites built as aggregate market-timing overlays do NOT carry
+tradeable alpha — a consistent, money-saving null result, NOT a bug. The validation pipeline works.
+**Do NOT** keep building more aggregate composites expecting a different result; **do NOT** relax gates
+(anti-shopping); **do NOT** go live (nothing passed).
 
-| Commit / action | Slice |
-| --- | --- |
-| `4872430` | **EDGAR body-fetch 404 fix.** Shared helper `parse_edgar_search_response` fell back to a non-existent `primary.htm` → every 8-K body-fetch 404'd → `executive_departures` empty. Generalized form4's index.json resolution into `_sec_edgar_helpers.discover_primary_doc_url` + `select_primary_html_from_directory`. + UTF-8 stdio fix (cp1252 `→` crash). 5 files, +410/−6. Data-Ingest worker + orchestrator gate (85/85 helper+form4 tests; form4 untouched; tsc 13). |
-| `72a5978` | **FINRA scraper repair.** Dead bulk-CSV URL → free anonymous DAPI `POST api.finra.org/data/group/otcMarket/name/consolidatedShortInterest`. Caught a 5,000-row server-cap truncation trap (naive request lost ~77%). Maps onto existing `short_interest` schema (no DDL). 2 files, +837/−123. 39 py tests + 9/9 daemon-wrapper TS. |
-| `defbccf` | **Backfill drivers** `_backfill_finra_short_interest.sh` + `_backfill_edgar_monthly.sh` (resumable backward month-loop, idempotent). |
-| (background, RUNNING) | FINRA backfill 2020-01..now; EDGAR exec-departure 2021-01..now THEN 8k-event 2019-01..now (sequential). |
-| (cron `ad36d490`) | 30-min watchdog (session-only): checks/resumes backfills, fixes Tier-1 ingest bugs, reports. |
-| (worker IN FLIGHT) | Schedule-13D/G query-bug fix (worktree-isolated). |
-| (memory) | `project-phase-ordering-completion-ui-live` saved (completion → UI → live, strict). |
-| (this commit) | This HANDOFF rewrite. |
-
-Method: session-start `health:check` (clean — 12 very-stale = known daemon-lag GAP-9; the never-populated
-EDGAR/FINRA composites were the completion-phase target). Dry-run-then-apply-then-validate per source surfaced
-the silent breakages (a dry-run looked healthy; only `--apply` revealed the body-fetch 404s — the "validate,
-don't just ingest" discipline). Two Data-Ingest workers (FINRA + EDGAR) + orchestrator critic/gate, both
-ff-merged after independent tsc/test gates. A third worker (13D/G) is in flight.
+**The one un-disproven path:** cross-sectional single-stock (`equity_xs_v1`) was "insufficient," NOT
+"failed" — blocked only by (a) survivorship (candles = 0.1% delisted coverage) + (b) shallow insider
+history (P-code buys 2024+ only). Fix the data (Polygon free tier for survivorship-free delisted prices;
+deeper EDGAR insider backfill) and it can be tested for real. This is where alpha might still exist.
 
 ---
 
-## Decisions locked in
+## What Cycles 40-41 delivered (s96 #37-#38)
+- **EDGAR + FINRA ingests REPAIRED + backfilled (all 4):** FINRA endpoint moved→free DAPI (`72a5978`);
+  EDGAR body-fetch 404 fixed via index.json resolver (`4872430`); 13D/G FTS-token fix (`767901f`).
+  Backfill drivers (`defbccf`, +13d-g). Final rows: `short_interest`=2,938,092 (2020-26),
+  `eight_k_events`=18,683 (2019-26), `schedule_13d_g_filings`=33,684 (2020-26, **but 100% amendments —
+  bug**), `executive_departures`=639 (sparse).
+- **Combination probe (`3f8931e`):** the 4 macro composites are beta (NO-GO on ensemble; ρ̄=0.72-0.88).
+- **Single-stock scoping spec (`da1edd7`):** `docs/specs/single-stock-equity-analysis-scoping.md` — re-cast
+  the manual playbook (`docs/obsidian/symbol-analysis/`) as a cross-sectional alpha pipeline.
+- **equity_xs_v1 built + run:** `src/server/equity_xs.ts` + `scripts/phase_b_campaign_equity_xs_v1.ts`.
+  Verdict insufficient + survivorship-suspect (data wall).
+- **short_interest_v1 (`de1b71a`, Cycle 41):** snapshots built (1,597) + campaign + the repo
+  ILLEGAL_AGGREGATION fix (was why snapshots were empty). Verdict PARTIAL/beta (5th).
+- **MCP consolidation:** all 9 of the user's MCP servers inventoried → `C:/Users/Pejman/Desktop/PROJECTS/mcp_servers/ALL_MCP_SERVERS.json` + `README.md`. Created (gitignored) `.mcp.json` in this project
+  wiring financial-hub(Finnhub)/yahoo-finance/coingecko/fetch/sequential-thinking/shared-knowledge —
+  **Claude Code must RELOAD to use them.** (Those were Cline's servers; replicated for Claude Code.)
+- **Data-source reality (tested, not assumed):** survivorship-free delisted prices are NOT free via
+  Yahoo/Finnhub/Stooq/MCP-registry; Polygon.io free tier IS the path (Q-9). Bigdata.com (connected to
+  Claude Code) covers fundamentals/valuation/institutional/options/news for LIVE per-symbol analysis.
 
-### s96 #37 Cycle 40 — completion phase started; 3 composites repaired
-- **Operator phase order (strict):** (1) validate/complete EVERYTHING — source-RELIABILITY validation
-  (not just "free + parses") + calc-correctness + Phase B + correct/latest/auto-ingested + bug-free; (2)
-  human-readable UI layer, handed to Opus with operator's specific confusions; (3) live trading dead last.
-  During completion, verdicts are reported in **plain-language chat**, NOT a built UI (operator overrode
-  building a "readable verdict" UI early). Saved to memory.
-- **EDGAR body-fetch is now robust** via `discover_primary_doc_url` (index.json resolution). 8k-event +
-  13d-g were confirmed to NOT body-fetch (FTS-envelope only) so were never hit by the 404 bug — the helper
-  fix future-proofs any new body-fetching caller. Form4 keeps its own (frozen) resolver.
-- **FINRA short interest source = the free DAPI** (`api.finra.org/.../consolidatedShortInterest`), POST
-  with `dateRangeFilters` on `settlementDate`, paged in 5,000-row steps (server hard-caps). No auth, no key.
-- **ETF v1 (Q-6) decision:** the Yahoo `get_shares_full` regression is persistent; replace it with
-  **issuer-direct** daily shares-outstanding feeds (authoritative source — the bug is a nudge to fix a
-  fragile aggregator dependency). Queued behind the current backfills. Free, no auth.
+---
 
-**Carry-overs:** form_4_insider_v5 (ADR-055 pooled) shipped Cycle 39, pooled buy events=8 < 20 floor →
-still `under_review` (the form4 D7 data gap was CLOSED via bulk Form345 — `insider_trades`=787,869; pooled
-still short of the 20-event floor — OQ-C38-1 ANSWERED: not Phase-B-viable yet, see OQ-C38-2). ADR-052/053/054/055
-four-layer template; ADR-050/051; all prior s73-s96 lock-ins.
+## Decisions locked in (s96 #38)
+- **Null result accepted for the aggregate market-timing thesis** (5 beta + form_4 insufficient).
+- **`short_interest_repository.readLatestFinraRowsAsOf`**: aliased `settlement_date`→`sd` in inner
+  subquery to dodge CH 24.8 `ILLEGAL_AGGREGATION` (max()+argMax() co-nesting). Byte-identical; EXPLAIN-
+  grammar test now active. This was a silent crash zeroing the snapshot path.
+- **Phase order unchanged** (memory `project-phase-ordering-completion-ui-live`): complete→UI→live. We are
+  still in "complete," now blocked on a research-direction decision (Q-9), not more building.
+- Stooq closed as a survivorship source (Q-3). MCP servers are conversational tools, NOT autonomous
+  pipeline ingests (the daemon can't call them).
 
 ---
 
 ## Open questions
-
-### Cycle 40 — MAJOR FINDING: 4 Layer-0 composites are BETA, not alpha (combination NO-GO)
-- **`cross_asset_v1` / `cycle_v1` / `sector_rot_v1` / `vol_struct_v1` are all `partial`, NONE Phase-C-eligible,
-  and a combination/ensemble campaign is NO-GO** (probe `scripts/_probe_signal_combination.ts`, commit `3f8931e`).
-  Why: their annualized Sharpes (~1.4-1.6 OOS) are **benchmark beta, not alpha** — the long-equity combined
-  strategy does NOT beat buy-and-hold (loses to it on QQQ: 1.497 vs 1.521). Mean pairwise ρ=0.72-0.88 → ~zero
-  diversification (4 signals ≈ 1.1 independent; combined Sharpe sits on the equicorrelated ceiling). This is
-  WHY Phase B's DSR/HLZ rejected them — the gates correctly strip beta-with-no-alpha. **Accept the null for
-  these four.** Do NOT build a combination campaign. The live question is now ONLY whether the 5 unvalidated
-  composites (EDGAR/FINRA backfilling + form_4) carry real alpha.
-- **⚠️ `phase_b_verdicts.best_*_sharpe` are PER-DAY Sharpes** (×√252 to annualize: 0.099/day → ~1.57/yr). Do
-  NOT read them as annualized "noise" — they're healthy-looking annualized but are beta. See teach-doc
-  `docs/teach/2026-05-30-phase-b-verdict-interpretation.md`.
-- **OQ-C40-1 — do the populated composites reach a usable Phase-B window after backfill?** FINRA short
-  interest needs ≥2y; exec-departure/8k-event likewise. MEASURE when backfills complete (watchdog reports).
-- **OQ-C40-2 — Schedule 13D/G retrieval path.** EDGAR FTS returns 0 hits for `SC 13D/G` form tokens; the
-  in-flight worker is determining the correct free path (FTS token fix vs submissions API vs full-index).
-- **OQ-C40-3 — backfill depth.** Launched from 2020/2021/2019; for full window parity (2013-2026, matching
-  the other Layer-0 composites) extend the drivers' START_YM further back once the first pass lands.
-
-### Carried (form_4)
-- **OQ-C38-2** — multi-year EDGAR backfill for form_4 pooled events to clear 20 (currently 8). Free + throttled.
-- OQ-C37-1/2, OQ-052-3 (four-layer template applies to schedule_13d_g / eight_k / executive_departure /
-  short_interest once populated — NOW being populated), and all prior carried OQs.
+- **OQ-C41-1 (THE fork):** pursue single-stock cross-sectional via Polygon free tier (Q-9), or conclude
+  the null? Operator decision.
+- **OQ-C41-2:** schedule_13d_g ingest captures ONLY amendments (27,077 `SC 13G/A` + 6,607 `SC 13D/A`,
+  ZERO base `SC 13D`/`SC 13G`). The base-filing FTS query is wrong/missing → gated signal identically
+  zero. Data-Ingest fix needed before any 13d_g Phase B. (My Cycle-40 13d_g fix got amendments but not
+  base filings — incomplete.)
+- **OQ-C41-3:** eight_k has data (18,683, continuous) but its composite is the statistically-invalid
+  per-sector max-over-sectors construct (ADR-053/054/055 rejected). Needs the ADR-055 pooled treatment
+  (mirror form_4_insider_v5) before a valid campaign (~1 cycle). Honest prior: likely also beta.
+- **Carried:** OQ-C38-2 (form_4 multi-year backfill for pooled events ≥20); OQ-C40-3 (window parity).
 
 ---
 
 ## Next stage
+### On `continue` — this is an operator-judgment fork, surface it; don't auto-build
+1. **If operator pursues single-stock (recommended path if any):** get a free Polygon.io API key (Q-9) →
+   build a Polygon survivorship-free delisted-price ingest (`scripts/polygon_prices_ingest.py`, 5 calls/min,
+   PIT) → re-run `npx tsx scripts/phase_b_campaign_equity_xs_v1.ts --apply` on the survivorship-free panel
+   + deepen EDGAR insider history. THIS is the one place alpha might still exist.
+2. **If concluding the null:** write an ADR documenting "alternative-data market-timing composites — null
+   result" + the validated-pipeline deliverable. Stop adding composites.
+3. **Lower-priority data fixes (only if continuing the aggregate line, which the evidence discourages):**
+   fix 13d_g base-filing ingest (OQ-C41-2); pooled-construct eight_k (OQ-C41-3).
+4. **Live per-symbol analysis** (free, works now via Bigdata.com + Finnhub + Stooq-for-listed + existing
+   data): the operator can ask "analyze <TICKER>" anytime — decision-support, NOT a validated signal.
 
-### Default on `continue` — orchestration's call
-0. **FIRST: resume the backfills + watchdog if the session died** (see Restart-recovery ⚠️).
-1. **Schedule-13D/G fix is MERGED** (`767901f`, FTS token `SCHEDULE 13D`→normalize→`SC 13D`, 76 rows).
-   Its deep backfill runs via the watchdog EDGAR chain (`13d-g`, after 8k-event). Nothing to merge here.
-2. **Let the backfills finish** (watchdog auto-reports/resumes). When COMPLETE, measure the available history
-   window per composite (OQ-C40-1) and report in plain language.
-3. **Then VALIDATE the newly-populated composites** (exec-departure / 8k-event / 13d-g / short_interest):
-   calc-correctness → Phase B deflation (DSR/PBO/HLZ per AFML §11 / Bailey-LdP 2014 / HLZ 2016, offline,
-   orchestration-owned). **Context: the 4 already-validated Layer-0 composites came back beta-not-alpha
-   (combination NO-GO — see Open questions).** So the binding question is whether ANY of these 5 remaining
-   (these 4 + form_4) beats buy-and-hold after deflation. If they ALL come back weak/beta, the honest
-   conclusion is the alternative-data-composite thesis (as built) does not produce tradeable alpha — a valid,
-   money-saving null result to report to the operator, NOT a failure to paper over.
-4. **ETF v1 issuer-direct rebuild** (Q-6) — queued; pick up after the EDGAR/FINRA set is validated, OR sooner
-   if the backfills are idle.
-5. Deeper backfill (OQ-C40-3 / OQ-C38-2) for full 2013-2026 window parity.
-
-**Do NOT:** lower EVENT_FLOOR/α/PBO-DSR gates to force a verdict (anti-shopping); build the human-readable UI
-layer yet (operator: after completion); auto-open Phase C (Q-8); `git push` (Q-4); touch real-money path.
+**Do NOT:** go live (nothing passed); relax DSR/PBO/HLZ (anti-shopping); `git push` (Q-4); build more
+aggregate composites expecting alpha; build pretty UI on unvalidated signals.
 
 ---
 
 ## Files / code state
-
-### Commits this session (on `main`, unpushed — Q-4)
-- `4872430` — `scripts/_sec_edgar_helpers.py`, `scripts/sec_edgar_8k_item_5_02_ingest.py`,
-  `scripts/sec_edgar_8k_event_ingest.py`, `scripts/sec_edgar_13d_g_ingest.py`, `scripts/tests/test_sec_edgar_helpers.py`.
-- `72a5978` — `scripts/finra_short_interest_ingest.py`, `scripts/tests/test_finra_short_interest_ingest.py`.
-- `defbccf` — `scripts/_backfill_edgar_monthly.sh`, `scripts/_backfill_finra_short_interest.sh` (NEW).
-- (pending) 13D/G worker merge + this HANDOFF.
-
-### Backfill / watchdog operational state
-- **Drivers:** `scripts/_backfill_edgar_monthly.sh <exec-departure|8k-event> [START_YM]`,
-  `scripts/_backfill_finra_short_interest.sh [START_YM]`. Logs `logs/backfill_*.log`, progress
-  `logs/backfill_*.progress` (both gitignored). Backward month-loop; idempotent (ReplacingMergeTree).
-- **Watchdog cron `ad36d490`** (session-only, every 30 min). Its prompt: check the three `.progress`/`.log`
-  + CH row counts; classify PROGRESSING/COMPLETE/STUCK; resume dead drivers; fix Tier-1 ingest bugs (worker
-  if >1-liner), flag correctness issues; report one line each; CronDelete when all COMPLETE. Re-create with
-  the `loop` skill after a `/clear`.
-
-### Live CH row counts (Cycle 40, mid-backfill — GROWING)
-- `short_interest` = ~688k+ and climbing (FINRA, back to ~2025-01 and going to 2020).
-- `executive_departures` = 32+ (exec-departure, ~3-4 months in, going to 2021).
-- `eight_k_events` = 45 (8k-event backfill not started yet — waits for exec-departure).
-- `schedule_13d_g_filings` = 76 (FTS-token fix MERGED `767901f`; recent-window only — needs backfill via watchdog chain `13d-g`).
-- `insider_trades` = 787,869 (form_4, from Cycle 39 bulk Form345 — unchanged this cycle).
-
-### CLIs (for backfill/driver edits)
-- `finra_short_interest_ingest.py`: `--settlement-date YYYY-MM-DD --apply` (auto-discovers latest if omitted;
-  `--from-file`, `--url` overrides). **Note:** prints "FATAL refusing to write empty settlement" + exits
-  non-zero for a non-settlement date — HARMLESS in the driver (it continues to the next candidate); a
-  follow-up could make no-data a clean skip rather than FATAL.
-- `sec_edgar_8k_item_5_02_ingest.py` (exec-departure) + `sec_edgar_8k_event_ingest.py`: `--start-date --end-date --apply` (+ `--snapshot-date`, `--items`).
-- `sec_edgar_13d_g_ingest.py`: being fixed by the worker.
-
-### Health (session-start health:check — no new Tier-2)
-- 12 very-stale = dev-box daemon-lag (GAP-9, no cron). The completion-phase work is reducing the
-  never-populated set (was 9 empty + 1 missing; now short_interest table exists + 3 composites populating).
+- **Commits this session (on `main`, unpushed — Q-4):** `4872430` `72a5978` `defbccf` `59bc1ee` `767901f`
+  `c01c8e0` `3246294` `3f8931e` (+ teach-doc) `da1edd7` (single-stock spec) + equity_xs harness/report
+  commits + `de1b71a` (short_interest_v1) + this HANDOFF. ~150 total unpushed.
+- **Phase B:** `phase_b_campaign_{cross_asset,cycle,sector_rot,vol_struct,equity_xs,short_interest}_v1.ts`
+  all built; reuse `src/lib/validator.ts`/`psr.ts`/`cscv.ts`/`hlzHaircut.ts`. Verdicts in
+  `phase_b_verdicts` (6 versions). Re-run any: `npx tsx scripts/phase_b_campaign_<x>.ts --apply`.
+- **equity_xs:** `src/server/equity_xs.ts` (cross-sectional harness), `scripts/phase_b_campaign_equity_xs_v1.ts`.
+  Re-run once survivorship-free prices exist.
+- **MCP:** `.mcp.json` (project root, GITIGNORED — Finnhub key); inventory in Desktop/PROJECTS/mcp_servers/.
+- **Analysis reports:** `docs/analysis/phase-b-{equity_xs_v1,short_interest_v1}-deflation-2026-05.md`.
+- **Key CH facts:** candles = 503 current S&P names + 89 ETFs (2008-2026), **0.1% delisted coverage**
+  (survivorship wall). `short_interest_snapshots`=1597. `phase_b_verdicts`=6 versions, 0 phase_c_eligible.
 
 ---
 
 ## Watch-outs
-
-### NEW this cycle — READ THESE
-- **Backfills + watchdog are session-bound — they die on `/clear`/close.** Idempotent + resumable; see
-  Restart-recovery ⚠️. EDGAR transient HTTP 429/500 during runs are NORMAL (helper retries 5× w/ backoff).
-- **`populated` ≠ `validated`.** The repaired composites have data but the backfills only just started; a
-  usable Phase-B window needs ≥2y. Do NOT treat "3 composites populated" as "ready" — the validation ladder
-  (calc-correctness → Phase B) is still ahead and Phase B can reject.
-- **A dry-run can lie.** exec-departure's dry-run reported "parsed 99 filings" while `--apply` 404'd on every
-  body-fetch and wrote 0 rows. ALWAYS verify rows actually land + sanity-check, not just "ingest ran."
-- **Two EDGAR backfills must NOT run concurrently** (shared per-IP 10rps limit) — the driver launch serializes
-  them (`exec-departure ; 8k-event`). FINRA is a different host (parallel-safe).
-- **Worktree merges:** workers leave changes UNCOMMITTED in the worktree (verified twice this cycle). The
-  orchestrator brings the diff to main via `git diff main > patch; git apply`, gates (tests+tsc), commits.
-  Worktrees lock under the agent pid → `git worktree remove --force` + `git branch -D` + `git worktree prune`.
-- **Cosmetic:** `executive_departures.filing_url` stores the original `primary.htm` sentinel (resolved URL
-  used for fetch, not written back). Composite reads cik/accession/sub_item/ticker — harmless.
-
-### Carried (still load-bearing)
-- form_4: pooled `effectiveEvents` (runs) gates validity, NOT `effectiveSample` (days); chronological baseline
-  order LOAD-BEARING; per-sector flags INFORMATIONAL post-v5; `decodeFlaggedJson` handles `{sectors,pooled}`
-  wrapper + legacy. `accepted_at` (not `transaction_date`) is the anti-leak anchor.
-- S96-149 alias-shadowing — subquery-around-FINAL for every composite `loadHistory`.
-- EDGAR/FINRA per-IP throttle; gics PIT-anchor; CH-Date range; sp500 PIT gap-window; D5/ReplacingMergeTree
-  re-backfill REPLACES rows. `bash` ≠ PowerShell here-strings (use `git commit -F -`). Dev server no hot-reload.
+- **`.mcp.json` is gitignored** (carries Finnhub key) — verified not tracked; do NOT un-ignore + commit.
+- **Claude Code needs RELOAD** to pick up the new `.mcp.json` MCP servers (financial-hub/yahoo-finance/etc.).
+- **MCP servers ≠ pipeline ingests** — usable by the assistant in-conversation only; the daemon/scripts
+  need real HTTP/CSV sources (EDGAR/FINRA/Polygon).
+- **`phase_b_verdicts.best_*_sharpe` are PER-DAY** (×√252 to annualize). Healthy-looking annualized numbers
+  here are BETA, not alpha — see `docs/teach/2026-05-30-phase-b-verdict-interpretation.md`.
+- **13d_g = amendments only** (OQ-C41-2); **eight_k = invalid per-sector construct** (OQ-C41-3);
+  **exec_departure + form_4 = too sparse**. None ready for a valid campaign without work.
+- **Anti-shopping is paramount now** — with 6 fails on the board, the temptation to relax a gate to
+  manufacture one pass is exactly the selection bias the whole system exists to prevent. A FAIL is final.
+- Carried: worktree merges leave changes UNCOMMITTED (orchestrator copies→gates→commits; `git worktree
+  remove --force` + `git branch -D`); EDGAR/FINRA per-IP throttle; `git commit -F -` not here-strings;
+  dev server no hot-reload; transient API rate-limits can kill a worker early (just relaunch).
 
 ---
 
-## For the next session — priority order
-
-Cycle 40 began the **completion phase**: repaired the silently-broken EDGAR + FINRA ingests (free sources, no
-auth), populated 3 of 4 empty Layer-0 composites, and launched resumable historical backfills under a 30-min
-watchdog. On `continue`: **(0) resume backfills + watchdog if the session died** (Restart-recovery ⚠️);
-**(1) merge the 13D/G fix worker; (2) let backfills finish + measure the window; (3) begin validation →
-Phase B** (which can reject — report honestly). The ETF v1 issuer-direct rebuild (Q-6) is queued.
-
-**Do NOT auto-open without operator green-light:** the human-readable UI layer (comes AFTER completion per
-the locked phase order); Phase C promotion (Q-8); `git push` (Q-4, ~138 commits); real-money path. **Do NOT
-tune EVENT_FLOOR/α/PBO-DSR to a desired outcome** (anti-shopping). **Do NOT build pretty UI on unvalidated data.**
+## For the next session
+Cycles 40-41 finished the completion-phase data work and produced the project's central honest finding:
+**6 Layer-0 composites validated, none pass — the alternative-data market-timing thesis is a null result,
+caught correctly by the validation pipeline before any capital was risked.** The single un-disproven
+direction is cross-sectional single-stock, blocked only by survivorship-free price data (Polygon free
+tier, Q-9). On `continue`, the move is NOT to build more — it's to surface the operator fork (pursue
+single-stock via Polygon, or conclude the null) and act on their answer. Live per-symbol analysis via
+Bigdata.com is available free anytime as decision-support. Do not go live, do not relax gates, do not push.
