@@ -106,7 +106,18 @@ four-layer template; ADR-050/051; all prior s73-s96 lock-ins.
 
 ## Open questions
 
-### Cycle 40
+### Cycle 40 — MAJOR FINDING: 4 Layer-0 composites are BETA, not alpha (combination NO-GO)
+- **`cross_asset_v1` / `cycle_v1` / `sector_rot_v1` / `vol_struct_v1` are all `partial`, NONE Phase-C-eligible,
+  and a combination/ensemble campaign is NO-GO** (probe `scripts/_probe_signal_combination.ts`, commit `3f8931e`).
+  Why: their annualized Sharpes (~1.4-1.6 OOS) are **benchmark beta, not alpha** — the long-equity combined
+  strategy does NOT beat buy-and-hold (loses to it on QQQ: 1.497 vs 1.521). Mean pairwise ρ=0.72-0.88 → ~zero
+  diversification (4 signals ≈ 1.1 independent; combined Sharpe sits on the equicorrelated ceiling). This is
+  WHY Phase B's DSR/HLZ rejected them — the gates correctly strip beta-with-no-alpha. **Accept the null for
+  these four.** Do NOT build a combination campaign. The live question is now ONLY whether the 5 unvalidated
+  composites (EDGAR/FINRA backfilling + form_4) carry real alpha.
+- **⚠️ `phase_b_verdicts.best_*_sharpe` are PER-DAY Sharpes** (×√252 to annualize: 0.099/day → ~1.57/yr). Do
+  NOT read them as annualized "noise" — they're healthy-looking annualized but are beta. See teach-doc
+  `docs/teach/2026-05-30-phase-b-verdict-interpretation.md`.
 - **OQ-C40-1 — do the populated composites reach a usable Phase-B window after backfill?** FINRA short
   interest needs ≥2y; exec-departure/8k-event likewise. MEASURE when backfills complete (watchdog reports).
 - **OQ-C40-2 — Schedule 13D/G retrieval path.** EDGAR FTS returns 0 hits for `SC 13D/G` form tokens; the
@@ -129,9 +140,13 @@ four-layer template; ADR-050/051; all prior s73-s96 lock-ins.
    Its deep backfill runs via the watchdog EDGAR chain (`13d-g`, after 8k-event). Nothing to merge here.
 2. **Let the backfills finish** (watchdog auto-reports/resumes). When COMPLETE, measure the available history
    window per composite (OQ-C40-1) and report in plain language.
-3. **Then begin VALIDATION** of the now-populated composites: calc-correctness checks → Phase B deflation
-   campaigns (DSR/PBO/HLZ per AFML §11 / Bailey-LdP 2014 / Harvey-Liu-Zhu 2016, offline, orchestration-owned).
-   Phase B can reject — report honestly.
+3. **Then VALIDATE the newly-populated composites** (exec-departure / 8k-event / 13d-g / short_interest):
+   calc-correctness → Phase B deflation (DSR/PBO/HLZ per AFML §11 / Bailey-LdP 2014 / HLZ 2016, offline,
+   orchestration-owned). **Context: the 4 already-validated Layer-0 composites came back beta-not-alpha
+   (combination NO-GO — see Open questions).** So the binding question is whether ANY of these 5 remaining
+   (these 4 + form_4) beats buy-and-hold after deflation. If they ALL come back weak/beta, the honest
+   conclusion is the alternative-data-composite thesis (as built) does not produce tradeable alpha — a valid,
+   money-saving null result to report to the operator, NOT a failure to paper over.
 4. **ETF v1 issuer-direct rebuild** (Q-6) — queued; pick up after the EDGAR/FINRA set is validated, OR sooner
    if the backfills are idle.
 5. Deeper backfill (OQ-C40-3 / OQ-C38-2) for full 2013-2026 window parity.
