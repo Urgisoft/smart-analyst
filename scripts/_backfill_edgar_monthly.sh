@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Resumable monthly historical backfill for EDGAR 8-K composites.
 #
-# Usage: bash scripts/_backfill_edgar_monthly.sh <exec-departure|8k-event> [START_YM=2020-01]
+# Usage: bash scripts/_backfill_edgar_monthly.sh <exec-departure|8k-event|13d-g> [START_YM=2020-01]
 #
 # Walks months BACKWARD from the current month to START_YM (inclusive), running
 # the composite's ingest --apply over each [first..last]-of-month window. Backward
@@ -20,7 +20,8 @@ START_YM="${2:-2020-01}"
 case "$KIND" in
   exec-departure) PY="scripts/sec_edgar_8k_item_5_02_ingest.py" ;;
   8k-event)       PY="scripts/sec_edgar_8k_event_ingest.py" ;;
-  *) echo "unknown kind: $KIND (expected exec-departure|8k-event)" >&2; exit 2 ;;
+  13d-g)          PY="scripts/sec_edgar_13d_g_ingest.py" ;;
+  *) echo "unknown kind: $KIND (expected exec-departure|8k-event|13d-g)" >&2; exit 2 ;;
 esac
 
 PYBIN=".venv/Scripts/python.exe"
