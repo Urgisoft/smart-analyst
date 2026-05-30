@@ -237,7 +237,13 @@ describe('readLatestFinraRowsAsOf — query shape', () => {
     await repo.readLatestFinraRowsAsOf(DATE, ['AAPL']);
     const sql = fake.queries[0].query;
     assert.match(sql, /FROM \(\s*SELECT[\s\S]+FROM \S+ FINAL[\s\S]+WHERE/);
-    assert.match(sql, /argMax\(shares_short, settlement_date\)/);
+    // Cycle 41 query-syntax fix: settlement_date is aliased to `sd` inside the
+    // innermost subquery so the CH 24.8 analyzer does not see it referenced as
+    // both a max() target AND an argMax() ordering key (ILLEGAL_AGGREGATION,
+    // code 184). The aggregate pattern is unchanged; the ordering key is `sd`.
+    assert.match(sql, /argMax\(shares_short, sd\)/);
+    assert.match(sql, /max\(sd\) AS sd_max/);
+    assert.match(sql, /settlement_date AS sd/);
     assert.match(sql, /GROUP BY symbol/);
   });
 
@@ -470,7 +476,10 @@ describe('readInputsForCycle', () => {
     // argMax-by-symbol shape). Return same panel for both; the composite
     // computes ROC = 0 → not flagged.
     fake.route(
-      q => q.includes('argMax(shares_short, settlement_date)') && q.includes('GROUP BY symbol'),
+      // Cycle 41 fix: the per-ticker latest read now uses `argMax(shares_short, sd)`
+      // (settlement_date aliased to sd in the innermost subquery — see
+      // readLatestFinraRowsAsOf). Match the new ordering-key text.
+      q => q.includes('argMax(shares_short, sd)') && q.includes('GROUP BY symbol'),
       [
         { symbol: 'AAPL', cusip: '037833100', settlement_date: '2026-05-15', published_at: '2026-05-26', shares_short: 1000000, prev_shares_short: 950000, adv_20d: 500000 },
         { symbol: 'MSFT', cusip: '594918104', settlement_date: '2026-05-15', published_at: '2026-05-26', shares_short: 800000, prev_shares_short: 750000, adv_20d: 400000 },

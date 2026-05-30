@@ -225,21 +225,41 @@ export class ShortInterestRepository {
       query: `
         SELECT
           symbol,
-          argMax(cusip, settlement_date) AS cusip,
-          toString(max(settlement_date)) AS settlement_date,
-          toString(argMax(published_at, settlement_date)) AS published_at,
-          argMax(shares_short, settlement_date) AS shares_short,
-          argMax(prev_shares_short, settlement_date) AS prev_shares_short,
-          argMax(adv_20d, settlement_date) AS adv_20d
+          cusip,
+          toString(sd_max) AS settlement_date,
+          toString(published_at) AS published_at,
+          shares_short,
+          prev_shares_short,
+          adv_20d
         FROM (
           SELECT
-            symbol, cusip, settlement_date, published_at,
-            shares_short, prev_shares_short, adv_20d
-          FROM ${this.shortInterestTable} FINAL
-          WHERE published_at <= {asOf:Date}
-            AND symbol IN ({syms:Array(String)})
+            symbol,
+            argMax(cusip, sd) AS cusip,
+            max(sd) AS sd_max,
+            argMax(published_at, sd) AS published_at,
+            argMax(shares_short, sd) AS shares_short,
+            argMax(prev_shares_short, sd) AS prev_shares_short,
+            argMax(adv_20d, sd) AS adv_20d
+          FROM (
+            -- Alias settlement_date → sd inside the innermost subquery so the
+            -- ClickHouse 24.8 analyzer does NOT see settlement_date referenced
+            -- both as a max() target AND as the argMax() ordering key — that
+            -- doubled reference is what triggers ILLEGAL_AGGREGATION ("max() is
+            -- found inside another aggregate function"). Renaming the column
+            -- makes the two uses textually distinct; the semantics (latest
+            -- published-by-asOf row per symbol) are byte-identical. Verified
+            -- on CH 24.8.14. (Cycle 41 mechanical query-syntax fix — this is
+            -- why short_interest_snapshots was empty: the daemon path threw
+            -- here on every run.)
+            SELECT
+              symbol, cusip, settlement_date AS sd, published_at,
+              shares_short, prev_shares_short, adv_20d
+            FROM ${this.shortInterestTable} FINAL
+            WHERE published_at <= {asOf:Date}
+              AND symbol IN ({syms:Array(String)})
+          )
+          GROUP BY symbol
         )
-        GROUP BY symbol
       `,
       query_params: { asOf: asOfStr, syms: [...symbols] },
       format: 'JSONEachRow',
