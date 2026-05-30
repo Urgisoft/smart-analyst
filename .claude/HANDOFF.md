@@ -1,310 +1,279 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-05-29 (session 96 #31 — **Cycle 34: S96-146 RESOLVED at the
-decision level — ADR-052 ratified + the z=5.57 artifact quarantined.** This was
-the form_4 Phase-B blocker. Empirically diagnosed (not theorised): the
-`max_aggregate_z = 5.5706` persisted in `form_4_insider_snapshots` (2026-05-22,
-Health Care) is a **data-provenance artifact**, not insider behaviour.
-`insider_trades` is a union of EDGAR (real reporting-person CIK, 1.97 rows/filing,
-complete coverage) + Finnhub (synthetic name-hash `person_cik`, 1.0 row/filing,
-sparse). The 2y cluster-rate z-baseline straddles a **~15× coverage-density break**
-(18 Finnhub-only months → 6 EDGAR-dominant months) plus an **identity split**
-(8,998 humans under BOTH a numeric CIK and an `FH`-hash; 90 mixed-source tickers
-in 2026). Proved a naïve `WHERE source=edgar` filter makes it WORSE (the 18-month
-EDGAR gap → zero-cluster-rate days → baseline depressed further). **PUSHBACK
-headline: form_4 is NOT Phase-B-ready** — ~124 clean EDGAR-active P/S days in one
-recent 6-month block cannot support a DSR/PBO/HLZ campaign. NEXT on `continue`:
-implement ADR-052 (Composite worker — coverage-regime-aware EDGAR-canonical
-baseline + v1→v2 bump + re-backfill), then resolve the quarantine row, then draft
-the form_4 Phase-B SPEC (execution gated on coverage). See "Next stage".
+Last updated: 2026-05-30 (session 96 #32 — **Cycle 35: ADR-052 IMPLEMENTED + merged
++ v2 re-backfilled — but verification re-characterized the artifact and opened
+ADR-053.** The form_4 source-provenance normalization (ADR-052 D1-D5) shipped:
+EDGAR-canonical cluster path + coverage-homogeneous baseline + `form_4_insider_v2`,
+via a Composite worker + Critic (AUTO-APPROVE), merged at `bfec016`, all 98 snapshots
+re-backfilled to v2. **The empirical verification then proved the z=5.57 artifact is
+NOT resolved at the value level.** Removing provenance dropped Health-Care 5.57→4.73,
+but the EDGAR-only coverage-gated baseline is so sparse/zero-inflated that the
+Gaussian z-test degenerates: max |z| went to **14.18** (Comm Svcs 2026-04-30 — baseline
+202/203 days = 0; today = ONE clustered ticker → 14σ). **Root cause re-characterized
+(S96-163): the dominant driver is the z-STATISTIC's invalidity on sparse cluster-rates,
+not provenance (now fixed).** That is calc-logic/methodology → a NEW ADR. **ADR-053
+(PROPOSED) drafted** recommending an empirical-exceedance statistic + a min-effective-
+sample guard. Quarantine re-characterized to `accepted-as-warning`. NEXT on `continue`:
+ratify + implement ADR-053 (Composite worker), OR kick off the D7 EDGAR coverage
+backfill (operator-paced). See "Next stage".
 
 ---
 
 ## 🔌 Restart recovery — ClickHouse is in Docker Desktop
 
-ClickHouse runs in the `quantlab-clickhouse` Docker container under Docker
-Desktop. On reboot:
+ClickHouse runs in the `quantlab-clickhouse` Docker container under Docker Desktop.
+On reboot (this session rebooted 3×; recovery worked each time):
 
 1. `Start-Process "C:\Program Files\Docker\Docker\Docker Desktop.exe"`
-2. Poll until up: `docker start quantlab-clickhouse` in a loop; then wait for
-   `docker inspect --format '{{.State.Health.Status}}' quantlab-clickhouse` =
-   `healthy` (~30-60s after engine ready). This session: healthy at start.
-3. Verify `SELECT 1` before any CH work. (HTTP probe used this session:
-   `curl -s "http://127.0.0.1:8123/?user=quantlab&password=quantlab&database=quantlab" --data-binary "SELECT 1"`.)
+2. Poll engine up: loop `docker version`; then `docker start quantlab-clickhouse`;
+   then wait `docker inspect --format '{{.State.Health.Status}}' quantlab-clickhouse`
+   = `healthy` (~10-40s after engine ready).
+3. Verify before any CH work:
+   `curl -s "http://127.0.0.1:8123/?user=quantlab&password=quantlab&database=quantlab" --data-binary "SELECT 1"`.
 
 **Dev server:** `npm run dev` (= `tsx server.ts`) → http://localhost:3000. NOT
-hot-reloading; restart after server-side edits (client .tsx HMR-reloads). **Not
-running at end of this session** (Cycle 34 was RESEARCH/DESIGN — no UI slice).
-The form_4 panel `/#/form-4-insider` currently renders the contaminated z=5.57
-until the ADR-052 re-backfill lands (it's quarantined + explained, not silently
-wrong).
+hot-reloading; restart after server-side edits. **Not running at end of this session.**
+`/#/form-4-insider` now renders the v2 aggregate z (up to ~14σ) — honest
+(coverage-homogeneous) but the aggregate statistic is under review per ADR-053
+(quarantined + labeled). The per-ticker insider counts/flags on that panel are fine.
 
 ---
 
 ## Operator queue (real-money triggers only)
 
-**This is the only section the operator reads.** Per the working-model change
-ratified 2026-05-23 (s96 #14), every routine decision is the orchestration's.
+**This is the only section the operator reads.** Per the s96 #14 working model, every
+routine decision is the orchestration's.
 
 | # | Item | Source | Status |
 | --- | --- | --- | --- |
 | Q-1 | First real-capital deployment — timing + amount | §7.1.1 | **INDEFINITELY DEFERRED** (s96 #19) |
 | Q-2 | Capital-deployment-ramp ADR sign-off | s96 #13 | **INDEFINITELY DEFERRED** (s96 #19) |
 | Q-3 | GAP-5 Stooq apikey gate decision | Audit GAP-5 | OPEN — paid subscription |
-| Q-4 | Push **122** unpushed commits to origin/main | Carry-over; +2 this session | OPEN — `git push` operator-gated |
+| Q-4 | Push **~124** unpushed commits to origin/main | Carry-over (+2 this session: `bfec016` code + the docs commit) | OPEN — `git push` operator-gated |
 | Q-5 | phase1_v3 CBOE corrupted-input window | Cycle 21 ADR-050 | **CLOSED — ADR-050** |
 | Q-6 | ETF v1 yfinance primary + /#/phase-b UI restart | s96 #17/18/20 + C24 | PARTIAL — operator `npm run dev` restart |
 | Q-7 | phase1_v3 yield-curve source persistence — Path pick | s96 #18 C19 | **OPEN — operator picks Path** |
 | Q-8 | Phase C promotion of any Layer-0 composite | Cycle 22 ADR-051 | **DORMANT** — no PASS-ALL + PBO<0.2 yet |
 
-**FYI (not a queue item — orchestration-owned, but operator-PACED):** **ADR-052
-D7 — EDGAR Form 4 gap backfill (`2024-06 … 2025-11`).** This is the coverage-
-restoration step that makes form_4 Phase-B-ready. It's a free source (pre-
-authorized) but a **throttled bulk op** (per-IP rate-limited) — pace it, don't
-bulk-backfill — so it needs an operator to kick off / babysit the long run. NOT
-real-money; surfaced here only so the operator knows form_4's Phase-B clock
-doesn't start until this lands.
+**FYI (not queue items — orchestration-owned, operator-PACED):**
+- **ADR-052 D7 — EDGAR Form 4 gap backfill (`2024-06 … 2025-11`).** Free source but a
+  throttled bulk op (per-IP rate-limited) — pace it. Lengthens the form_4 baseline so
+  the (post-ADR-053) statistic has resolution. form_4 is NOT Phase-B-ready until this
+  + ADR-053 land. NOT real-money.
+- **ADR-053 (PROPOSED)** — replaces the form_4 aggregate z-test with a sparse-rate
+  statistic. Calc-logic change → operator-VISIBLE (ADR-044), but orchestration owns
+  the decision per the working model; surfaced here only for awareness.
 
 ---
 
-## What this session delivered (s96 #31 — Cycle 34, S96-146 resolution)
+## What this session delivered (s96 #32 — Cycle 35)
 
 | Commit | Slice |
 | --- | --- |
-| `89adb2c` | ADR-052 — form_4 source-provenance normalization (S96-146 RESOLVED at decision level). Pure docs. |
-| (CH, not git) | `health_quarantine` row: z=5.57 artifact, `adr_ref='ADR-052'`, `status='pending'`. |
+| `bfec016` | **ADR-052 form_4 source-provenance normalization (D1-D5)** — `src/server/form_4_insider.ts` + `_repository.ts` + 4 test files. Composite worker + Critic AUTO-APPROVE. tsc 13 baseline; 482 form4 tests green. |
+| (this commit) | ADR-053 (PROPOSED) + teach-doc + this HANDOFF. Pure docs. |
+| (CH, not git) | v2 re-backfill: all 98 `form_4_insider_snapshots` rows → `form_4_insider_v2`. `health_quarantine` ADR-052 row updated → `accepted-as-warning`, `category=sparse-rate-z-invalidity`. |
 
-No code change, no DDL, no real-money path, no scrape. tsc baseline 13 preserved
-(touched zero `.ts`). This was a RESEARCH→DESIGN milestone: empirical diagnosis
-→ quarantine → ratified decision. Implementation is the next slice (deliberately
-NOT an orchestrator self-edit — it changes a composite's persisted outputs, so it
-goes through a Composite worker + critic).
+No DDL, no real-money path, no scrape. The CODE went through a worker+critic (NOT
+orchestrator self-edit — it changes a composite's persisted outputs).
 
 ---
 
 ## Decisions locked in
 
-### Session 96 #31 — ADR-052 (S96-146 resolution)
+### s96 #32 Cycle 35 — ADR-052 IMPLEMENTED (the code facts)
+- **`FORM_4_INSIDER_COMPOSITE_VERSION = 'form_4_insider_v2'`** (D5). `EDGAR_CANONICAL_SOURCE
+  = 'sec_edgar_form4_xml'`.
+- **D1 (cluster path EDGAR-only):** new pure `filterTradesToCanonicalSource`; per-ticker
+  cluster flags derive from EDGAR-only trades; sector `computeSectorClusterRate` fed
+  EDGAR-only. Per-ticker RAW counts stay dual-source (D3/D4) behind a new
+  `insiderCountSourceMix:{edgar,finnhub}` per-ticker field (serializes into
+  per_ticker_json; no DDL).
+- **D2 (coverage-homogeneous baseline) — repository:** new `readEdgarPsDailyVolume`
+  (system-wide EDGAR P/S daily volume) + `computeEdgarCoverageAdmittedDays`. A baseline
+  day is admitted iff trailing-`EDGAR_COVERAGE_WINDOW_DAYS=30` system-wide EDGAR P/S
+  volume ≥ **`EDGAR_COVERAGE_FLOOR=500`**; gap days EXCLUDED (never zero-filled); covered
+  days with zero sector trades still push rate=0. Floor pinned a-priori from cadence
+  (any value in [1,~5000] separates the hard-zero gap from ≫5000 steady-state; AFML §11.4,
+  anti-shopping). `readTradesForTickersInWindow` gained a `canonicalSourceOnly` 4th param.
+- **Critic verdict:** AUTO-APPROVE, HIGH confidence on the D2 gate (exclude-vs-zero-fill
+  correct; candidate-day set spans all calendar days via the membership panel).
 
-**S96-160 (the z=5.57 is a measured data-provenance artifact, not a signal).**
-`form_4_insider_snapshots` FINAL 2026-05-22 carries `max_aggregate_z=5.5705819`
-(Health Care). Dual root cause, both quantified against live CH:
-- **Coverage-density break:** P/S volume `[2024-05-22,2026-05-21]` = 18 months
-  100% Finnhub (~300-650/mo) then 6 months dominantly EDGAR (~6.7-11.2k/mo) — a
-  ~15× jump from the SOURCE switch, not insider activity. Current 90d value sits
-  in the high-density EDGAR regime; baseline mean/std depressed by the Finnhub
-  months → blow-out.
-- **Identity split:** EDGAR `person_cik` = real numeric CIK; Finnhub =
-  `"FH"+sha1(upper(name))[:10]`. 8,998 humans (86.5% of Finnhub's 10,401 names)
-  appear under BOTH → cluster-distinctness double-counts them in straddle
-  windows (90 tickers mixed-source in 2026).
-- Granularity (1.97 vs 1.0 rows/filing) inflates per-ticker **counts** but is
-  **count-invariant for the cluster metric** (distinct persons) → display-only,
-  not the z driver.
+### S96-163 (the verification finding — the real story of this cycle)
+- ADR-052 fixed PROVENANCE; it did NOT resolve the VALUE. Post-v2 table: max |z|=**14.18**,
+  16/98 days |z|>5, 61/98 |z|>2. Health-Care 2026-05-22: 5.57→4.73 (down) but
+  Comm-Svcs 2026-04-30 = 14.18 (up).
+- **Mechanism (measured):** the EDGAR-only coverage-gated baseline is zero-inflated.
+  Comm-Svcs example: 203 admitted days, **202 = 0**, 1 non-zero; today = **1/22 = one
+  clustered ticker** → z = (0.0455−0.000224)/0.00319 = 14.18. `MIN_Z_BASELINE=30` passes
+  on day-count but the EFFECTIVE (non-zero) sample is 1. The Gaussian z-test is invalid
+  on a sparse zero-inflated discrete cluster-rate.
+- **Root cause re-characterized:** z-STATISTIC choice, not provenance, not solely coverage.
 
-**S96-161 (naïve source-filter is WRONG).** `WHERE source=edgar` makes it worse:
-EDGAR's own coverage in the 2y window is two disjoint islands (7 days May-2024;
-18-month GAP; ~117 continuous days Dec-2025→May-2026). Gap days → empty EDGAR 30d
-windows → cluster-rate=0 → baseline depressed FURTHER. Fix must be
-**coverage-regime-aware** (exclude gap days; never zero-fill).
+### ADR-053 (PROPOSED) — the recommendation
+- Replace the Gaussian z with **empirical exceedance / rank** (non-parametric;
+  `(#{baseline ≥ today}+1)/(n+1)`; Aronson EBTA empirical-significance canon) as PRIMARY,
+  **layered with a min-effective-sample guard** (null when non-zero baseline obs < K).
+  Three-criterion test: B has 0 free params + on-point canon; B+C = 1 a-priori-pinned K.
+- **PUSHBACK (do not paper over):** no statistic manufactures signal from ~124 EDGAR days.
+  form_4 aggregate needs BOTH ADR-053 (statistic) AND ADR-052 D7 (coverage). Until both,
+  the aggregate should render "insufficient data / under review," not a number.
 
-**S96-162 (form_4 is NOT Phase-B-ready — PUSHBACK).** ~124 clean EDGAR-active
-P/S days in one recent 6-month block. ADR-051's DSR/PBO/HLZ on <1yr of
-event-sparse, provenance-fractured data is statistical theatre (AFML §11
-noise-floor swamps it). Campaign is WRITTEN now (unblocks pattern) but EXECUTION
-is gated on coverage (D6 readiness gate; D7 backfill).
-
-**ADR-052 decisions (the resolution):**
-- **D1** — cluster path (sector z + per-ticker cluster flags + `maxAggregateZ[Sell]`
-  + `form4[Sell]ClusterFlag`) computed from **`source='sec_edgar_form4_xml'` ONLY**
-  (real CIK is the only valid cluster-distinctness identity; Lakonishok-Lee 2001 §3).
-- **D2** — **coverage-homogeneous baseline**: admit a baseline day only if EDGAR
-  coverage is active in its window (system-wide EDGAR P/S volume floor — one
-  SPEC-pinned knob); exclude gap days, never zero-fill. `MIN_Z_BASELINE=30` on
-  admitted days; sparse sector → `z=null` (honest cold-start).
-- **D3** — Finnhub demoted to coverage/forensic; stays in table (no delete) but
-  excluded from every identity-dependent computation.
-- **D4** — per-layer source rules table (cluster path EDGAR-only; per-ticker raw
-  counts may be dual-source WITH a source-mix label; staleness anchor EDGAR-only).
-- **D5** — composite version bump **`form_4_insider_v1` → `form_4_insider_v2`**
-  (universe-definition change; v1 snapshots persist as historical record; ADR-051
-  D8 version-pin trail).
-- **D6** — Phase-B readiness gate (mechanical precondition: EDGAR P/S coverage ≥ N
-  continuous months, no gap > G days; N/G pinned in the Phase-B SPEC).
-- **D7** — coverage restoration target = EDGAR continuous 2024→today via gap
-  backfill (operator-paced; then Finnhub fully retired from reads).
-
-**Carry-overs:** S96-145 (Finnhub synthetic person_cik = v1 approximation — now
-the identity-split root cause), S96-157/158 (composite-shape divergences),
-S96-153 (READ the shape; shared field names ≠ shared semantics), S96-148/149
-(reusable CompositeDetailApp + subquery-around-FINAL), S96-1..S96-144; all prior
-s73-s95 lock-ins.
+**Carry-overs:** all ADR-052 decisions D1-D7; S96-145/146/160/161/162; S96-148/149;
+S96-1..S96-144; all prior s73-s95 lock-ins.
 
 ---
 
 ## Open questions
 
-### RESOLVED this session
-- **S96-146** — form_4 source-granularity normalization. **RESOLVED at the
-  decision level (ADR-052).** Implementation pending (next slice).
+### NEW this session
+- **S96-163 / ADR-053** — which sparse-rate statistic + the a-priori K (min effective
+  sample) + the empirical-tail firing threshold. PROPOSED = empirical exceedance + guard;
+  ratification + implementation is the next gated Composite slice.
+- The form_4 **Phase-B SPEC is now gated on D6 (readiness) + D7 (coverage) + ADR-053
+  (statistic)** — drafting it is deferred until the statistic is decided (it pins the
+  score axis).
 
-### STILL OPEN (gate the implementation + the campaign)
-- **OQ-052-1** — the D2 coverage-floor value + window (the one knob). Pin in the
-  form_4 Phase-B SPEC from EDGAR's observable ingest cadence, NOT from the z
-  outcome (anti-shopping; AFML §11.4).
-- **OQ-052-2** — the D6 readiness-gate thresholds (N continuous months / max gap
-  G days). Pin in the Phase-B SPEC.
-- **OQ-052-3** — do the other four EDGAR/FINRA composites (`schedule_13d_g`,
-  `eight_k`, `executive_departure`, `short_interest`) need the same
-  normalization? Same cross-source pattern in principle; tables empty today
-  (never-run ingests) so deferred — re-evaluate per-composite when populated.
-- **OQ-C32-2** — Finnhub coverage caveats. Now subsumed by ADR-052 D3 (Finnhub
-  demoted); close when the v2 implementation lands.
-- **EDGAR/FINRA throttle** — applies to D7 backfill + all five family ingests
-  (still EMPTY). Pace; never bulk.
-- **CARRIED:** OQ-C31-4 (`INSERT…SELECT FROM <self>` no-ops), OQ-C29-1/2/5,
-  OQ-C30-3, OQ-C27-1..3, OQ-C26-1..3, OQ-C25-1..2, OQ-C24-1..3, OQ-C19-1,
-  OQ-C18-1, OQ-C17-1 — unchanged.
+### STILL OPEN (carried)
+- **OQ-052-1** (D2 coverage-floor value) — RESOLVED in code (`EDGAR_COVERAGE_FLOOR=500`,
+  window 30); to be re-documented in the Phase-B SPEC when drafted.
+- **OQ-052-2** (D6 readiness-gate N/G) — pin in the Phase-B SPEC.
+- **OQ-052-3** — do `schedule_13d_g`/`eight_k`/`executive_departure`/`short_interest`
+  share BOTH the provenance pattern AND the sparse-rate z-invalidity? Same structure in
+  principle (all z-on-cluster-rate); tables empty today; re-evaluate per composite when
+  each ingest runs. ADR-052 + ADR-053 precedents both apply.
+- **CARRIED:** OQ-C31-4 (`INSERT…SELECT FROM <self>` no-ops — relevant: I used JSONEachRow
+  for the quarantine update, NOT INSERT…SELECT, to avoid this trap), OQ-C29-1/2/5,
+  OQ-C30-3, OQ-C27-1..3, OQ-C26-1..3, OQ-C25-1..2, OQ-C24-1..3, OQ-C19-1, OQ-C18-1,
+  OQ-C17-1 — unchanged.
 
 ---
 
 ## Next stage
 
-### Default on `continue` — implement ADR-052 (CODE), serial after the ratified decision
-
-1. **Composite-worker slice (CODE)** — implement ADR-052 D1-D5 in
-   `src/server/form_4_insider.ts` (bump `FORM_4_INSIDER_COMPOSITE_VERSION` →
-   `form_4_insider_v2`; add `EDGAR_CANONICAL_SOURCE`) +
-   `src/server/form_4_insider_repository.ts` (restrict the cluster-path reads +
-   `populateSectorsForCycle` baseline to the canonical source; implement D2
-   coverage-day admission; keep per-ticker counts dual-source behind a source-mix
-   label per D4). **Spawn a Composite worker + Critic** (NOT an orchestrator
-   self-edit — it changes a composite's persisted outputs, outside the
-   trivial-edit exception). Tests: source-filter, gap-exclusion (a synthetic gap
-   day is NOT zero-filled), version pin, coverage-floor boundary.
-2. **Re-backfill** `_backfill_form_4_insider_snapshots.ts` → writes v2 rows;
-   verify the Health-Care 2026-05-22 z is no longer ~5.57 (or honestly null if
-   the EDGAR-only baseline is too sparse for that sector).
-3. **Resolve the quarantine row** (`adr_ref='ADR-052'`, `pending` → `corrected`)
-   once the re-backfill confirms the artifact is gone; `resolution_note` → the
-   v2 backfill.
-4. **Draft `docs/specs/phase-b-form_4_v1.md`** — benchmark universe (SPY + sector
-   ETFs), score derivation from v2, the D6 readiness gate, pinning
-   `form_4_insider_v2`. Campaign EXECUTION stays gated on D6/D7.
+### Default on `continue` — ratify + implement ADR-053 (RESEARCH→SPEC→CODE)
+1. **Finalize the statistic** (RESEARCH, mostly done in ADR-053): empirical exceedance +
+   min-effective-sample guard. Pin K + the firing threshold a-priori from observed
+   sparsity (NOT from the z outcome).
+2. **Composite-worker slice (CODE)** — in `src/server/form_4_insider.ts` replace/augment
+   `computeZ`-on-cluster-rate with the empirical-exceedance statistic + guard; bump
+   `form_4_insider_v2` → `v3` (ADR-051 D8). Repository: `populateSectorsForCycle` already
+   delivers the EDGAR-only coverage-gated baseline series — the statistic consumes the
+   same `baseline2y`/`baseline2ySell`. Update the snapshot's aggregate fields semantics
+   (the `max_aggregate_z*` columns can carry the new score, or add new fields — decide in
+   the SPEC). **Spawn a Composite worker + Critic** (calc-logic; operator-visible ADR).
+   Tests: zero-inflation case (1 ticker → bounded tail, NOT 14σ), cold-start null, the
+   guard boundary, version pin v3.
+3. **Re-backfill** to v3; verify max |tail-score| is bounded + the degenerate sectors
+   render "insufficient data." Update the quarantine row toward `corrected` only if the
+   value is genuinely honest now.
+4. THEN draft `docs/specs/phase-b-form_4_v1.md` (gated on D6+D7+ADR-053).
 
 ### Alternative stages the operator could pick instead
-- Kick off the **D7 EDGAR gap backfill** (operator-paced) so form_4's Phase-B
-  clock can start.
-- Apply the ADR-052 normalization PRECEDENT to one of the other four EDGAR/FINRA
-  composites once its ingest has run (OQ-052-3).
-- Resume a deferred reconciliation gap (GAP-16 sentinels; GAP-13 Quartz upgrade
-  doc; GAP-10 CI/CD baseline) — all orchestration-owned, independent.
+- Kick off **D7 EDGAR gap backfill** (operator-paced) so the post-ADR-053 statistic has
+  baseline resolution. Both are needed; order is flexible.
+- Apply the ADR-052 + ADR-053 precedents to another EDGAR/FINRA composite once populated.
+- Resume a deferred reconciliation gap (GAP-16 sentinels; GAP-13 Quartz doc; GAP-10 CI/CD).
 
 ---
 
 ## Files / code state
 
-### This session's commit (on `main`, unpushed — Q-4)
+### Commits this session (on `main`, unpushed — Q-4)
 | Commit | Files |
 | --- | --- |
-| `89adb2c` | `docs/specs/adr-052-form4-source-provenance-normalization.md` (new). Pure docs. |
+| `bfec016` | `src/server/form_4_insider.ts` (+128), `_repository.ts` (+261), `scripts/tests/form4Insider.test.ts` (+162), `form4InsiderRepository.test.ts` (+175), `compositeForm4Dashboard.test.ts` (+7), `operatorBrief.test.ts` (+28). |
+| (this commit) | `docs/specs/adr-053-form4-aggregate-sparse-rate-statistic.md` (new, PROPOSED), `docs/teach/2026-05-30-zero-inflated-rate-ztest.md` (new), `.claude/HANDOFF.md`. |
 
-CH side-effect (not git): one `quantlab.health_quarantine` row (`adr_ref=ADR-052`).
-No DDL. No real-money path. No scrape. tsc baseline 13 (all pre-existing
-`scripts/_*.ts`).
+CH side-effects (not git): 98 `form_4_insider_snapshots` rows → v2; `health_quarantine`
+ADR-052 row → `accepted-as-warning`. No DDL. tsc baseline 13 (all `scripts/_*.ts`).
 
-### Form 4 pipeline map (read this session — for the implementation slice)
-- **Composite (pure):** `src/server/form_4_insider.ts` — `computeSectorClusterRate`
-  (distinct `person_cik` ≥ 3 → ticker flagged; rate = cluster-tickers/sectorSize),
-  `computeZ` (sample stddev, MIN_Z_BASELINE=30), `evaluateForm4InsiderComposite`.
-  Reads ALL rows regardless of source (the bug surface).
-- **Repository (I/O):** `src/server/form_4_insider_repository.ts` —
-  `readTradesForTickersInWindow` (cluster path + baseline both flow through it);
-  `populateSectorsForCycle` builds `baseline2y`/`baseline2ySell` per business day
-  → THIS is where D1+D2 land (add source filter + coverage-day admission).
-- **Ingests:** `scripts/sec_edgar_form4_ingest.py` (EDGAR, real CIK, multi-row/filing),
-  `scripts/finnhub_insider_ingest.py` (synthetic `person_cik`, 1 row/filing,
-  cross-source dedup skips accessions EDGAR already has).
-- **Backfill:** `scripts/_backfill_form_4_insider_snapshots.ts` (canonical daemon
-  path; re-run after the v2 change).
-- **Pattern:** ADR-051 (`docs/specs/adr-051-layer0-phase-b-deflation-pipeline.md`)
-  is the Phase-B harness; per-composite SPECs exist for cycle/cross_asset/
-  sector_rot/vol_struct (4 of 9). form_4's is the next to draft (gated).
+### Form 4 pipeline (current state post-merge)
+- **Composite (pure):** `src/server/form_4_insider.ts` — `FORM_4_INSIDER_COMPOSITE_VERSION
+  = 'form_4_insider_v2'`; `EDGAR_CANONICAL_SOURCE`; `filterTradesToCanonicalSource`;
+  per-ticker cluster flags EDGAR-only; `insiderCountSourceMix` per-ticker field; aggregate
+  defense-in-depth EDGAR filter. `computeZ` (the now-invalid Gaussian z) is what ADR-053
+  replaces.
+- **Repository (I/O):** `_repository.ts` — `readEdgarPsDailyVolume`,
+  `computeEdgarCoverageAdmittedDays`, `EDGAR_COVERAGE_FLOOR=500`,
+  `EDGAR_COVERAGE_WINDOW_DAYS=30`; `readTradesForTickersInWindow(...,canonicalSourceOnly)`;
+  `populateSectorsForCycle` builds the EDGAR-only coverage-gated `baseline2y`/`baseline2ySell`.
+- **Backfill:** `scripts/_backfill_form_4_insider_snapshots.ts` — `--apply` re-ran
+  (default window 2026-01-01→today; 98 days; ~84s). Re-run after the v3 change.
+- **Pattern:** ADR-051 = Phase-B harness; ADR-052 = provenance; ADR-053 (PROPOSED) =
+  statistic.
 
-### Key CH facts measured this session (`insider_trades`, 296,219 rows)
-- EDGAR `sec_edgar_form4_xml`: 232,286 rows / 117,900 accessions / 41,067 persons;
-  1.97 rows/accession (max 52). Finnhub: 63,933 rows = 63,933 accessions = 9,846
-  persons; exactly 1.0 row/accession.
-- P/S by source: EDGAR P=13,282 S=61,305; Finnhub P=1,260 S=8,153.
-- EDGAR P/S active-days in `[2024-05-22,2026-05-21]`: 7 (2024-05), then GAP, then
-  ~117 continuous (2025-12→2026-05). **~124 clean days total.**
+### Key CH facts (unchanged from Cycle 34 unless noted)
+- `insider_trades` 296,219 rows; EDGAR P/S active-days in `[2024-05-22,2026-05-21]` ≈ 124
+  (7 in May-2024, 18-month gap, ~117 continuous Dec-2025→May-2026).
+- `form_4_insider_snapshots`: 98 rows, ALL `form_4_insider_v2` now; max |max_aggregate_z|
+  = **14.18** (Comm Svcs 2026-04-30; known/quarantined, sparse-rate z-invalidity).
+- `health_quarantine`: 3 rows; ADR-052 row now `accepted-as-warning`,
+  `adr_ref='ADR-052,ADR-053'`.
 
-### DB-state (session-start `npm run health:check`: fresh=3 stale=0 very-stale=12 missing=1 empty=9; migrations 20/20 — IDENTICAL to s96 #30, no NEW Tier-2)
-- 12 very-stale = known dev-box daemon-lag (GAP-9, no cron). Tier-1 remediation =
-  `npm run daemon:daily` on operator cadence; NOT auto-run (heavy/network; doesn't
-  block SPEC work; staleness honestly labelled).
-- 9 empty + 1 missing-table = never-run EDGAR/FINRA ingests; panels ship intended
-  empty-states. (form_4_insider_snapshots is NOT empty — 98 rows, ~7d stale.)
-- `health_quarantine`: now **3 rows** (the new ADR-052 z=5.57 row + the 2 prior
-  ADR-045/Q-6 rows).
+### DB-state (session-start health:check: fresh=3 stale=0 very-stale=12 missing=1 empty=9;
+migrations 20/20 — IDENTICAL to s96 #31, no NEW Tier-2 at start)
+- 12 very-stale = known dev-box daemon-lag (GAP-9, no cron); operator-cadence `daemon:daily`.
+- 9 empty + 1 missing = never-run EDGAR/FINRA ingests; intended empty-states.
 
 ---
 
 ## Watch-outs
 
-### NEW this session
-- **The z=5.57 is QUARANTINED + EXPLAINED, not fixed.** Until the ADR-052
-  re-backfill lands, `form_4_insider_snapshots` still carries the contaminated z
-  and `/#/form-4-insider` renders it. Do not "re-quarantine" it; the row exists
-  (`adr_ref='ADR-052'`).
-- **Never z-score across a source-provenance boundary** (ADR-052 precedent). The
-  baseline and the current value must be the same population — same source-
-  identity scheme AND same coverage regime. This generalises to all five
-  EDGAR/FINRA composites.
-- **A `WHERE source=edgar` filter ALONE is a trap** — it zero-fills the 18-month
-  EDGAR gap and worsens the z. The fix is coverage-DAY admission (D2), not a
-  row-source filter alone.
-- **D5 version bump is mandatory** — the v2 implementation MUST bump
-  `FORM_4_INSIDER_COMPOSITE_VERSION`; the constants-sanity test + ADR-051 D8
-  trail depend on it. The Phase-B SPEC pins `form_4_insider_v2`.
-- **Implementation is a Composite-worker slice, not orchestrator self-edit** — it
-  changes a composite's persisted outputs (outside §3.1 trivial-edit exception);
-  critic gates it.
+### NEW this session — READ THESE
+- **⚠️ Agent `isolation:"worktree"` can spawn at a STALE base commit.** This cycle's
+  Composite worktree was based at `c0cda7c` (s96 #7, 2026-05-22) — a WEEK behind `main`
+  (`3a7b37d`). A blind `git merge --ff-only` would have REVERTED a week of work. **Always
+  verify `git merge-base main <worktree-branch> == main HEAD` BEFORE merging an agent
+  worktree.** The fix used: commit the worker changes, then `git rebase --onto main
+  <stale-base>` (git's 3-way handles non-overlapping divergence cleanly), then ff-merge.
+  Two orphan locked worktrees remain (`agent-a9cfcb6ea446a9fb5`@c0cda7c,
+  `agent-a9df63a19695f81da`@3a7b37d) — harmless dangling refs; remove with
+  `git worktree remove --force` + unlock if they accumulate.
+- **⚠️ `git add -A` in a worktree can sweep scratch files into the commit.** A 1240-line
+  `.tmpdiff/full.diff` (the diff I generated for the Critic) got committed then removed
+  via `git rm --cached` + amend. Write scratch to `.git/`-internal paths, or `git add`
+  specific files, not `-A`.
+- **The form_4 aggregate z is INVALID, not just contaminated.** 1 clustered ticker → 14σ
+  on a 202/203-zero baseline. Do NOT "fix" it by tuning the floor or MIN_Z_BASELINE —
+  the statistic itself is wrong (ADR-053). Do NOT mark the quarantine `corrected` until a
+  valid statistic ships.
+- **`MIN_Z_BASELINE=30` counts DAYS, not effective sample.** On a zero-inflated baseline
+  it passes with ~1 real observation. ADR-053's guard counts NON-ZERO obs.
+- **The v2 re-backfill made the displayed values LARGER (max 14.18 vs 5.57) but HONEST.**
+  This is intentional: coverage-homogeneous + provenance-clean beats contaminated-but-
+  smaller. The quarantine + dashboard label carry the honesty. Do NOT revert to v1.
 
 ### Carried
-- **S96-149 alias-shadowing** — subquery-around-FINAL mandatory for every
-  composite `loadHistory` (form_4 already follows it).
-- **Finnhub `person_cik` is a name-hash (S96-145)** — collides distinct people
-  sharing a name; splits one person across spelling variants; unfit for
-  cluster-distinctness (the ADR-052 D1 reason).
-- **`accepted_at` (NOT `transaction_date`) is the load-bearing anti-leak anchor**
-  (F4-10) — a refactor to `transaction_date` injects look-ahead leak.
-- **Dev server** does NOT hot-reload server edits — restart after `*_dashboard.ts`
-  / `server.ts` edits. Browser-visual validation is the one gate I can't run
-  headlessly.
-- All prior watch-outs (EDGAR/FINRA per-IP throttle on bulk backfills; gics
-  PIT-anchor on wipe; CH-Date range; sp500_constituents PIT gap-window;
-  executive_departure dedupe key uses the escape not a literal NUL) preserved.
+- **S96-149 alias-shadowing** — subquery-around-FINAL mandatory for every composite
+  `loadHistory` (form_4's new `readEdgarPsDailyVolume` follows it).
+- **Finnhub `person_cik` is a name-hash (S96-145)** — unfit for cluster-distinctness (the
+  ADR-052 D1 reason); now demoted from the cluster path.
+- **`accepted_at` (NOT `transaction_date`) is the load-bearing anti-leak anchor** (F4-10).
+- **D5/ReplacingMergeTree:** `form_4_insider_snapshots ORDER BY snapshot_date` → a v3
+  re-backfill will REPLACE v2 rows (not preserve them). Audit trail = quarantine + ADRs +
+  git, not the snapshots table. Do NOT rebuild the table engine (destructive, operator-gated).
+- **Dev server** does NOT hot-reload server edits — restart after `*_dashboard.ts`/`server.ts`.
+- All prior watch-outs preserved (EDGAR/FINRA per-IP throttle; gics PIT-anchor; CH-Date
+  range; sp500 PIT gap-window; executive_departure dedupe key).
 
 ---
 
 ## Pre-loaded operational reminders
 
 ```
-# Bring CH up after reboot:
+# Bring CH up after reboot (engine often needs ~5-40s):
 Start-Process "C:\Program Files\Docker\Docker\Docker Desktop.exe"
-docker start quantlab-clickhouse   # loop until healthy
-# CH HTTP probe (used for the S96-146 diagnosis this session):
+docker start quantlab-clickhouse                 # loop until healthy
 curl -s "http://127.0.0.1:8123/?user=quantlab&password=quantlab&database=quantlab" --data-binary "SELECT 1"
 # Dev server (visual validation):
-npm run dev                        # http://localhost:3000/#/form-4-insider
-# After the ADR-052 implementation slice:
-#   (Composite worker edits form_4_insider.ts + form_4_insider_repository.ts)
-node --import tsx --test scripts/tests/form4InsiderRepository.test.ts \
-     scripts/tests/compositeForm4Dashboard.test.ts
-node --import tsx scripts/_backfill_form_4_insider_snapshots.ts   # re-backfill v2
-# Gates:
-npx tsc --noEmit                   # 13 baseline (all in scripts/_*.ts)
+npm run dev                                      # http://localhost:3000/#/form-4-insider
+# Form4 tests + tsc (the slice's gate):
+node --import tsx --test scripts/tests/form4Insider.test.ts scripts/tests/form4InsiderRepository.test.ts scripts/tests/compositeForm4Dashboard.test.ts scripts/tests/operatorBrief.test.ts
+npx tsc --noEmit                                 # 13 baseline (all scripts/_*.ts)
+# Re-backfill after a composite change:
+npx tsx scripts/_backfill_form_4_insider_snapshots.ts --apply   # ~84s, 98 days
+# health:
 npm run health:check
 ```
 
@@ -312,34 +281,34 @@ npm run health:check
 
 ## For the next session — priority order
 
-**S96-146 is RESOLVED at the decision level (ADR-052).** On `continue`, do the
-**CODE** stage: spawn a **Composite worker + Critic** to implement ADR-052 D1-D5
-(EDGAR-canonical cluster path + coverage-homogeneous baseline + v1→v2 bump),
-re-backfill snapshots, resolve the quarantine row, then draft
-`docs/specs/phase-b-form_4_v1.md` (execution gated on D6/D7).
+**ADR-052 is DONE (merged `bfec016` + v2 backfill).** The real open work is **ADR-053**:
+the form_4 aggregate cluster-rate z-test is statistically invalid on sparse zero-inflated
+data (1 ticker → 14σ). On `continue`, ratify + implement ADR-053 via a **Composite worker
++ Critic**: empirical-exceedance statistic + min-effective-sample guard + v2→v3 bump +
+re-backfill, then (only once honest) move the quarantine toward `corrected`, then draft the
+form_4 Phase-B SPEC (gated on D6+D7+ADR-053). Alternatively kick off the operator-paced D7
+EDGAR gap backfill first — both are required for Phase-B usability.
 
-**Do NOT auto-open without operator green-light:** D7 EDGAR gap backfill (bulk,
-throttled — pace it); Phase C promotion (Q-8); ALTER DROP/DELETE; `git push`
-(Q-4 — 122 commits); broker integration; real-money path.
+**Do NOT auto-open without operator green-light:** D7 EDGAR gap backfill (bulk, throttled —
+pace); Phase C promotion (Q-8); ALTER DROP/DELETE; `git push` (Q-4 — ~124 commits);
+real-money path.
 
 ---
 
 ## Important framing for the next chat
 
-**Cycle 34 was a RESEARCH→DESIGN cycle, not a build.** It closed the single
-named Phase-B blocker (S96-146) the right way: empirical diagnosis against live
-CH → Tier-2 quarantine → a ratified ADR with canon-cited decisions → no silent
-calc edit. The artifact (z=5.57) is understood, quarantined, and the resolution
-is locked; the implementation is a clean, well-scoped CODE slice for the next
-cycle.
+**Cycle 35 shipped the ratified plan AND surfaced that the plan was incomplete — the right
+way.** ADR-052 (provenance) was implemented exactly as designed, worker+critic, tests green,
+merged. Then the [HEALTH] discipline did its job at the verification step: instead of
+declaring victory because "the z changed," it measured the actual re-backfilled table, found
+the residual was WORSE (14σ), diagnosed it to the bone (202/203-zero baseline; 1 ticker →
+14σ), and refused to mark the quarantine `corrected`. The honest conclusion — the Gaussian
+z-test is the wrong statistic for sparse insider-cluster-rates — became ADR-053 + a teach-doc,
+not a papered-over "fixed."
 
-**The real story under S96-146:** form_4's clean history is too short and too
-provenance-fractured for a meaningful deflation campaign. The honest path is
-(1) normalize the composite so the live z stops lying, (2) backfill EDGAR over
-the 18-month gap (operator-paced), (3) only THEN run Phase B. The orchestration
-will not run a ceremonial campaign on contaminated data — that's the whole point
-of the canon.
+**The deeper truth (S96-162 → S96-163):** form_4's aggregate cluster signal is blocked on
+BOTH a valid statistic (ADR-053) AND real coverage (D7). Neither alone makes it usable; the
+orchestration will not run a Phase-B campaign on it until both land. The per-ticker insider
+layer (EDGAR-canonical counts + cluster flags) is usable today.
 
-**UI coverage unchanged = 10 live panels** (regime, cycle_position, etf_flow
-+overlay, vol_structure, sector_rotation, cross_asset, form_4, schedule_13d_g,
-eight_k, short_interest, executive_departure). No panel work this cycle.
+**UI coverage unchanged = 10 live panels.** No panel work this cycle.
