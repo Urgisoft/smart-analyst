@@ -732,6 +732,16 @@ export class Form4InsiderRepository {
       const baseline2y: number[] = [];
       const baseline2ySell: number[] = [];
       if (panelDays) {
+        // ADR-054 D1 (OQ-C36-1) — the ascending chronological order of the
+        // baseline arrays is now LOAD-BEARING: `computeEmpiricalExceedance`'s
+        // effective-sample guard counts distinct events via `countNonZeroRuns`,
+        // which runs over the ORDERED series (a 30d cluster-window plateau must
+        // collapse to one maximal non-zero run). The ADR-053 exceedance itself is
+        // order-invariant, but the ADR-054 event count is not. `[...keys()].sort()`
+        // is lexicographic on the `YYYY-MM-DD` day strings = chronological
+        // ascending; this `.sort()` ascending iteration IS the pinned contract
+        // (convention-pin test in form4InsiderRepository.test.ts). A reorder would
+        // corrupt the event count.
         const sortedDays = [...panelDays.keys()].sort();
         for (const day of sortedDays) {
           const memberCount = panelDays.get(day)!;
@@ -811,9 +821,12 @@ export class Form4InsiderRepository {
         // SPEC docs/specs/gics-sector-baseline-computation.md §2.
         // ADR-053 (v3): these columns now carry the BOUNDED empirical
         // z-equivalent `zEmp` (max across valid sectors), NOT the Gaussian z.
-        // `composite_version='form_4_insider_v3'` disambiguates the semantics
-        // (no DDL change; ADR-051 D8 version-pin trail). The raw exceedance p +
-        // effectiveSample m ride in flagged_sectors_json.
+        // ADR-054 (v4): the validity guard now counts distinct EVENTS, not
+        // non-zero days, so more sectors are suppressed and these columns are
+        // null more often. `composite_version='form_4_insider_v4'` disambiguates
+        // the semantics (no DDL change; ADR-051 D8 version-pin trail). The raw
+        // exceedance p + the ADR-054 guard metric `effectiveEvents` + the
+        // diagnostic `effectiveSample` (m) all ride in flagged_sectors_json.
         max_aggregate_z: snapshot.maxAggregateZ,
         max_aggregate_z_sector: snapshot.maxAggregateZSector,
         // Gap #7 v2 sell-cluster F4 G3 persistence wiring (s95 #2). Columns

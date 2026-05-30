@@ -57,10 +57,11 @@ function snap(over: Partial<Form4InsiderSnapshot> = {}): Form4InsiderSnapshot {
     snapshotDate: new Date('2026-05-22T00:00:00Z'),
     lastEdgarQueryAt: new Date('2026-05-22T06:00:00Z'),
     bdSinceLastQuery: 0,
-    // ADR-053: flagged sector carries bounded zEmp + raw exceedance + eff. sample.
+    // ADR-053/054: flagged sector carries bounded zEmp + raw exceedance +
+    // effectiveEvents (ADR-054 guard metric) + effectiveSample (diagnostic m).
     flaggedSectors: [{
       sector: 'Health Care', sectorSize: 60, clusterRateT: 0.05,
-      zEmp: 2.31, exceedance: 0.0104, effectiveSample: 95, baselineSize: 400,
+      zEmp: 2.31, exceedance: 0.0104, effectiveEvents: 22, effectiveSample: 95, baselineSize: 400,
     }],
     form4ClusterFlag: true,
     maxAggregateZ: 2.31,
@@ -72,7 +73,7 @@ function snap(over: Partial<Form4InsiderSnapshot> = {}): Form4InsiderSnapshot {
     perTickerRows: [ptRow()],
     inputsAvailableAggregate: 11,
     inputsAvailablePerTicker: 60,
-    version: 'form_4_insider_v3',
+    version: 'form_4_insider_v4',
     ...over,
   };
 }
@@ -172,7 +173,7 @@ describe('form_4 projectPayload', () => {
     const p = projectPayload(snap(), hist, 365, NOW);
     assert.equal(p.composite, 'form_4_insider');
     assert.equal(p.hasData, true);
-    assert.equal(p.compositeVersion, 'form_4_insider_v3');
+    assert.equal(p.compositeVersion, 'form_4_insider_v4');
     assert.equal(p.verdict, 'buy_cluster');                // buy flag only
     assert.equal(p.snapshotDate, '2026-05-22');            // from last history row
     assert.equal(p.staleDays, 6);

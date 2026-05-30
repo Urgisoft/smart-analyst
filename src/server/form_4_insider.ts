@@ -49,6 +49,21 @@
  *      (`p ≤ α`, α = 0.05) instead of `|z| > 2`; the stored display value is
  *      a BOUNDED z-equivalent (`zEmp`), so a fabricated 14σ is impossible.
  *
+ *      **ADR-054 (v4, OQ-C36-1 / OQ-C36-2)**: the effective-sample VALIDITY
+ *      GUARD's counted unit changes — from non-zero baseline DAYS (`m`) to
+ *      distinct independent EVENTS (`effectiveEvents` = maximal runs of
+ *      consecutive non-zero values; `countNonZeroRuns`). ADR-053's verification
+ *      showed the aggregate still fired ~24 buy / 27 sell days because each daily
+ *      cluster-rate is computed over a trailing 30d window, so one cluster event
+ *      produces a ~30-day plateau of non-zero days and the day-count guard
+ *      over-counts independent events by the window length (López de Prado AFML
+ *      Ch. 4 §4.3–§4.4: overlapping-window observations are concurrent, NOT IID).
+ *      The guard now requires `effectiveEvents ≥ EVENT_FLOOR = ⌈1/α⌉ = 20`; the
+ *      old day-count floor is removed. The exceedance statistic itself (`p`,
+ *      `zEmp`, the firing test, the resolution floor, α, buy/sell symmetry) is
+ *      UNCHANGED — only the effective-sample metric + floor change. Zero new free
+ *      parameters (`EVENT_FLOOR` derives solely from α).
+ *
  * Canon:
  *   - Lakonishok & Lee 2001 *Rev. Fin. Studies* §3 — open-market insider P/S
  *     filter; cluster effects strengthen the raw-trade signal.
@@ -130,8 +145,28 @@ import { invNormCDF } from '../lib/psr.js';
  *  α = 0.05 firing threshold is conventional (NOT fit to form_4 data), so the
  *  bump is permitted under ADR-051 Decision 5 (anti-shopping). The stored
  *  `max_aggregate_z[_sell]` columns now carry the BOUNDED z-equivalent `zEmp`,
- *  disambiguated by this version tag. */
-export const FORM_4_INSIDER_COMPOSITE_VERSION = 'form_4_insider_v3' as const;
+ *  disambiguated by this version tag.
+ *
+ *  **v4 (ADR-054 D4 — OQ-C36-1 / OQ-C36-2 resolution):** the ADR-053
+ *  effective-sample guard's COUNTED UNIT changes — from NON-ZERO baseline DAYS
+ *  (`m`) to distinct independent EVENTS (`effectiveEvents` = maximal runs of
+ *  consecutive non-zero values in the chronologically-ordered baseline). Because
+ *  each daily cluster-rate is computed over a trailing 30-day window, one cluster
+ *  event produces a ~30-day plateau of non-zero days; counting days therefore
+ *  over-counts independent events by the window length (López de Prado AFML
+ *  Ch. 4 §4.3–§4.4: overlapping-window observations are concurrent, NOT IID, and
+ *  the effective sample is deflated by the average concurrency). The guard now
+ *  requires `effectiveEvents ≥ EVENT_FLOOR = ⌈1/α⌉ = 20` (the α-derived
+ *  representability minimum); the old day-count floor `m ≥ ⌈α(n+1)⌉` is removed.
+ *  This changes which sectors are valid, hence which fire and the persisted
+ *  `max_aggregate_z[_sell]` / `flagged_sectors_json` content, so it is
+ *  version-pinned per ADR-051 Decision 8. The exceedance `p`, the `zEmp`, the
+ *  resolution floor (`n ≥ MIN_Z_BASELINE`), the firing test (`p ≤ α`), and α
+ *  itself are ALL unchanged — zero new free parameters (`EVENT_FLOOR` derives
+ *  solely from the existing α; anti-shopping per ADR-051 Decision 5 / AFML
+ *  §11.4). v3 snapshots persist as historical record; the re-backfill writes v4
+ *  rows. */
+export const FORM_4_INSIDER_COMPOSITE_VERSION = 'form_4_insider_v4' as const;
 export type Form4InsiderCompositeVersion = typeof FORM_4_INSIDER_COMPOSITE_VERSION;
 
 /** ADR-052 D1 — the canonical source for all cluster-identity computations.
@@ -177,9 +212,31 @@ export const FORM_4_CLUSTER_Z_THRESHOLD = 2.0;
  *  from which BOTH validity guards AND the firing threshold derive (zero new
  *  free parameters; α is NOT fit to form_4 data — anti-shopping per AFML §11.4 /
  *  ADR-051 Decision 5). The aggregate cluster flag fires iff ANY valid sector
- *  has empirical-exceedance `p ≤ α`. The effective-sample guard requires
- *  `m ≥ ⌈α·(n+1)⌉` non-zero baseline days (see `computeEmpiricalExceedance`). */
+ *  has empirical-exceedance `p ≤ α`. The effective-sample guard (ADR-054)
+ *  requires `effectiveEvents ≥ EVENT_FLOOR = ⌈1/α⌉` distinct independent events
+ *  (see `EVENT_FLOOR` + `computeEmpiricalExceedance`). */
 export const FORM_4_EXCEEDANCE_ALPHA = 0.05;
+
+/** ADR-054 D2 (OQ-C36-1 / OQ-C36-2) — the α-derived effective-sample floor:
+ *  the minimum number of distinct INDEPENDENT baseline events
+ *  (`effectiveEvents`, see `countNonZeroRuns`) required for the empirical α-tail
+ *  to be representable. Derives SOLELY from α — there is NO new tunable
+ *  parameter (anti-shopping per AFML §11.4 / ADR-051 Decision 5).
+ *
+ *  Derivation (a-priori, NOT fit to form_4 data): an empirical upper-tail test at
+ *  level α can only be RESOLVED from `k` independent observations if the smallest
+ *  achievable exceedance `1/(k+1)` can reach α — i.e. `1/(k+1) ≤ α ⇔ k ≥ 1/α − 1`.
+ *  More fundamentally, you cannot empirically identify a "1-in-(1/α)" tail event
+ *  from fewer than ≈ `1/α` independent observations; with `< 1/α` events the
+ *  rarest thing the data can express ("today exceeds everything seen") is itself
+ *  only a 1-in-`(k+1)` event, not an α-tail. `⌈1/α⌉ = 20` is the clean
+ *  conservative pin of this representability limit. This REPLACES ADR-053's
+ *  day-count floor `m ≥ ⌈α(n+1)⌉`, which counted ~30 autocorrelated days per ONE
+ *  independent event (the 30d cluster window) and thus under-protected (OQ-C36-1).
+ *
+ *  MUST be computed from α, never hardcoded — re-deriving it on an α change keeps
+ *  the zero-free-parameter contract. */
+export const EVENT_FLOOR = Math.ceil(1 / FORM_4_EXCEEDANCE_ALPHA);
 
 /** EDF-7: minimum baseline prints for a valid anomaly statistic. Matches the
  *  MIN_Z_BASELINE constant across all Layer-0 composites. Under ADR-053 this is
@@ -470,7 +527,49 @@ export function computeSectorClusterRate(
   return clusterTickerCount / sectorSize;
 }
 
-/** Result of the ADR-053 empirical-exceedance anomaly statistic. */
+/** Count the number of maximal runs of consecutive strictly-positive (`> 0`)
+ *  values in a finite, CHRONOLOGICALLY-ORDERED series.
+ *
+ *  ADR-054 D1 (OQ-C36-1) — this is the discrete specialization of López de
+ *  Prado's average-uniqueness count (AFML Ch. 4 §4.3 "Number of Concurrent
+ *  Labels" / §4.4 "Average Uniqueness of a Label"): consecutive daily
+ *  cluster-rate observations share 29/30 of their trailing-30d window, so they
+ *  are CONCURRENT (overlapping), NOT IID. One underlying cluster event elevates
+ *  the sector rate for a RUN of ~30 consecutive admitted days — that whole
+ *  30-day plateau is ONE near-unique event, not 30. The maximal-non-zero-run
+ *  count is the number of distinct INDEPENDENT events the baseline contains,
+ *  which is the right "effective sample" for the validity guard.
+ *
+ *  Examples: `[0,0]`→0; `[1,1,1]`→1 (a plateau collapses to one event);
+ *  `[1,0,1,0,1]`→3; `[0,2,2,0,3]`→2.
+ *
+ *  Operates on the series IN ARRAY ORDER — chronological ordering is LOAD-BEARING
+ *  (the repository builds the baseline ascending; see
+ *  `populateSectorsForCycle`). A reorder would corrupt the event count.
+ *
+ *  Coverage-gap simplification (ADR-054 D1): the baseline array is COMPACTED
+ *  (coverage-gap days are skipped at build time), so two non-zero admitted days
+ *  separated by a real calendar gap are array-adjacent and would merge into one
+ *  run. This UNDER-counts events across gaps → a STRICTER guard → safe (it can
+ *  only suppress more, never fire more). Calendar-aware run-breaking is the
+ *  documented refinement OQ-C37-1, deferred. */
+export function countNonZeroRuns(series: ReadonlyArray<number>): number {
+  let runs = 0;
+  let inRun = false;
+  for (const v of series) {
+    if (v > 0) {
+      if (!inRun) {
+        runs++;
+        inRun = true;
+      }
+    } else {
+      inRun = false;
+    }
+  }
+  return runs;
+}
+
+/** Result of the ADR-053 empirical-exceedance anomaly statistic (ADR-054 guard). */
 export interface EmpiricalExceedanceResult {
   /** One-sided empirical upper-tail p-value, `(#{r_i ≥ today} + 1)/(n + 1)`.
    *  Null when a validity guard fails (insufficient data). Bounded
@@ -483,10 +582,17 @@ export interface EmpiricalExceedanceResult {
   zEmp: number | null;
   /** Count of finite baseline observations `n`. */
   baselineSize: number;
-  /** Count of NON-ZERO baseline observations `m = #{r_i > 0}` — the EFFECTIVE
-   *  sample, distinct from the calendar-day count. The core ADR-053 guard. */
+  /** ADR-054 — the GUARD metric: count of distinct INDEPENDENT events
+   *  (`countNonZeroRuns` = maximal runs of consecutive non-zero baseline values).
+   *  A ~30-day cluster-window plateau collapses to ONE event. The validity guard
+   *  requires `effectiveEvents ≥ EVENT_FLOOR`. */
+  effectiveEvents: number;
+  /** Count of NON-ZERO baseline observations `m = #{r_i > 0}` — DIAGNOSTIC ONLY
+   *  post-ADR-054 (the guard now uses `effectiveEvents`). Retained for forensic
+   *  transparency / the brief table; it over-counts independent events by the
+   *  cluster-window length and no longer gates validity. */
   effectiveSample: number;
-  /** True when EITHER validity guard failed → emit an honest insufficient-data
+  /** True when ANY validity guard failed → emit an honest insufficient-data
    *  state rather than a number. */
   insufficientData: boolean;
 }
@@ -519,18 +625,28 @@ export interface EmpiricalExceedanceResult {
  *  ADR-051 Decision 5):
  *    1. **Resolution floor:** `n ≥ MIN_Z_BASELINE` (= 30; the ECDF needs enough
  *       days to represent an α-tail).
- *    2. **Effective-sample floor (the core fix):** `m ≥ ⌈α·(n+1)⌉` where
- *       `m = #{ i : r_i > 0 }` (NON-ZERO baseline days — NOT the day count).
- *       Derivation: firing requires `#{r_i ≥ r_today} ≤ α(n+1) − 1`; the minimal
- *       non-zero rate `1/N` is `≥` every non-zero baseline day, so "merely being
- *       non-zero (one clustered ticker)" reaches the α-tail iff `m < α(n+1)`.
- *       Requiring `m ≥ ⌈α(n+1)⌉` is therefore EXACTLY the condition that one
- *       ordinary clustered ticker cannot manufacture an anomaly. Worked example
- *       (Comm-Svcs 2026-04-30): n=203, m=1, ⌈0.05·204⌉ = 11; 1 < 11 →
- *       insufficient_data, not z=14.18. ✓
+ *    2. **Effective-sample floor (ADR-054 — the core fix):** `effectiveEvents ≥
+ *       EVENT_FLOOR = ⌈1/α⌉` where `effectiveEvents = countNonZeroRuns(finite)`
+ *       (the number of distinct INDEPENDENT events = maximal runs of consecutive
+ *       non-zero baseline values). This REPLACES ADR-053's day-count floor
+ *       `m ≥ ⌈α(n+1)⌉`, which counted ~30 autocorrelated days per ONE event (each
+ *       daily rate is computed over a trailing 30d window, so one cluster event
+ *       elevates the rate for a ~30-day plateau; AFML Ch. 4 §4.3–§4.4: those
+ *       overlapping observations are concurrent, NOT IID). Counting events, not
+ *       days, measures the independent-sample count the α-tail actually needs.
+ *       Derivation of the floor: an α-tail is only representable from ≥ `⌈1/α⌉`
+ *       independent observations (see `EVENT_FLOOR`). Worked example
+ *       (Comm-Svcs 2026-04-30): the entire baseline is a single ~30-day plateau
+ *       (one cluster event) → effectiveEvents = 1 < 20 → insufficient_data, not
+ *       z=14.18 (and not the v3 "m=1 < 11" day-count rejection either — the
+ *       fix generalizes to ANY single-plateau baseline, including those window-
+ *       smeared to m ≈ 11–16 that the v3 day-count floor wrongly PASSED). ✓
  *
  *  `value == null` (degenerate sector, sectorSize ≤ 0) → insufficient_data.
- *  NaN/Infinity baseline entries are filtered out of `n` (mirrors computeZ). */
+ *  NaN/Infinity baseline entries are filtered out of `n` (mirrors computeZ).
+ *  `baseline` is consumed IN ORDER for the event count — chronological ordering
+ *  is LOAD-BEARING (ADR-054 D1; the order-invariant mean/exceedance from ADR-053
+ *  are unchanged, but the run-count is not order-invariant). */
 export function computeEmpiricalExceedance(
   value: number | null,
   baseline: ReadonlyArray<number>,
@@ -539,21 +655,24 @@ export function computeEmpiricalExceedance(
   const n = finite.length;
   let m = 0;
   for (const b of finite) if (b > 0) m++;
-  // Guard 1 (resolution) + value validity + Guard 2 (effective sample). The
-  // effective-sample floor is the ceil of α·(n+1) — an α-derived ratio, not an
-  // independent K (ADR-053 §4). When n < MIN_Z_BASELINE the floor is computed on
-  // the (too-small) n anyway; the resolution guard already rejects that case.
-  const effectiveFloor = Math.ceil(FORM_4_EXCEEDANCE_ALPHA * (n + 1));
+  // ADR-054 D1 — the GUARD metric: distinct independent events = maximal runs of
+  // consecutive non-zero baseline values (a 30d cluster-window plateau → 1 event).
+  // The non-zero day count `m` is RETAINED as a diagnostic only (it over-counts
+  // events by the window length). `finite` is in chronological order (D1).
+  const effectiveEvents = countNonZeroRuns(finite);
+  // Guard 1 (resolution) + value validity + Guard 2 (ADR-054 event floor). The
+  // event floor `EVENT_FLOOR = ⌈1/α⌉` derives solely from α — no new free param.
   if (
     value == null ||
     !Number.isFinite(value) ||
     n < MIN_Z_BASELINE ||
-    m < effectiveFloor
+    effectiveEvents < EVENT_FLOOR
   ) {
     return {
       exceedance: null,
       zEmp: null,
       baselineSize: n,
+      effectiveEvents,
       effectiveSample: m,
       insufficientData: true,
     };
@@ -571,6 +690,7 @@ export function computeEmpiricalExceedance(
     exceedance: p,
     zEmp,
     baselineSize: n,
+    effectiveEvents,
     effectiveSample: m,
     insufficientData: false,
   };
@@ -682,8 +802,9 @@ export interface Form4InsiderPerTickerRow {
 /** A flagged sector row — only emitted for VALID sectors that FIRE under
  *  ADR-053 (empirical-exceedance `p ≤ α`). The legacy `z` (Gaussian) field is
  *  replaced by `zEmp` (bounded empirical z-equivalent); the raw `exceedance`
- *  (tail p) and `effectiveSample` (m = non-zero baseline days) are carried for
- *  forensic transparency. Serializes into the schemaless `flagged_sectors_json`
+ *  (tail p), `effectiveEvents` (ADR-054 guard metric), and `effectiveSample`
+ *  (m = non-zero baseline days, diagnostic) are carried for forensic
+ *  transparency. Serializes into the schemaless `flagged_sectors_json`
  *  / `flagged_sell_sectors_json` String columns (no DDL). */
 export interface Form4InsiderFlaggedSector {
   sector: string;
@@ -696,7 +817,12 @@ export interface Form4InsiderFlaggedSector {
   /** One-sided empirical upper-tail p-value (ADR-053). `≤ α` for every flagged
    *  sector (that is the firing condition). */
   exceedance: number;
-  /** Effective sample = NON-ZERO baseline days `m` (ADR-053 guard metric). */
+  /** ADR-054 guard metric — distinct INDEPENDENT events (maximal non-zero runs
+   *  in the chronologically-ordered baseline). The validity guard that admitted
+   *  this sector required `effectiveEvents ≥ EVENT_FLOOR`. */
+  effectiveEvents: number;
+  /** Effective sample = NON-ZERO baseline days `m` (DIAGNOSTIC ONLY post-ADR-054;
+   *  the guard now uses `effectiveEvents`). Retained for forensic transparency. */
   effectiveSample: number;
   baselineSize: number;
 }
@@ -977,6 +1103,7 @@ export function evaluateForm4InsiderComposite(
         clusterRateT: rateBuy,
         zEmp: buyStat.zEmp,
         exceedance: buyStat.exceedance,
+        effectiveEvents: buyStat.effectiveEvents,
         effectiveSample: buyStat.effectiveSample,
         baselineSize: buyStat.baselineSize,
       });
@@ -994,6 +1121,7 @@ export function evaluateForm4InsiderComposite(
         clusterRateT: rateSell,
         zEmp: sellStat.zEmp,
         exceedance: sellStat.exceedance,
+        effectiveEvents: sellStat.effectiveEvents,
         effectiveSample: sellStat.effectiveSample,
         baselineSize: sellStat.baselineSize,
       });
@@ -1027,21 +1155,31 @@ export function evaluateForm4InsiderComposite(
 
 /**
  * What could break this:
- *   - **Aggregate anomaly statistic (ADR-053 — S96-163).** The aggregate flag +
- *     `maxAggregateZ[Sell]` now derive from the one-sided EMPIRICAL EXCEEDANCE
- *     statistic (`computeEmpiricalExceedance`), NOT the Gaussian z (`computeZ`,
- *     retired from this path). The Gaussian z is invalid on the sparse,
- *     zero-inflated EDGAR-only coverage-gated baseline (one ordinary clustered
- *     ticker fabricated up to 14.18σ). Two guards (both α-derived, zero new free
- *     params) gate validity: the resolution floor `n ≥ MIN_Z_BASELINE` and the
- *     EFFECTIVE-sample floor `m ≥ ⌈α·(n+1)⌉` (non-zero baseline days, NOT day
- *     count). A regression that re-routed the aggregate through `computeZ`, or
- *     that counted DAYS instead of NON-ZERO days for the effective-sample guard,
- *     would resurrect the fabricated-σ artifact. The stored `zEmp` is BOUNDED
- *     (≤ ~2.58 at n≈204) by construction; a value past ~3 on a normal baseline
- *     would itself be a bug signal. PUSHBACK note: even valid, the statistic is
- *     DATA-LIMITED (resolution floor `1/(n+1)`); the form_4 aggregate is not
- *     Phase-B-usable until ADR-052 D7 (EDGAR coverage backfill) also lands.
+ *   - **Aggregate anomaly statistic (ADR-053 — S96-163) + effective-sample guard
+ *     (ADR-054 — OQ-C36-1).** The aggregate flag + `maxAggregateZ[Sell]` derive
+ *     from the one-sided EMPIRICAL EXCEEDANCE statistic
+ *     (`computeEmpiricalExceedance`), NOT the Gaussian z (`computeZ`, retired from
+ *     this path). The Gaussian z is invalid on the sparse, zero-inflated
+ *     EDGAR-only coverage-gated baseline (one ordinary clustered ticker fabricated
+ *     up to 14.18σ). Two guards (both α-derived, zero new free params) gate
+ *     validity: the resolution floor `n ≥ MIN_Z_BASELINE` and the EFFECTIVE-sample
+ *     floor — which under ADR-054 counts distinct INDEPENDENT EVENTS
+ *     (`effectiveEvents = countNonZeroRuns(baseline) ≥ EVENT_FLOOR = ⌈1/α⌉`), NOT
+ *     non-zero days. CHRONOLOGICAL BASELINE ORDERING IS NOW LOAD-BEARING: the
+ *     run-count is order-sensitive (unlike the order-invariant exceedance), so a
+ *     reorder of the baseline corrupts the event count. A regression that
+ *     re-routed the aggregate through `computeZ`, OR that counted DAYS instead of
+ *     EVENTS for the effective-sample guard (e.g. reverting to ADR-053's
+ *     `m ≥ ⌈α(n+1)⌉`), would resurrect the autocorrelation under-protection — one
+ *     30-day plateau would read as ~30 "effective" observations when it is ONE
+ *     event. The stored `zEmp` is BOUNDED (≤ ~2.58 at n≈204) by construction; a
+ *     value past ~3 on a normal baseline would itself be a bug signal. PUSHBACK
+ *     note: even valid, the statistic is DATA-LIMITED (resolution floor
+ *     `1/(n+1)`) AND now requires ≥ 20 independent events; at current EDGAR
+ *     coverage essentially every sector falls below `EVENT_FLOOR` →
+ *     `under_review` (the honest pre-D7 state). The form_4 aggregate is not
+ *     Phase-B-usable until ADR-052 D7 (EDGAR coverage backfill) lands AND a sector
+ *     actually clears the event floor.
  *   - **Source-provenance boundary (ADR-052 D1/D2/D3/D4 — S96-146).** The
  *     cluster path (per-ticker cluster flags, the sector cluster-rate, hence
  *     `form4ClusterFlag` / `form4SellClusterFlag` / `maxAggregateZ[Sell]`) is

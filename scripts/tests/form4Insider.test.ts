@@ -15,6 +15,7 @@ import {
   CLUSTER_INSIDER_THRESHOLD,
   FORM_4_CLUSTER_Z_THRESHOLD,
   FORM_4_EXCEEDANCE_ALPHA,
+  EVENT_FLOOR,
   MIN_Z_BASELINE,
   HIGH_SIGNAL_TRANSACTION_CODES,
   BUY_CODE,
@@ -33,6 +34,7 @@ import {
   computeSectorClusterRate,
   computeZ,
   computeEmpiricalExceedance,
+  countNonZeroRuns,
   flagForm4Cluster,
   flagForm4ClusterEmpirical,
   evaluateForm4InsiderComposite,
@@ -715,9 +717,17 @@ describe('flagForm4Cluster (T-F4-14)', () => {
     assert.equal(flagForm4Cluster([null, 1.5, null, -1.8]), false);
   });
 
-  it('via composite: surfaces flaggedSectors when |z| > 2', () => {
+  it('via composite: surfaces flaggedSectors when the empirical α-tail fires', () => {
+    // ADR-054: the baseline must contain ≥ EVENT_FLOOR=20 distinct INDEPENDENT
+    // events (maximal non-zero runs) to be valid — a contiguous non-zero run is
+    // ONE event and would be guard-suppressed. Lay 25 isolated small non-zero
+    // days (separated by zeros) → 25 events, n=50 ≥ 30; today's 0.20 rate exceeds
+    // every baseline day → exceedance ≤ α → fires.
     const baseline: number[] = [];
-    for (let i = 0; i < 60; i++) baseline.push(0.02 + ((i % 4) - 1.5) * 0.005);
+    for (let i = 0; i < 25; i++) {
+      baseline.push(0.02 + ((i % 4) - 1.5) * 0.005);
+      baseline.push(0);
+    }
     // Build sector with 6 cluster-buy tickers in a sector of size 30 → rate = 0.20
     const sectorTrades: InsiderTrade[] = [];
     for (let ti = 0; ti < 6; ti++) {
@@ -1000,10 +1010,20 @@ describe('S93-37 load-bearing: composite filters off-set codes (cross-cutting)',
 // composite-evaluator boundary for the brief renderer's §1.4 LIVE branch.
 
 describe('aggregate-layer maxAggregateZ + maxAggregateZSector (MAXZ-F4-1..4)', () => {
+  // ADR-054 (OQ-C36-1): the validity guard now counts distinct INDEPENDENT
+  // EVENTS (maximal non-zero runs), not non-zero days, and requires
+  // effectiveEvents ≥ EVENT_FLOOR = 20. A baseline of contiguous non-zero values
+  // is ONE event and would be suppressed; the helper therefore lays the non-zero
+  // values as ISOLATED events (separated by zeros) so a genuine anomaly fixture
+  // clears the event floor. 25 small (~0.02) isolated non-zero days → 25 events,
+  // n=50 ≥ 30; today's cluster-rate (≥ 0.1) exceeds every baseline day → fires.
   function makeBaseline(): number[] {
     const b: number[] = [];
-    for (let i = 0; i < 60; i++) b.push(0.02 + ((i % 4) - 1.5) * 0.005);
-    return b;
+    for (let i = 0; i < 25; i++) {
+      b.push(0.02 + ((i % 4) - 1.5) * 0.005); // an isolated non-zero event
+      b.push(0);                              // a zero separating it from the next
+    }
+    return b; // length 50, 25 distinct events, all values ≤ 0.0275
   }
 
   // Build trades that produce a buy-cluster fire on `tickerCount` distinct
@@ -1127,9 +1147,16 @@ describe('aggregate-layer maxAggregateZ + maxAggregateZSector (MAXZ-F4-1..4)', (
 // ── F4-12 v2 (S95-1): sell-cluster sector aggregation ───────────────────────
 
 describe('F4-12 v2 sell-cluster sector aggregation (G2-SELL-*)', () => {
+  // ADR-054 (OQ-C36-1): isolated non-zero events (separated by zeros) so the
+  // baseline clears EVENT_FLOOR = 20 distinct events; a contiguous non-zero run
+  // would be ONE event and would be guard-suppressed. 25 events, n=50 ≥ 30, all
+  // values ≤ 0.0275 so a 0.10–0.20 cluster-rate today exceeds every baseline day.
   function makeBaseline(): number[] {
     const b: number[] = [];
-    for (let i = 0; i < 60; i++) b.push(0.02 + ((i % 4) - 1.5) * 0.005);
+    for (let i = 0; i < 25; i++) {
+      b.push(0.02 + ((i % 4) - 1.5) * 0.005);
+      b.push(0);
+    }
     return b;
   }
 
@@ -1317,8 +1344,9 @@ describe('F4-12 v2 sell-cluster sector aggregation (G2-SELL-*)', () => {
 
 describe('constants (sanity)', () => {
   it('exposes the expected SPEC-pinned values', () => {
-    // ADR-053 (S96-163): version bumped to v3 (empirical-exceedance statistic).
-    assert.equal(FORM_4_INSIDER_COMPOSITE_VERSION, 'form_4_insider_v3');
+    // ADR-054 (OQ-C36-1): version bumped to v4 (event-count effective-sample
+    // guard; the empirical-exceedance statistic from v3/ADR-053 is unchanged).
+    assert.equal(FORM_4_INSIDER_COMPOSITE_VERSION, 'form_4_insider_v4');
     assert.equal(ROLLING_WINDOW_DAYS, 90);
     assert.equal(CLUSTER_WINDOW_DAYS, 30);
     assert.equal(CLUSTER_INSIDER_THRESHOLD, 3);
@@ -1327,6 +1355,10 @@ describe('constants (sanity)', () => {
     // ADR-053: the single conventional significance level driving both guards
     // AND the firing threshold.
     assert.equal(FORM_4_EXCEEDANCE_ALPHA, 0.05);
+    // ADR-054 D2: the α-derived event floor — derives SOLELY from α (zero new
+    // free parameters), and equals ⌈1/0.05⌉ = 20.
+    assert.equal(EVENT_FLOOR, Math.ceil(1 / FORM_4_EXCEEDANCE_ALPHA));
+    assert.equal(EVENT_FLOOR, 20);
     assert.equal(MIN_Z_BASELINE, 30);
     assert.deepEqual([...HIGH_SIGNAL_TRANSACTION_CODES], ['P', 'S']);
     assert.equal(BUY_CODE, 'P');
@@ -1479,8 +1511,14 @@ describe('ADR-052 source-provenance normalization (D1/D3/D4)', () => {
   it('T-F4-ADR052-4: sector cluster-rate ignores Finnhub rows (D1/D4 defense-in-depth)', () => {
     // Baseline centered on the SAME rate a single cluster-ticker would produce
     // (1/30) so we can read the cluster count straight off clusterRateT.
+    // ADR-054: lay the non-zero baseline days as ISOLATED events (≥ EVENT_FLOOR=20
+    // independent events) so the control sector clears the event-floor guard — a
+    // contiguous run is ONE event and would be suppressed.
     const baseline: number[] = [];
-    for (let i = 0; i < 60; i++) baseline.push(0.02 + ((i % 4) - 1.5) * 0.005);
+    for (let i = 0; i < 25; i++) {
+      baseline.push(0.02 + ((i % 4) - 1.5) * 0.005);
+      baseline.push(0);
+    }
 
     // Contaminated sector: ONE ticker with 1 EDGAR + 2 Finnhub buyers → the
     // EDGAR-only cluster count is 1 (< threshold 3) → 0 cluster tickers →
@@ -1561,24 +1599,93 @@ describe('ADR-052 source-provenance normalization (D1/D3/D4)', () => {
 // Statistic: p = (#{baseline ≥ today} + 1)/(n + 1); zEmp = max(0, invNormCDF(1−p)).
 // Guards (both α-derived): n ≥ MIN_Z_BASELINE AND m ≥ ⌈α·(n+1)⌉ non-zero days.
 
-describe('computeEmpiricalExceedance (ADR-053)', () => {
+/** Build a baseline with `events` ISOLATED non-zero days (each separated by a
+ *  single zero) — i.e. `events` distinct maximal non-zero runs — padded with
+ *  trailing zeros to reach total length `n`. Used to construct fixtures with a
+ *  precise `effectiveEvents` count under the ADR-054 event-floor guard. The
+ *  non-zero value (`val`) is kept small so a larger `today` exceeds every
+ *  baseline day. */
+function makeEventBaseline(events: number, n: number, val = 0.01): number[] {
+  const b: number[] = [];
+  for (let i = 0; i < events; i++) {
+    b.push(val); // an isolated non-zero event
+    if (b.length < n) b.push(0); // a zero break before the next event
+  }
+  while (b.length < n) b.push(0);
+  return b.slice(0, n);
+}
+
+describe('countNonZeroRuns (ADR-054 D1)', () => {
+  it('T-F4-ADR054-RUN-1: all-zero series → 0 events', () => {
+    assert.equal(countNonZeroRuns([0, 0]), 0);
+    assert.equal(countNonZeroRuns([]), 0);
+    assert.equal(countNonZeroRuns([0, 0, 0, 0, 0]), 0);
+  });
+
+  it('T-F4-ADR054-RUN-2: a single contiguous plateau → 1 event (the OQ-C36-1 collapse)', () => {
+    assert.equal(countNonZeroRuns([1, 1, 1]), 1);
+    // A 30-day cluster-window plateau collapses to ONE event.
+    assert.equal(countNonZeroRuns(Array.from({ length: 30 }, () => 0.045)), 1);
+  });
+
+  it('T-F4-ADR054-RUN-3: alternating non-zero/zero → one event per non-zero', () => {
+    assert.equal(countNonZeroRuns([1, 0, 1, 0, 1]), 3);
+  });
+
+  it('T-F4-ADR054-RUN-4: leading and trailing runs both counted', () => {
+    assert.equal(countNonZeroRuns([1, 0, 0, 1]), 2); // leading + trailing
+    assert.equal(countNonZeroRuns([0, 1, 0, 1, 0]), 2); // interior runs only
+    assert.equal(countNonZeroRuns([2, 2, 0, 0, 3, 3, 3]), 2); // two plateaus
+    assert.equal(countNonZeroRuns([0, 2, 2, 0, 3]), 2);
+  });
+
+  it('T-F4-ADR054-RUN-5: strictly-positive only — negatives and zeros break runs', () => {
+    // The cluster-rate is always ≥ 0 in practice, but pin the `> 0` semantic.
+    assert.equal(countNonZeroRuns([1, -1, 1]), 2);
+    assert.equal(countNonZeroRuns([0.001, 0.002]), 1); // small positives still count
+  });
+});
+
+describe('computeEmpiricalExceedance (ADR-053 statistic + ADR-054 event guard)', () => {
   const ALPHA = FORM_4_EXCEEDANCE_ALPHA;
 
   it('T-F4-ADR053-1: zero-inflation 14σ→insufficient_data (the Comm-Svcs regression test)', () => {
     // Communication Services 2026-04-30 reproduction: 202 zeros + 1 non-zero,
     // today = 1/22 (one clustered ticker). The OLD Gaussian z scored this at
-    // 14.18σ; ADR-053 must return insufficient_data because the EFFECTIVE
-    // (non-zero) sample m=1 < ⌈0.05·204⌉ = 11.
+    // 14.18σ; under ADR-054 it is insufficient_data because the baseline contains
+    // exactly ONE independent event (effectiveEvents=1 < EVENT_FLOOR=20).
     const baseline = [
       ...Array.from({ length: 202 }, () => 0),
-      0.03, // the lone non-zero baseline day
+      0.03, // the lone non-zero baseline day → one event
     ];
     const today = 1 / 22; // 0.0455 — one ordinary clustered ticker
     const r = computeEmpiricalExceedance(today, baseline);
     assert.equal(r.baselineSize, 203);
-    assert.equal(r.effectiveSample, 1); // only 1 non-zero baseline day
-    // m=1 < ceil(0.05*204)=11 → guard-suppressed (NOT a fabricated 14σ).
+    assert.equal(r.effectiveEvents, 1); // ADR-054 guard metric: one event
+    assert.equal(r.effectiveSample, 1); // diagnostic m: one non-zero day
+    // effectiveEvents=1 < EVENT_FLOOR=20 → guard-suppressed (NOT a fabricated 14σ).
     assert.equal(r.insufficientData, true);
+    assert.equal(r.exceedance, null);
+    assert.equal(r.zEmp, null);
+  });
+
+  it('T-F4-ADR054-1: the OQ-C36-1 fix — a single ~30-day plateau (m passes the OLD day-count floor) → insufficient_data, effectiveEvents=1', () => {
+    // A 30-day cluster-window plateau at rate 1/22, padded with zeros to n ≥ 30.
+    // m = 30 non-zero days, n = 240 → the RETIRED ADR-053 day-count floor was
+    // ⌈0.05·241⌉ = 13, and m=30 ≥ 13 WOULD HAVE PASSED (the v3 bug: the plateau
+    // window-smears one event into 30 "effective" days). ADR-054 counts EVENTS:
+    // the plateau is ONE event, 1 < EVENT_FLOOR=20 → insufficient_data. This is
+    // the exact false-confidence ADR-054 closes.
+    const plateau = Array.from({ length: 30 }, () => 1 / 22);
+    const baseline = [...plateau, ...Array.from({ length: 210 }, () => 0)];
+    const today = 2 / 22; // even an elevated rate must NOT fire on one event
+    const r = computeEmpiricalExceedance(today, baseline);
+    assert.equal(r.baselineSize, 240);
+    assert.equal(r.effectiveSample, 30); // m=30: the OLD floor (⌈α(n+1)⌉=13) PASSED
+    assert.ok(r.effectiveSample >= Math.ceil(ALPHA * (240 + 1)),
+      'sanity: m clears the retired day-count floor, proving the regression is real');
+    assert.equal(r.effectiveEvents, 1); // ADR-054: ONE independent event
+    assert.equal(r.insufficientData, true, 'one event < EVENT_FLOOR → suppressed');
     assert.equal(r.exceedance, null);
     assert.equal(r.zEmp, null);
   });
@@ -1586,6 +1693,7 @@ describe('computeEmpiricalExceedance (ADR-053)', () => {
   it('T-F4-ADR053-2: cold-start (empty baseline) → insufficient_data', () => {
     const r = computeEmpiricalExceedance(0.1, []);
     assert.equal(r.baselineSize, 0);
+    assert.equal(r.effectiveEvents, 0);
     assert.equal(r.effectiveSample, 0);
     assert.equal(r.insufficientData, true);
     assert.equal(r.exceedance, null);
@@ -1593,46 +1701,41 @@ describe('computeEmpiricalExceedance (ADR-053)', () => {
   });
 
   it('T-F4-ADR053-2b: resolution floor — n < MIN_Z_BASELINE → insufficient_data', () => {
-    // 29 non-zero days (all guards on effective sample would pass) but n < 30.
-    const baseline = Array.from({ length: MIN_Z_BASELINE - 1 }, (_, i) => 0.01 + i * 0.001);
+    // 29 isolated non-zero days (would clear the EVENT_FLOOR=20 event guard) but
+    // n=29 < 30 → the resolution floor rejects it independently.
+    const baseline = makeEventBaseline(MIN_Z_BASELINE - 1, MIN_Z_BASELINE - 1, 0.01);
     const r = computeEmpiricalExceedance(0.5, baseline);
     assert.equal(r.baselineSize, MIN_Z_BASELINE - 1);
     assert.equal(r.insufficientData, true);
     assert.equal(r.zEmp, null);
   });
 
-  it('T-F4-ADR053-3: effective-sample guard boundary (m === ceil(α·(n+1)) valid; m−1 insufficient)', () => {
-    // Choose n = 39 → n+1 = 40 → ceil(0.05*40) = 2. Make a baseline with EXACTLY
-    // 2 non-zero days and 37 zeros (n=39 ≥ 30). today exceeds both non-zero days.
-    const n = 39;
-    const floor = Math.ceil(ALPHA * (n + 1)); // 2
-    const baselineAtFloor = [
-      ...Array.from({ length: floor }, () => 0.01),
-      ...Array.from({ length: n - floor }, () => 0),
-    ];
+  it('T-F4-ADR054-2: event-floor boundary — EVENT_FLOOR events valid; EVENT_FLOOR−1 insufficient', () => {
+    // EXACTLY EVENT_FLOOR (20) isolated non-zero events → passes the event guard.
+    // n must also be ≥ MIN_Z_BASELINE (30); makeEventBaseline pads to n=50.
+    const baselineAtFloor = makeEventBaseline(EVENT_FLOOR, 50, 0.01);
     const atFloor = computeEmpiricalExceedance(0.5, baselineAtFloor);
-    assert.equal(atFloor.baselineSize, n);
-    assert.equal(atFloor.effectiveSample, floor);
-    assert.equal(atFloor.insufficientData, false, 'm === floor must be VALID');
+    assert.equal(atFloor.effectiveEvents, EVENT_FLOOR);
+    assert.equal(atFloor.baselineSize, 50);
+    assert.equal(atFloor.insufficientData, false, 'effectiveEvents === EVENT_FLOOR must be VALID');
     assert.ok(atFloor.exceedance != null && atFloor.zEmp != null);
 
-    // m = floor − 1 → insufficient_data.
-    const baselineBelow = [
-      ...Array.from({ length: floor - 1 }, () => 0.01),
-      ...Array.from({ length: n - (floor - 1) }, () => 0),
-    ];
+    // EVENT_FLOOR − 1 (19) isolated events → insufficient_data.
+    const baselineBelow = makeEventBaseline(EVENT_FLOOR - 1, 50, 0.01);
     const below = computeEmpiricalExceedance(0.5, baselineBelow);
-    assert.equal(below.effectiveSample, floor - 1);
-    assert.equal(below.insufficientData, true, 'm === floor−1 must be insufficient');
+    assert.equal(below.effectiveEvents, EVENT_FLOOR - 1);
+    assert.equal(below.insufficientData, true, 'effectiveEvents === EVENT_FLOOR−1 must be insufficient');
     assert.equal(below.zEmp, null);
   });
 
-  it('T-F4-ADR053-4: genuine anomaly — today above ~95% of a dense baseline → fires, zEmp BOUNDED (never 14)', () => {
-    // 200 non-zero baseline days spread across [0.01, 0.20]; today = 0.30 exceeds
-    // all of them → exceedance = 1/201 ≈ 0.005 ≤ α; zEmp ≈ invNormCDF(0.995) ≈ 2.58.
-    const baseline = Array.from({ length: 200 }, (_, i) => 0.01 + (i / 200) * 0.19);
+  it('T-F4-ADR053-4: genuine anomaly — today above a baseline with ≥ 20 independent events → fires, zEmp BOUNDED (never 14)', () => {
+    // 50 ISOLATED non-zero days (effectiveEvents=50 ≥ EVENT_FLOOR) at small rates,
+    // padded with zeros to n=100; today = 0.30 exceeds every non-zero day →
+    // exceedance = 1/101 ≈ 0.0099 ≤ α; zEmp ≈ invNormCDF(0.99) ≈ 2.33 (bounded).
+    const baseline = makeEventBaseline(50, 100, 0.02);
     const today = 0.30;
     const r = computeEmpiricalExceedance(today, baseline);
+    assert.equal(r.effectiveEvents, 50);
     assert.equal(r.insufficientData, false);
     assert.ok(r.exceedance != null && r.exceedance <= ALPHA, `exceedance ${r.exceedance} must be ≤ α`);
     assert.ok(r.zEmp != null && r.zEmp >= 1.645, `zEmp ${r.zEmp} must clear the one-sided 95% quantile`);
@@ -1640,30 +1743,39 @@ describe('computeEmpiricalExceedance (ADR-053)', () => {
   });
 
   it('T-F4-ADR053-5: invNormCDF(1−p) clamp — today below baseline median → zEmp clamped to 0 (not negative/NaN, distinct from null)', () => {
-    // Dense baseline; today = 0 (below every non-zero day) → geCount = n →
-    // p = (n+1)/(n+1) = 1 → 1−p = 0 → zEmp clamped to 0. Distinct from null
-    // (the statistic IS valid; today is simply not anomalous).
-    const baseline = Array.from({ length: 100 }, (_, i) => 0.01 + i * 0.001);
+    // Baseline with ≥ 20 independent events (so the statistic is VALID), all
+    // non-zero values ≥ 0.01; today = 0 is below every non-zero day → geCount
+    // counts only the zeros... but `>=` includes them, so p = (n+1)/(n+1) = 1 →
+    // 1−p = 0 → zEmp clamped to 0. Distinct from null (the statistic IS valid).
+    const baseline = makeEventBaseline(30, 60, 0.01);
     const r = computeEmpiricalExceedance(0, baseline);
+    assert.equal(r.effectiveEvents, 30);
     assert.equal(r.insufficientData, false);
-    assert.equal(r.exceedance, 1); // all 100 baseline days ≥ 0
+    assert.equal(r.exceedance, 1); // all 60 baseline days ≥ 0
     assert.equal(r.zEmp, 0); // clamped, NOT null and NOT negative/NaN
     assert.ok(Number.isFinite(r.zEmp as number));
   });
 
   it('T-F4-ADR053-6: value null (degenerate sector) → insufficient_data', () => {
-    const baseline = Array.from({ length: 100 }, () => 0.05);
+    const baseline = makeEventBaseline(30, 60, 0.05);
     const r = computeEmpiricalExceedance(null, baseline);
     assert.equal(r.insufficientData, true);
     assert.equal(r.zEmp, null);
   });
 
-  it('T-F4-ADR053-7: NaN/Infinity baseline entries are filtered from n + m', () => {
+  it('T-F4-ADR053-7: NaN/Infinity baseline entries are filtered from n, m, and the event count', () => {
+    // 5 leading finite values (3 of them non-zero, contiguous after filtering →
+    // ONE run) interleaved with NaN/Infinity, then 30 contiguous non-zero days.
+    // After filtering: [0.1, 0.2, 0.3, 0.05×30] = all contiguous non-zero → 1 run.
     const baseline = [0.1, NaN, 0.2, Infinity, 0.3,
       ...Array.from({ length: 30 }, () => 0.05)];
     const r = computeEmpiricalExceedance(0.5, baseline);
     assert.equal(r.baselineSize, 33); // 3 + 30 finite (NaN + Infinity dropped)
     assert.equal(r.effectiveSample, 33); // all finite entries are > 0
+    assert.equal(r.effectiveEvents, 1); // contiguous after compaction → ONE event
+    // One event < EVENT_FLOOR → insufficient (the finite filter does not create
+    // spurious run breaks).
+    assert.equal(r.insufficientData, true);
   });
 });
 
@@ -1715,8 +1827,16 @@ describe('evaluateForm4InsiderComposite — ADR-053 aggregate end-to-end', () =>
     assert.equal(snap.inputsAvailableAggregate, 1);
   });
 
-  it('T-F4-ADR053-E2E-2: a dense-baseline genuine anomaly fires with a bounded zEmp', () => {
-    const baseline = Array.from({ length: 200 }, (_, i) => 0.005 + (i / 200) * 0.02);
+  it('T-F4-ADR053-E2E-2: a genuine anomaly with ≥ 20 independent events fires with a bounded zEmp', () => {
+    // ADR-054: the baseline needs ≥ EVENT_FLOOR=20 distinct INDEPENDENT events
+    // (maximal non-zero runs). Lay 100 isolated small non-zero days (each
+    // separated by a zero) → 100 events, n=200; today's 0.2 rate exceeds every
+    // baseline day → exceedance ≤ α → fires with a bounded zEmp.
+    const baseline: number[] = [];
+    for (let i = 0; i < 100; i++) {
+      baseline.push(0.005 + (i / 100) * 0.02); // isolated non-zero event (≤ 0.025)
+      baseline.push(0);
+    }
     // 6 cluster-buy tickers in a sector of 30 → rate 0.2 exceeds all baseline.
     const trades: InsiderTrade[] = [];
     for (let ti = 0; ti < 6; ti++) {

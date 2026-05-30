@@ -3225,7 +3225,7 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         flaggedSectors: [{
           sector: 'Energy', sectorSize: 22,
           clusterRateT: 0.085, zEmp: 2.40, exceedance: 0.0099,
-          effectiveSample: 120, baselineSize: 503,
+          effectiveEvents: 24, effectiveSample: 120, baselineSize: 503,
         }],
         form4ClusterFlag: true,
         perTickerRows: [],
@@ -3239,13 +3239,14 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         form4SellClusterFlag: false,
         maxAggregateZSell: null,
         maxAggregateZSellSector: null,
-        compositeVersion: 'form_4_insider_v3',
+        compositeVersion: 'form_4_insider_v4',
       },
     }));
     assert.match(md, /## 15\. Form 4 insider activity — CLUSTER/);
     // ADR-053: empirical-tail firing label + zEmp/exceedance table columns.
     assert.match(md, /1 sector\(s\) cleared the α=0\.05 empirical tail/);
-    assert.match(md, /Energy \| 8\.5% \| 2\.40 \| 0\.0099 \| 120 \| 503 \| 22/);
+    // ADR-054: row now carries Events (guard metric) then nz-days (diagnostic).
+    assert.match(md, /Energy \| 8\.5% \| 2\.40 \| 0\.0099 \| 24 \| 120 \| 503 \| 22/);
   });
 
   it('renders NORMAL header when form4ClusterFlag is false', () => {
@@ -3323,7 +3324,7 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         flaggedSectors: [{
           sector: 'Financials', sectorSize: 65,
           clusterRateT: 0.031, zEmp: 2.31, exceedance: 0.0099,
-          effectiveSample: 130, baselineSize: 503,
+          effectiveEvents: 22, effectiveSample: 130, baselineSize: 503,
         }],
         form4ClusterFlag: true,
         maxAggregateZ: 2.31,
@@ -3338,12 +3339,13 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         form4SellClusterFlag: false,
         maxAggregateZSell: 0.8,
         maxAggregateZSellSector: 'Utilities',
-        compositeVersion: 'form_4_insider_v3',
+        compositeVersion: 'form_4_insider_v4',
       },
     }));
-    // ADR-053: zEmp/exceedance/eff-n table columns.
-    assert.match(md, /\| Sector \| Cluster rate \| zEmp \| Exceedance p \| Eff\. n \| Baseline n \| Constituents \|/);
-    assert.match(md, /\| Financials \| 3\.1% \| 2\.31 \| 0\.0099 \| 130 \| 503 \| 65 \|/);
+    // ADR-053/054: zEmp/exceedance + Events (guard metric) + nz-days (diagnostic)
+    // table columns.
+    assert.match(md, /\| Sector \| Cluster rate \| zEmp \| Exceedance p \| Events \| nz-days \| Baseline n \| Constituents \|/);
+    assert.match(md, /\| Financials \| 3\.1% \| 2\.31 \| 0\.0099 \| 22 \| 130 \| 503 \| 65 \|/);
     // The buy-side LIVE branch must NOT also render its "No sectors flagged
     // today" line.
     assert.doesNotMatch(md, /\*\*Aggregate \(SPY 500 cluster-buy rate by GICS sector\):\*\* No sectors flagged today/);
@@ -3370,7 +3372,7 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         form4SellClusterFlag: false,
         maxAggregateZSell: 0.5,
         maxAggregateZSellSector: 'Utilities',
-        compositeVersion: 'form_4_insider_v3',
+        compositeVersion: 'form_4_insider_v4',
       },
     }));
     assert.match(md, /\*\*Aggregate \(SPY 500 cluster-buy rate by GICS sector\):\*\* No sectors flagged today/);
@@ -3400,13 +3402,14 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         form4SellClusterFlag: false,
         maxAggregateZSell: null,
         maxAggregateZSellSector: null,
-        compositeVersion: 'form_4_insider_v3',
+        compositeVersion: 'form_4_insider_v4',
       },
     }));
     // Both directions guard-suppressed → honest under-review header + branch.
-    assert.match(md, /## 15\. Form 4 insider activity — UNDER REVIEW \(ADR-053\)/);
-    assert.match(md, /\*\*Aggregate \(SPY 500 cluster-buy rate by GICS sector\):\*\* Insufficient data \/ statistic under review \(ADR-053\)/);
-    assert.match(md, /every sector failed the empirical-exceedance validity guards/);
+    assert.match(md, /## 15\. Form 4 insider activity — UNDER REVIEW \(ADR-053\/054\)/);
+    assert.match(md, /\*\*Aggregate \(SPY 500 cluster-buy rate by GICS sector\):\*\* Insufficient data \/ statistic under review \(ADR-053 \+ ADR-054\)/);
+    // ADR-054: the guard counts distinct INDEPENDENT events, not non-zero days.
+    assert.match(md, /distinct INDEPENDENT cluster events/);
     assert.match(md, /ADR-052 D7/);
     // No fabricated number, no flagged table.
     assert.doesNotMatch(md, /\| Sector \| Cluster rate \| zEmp \| Exceedance p \|/);
@@ -3460,7 +3463,7 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         flaggedSellSectors: [{
           sector: 'Energy', sectorSize: 22,
           clusterRateT: 0.182, zEmp: 2.31, exceedance: 0.0104,
-          effectiveSample: 90, baselineSize: 503,
+          effectiveEvents: 21, effectiveSample: 90, baselineSize: 503,
         }],
         form4SellClusterFlag: true,
         maxAggregateZSell: 2.31,
@@ -3470,15 +3473,15 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 58,
         watchUniverseTickerCount: 60,
-        compositeVersion: 'form_4_insider_v3',
+        compositeVersion: 'form_4_insider_v4',
       },
     }));
-    // Sell-side LIVE branch: panel header + zEmp/exceedance table (ADR-053).
+    // Sell-side LIVE branch: panel header + zEmp/exceedance + Events/nz-days table.
     assert.match(md, /\*\*Aggregate \(SPY 500 cluster-sell rate by GICS sector\):\*\* 1 sector\(s\) cleared the α=0\.05 empirical tail/);
-    assert.match(md, /\| Energy \| 18\.2% \| 2\.31 \| 0\.0104 \| 90 \| 503 \| 22 \|/);
-    // ADR-053: the buy-side panel is guard-suppressed (maxAggregateZ null while
-    // inputsAvailableAggregate=11>0) → the honest under-review branch.
-    assert.match(md, /\*\*Aggregate \(SPY 500 cluster-buy rate by GICS sector\):\*\* Insufficient data \/ statistic under review \(ADR-053\)/);
+    assert.match(md, /\| Energy \| 18\.2% \| 2\.31 \| 0\.0104 \| 21 \| 90 \| 503 \| 22 \|/);
+    // ADR-053/054: the buy-side panel is guard-suppressed (maxAggregateZ null
+    // while inputsAvailableAggregate=11>0) → the honest under-review branch.
+    assert.match(md, /\*\*Aggregate \(SPY 500 cluster-buy rate by GICS sector\):\*\* Insufficient data \/ statistic under review \(ADR-053 \+ ADR-054\)/);
   });
 
   it('G2-SELL-G3-F4-7 NO-FLAG-CLEARED sell-side — flaggedSellSectors=[] + aggregate>0 renders the sell-side "No sectors flagged today" line with k/11 + max-|z|', () => {
@@ -3501,7 +3504,7 @@ describe('renderBriefMarkdown — Form 4 insider panel', () => {
         inputsAvailablePerTicker: 0,
         tickersWithCikCount: 58,
         watchUniverseTickerCount: 60,
-        compositeVersion: 'form_4_insider_v3',
+        compositeVersion: 'form_4_insider_v4',
       },
     }));
     assert.match(md, /\*\*Aggregate \(SPY 500 cluster-sell rate by GICS sector\):\*\* No sectors flagged today/);

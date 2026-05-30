@@ -124,19 +124,26 @@ function empty(lookbackDays: number): CompositeDetailPayload {
  *  max-score values. form_4 persists no single regime label (unlike the other
  *  Layer-0 composites).
  *
- *  Verdict precedence (ADR-053 §7):
+ *  Verdict precedence (ADR-053 §7 + ADR-054):
  *    - a fired flag wins (dual_cluster / buy_cluster / sell_cluster);
  *    - 'unknown' = no sectors had any baseline at all (`aggregateAvailable ≤ 0`)
  *      — the true cold-start;
  *    - 'under_review' = baselines EXISTED (`aggregateAvailable > 0`) but every
- *      sector was guard-suppressed under ADR-053 (both maxAggregateZ +
- *      maxAggregateZSell null) — the honest "insufficient data / statistic
- *      under review" state (the pre-D7 reality: the EDGAR baseline is too sparse
- *      for the empirical statistic to resolve anything);
- *    - 'normal' = baselines existed, valid statistics computed, nothing fired.
+ *      sector was guard-suppressed (both maxAggregateZ + maxAggregateZSell null).
+ *      Under ADR-054 the validity guard counts distinct INDEPENDENT cluster
+ *      EVENTS (maximal non-zero runs in the baseline), not autocorrelated
+ *      non-zero days — a sector with one 30-day cluster-window plateau is ONE
+ *      event, far below `EVENT_FLOOR = ⌈1/α⌉ = 20`. At current EDGAR coverage
+ *      essentially every sector falls below the event floor, so this 'under_review'
+ *      state is now the COMMON outcome (the honest pre-D7 reality: too few
+ *      independent events to resolve a 5% tail; resolves OQ-C36-2 by construction);
+ *    - 'normal' = baselines existed, valid statistics computed (≥ 20 independent
+ *      events in ≥ 1 sector), nothing cleared the α-tail.
  *
  *  `maxAggregateZ` / `maxAggregateZSell` are the bounded `zEmp` (ADR-053);
- *  both null ⟺ every sector guard-suppressed. */
+ *  both null ⟺ every sector guard-suppressed (ADR-054 event floor). `deriveVerdict`
+ *  is unchanged by ADR-054 — only the upstream guard that produces the null
+ *  max-scores changed, so 'under_review' simply fires more often. */
 export function deriveVerdict(
   buyFlag: boolean,
   sellFlag: boolean,
@@ -314,10 +321,17 @@ export class Form4InsiderDashboardError extends Error {
  *     empirical-exceedance statistic whose display value `zEmp` is bounded by
  *     the baseline resolution (≈2.58 at n≈204). So the anomaly scan no longer
  *     fires on a fabricated σ — a maxAggregateZ past ~3 would itself be a bug.
- *     When every sector is guard-suppressed (the sparse-baseline reality before
- *     the ADR-052 D7 coverage backfill) maxAggregateZ + maxAggregateZSell are
+ *     When every sector is guard-suppressed maxAggregateZ + maxAggregateZSell are
  *     both null and the verdict is `under_review` ("insufficient data /
- *     statistic under review") — honest, not a number.
+ *     statistic under review") — honest, not a number. ADR-054 (OQ-C36-1)
+ *     sharpened the effective-sample guard to count distinct INDEPENDENT EVENTS
+ *     (maximal non-zero baseline runs) rather than autocorrelated non-zero days,
+ *     requiring `EVENT_FLOOR = ⌈1/α⌉ = 20` independent events; at current EDGAR
+ *     coverage this makes `under_review` the COMMON verdict (most sectors have
+ *     1–3 independent cluster events). `deriveVerdict` already handles the
+ *     all-null case correctly, so no logic change was needed here — the panel
+ *     simply renders `under_review` for most/all sectors until the ADR-052 D7
+ *     coverage backfill yields ≥ 20 independent events per sector.
  *   - History carries only the two aggregate z-metrics (no per-ticker counts) —
  *     the sparklines are aggregate-only; the per-ticker drill is latest-only.
  *   - inputsPresent is a 2-layer proxy, not a categorical mask; a 1/2 reading

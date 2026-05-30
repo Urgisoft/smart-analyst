@@ -43,6 +43,7 @@ import {
   FORM_4_INSIDER_COMPOSITE_VERSION,
   HIGH_SIGNAL_TRANSACTION_CODES,
   EDGAR_CANONICAL_SOURCE,
+  countNonZeroRuns,
   type Form4InsiderSnapshot,
 } from '../../src/server/form_4_insider.js';
 import { assertCHGrammar } from './_chGrammarCheck.js';
@@ -785,6 +786,58 @@ describe('populateSectorsForCycle (POPSEC-F4-1..4)', () => {
     }
   });
 
+  it('POPSEC-F4-ORDER (ADR-054 D1): baseline is chronologically ASCENDING — a single cluster event collapses to ONE run', async () => {
+    // ADR-054 D1 convention pin: the effective-sample guard counts distinct
+    // events via countNonZeroRuns over the ORDERED baseline. The repository
+    // builds the baseline by iterating `[...panelDays.keys()].sort()` ascending,
+    // so one cluster event (which elevates the trailing-30d rate for a RUN of
+    // consecutive admitted days) must appear as ONE contiguous non-zero plateau =
+    // ONE run. If the day ordering were broken (shuffled), the plateau would
+    // fragment into multiple runs and this pin would fail.
+    const { repo, fake } = makeRepo();
+    fake.route(q => q.includes('effective_date <= {asOfEnd:Date}'),
+      [makePanelConstituentsRow('AAPL', '2024-05-19')],
+    );
+    fake.route(q => q.includes('ticker IN') && q.includes('snapshot_date <= {asOfEnd:Date}'),
+      [{ ticker: 'AAPL', gics_sector: 'Information Technology', snapshot_date: '2024-01-01' }],
+    );
+    fake.route(q => q.includes('FROM quantlab.gics_sector_map FINAL') && q.includes('snapshot_date <= {asOfEnd:Date}'),
+      [{ ticker: 'AAPL', gics_sector: 'Information Technology', snapshot_date: '2024-01-01' }],
+    );
+    fake.route(q => q.includes('effective_date = ('), [{ ticker: 'AAPL' }]);
+    // Full coverage so every panel day is admitted.
+    fake.route(isVolumeQuery, fullCoverageVolumeRows(VOL_READ_START, VOL_READ_END, 1000));
+    // ONE cluster event: 3 distinct EDGAR buyers on AAPL, all accepted within a
+    // 2-day span ~365 days before asOf. Each daily baseline rate is computed over
+    // a trailing 30d window, so the rate is 1 (one clustered ticker / sectorSize 1)
+    // for the ~30 admitted days whose window contains this event, then 0 — a
+    // single contiguous plateau in chronological order.
+    const eventDay = '2025-05-18'; // ~366d before POPSEC_ASOF (2026-05-19)
+    fake.route(q => q.includes('transaction_code IN'),
+      [
+        makeTradeRow({ personCik: '00001', code: 'P', acceptedAt: `${eventDay} 09:30:00`, transactionId: 1 }),
+        makeTradeRow({ personCik: '00002', code: 'P', acceptedAt: `${eventDay} 10:00:00`, transactionId: 2 }),
+        makeTradeRow({ personCik: '00003', code: 'P', acceptedAt: '2025-05-19 09:30:00', transactionId: 3 }),
+      ],
+    );
+
+    const sectors = await repo.populateSectorsForCycle(POPSEC_ASOF);
+    assert.equal(sectors.length, 1);
+    const baseline = sectors[0].baseline2y;
+    // At sectorSize=1 each rate ∈ {0, 1}.
+    for (const r of baseline) assert.ok(r === 0 || r === 1, `rate must be 0 or 1, got ${r}`);
+    const nonZeroDays = baseline.filter(r => r > 0).length;
+    assert.ok(nonZeroDays > 0, 'the cluster event produces a non-zero plateau');
+    // The load-bearing pin: ONE event → ONE maximal non-zero run, despite
+    // spanning ~30 non-zero DAYS. (If the days were not chronologically ordered,
+    // the run count would exceed 1.)
+    assert.equal(
+      countNonZeroRuns(baseline), 1,
+      `one cluster event must collapse to ONE run over the ascending baseline ` +
+      `(got ${countNonZeroRuns(baseline)} runs across ${nonZeroDays} non-zero days)`,
+    );
+  });
+
   it('POPSEC-F4-4: cold-start (empty PIT panel + empty constituents) returns []', async () => {
     const { repo, fake } = makeRepo();
     fake.route(_ => true, []);
@@ -868,6 +921,7 @@ function fixtureSnapshot(overrides: Partial<Form4InsiderSnapshot> = {}): Form4In
       clusterRateT: 0.071,
       zEmp: 2.4,
       exceedance: 0.0099,
+      effectiveEvents: 24,
       effectiveSample: 120,
       baselineSize: 503,
     }],
@@ -915,9 +969,11 @@ describe('writeSnapshot', () => {
     assert.equal(perTicker[0].insiderClusterBuyFlag, false);
     const flagged = JSON.parse(row.flagged_sectors_json as string);
     assert.equal(flagged[0].sector, 'Information Technology');
-    // ADR-053: the flagged-sector JSON carries zEmp + exceedance + effectiveSample.
+    // ADR-053/054: the flagged-sector JSON carries zEmp + exceedance +
+    // effectiveEvents (ADR-054 guard metric) + effectiveSample (diagnostic m).
     assert.equal(flagged[0].zEmp, 2.4);
     assert.equal(flagged[0].exceedance, 0.0099);
+    assert.equal(flagged[0].effectiveEvents, 24);
     assert.equal(flagged[0].effectiveSample, 120);
     assert.equal(flagged[0].clusterRateT, 0.071);
   });
@@ -926,8 +982,9 @@ describe('writeSnapshot', () => {
     const { repo, fake } = makeRepo();
     await repo.writeSnapshot(fixtureSnapshot());
     const row = fake.inserts[0].values[0];
-    // ADR-053 D6 — version bumped to v3 (empirical-exceedance aggregate statistic).
-    assert.equal(row.composite_version, 'form_4_insider_v3');
+    // ADR-054 D4 — version bumped to v4 (event-count effective-sample guard;
+    // the empirical-exceedance aggregate statistic from v3/ADR-053 is unchanged).
+    assert.equal(row.composite_version, 'form_4_insider_v4');
     assert.equal(row.version, undefined);
   });
 
@@ -1128,10 +1185,12 @@ describe('G2-SELL-G3-F4 — sell-cluster persistence (s95 #2)', () => {
     const { repo, fake } = makeRepo();
     await repo.writeSnapshot(fixtureSnapshot({
       // ADR-053: zEmp ≥ 0; a flagged sell sector cleared the α-tail (p ≤ 0.05).
+      // ADR-054: effectiveEvents is the guard metric; effectiveSample is the
+      // diagnostic non-zero-day count.
       flaggedSellSectors: [{
         sector: 'Energy', sectorSize: 22,
         clusterRateT: 0.182, zEmp: 2.31, exceedance: 0.0104,
-        effectiveSample: 88, baselineSize: 503,
+        effectiveEvents: 21, effectiveSample: 88, baselineSize: 503,
       }],
       form4SellClusterFlag: true,
       maxAggregateZSell: 2.31,
@@ -1179,7 +1238,7 @@ describe('G2-SELL-G3-F4 — sell-cluster persistence (s95 #2)', () => {
       flagged_sell_sectors_json: JSON.stringify([{
         sector: 'Energy', sectorSize: 22,
         clusterRateT: 0.182, zEmp: 2.31, exceedance: 0.0104,
-        effectiveSample: 88, baselineSize: 503,
+        effectiveEvents: 21, effectiveSample: 88, baselineSize: 503,
       }]),
       max_aggregate_z_sell: 2.31,
       max_aggregate_z_sell_sector: 'Energy',

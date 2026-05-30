@@ -500,7 +500,7 @@ export const form4InsiderDescriptor: CompositeDescriptor = {
     buy_cluster: { tone: 'calm', meaning: 'Concentrated insider BUYING in ≥1 sector (|z|>2) — the load-bearing bullish signal (LL 2001: buys are informative).' },
     sell_cluster: { tone: 'elevated', meaning: 'Concentrated insider SELLING in ≥1 sector — informationally weaker (~30-50% diluted by tax/diversification motives).' },
     normal: { tone: 'neutral', meaning: 'ADR-053: valid statistics computed for ≥1 sector, but no sector cleared the α=0.05 empirical upper-tail (buy or sell).' },
-    under_review: { tone: 'unknown', meaning: 'Insufficient data / statistic under review (ADR-053). Sector baselines exist but every sector was guard-suppressed — the EDGAR-only baseline is too sparse for the empirical statistic to resolve an anomaly. Not usable until the ADR-052 D7 coverage backfill lands.' },
+    under_review: { tone: 'unknown', meaning: 'Insufficient data / statistic under review (ADR-053 + ADR-054). The validity guard counts distinct INDEPENDENT cluster events (ADR-054), not non-zero days — one 30-day rolling-window plateau is ONE event. Sector baselines exist but every sector has fewer than ⌈1/α⌉ = 20 independent cluster events, so the empirical 5% tail cannot be resolved. Not usable until the EDGAR coverage backfill (ADR-052 D7) yields enough independent events.' },
     unknown: { tone: 'unknown', meaning: 'The aggregate-sector layer had no sector with any 2y baseline — could not classify (true cold-start).' },
   },
   defaultTone: 'neutral',

@@ -1364,7 +1364,7 @@ describe('composeMorningBrief — Form 4 insider section wiring', () => {
         ],
         inputsAvailableAggregate: 0,
         inputsAvailablePerTicker: 0,
-        version: 'form_4_insider_v3',
+        version: 'form_4_insider_v4',
       }),
       now: () => FIXED_NOW,
     });
@@ -1381,7 +1381,7 @@ describe('composeMorningBrief — Form 4 insider section wiring', () => {
     // Composer-stamped CIK-only count (one row has empty CIK).
     assert.equal(brief.formFour!.tickersWithCikCount, 1);
     assert.equal(brief.formFour!.watchUniverseTickerCount, 2);
-    assert.equal(brief.formFour!.compositeVersion, 'form_4_insider_v3');
+    assert.equal(brief.formFour!.compositeVersion, 'form_4_insider_v4');
   });
 
   // T-OB-F4-2 — graceful-degrade on fetcher throw (mirrors prior A5 panels).
@@ -1421,7 +1421,7 @@ describe('buildForm4InsiderSection', () => {
       bdSinceLastQuery: 2,
       flaggedSectors: [{
         sector: 'Energy', sectorSize: 22, clusterRateT: 0.085,
-        zEmp: 2.4, exceedance: 0.0099, effectiveSample: 95, baselineSize: 503,
+        zEmp: 2.4, exceedance: 0.0099, effectiveEvents: 24, effectiveSample: 95, baselineSize: 503,
       }],
       form4ClusterFlag: true,
       maxAggregateZ: null,
@@ -1440,7 +1440,7 @@ describe('buildForm4InsiderSection', () => {
       ],
       inputsAvailableAggregate: 503,
       inputsAvailablePerTicker: 0,
-      version: 'form_4_insider_v3',
+      version: 'form_4_insider_v4',
     });
     assert.ok(section !== null);
     assert.equal(section!.evaluatedAt, '2026-05-19T13:30:00.123Z');
@@ -1456,7 +1456,7 @@ describe('buildForm4InsiderSection', () => {
     assert.equal(section!.perTickerRows[0].insiderNetDollar90d, 2_300_000);
     assert.equal(section!.tickersWithCikCount, 1);
     assert.equal(section!.watchUniverseTickerCount, 1);
-    assert.equal(section!.compositeVersion, 'form_4_insider_v3');
+    assert.equal(section!.compositeVersion, 'form_4_insider_v4');
   });
 
   it('stamps CIK-only count separately from sector-gated inputsAvailablePerTicker', async () => {
@@ -1495,7 +1495,7 @@ describe('buildForm4InsiderSection', () => {
       ],
       inputsAvailableAggregate: 0,
       inputsAvailablePerTicker: 0,
-      version: 'form_4_insider_v3',
+      version: 'form_4_insider_v4',
     });
     assert.ok(section !== null);
     assert.equal(section!.tickersWithCikCount, 2);
@@ -1522,7 +1522,7 @@ describe('buildForm4InsiderSection', () => {
       perTickerRows: [],
       inputsAvailableAggregate: 8,
       inputsAvailablePerTicker: 0,
-      version: 'form_4_insider_v3',
+      version: 'form_4_insider_v4',
     });
     assert.ok(section !== null);
     assert.equal(section!.maxAggregateZ, 0.91);
@@ -1546,7 +1546,7 @@ describe('buildForm4InsiderSection', () => {
       maxAggregateZSector: null,
       flaggedSellSectors: [{
         sector: 'Energy', sectorSize: 22, clusterRateT: 0.182,
-        zEmp: 2.31, exceedance: 0.0104, effectiveSample: 88, baselineSize: 503,
+        zEmp: 2.31, exceedance: 0.0104, effectiveEvents: 21, effectiveSample: 88, baselineSize: 503,
       }],
       form4SellClusterFlag: true,
       maxAggregateZSell: 2.31,
@@ -1554,7 +1554,7 @@ describe('buildForm4InsiderSection', () => {
       perTickerRows: [],
       inputsAvailableAggregate: 11,
       inputsAvailablePerTicker: 0,
-      version: 'form_4_insider_v3',
+      version: 'form_4_insider_v4',
     });
     assert.ok(section !== null);
     assert.equal(section!.form4SellClusterFlag, true);
