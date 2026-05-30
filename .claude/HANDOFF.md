@@ -1,8 +1,9 @@
 # Handoff brief — Vector Core / SignalForge
 
 Last updated: 2026-05-30 (session 96 #38 — **Cycles 40-41: completion-phase data work DONE + the
-MAJOR finding — 6 of 9 Layer-0 composites now validated, ALL fail the bar (5 beta-not-alpha + 1
-data-walled). The alternative-data-composite-as-market-timer thesis is a NULL result.**) The one
+MAJOR finding — validation COMPLETE, comprehensive NULL: 5 aggregate composites = beta, form_4/exec =
+insufficient, AND single-stock cross-sectional (survivorship-free Polygon, all cap tiers) = null too.
+ADR-056 (PROPOSED) documents it. NOTHING is tradeable after deflation. Operator: ratify-conclude vs paid-revisit.**) The one
 un-disproven direction is cross-sectional single-stock (equity_xs), blocked only by survivorship-free
 price data — reachable via Polygon.io free tier (needs a free key). **NEXT on `continue`:** operator
 decision — pursue single-stock via Polygon, OR conclude the null. Plus two data bugs to fix if continuing
@@ -13,10 +14,7 @@ decision — pursue single-stock via Polygon, OR conclude the null. Plus two dat
 ## 🔌 Restart recovery — ClickHouse is in Docker Desktop
 ClickHouse runs in container `quantlab-clickhouse`. On reboot: `Start-Process "C:\Program Files\Docker\Docker\Docker Desktop.exe"` → `docker start quantlab-clickhouse` (wait `docker inspect --format '{{.State.Health.Status}}'` = healthy) → verify `curl -s "http://127.0.0.1:8123/?user=quantlab&password=quantlab&database=quantlab" --data-binary "SELECT 1"`.
 **Dev server:** `npm run dev` → http://localhost:3000 (no hot-reload; restart after server edits). NOT running.
-### ⚠️ POLYGON BACKFILL RUNNING (background — dies on /clear, resumable)
-A ~2hr Polygon grouped-daily backfill is running (survivorship-free price panel for equity_xs). **If the chat was /cleared it's dead.** Resume: check `logs/polygon_grouped_daily_*.progress` + `tail logs/polygon_backfill.log`; relaunch (idempotent, skips done days):
-`.venv/Scripts/python.exe scripts/polygon_grouped_daily_ingest.py --start-date 2024-06-01 --end-date 2026-05-29 --apply` (run in background). Done when `equity_daily_polygon` covers 2024-06→2026-05 (~500 trading days, ~6M rows). Verify: `SELECT count(), min(date), max(date) FROM quantlab.equity_daily_polygon`.
-(All 4 EDGAR/FINRA backfills are COMPLETE; the 30-min watchdog cron was retired.)
+**No background jobs running.** Polygon survivorship-free backfill COMPLETE (`equity_daily_polygon`, 2024-06-03→2026-05-22, ~4.4M rows, gap-free). All 4 EDGAR/FINRA backfills COMPLETE. Watchdog retired. Nothing to resume. To extend Polygon forward (daily), re-run `scripts/polygon_grouped_daily_ingest.py` with a new end-date (free tier only reaches ~2yr back).
 
 ---
 
@@ -30,7 +28,7 @@ A ~2hr Polygon grouped-daily backfill is running (survivorship-free price panel 
 | Q-6 | ETF v1 yfinance primary broken | OPEN — issuer-direct rebuild still queued (lower priority given the null finding) |
 | Q-7 | phase1_v3 yield-curve source | OPEN |
 | Q-8 | Phase C promotion | **DORMANT — nothing is Phase-C-eligible (0 of 6 validated pass)** |
-| **Q-9** | Single-stock survivorship-free prices: **RESOLVED for the matched window.** Polygon key is in `.env` (`POLYGON_API_KEY`, gitignored). Polygon FREE tier = survivorship-free grouped-daily **~2024-06→present only** (deep history 2008+ is PAID). Ingest BUILT+MERGED (`a2a972f`, `scripts/polygon_grouped_daily_ingest.py` → `equity_daily_polygon`); backfill RUNNING. **NEXT: wire equity_xs to read `equity_daily_polygon` + re-run survivorship-free.** Deep-history (pre-2024) backtest still = paid (deferred). | **IN PROGRESS** |
+| **Q-9** | Single-stock survivorship-free test: **DONE → 7th NULL.** Polygon ingest built (`a2a972f`) + backfill complete; `equity_xs` re-run survivorship-free + cap-tier-stratified (`1e0f7ff`) → NO tier clears the bar (ADR-056). **Only revisit path = PAID deep-history (Polygon Starter/Sharadar/CRSP) for a 2008-2026 window** — operator paid-data decision; **orchestrator recommends AGAINST** (mid-cap OOS sign-flip reads as overfit, not latent alpha). | **RESOLVED-null; paid-revisit optional** |
 
 ---
 
@@ -101,14 +99,13 @@ deeper EDGAR insider backfill) and it can be tested for real. This is where alph
 
 ## Next stage
 ### On `continue` — this is an operator-judgment fork, surface it; don't auto-build
-1. **Single-stock survivorship-free re-run (IN PROGRESS — finish this):** Polygon ingest is built+merged
-   and the backfill is RUNNING (resume if /cleared — see ⚠️ above). When `equity_daily_polygon` covers
-   2024-06→present: **wire `equity_xs` to read it** (it currently reads `candles` with the `_SP500`/`_USD`
-   suffix; point its universe+price source at `equity_daily_polygon` for a survivorship-FREE 2024+ panel —
-   Composite worker), **then re-run** `npx tsx scripts/phase_b_campaign_equity_xs_v1.ts --apply`. The verdict
-   will no longer be survivorship-suspect. HONEST caveat: window is only ~2yr (Polygon free), so Phase B
-   robustness is limited — could still be insufficient/beta, but it's a REAL test. If a faint clean signal
-   appears, THAT is the case for paid deep-history data. THIS is the one place alpha might still exist.
+1. **THE decision (operator):** validation is COMPLETE — 7 nulls, single-stock included (survivorship-free,
+   all cap tiers). **ADR-056 (PROPOSED)** documents the comprehensive null. Operator either (a) **RATIFIES
+   ADR-056** → conclude: deliverable = the validated pipeline + honest negative, stop building; or (b)
+   pursues **paid deep-history** (Q-9) for a 2008-2026 single-stock window — orchestrator recommends AGAINST
+   on current evidence. Do NOT build more aggregate composites (5/5 beta). Do NOT relax gates / retune
+   (anti-shopping). The live per-symbol Bigdata.com analysis tool is unaffected (no alpha claim) — available
+   as decision-support anytime.
 2. **If concluding the null:** write an ADR documenting "alternative-data market-timing composites — null
    result" + the validated-pipeline deliverable. Stop adding composites.
 3. **Lower-priority data fixes (only if continuing the aggregate line, which the evidence discourages):**
