@@ -380,7 +380,26 @@ def write_events(client, rows: list[dict]) -> int:
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
+def _force_utf8_stdio() -> None:
+    """Reconfigure stdout/stderr to UTF-8 so non-ASCII log chars don't crash.
+
+    On Windows the default console encoding is cp1252, which cannot encode the
+    `->` arrow glyph used in some log lines; a `print()` of it raises
+    `UnicodeEncodeError` and exits the script non-zero. UTF-8 stdio makes every
+    log line encodable regardless of console codepage. No-op where streams lack
+    reconfigure().
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                reconfigure(encoding="utf-8")
+            except (ValueError, OSError):
+                pass
+
+
 def main() -> int:
+    _force_utf8_stdio()
     args = parse_args()
     apply_mode = bool(args.apply) and not bool(args.dry_run)
 
@@ -453,7 +472,7 @@ def main() -> int:
         try:
             return resolve_cik_to_ticker(cik, user_agent=args.user_agent, cache=ticker_cache)
         except (urllib.error.HTTPError, urllib.error.URLError) as e:
-            print(f"[edgar-8k-event] WARN CIK→ticker resolve failed for {cik}: {e}", file=sys.stderr)
+            print(f"[edgar-8k-event] WARN CIK->ticker resolve failed for {cik}: {e}", file=sys.stderr)
             return {"cik": cik10(cik), "ticker": "", "former_tickers": [], "company_name": ""}
 
     rows = build_eight_k_event_rows(filings_filtered, items, _ticker_for)
@@ -466,7 +485,7 @@ def main() -> int:
     cache_written = write_cik_ticker_map(client, ticker_cache.values())
     print(
         f"[edgar-8k-event] OK | wrote {written} rows to quantlab.eight_k_events "
-        f"| cached {cache_written} CIK→ticker entries"
+        f"| cached {cache_written} CIK->ticker entries"
     )
     return 0
 

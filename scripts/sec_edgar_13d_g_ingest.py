@@ -482,7 +482,26 @@ def write_schedule_13d_g_filings(client, rows: list[dict]) -> int:
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
+def _force_utf8_stdio() -> None:
+    """Reconfigure stdout/stderr to UTF-8 so non-ASCII log chars don't crash.
+
+    On Windows the default console encoding is cp1252, which cannot encode some
+    glyphs (arrows, accented filer names); a `print()` of them raises
+    `UnicodeEncodeError` and exits the script non-zero. UTF-8 stdio makes every
+    log line encodable regardless of console codepage. No-op where streams lack
+    reconfigure().
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                reconfigure(encoding="utf-8")
+            except (ValueError, OSError):
+                pass
+
+
 def main() -> int:
+    _force_utf8_stdio()
     args = parse_args()
     apply_mode = bool(args.apply) and not bool(args.dry_run)
 

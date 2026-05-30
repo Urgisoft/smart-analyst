@@ -422,3 +422,171 @@ def test_fetch_edgar_exhausts_retries_on_persistent_timeout():
             helpers.fetch_edgar("https://efts.sec.gov/x", user_agent="test")
     # SEC_RATE_LIMIT_MAX_RETRIES default = 5 → 5 attempts before propagating.
     assert call_count["n"] == helpers.SEC_RATE_LIMIT_MAX_RETRIES
+
+
+# ── Primary-document discovery (index.json 404-fallback resolution) ───────────
+#
+# Regression coverage for the systemic body-fetch 404 bug: the EDGAR FTS hit
+# omits the primary-document filename, so `parse_edgar_search_response` writes
+# PRIMARY_DOC_SENTINEL ("primary.htm"), which 404s for essentially every filing
+# → 0 rows built (confirmed for the 8-K Item 5.02 / exec-departure ingest).
+# `discover_primary_doc_url` + `select_primary_html_from_directory` resolve the
+# real document via the accession's index.json directory listing. All tests
+# inject `fetch` so there is NO network access.
+
+
+def _index_json_bytes(items: list[dict]) -> bytes:
+    return json.dumps({"directory": {"item": items}}).encode("utf-8")
+
+
+def test_parse_search_response_uses_primary_doc_sentinel_when_filename_absent():
+    """The 404 ROOT CAUSE: a hit without primary_doc/file_name → sentinel URL.
+
+    Pins the exact precondition the resolver must repair. This is the bug:
+    `parse_edgar_search_response` cannot know the document name, so the body-
+    fetch URL ends in the (non-existent) PRIMARY_DOC_SENTINEL.
+    """
+    page = json.dumps({
+        "hits": {"hits": [{
+            "_source": {
+                "adsh": "0001234567-26-000042",
+                "ciks": ["0001234567"],
+                "form": "8-K",
+                "accepted": "2026-05-15T16:30:00Z",
+                "items": "5.02",
+                # NOTE: deliberately no `primary_doc` / `file_name`.
+            },
+        }]},
+    }).encode("utf-8")
+    parsed = helpers.parse_edgar_search_response(page)
+    assert len(parsed) == 1
+    assert parsed[0]["filing_url"].endswith("/" + helpers.PRIMARY_DOC_SENTINEL)
+
+
+def test_select_primary_html_picks_filer_document_over_index_pages():
+    """The filer's content `.htm` is chosen; EDGAR wrapper/index pages are skipped."""
+    items = [
+        {"name": "0001234567-26-000042-index.htm", "type": "text.gif"},
+        {"name": "0001234567-26-000042-index-headers.html", "type": "text.gif"},
+        {"name": "tv0042-8k.htm", "type": "text.gif", "size": "20481"},
+        {"name": "0001234567-26-000042.txt", "type": "text.gif"},
+    ]
+    assert helpers.select_primary_html_from_directory(items) == "tv0042-8k.htm"
+
+
+def test_select_primary_html_returns_none_when_only_wrapper_pages():
+    """No real content doc (only index/header pages) → None → caller WARNs, no false fetch."""
+    items = [
+        {"name": "0001234567-26-000042-index.htm", "type": "text.gif"},
+        {"name": "0001234567-26-000042-index-headers.html", "type": "text.gif"},
+    ]
+    assert helpers.select_primary_html_from_directory(items) is None
+
+
+def test_select_primary_html_returns_none_when_no_html_present():
+    """Directory with only non-HTML entries → None."""
+    items = [
+        {"name": "primary_01.xml", "type": "text.gif"},
+        {"name": "0001234567-26-000042.txt", "type": "text.gif"},
+    ]
+    assert helpers.select_primary_html_from_directory(items) is None
+
+
+def test_discover_primary_doc_url_resolves_real_html_via_index_json():
+    """End-to-end resolution: sentinel → index.json → real .htm archive URL (NO network)."""
+    body = _index_json_bytes([
+        {"name": "0001234567-26-000042-index.htm", "type": "text.gif"},
+        {"name": "tv0042-8k.htm", "type": "text.gif"},
+    ])
+
+    def fake_fetch(url, user_agent):
+        return body
+
+    cache: dict[str, str] = {}
+    url = helpers.discover_primary_doc_url(
+        "000123456726000042",
+        ["0001234567"],
+        "ua",
+        cache,
+        selector=helpers.select_primary_html_from_directory,
+        fetch=fake_fetch,
+    )
+    assert url is not None
+    assert url.endswith("/1234567/000123456726000042/tv0042-8k.htm")
+    # NEVER resolves to the sentinel — that was the bug.
+    assert not url.endswith("/" + helpers.PRIMARY_DOC_SENTINEL)
+    assert cache["000123456726000042"] == url
+
+
+def test_discover_primary_doc_url_tries_each_cik_until_one_resolves():
+    """First candidate CIK 404s (filing-agent prefix); second (issuer) succeeds."""
+    body = _index_json_bytes([{"name": "form8k.htm", "type": "text.gif"}])
+    seen: list[str] = []
+
+    def fake_fetch(url, user_agent):
+        seen.append(url)
+        if "/1111111/" in url:
+            raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+        return body
+
+    url = helpers.discover_primary_doc_url(
+        "000162828026037195",
+        ["0001111111", "0002222222"],
+        "ua",
+        {},
+        selector=helpers.select_primary_html_from_directory,
+        fetch=fake_fetch,
+    )
+    assert url is not None
+    assert url.endswith("/2222222/000162828026037195/form8k.htm")
+    assert len(seen) == 2 and "/1111111/" in seen[0] and "/2222222/" in seen[1]
+
+
+def test_discover_primary_doc_url_returns_none_when_all_ciks_404():
+    """Exhausting every candidate yields None → caller logs a loud, attributable WARN."""
+    def fake_fetch(url, user_agent):
+        raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+
+    url = helpers.discover_primary_doc_url(
+        "000000000026000001",
+        ["0001111111", "0002222222"],
+        "ua",
+        {},
+        selector=helpers.select_primary_html_from_directory,
+        fetch=fake_fetch,
+    )
+    assert url is None
+
+
+def test_discover_primary_doc_url_caches_resolution_per_accession():
+    """Second call for the same accession hits cache — no second index.json fetch."""
+    body = _index_json_bytes([{"name": "form8k.htm", "type": "text.gif"}])
+    calls = {"n": 0}
+
+    def fake_fetch(url, user_agent):
+        calls["n"] += 1
+        return body
+
+    cache: dict[str, str] = {}
+    a = helpers.discover_primary_doc_url(
+        "000123456726000042", ["0001234567"], "ua", cache,
+        selector=helpers.select_primary_html_from_directory, fetch=fake_fetch,
+    )
+    b = helpers.discover_primary_doc_url(
+        "000123456726000042", ["0001234567"], "ua", cache,
+        selector=helpers.select_primary_html_from_directory, fetch=fake_fetch,
+    )
+    assert a == b
+    assert calls["n"] == 1  # second call served from cache
+
+
+def test_discover_primary_doc_url_defaults_fetch_to_fetch_edgar():
+    """When `fetch` is omitted, the resolver uses helpers.fetch_edgar (patchable)."""
+    body = _index_json_bytes([{"name": "form8k.htm", "type": "text.gif"}])
+    with patch.object(helpers, "fetch_edgar", return_value=body) as m:
+        url = helpers.discover_primary_doc_url(
+            "000123456726000042", ["0001234567"], "ua", {},
+            selector=helpers.select_primary_html_from_directory,
+        )
+    assert url is not None and url.endswith("/form8k.htm")
+    assert m.called

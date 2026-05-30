@@ -47,6 +47,24 @@ EDGAR_SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik10}.json"
 # parse — gap #8; Form 4 XML — F4-A1).
 EDGAR_ARCHIVES_BASE = "https://www.sec.gov/Archives/edgar/data/{cik_int}/{accession_nodash}/{primary_doc}"
 
+# Accession directory listing. The EDGAR full-text-search hit JSON frequently
+# OMITS the primary-document filename, so `parse_edgar_search_response` falls
+# through to the literal "primary.htm" sentinel (see PRIMARY_DOC_SENTINEL).
+# That sentinel filename does NOT exist for most filings → a 404 on EVERY
+# body-fetch (the exec-departure-ingest 0-rows bug). `discover_primary_doc_url`
+# fetches this index.json, lists the directory, and selects the real primary
+# document by content type. Storage CIK varies (a filing agent's CIK can appear
+# in the accession prefix while EDGAR stores the filing under the issuer's CIK),
+# so the resolver tries each candidate CIK and accepts the first that returns a
+# parseable listing with a selectable document.
+EDGAR_INDEX_JSON_URL = "https://www.sec.gov/Archives/edgar/data/{cik_int}/{accession_nodash}/index.json"
+
+# Sentinel filename written by `parse_edgar_search_response` when the search hit
+# omits the primary-document name. A body-fetch URL ending in this string is the
+# signal to a caller that it must resolve the real document via
+# `discover_primary_doc_url` before fetching. NEVER fetch this URL directly.
+PRIMARY_DOC_SENTINEL = "primary.htm"
+
 # SEC EDGAR rate limit: 10 req/sec. We deliberately stay well below this. After
 # a 429 OR transient 5xx we back off the documented amount and retry.
 # S96-136 (Cycle 29): MAX_RETRIES bumped from 3 → 5 because empirical EDGAR
@@ -453,7 +471,11 @@ def parse_edgar_search_response(json_bytes: bytes) -> list[dict]:
             items_broad = []
         accession_nodash = accession.replace("-", "")
         cik_int = str(int(cik))
-        primary_doc = src.get("primary_doc") or src.get("file_name") or "primary.htm"
+        # When the FTS hit omits the primary-document filename we write the
+        # PRIMARY_DOC_SENTINEL; callers that body-fetch MUST detect this and
+        # resolve the real document via `discover_primary_doc_url` (the
+        # sentinel filename 404s for most filings). See EDGAR_INDEX_JSON_URL.
+        primary_doc = src.get("primary_doc") or src.get("file_name") or PRIMARY_DOC_SENTINEL
         filing_url = EDGAR_ARCHIVES_BASE.format(
             cik_int=cik_int,
             accession_nodash=accession_nodash,
@@ -488,6 +510,132 @@ def _parse_edgar_datetime(s: str) -> _dt.datetime:
         return _dt.datetime(d.year, d.month, d.day)
     except ValueError as e:
         raise ValueError(f"Unparseable EDGAR datetime: {s!r}") from e
+
+
+# ── Primary-document discovery via index.json (404-fallback resolution) ───────
+#
+# Why this exists: `parse_edgar_search_response` writes PRIMARY_DOC_SENTINEL
+# ("primary.htm") when the FTS hit omits the document filename. That sentinel
+# 404s for most filings, so EVERY body-fetch fails and the ingest builds zero
+# rows. This was confirmed for the 8-K Item 5.02 (exec-departure) ingest:
+# 99 filings parsed, 99 body-fetch 404s, 0 rows in `executive_departures`.
+#
+# `sec_edgar_form4_ingest.py` solved this for Form 4 (XML bodies) with a
+# Form-4-specific `discover_form4_primary_xml_url`. This is the GENERALIZED
+# version: the directory-selection step is a pluggable `selector` callable, so
+# HTML-body callers (8-K sub-item parse) and XML-body callers (Form 4) share the
+# same index.json round-trip + try-each-CIK + cache machinery. The form4 ingest
+# keeps its own copy (it was shipped + frozen); new HTML callers use this.
+
+
+def select_primary_html_from_directory(items: list[dict]) -> str | None:
+    """From an EDGAR index.json `directory.item[]` listing, pick the primary HTML body.
+
+    Used for filings whose substantive content is an HTML document (8-K
+    Item-5.02 sub-item header parse, 8-K event bodies, 13D/G cover pages).
+
+    Precedence (first match wins within a tier; directory order breaks ties):
+      1. an `.htm`/`.html` document that is NOT one of EDGAR's auto-generated
+         index/header wrapper pages (names containing "index" / "-index" /
+         "index-headers" / ending in "-index.htm[l]"). This is the filer's
+         actual primary document.
+      2. (no plain-HTML candidate) — None, so the caller emits a structured
+         WARN rather than fetching a wrapper page that lacks the real content.
+
+    Returns the filename (no path) or None when nothing selectable is present.
+    The sentinel "primary.htm" itself is never returned (it is not a real
+    directory entry; if it ever appeared it would be an index/wrapper page).
+    """
+    htmls = [
+        str(it.get("name", ""))
+        for it in items
+        if isinstance(it, dict)
+        and str(it.get("name", "")).lower().endswith((".htm", ".html"))
+    ]
+    if not htmls:
+        return None
+    for name in htmls:
+        lc = name.lower()
+        # Skip EDGAR's auto-generated wrapper/index pages — they are not the
+        # filer's content document and parsing them yields no sub-items.
+        if "index" in lc or lc == PRIMARY_DOC_SENTINEL:
+            continue
+        return name
+    return None
+
+
+def discover_primary_doc_url(
+    accession_nodash: str,
+    candidate_ciks: list[str],
+    user_agent: str,
+    cache: dict[str, str],
+    *,
+    selector,
+    fetch=None,
+) -> str | None:
+    """Resolve a filing's real primary-document URL via EDGAR index.json.
+
+    Generalized form of `sec_edgar_form4_ingest.discover_form4_primary_xml_url`.
+    Invoked by a body-fetching caller when the parser-supplied `filing_url` ends
+    in PRIMARY_DOC_SENTINEL (the FTS hit omitted the document filename).
+
+    Args:
+      accession_nodash: accession number with dashes stripped (directory key).
+      candidate_ciks:   CIKs to try in order — typically the filing's `ciks_all`
+                        (issuer + filers). The storage CIK is not always the
+                        first; try each until one returns a usable listing.
+      user_agent:       SEC-required contact-info User-Agent.
+      cache:            per-run dict keyed on `accession_nodash`; positive
+                        resolutions are memoized to keep re-runs cheap.
+      selector:         callable(items: list[dict]) -> filename | None. Picks
+                        the right document from the directory listing. Use
+                        `select_primary_html_from_directory` for HTML bodies.
+      fetch:            HTTP fetcher (defaults to `fetch_edgar`); injectable so
+                        tests run with NO network.
+
+    Returns the absolute archive URL, or None when discovery fails across all
+    candidate CIKs (caller emits a structured WARN — the 404 is NOT swallowed,
+    it surfaces as a logged, attributable failure for that one filing).
+    """
+    if fetch is None:
+        fetch = fetch_edgar
+    if accession_nodash in cache:
+        return cache[accession_nodash]
+    for raw_cik in candidate_ciks:
+        try:
+            cik_int = str(int(raw_cik))
+        except (TypeError, ValueError):
+            continue
+        index_url = EDGAR_INDEX_JSON_URL.format(
+            cik_int=cik_int, accession_nodash=accession_nodash,
+        )
+        try:
+            body = fetch(index_url, user_agent=user_agent)
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError):
+            # This candidate CIK does not host the filing (or a transient
+            # error after the helper's own retries). Try the next candidate.
+            continue
+        try:
+            data = json.loads(body.decode("utf-8", errors="replace"))
+        except (ValueError, json.JSONDecodeError):
+            continue
+        items = (
+            data.get("directory", {}).get("item", [])
+            if isinstance(data, dict) else []
+        )
+        if not isinstance(items, list):
+            continue
+        chosen = selector(items)
+        if not chosen:
+            continue
+        resolved_url = EDGAR_ARCHIVES_BASE.format(
+            cik_int=cik_int,
+            accession_nodash=accession_nodash,
+            primary_doc=chosen,
+        )
+        cache[accession_nodash] = resolved_url
+        return resolved_url
+    return None
 
 
 # ── Acceptance-date filter (SPEC EDF-5 / E-7 / F4-10) ────────────────────────

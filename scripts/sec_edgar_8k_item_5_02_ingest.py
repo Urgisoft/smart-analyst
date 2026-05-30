@@ -81,16 +81,19 @@ from _sec_edgar_helpers import (  # noqa: E402  (sys.path manipulation above)
     EDGAR_ARCHIVES_BASE,
     EDGAR_SEARCH_BASE,
     EDGAR_SUBMISSIONS_URL,
+    PRIMARY_DOC_SENTINEL,
     SEC_RATE_LIMIT_BACKOFF_SEC,
     SEC_RATE_LIMIT_MAX_RETRIES,
     SEC_RATE_LIMIT_RPS,
     build_search_url,
     cik10,
+    discover_primary_doc_url,
     ensure_cik_ticker_map_table,
     fetch_edgar,
     filter_by_acceptance_date,
     parse_edgar_search_response,
     parse_submissions_response,
+    select_primary_html_from_directory,
     submissions_url,
     write_cik_ticker_map,
     _parse_edgar_datetime,
@@ -373,7 +376,27 @@ def write_filings(client, rows: list[dict]) -> int:
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
+def _force_utf8_stdio() -> None:
+    """Reconfigure stdout/stderr to UTF-8 so non-ASCII log chars don't crash.
+
+    On Windows the default console encoding is cp1252, which cannot encode the
+    `->` arrow glyph used in some log lines; a `print()` of it raises
+    `UnicodeEncodeError` and exits the script non-zero AFTER the CH write has
+    already happened (cosmetic but it poisons the exit code, breaking daemon
+    step-gating). UTF-8 stdio makes every log line encodable regardless of the
+    host console codepage. No-op on platforms whose streams lack reconfigure().
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                reconfigure(encoding="utf-8")
+            except (ValueError, OSError):
+                pass
+
+
 def main() -> int:
+    _force_utf8_stdio()
     args = parse_args()
     apply_mode = bool(args.apply) and not bool(args.dry_run)
 
@@ -440,10 +463,37 @@ def main() -> int:
 
     # Apply mode: body-fetch each filing for sub-item codes + resolve CIKs.
     ticker_cache: dict[str, dict] = {}
+    # Per-run cache of accession -> resolved primary-document URL, so the
+    # index.json round-trip happens at most once per filing.
+    doc_url_cache: dict[str, str] = {}
 
     def _sub_items_for(filing: dict) -> list[str]:
+        # The EDGAR full-text-search hit JSON usually omits the primary-document
+        # filename, so `parse_edgar_search_response` wrote the PRIMARY_DOC_SENTINEL
+        # ("primary.htm"), which 404s for essentially every filing. Detect the
+        # sentinel and resolve the real HTML body via index.json before fetching.
+        # (Confirmed root cause: 99 filings parsed, 99 body-fetch 404s, 0 rows.)
+        filing_url = filing["filing_url"]
+        if filing_url.endswith("/" + PRIMARY_DOC_SENTINEL):
+            accession_nodash = filing["accession"].replace("-", "")
+            candidate_ciks = filing.get("ciks_all") or [filing.get("cik", "")]
+            resolved = discover_primary_doc_url(
+                accession_nodash,
+                candidate_ciks,
+                args.user_agent,
+                doc_url_cache,
+                selector=select_primary_html_from_directory,
+            )
+            if not resolved:
+                print(
+                    f"[edgar-exec-departure] WARN body-fetch failed for {filing['accession']}: "
+                    f"primary-document discovery exhausted candidate CIKs {candidate_ciks}",
+                    file=sys.stderr,
+                )
+                return []
+            filing_url = resolved
         try:
-            body = fetch_edgar(filing["filing_url"], user_agent=args.user_agent)
+            body = fetch_edgar(filing_url, user_agent=args.user_agent)
         except (urllib.error.HTTPError, urllib.error.URLError) as e:
             print(f"[edgar-exec-departure] WARN body-fetch failed for {filing['accession']}: {e}", file=sys.stderr)
             return []
@@ -453,7 +503,7 @@ def main() -> int:
         try:
             return resolve_cik_to_ticker(cik, user_agent=args.user_agent, cache=ticker_cache)
         except (urllib.error.HTTPError, urllib.error.URLError) as e:
-            print(f"[edgar-exec-departure] WARN CIK→ticker resolve failed for {cik}: {e}", file=sys.stderr)
+            print(f"[edgar-exec-departure] WARN CIK->ticker resolve failed for {cik}: {e}", file=sys.stderr)
             return {"cik": cik10(cik), "ticker": "", "former_tickers": [], "company_name": ""}
 
     rows = build_executive_departure_rows(filings_502, _sub_items_for, _ticker_for)
@@ -466,7 +516,7 @@ def main() -> int:
     cache_written = write_cik_ticker_map(client, ticker_cache.values())
     print(
         f"[edgar-exec-departure] OK | wrote {written} rows to quantlab.executive_departures "
-        f"| cached {cache_written} CIK→ticker entries"
+        f"| cached {cache_written} CIK->ticker entries"
     )
     return 0
 
