@@ -1351,6 +1351,7 @@ describe('composeMorningBrief — Form 4 insider section wiring', () => {
             insiderBuyerCount90d: 4, insiderSellerCount90d: 0,
             insiderNetDollar90d: 2_300_000,
             insiderClusterBuyFlag: true, insiderClusterSellFlag: false, daysSinceLatestBuy: null, daysSinceLatestSell: null,
+            insiderCountSourceMix: { edgar: 0, finnhub: 0 },
           },
           {
             ticker: 'EMPTY', cik: '', sector: null,
@@ -1358,11 +1359,12 @@ describe('composeMorningBrief — Form 4 insider section wiring', () => {
             insiderBuyerCount90d: 0, insiderSellerCount90d: 0,
             insiderNetDollar90d: 0,
             insiderClusterBuyFlag: false, insiderClusterSellFlag: false, daysSinceLatestBuy: null, daysSinceLatestSell: null,
+            insiderCountSourceMix: { edgar: 0, finnhub: 0 },
           },
         ],
         inputsAvailableAggregate: 0,
         inputsAvailablePerTicker: 0,
-        version: 'form_4_insider_v1',
+        version: 'form_4_insider_v2',
       }),
       now: () => FIXED_NOW,
     });
@@ -1379,7 +1381,7 @@ describe('composeMorningBrief — Form 4 insider section wiring', () => {
     // Composer-stamped CIK-only count (one row has empty CIK).
     assert.equal(brief.formFour!.tickersWithCikCount, 1);
     assert.equal(brief.formFour!.watchUniverseTickerCount, 2);
-    assert.equal(brief.formFour!.compositeVersion, 'form_4_insider_v1');
+    assert.equal(brief.formFour!.compositeVersion, 'form_4_insider_v2');
   });
 
   // T-OB-F4-2 — graceful-degrade on fetcher throw (mirrors prior A5 panels).
@@ -1433,11 +1435,12 @@ describe('buildForm4InsiderSection', () => {
           insiderBuyCount90d: 5, insiderSellCount90d: 0,
           insiderBuyerCount90d: 4, insiderSellerCount90d: 0,
           insiderNetDollar90d: 2_300_000,
-          insiderClusterBuyFlag: true, insiderClusterSellFlag: false, daysSinceLatestBuy: null, daysSinceLatestSell: null },
+          insiderClusterBuyFlag: true, insiderClusterSellFlag: false, daysSinceLatestBuy: null, daysSinceLatestSell: null,
+          insiderCountSourceMix: { edgar: 0, finnhub: 0 } },
       ],
       inputsAvailableAggregate: 503,
       inputsAvailablePerTicker: 0,
-      version: 'form_4_insider_v1',
+      version: 'form_4_insider_v2',
     });
     assert.ok(section !== null);
     assert.equal(section!.evaluatedAt, '2026-05-19T13:30:00.123Z');
@@ -1453,7 +1456,7 @@ describe('buildForm4InsiderSection', () => {
     assert.equal(section!.perTickerRows[0].insiderNetDollar90d, 2_300_000);
     assert.equal(section!.tickersWithCikCount, 1);
     assert.equal(section!.watchUniverseTickerCount, 1);
-    assert.equal(section!.compositeVersion, 'form_4_insider_v1');
+    assert.equal(section!.compositeVersion, 'form_4_insider_v2');
   });
 
   it('stamps CIK-only count separately from sector-gated inputsAvailablePerTicker', async () => {
@@ -1475,21 +1478,24 @@ describe('buildForm4InsiderSection', () => {
           insiderBuyCount90d: 0, insiderSellCount90d: 0,
           insiderBuyerCount90d: 0, insiderSellerCount90d: 0,
           insiderNetDollar90d: 0,
-          insiderClusterBuyFlag: false, insiderClusterSellFlag: false, daysSinceLatestBuy: null, daysSinceLatestSell: null },
+          insiderClusterBuyFlag: false, insiderClusterSellFlag: false, daysSinceLatestBuy: null, daysSinceLatestSell: null,
+          insiderCountSourceMix: { edgar: 0, finnhub: 0 } },
         { ticker: 'B', cik: '', sector: null,
           insiderBuyCount90d: 0, insiderSellCount90d: 0,
           insiderBuyerCount90d: 0, insiderSellerCount90d: 0,
           insiderNetDollar90d: 0,
-          insiderClusterBuyFlag: false, insiderClusterSellFlag: false, daysSinceLatestBuy: null, daysSinceLatestSell: null },
+          insiderClusterBuyFlag: false, insiderClusterSellFlag: false, daysSinceLatestBuy: null, daysSinceLatestSell: null,
+          insiderCountSourceMix: { edgar: 0, finnhub: 0 } },
         { ticker: 'C', cik: '0000000003', sector: null,
           insiderBuyCount90d: 0, insiderSellCount90d: 0,
           insiderBuyerCount90d: 0, insiderSellerCount90d: 0,
           insiderNetDollar90d: 0,
-          insiderClusterBuyFlag: false, insiderClusterSellFlag: false, daysSinceLatestBuy: null, daysSinceLatestSell: null },
+          insiderClusterBuyFlag: false, insiderClusterSellFlag: false, daysSinceLatestBuy: null, daysSinceLatestSell: null,
+          insiderCountSourceMix: { edgar: 0, finnhub: 0 } },
       ],
       inputsAvailableAggregate: 0,
       inputsAvailablePerTicker: 0,
-      version: 'form_4_insider_v1',
+      version: 'form_4_insider_v2',
     });
     assert.ok(section !== null);
     assert.equal(section!.tickersWithCikCount, 2);
@@ -1516,7 +1522,7 @@ describe('buildForm4InsiderSection', () => {
       perTickerRows: [],
       inputsAvailableAggregate: 8,
       inputsAvailablePerTicker: 0,
-      version: 'form_4_insider_v1',
+      version: 'form_4_insider_v2',
     });
     assert.ok(section !== null);
     assert.equal(section!.maxAggregateZ, 0.91);
@@ -1548,7 +1554,7 @@ describe('buildForm4InsiderSection', () => {
       perTickerRows: [],
       inputsAvailableAggregate: 11,
       inputsAvailablePerTicker: 0,
-      version: 'form_4_insider_v1',
+      version: 'form_4_insider_v2',
     });
     assert.ok(section !== null);
     assert.equal(section!.form4SellClusterFlag, true);

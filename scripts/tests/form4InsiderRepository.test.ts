@@ -36,10 +36,13 @@ import {
   BASELINE_CALENDAR_DAYS,
   TRADE_WINDOW_DAYS,
   COMPOSITE_TRANSACTION_CODES,
+  EDGAR_COVERAGE_FLOOR,
+  EDGAR_COVERAGE_WINDOW_DAYS,
 } from '../../src/server/form_4_insider_repository.js';
 import {
   FORM_4_INSIDER_COMPOSITE_VERSION,
   HIGH_SIGNAL_TRANSACTION_CODES,
+  EDGAR_CANONICAL_SOURCE,
   type Form4InsiderSnapshot,
 } from '../../src/server/form_4_insider.js';
 import { assertCHGrammar } from './_chGrammarCheck.js';
@@ -538,7 +541,7 @@ describe('populateSectorsForCycle (POPSEC-F4-1..4)', () => {
   }
   function makeTradeRow(args: {
     ticker?: string; personCik?: string; code?: string; acceptedAt: string;
-    accession?: string; transactionId?: number;
+    accession?: string; transactionId?: number; source?: string;
   }) {
     return {
       issuer_ticker: args.ticker ?? 'AAPL',
@@ -552,8 +555,35 @@ describe('populateSectorsForCycle (POPSEC-F4-1..4)', () => {
       shares: 1000,
       price_per_share: 180,
       dollar_amount: 180000,
+      // ADR-052 D1: default to the EDGAR canonical source so cluster-path
+      // POPSEC fixtures exercise the real (EDGAR-only) baseline code path.
+      source: args.source ?? 'sec_edgar_form4_xml',
     };
   }
+
+  // ADR-052 D2 — matcher for the new `readEdgarPsDailyVolume` query. `count() AS
+  // n` is unique to it (the trades read has no aggregate), so routing on it
+  // never collides with the `transaction_code IN` trades route. MUST be
+  // registered BEFORE the trades route (FakeClickHouse first-match wins).
+  const isVolumeQuery = (q: string) => q.includes('count() AS n');
+
+  /** Build EDGAR P/S daily-volume rows at `perDay` count for EVERY day in
+   *  `[start, end]` inclusive — i.e. full coverage, every baseline day admitted
+   *  (set perDay ≫ EDGAR_COVERAGE_FLOOR). */
+  function fullCoverageVolumeRows(start: Date, end: Date, perDay: number) {
+    const rows: { day: string; n: number }[] = [];
+    for (let ms = start.getTime(); ms <= end.getTime(); ms += oneDay) {
+      rows.push({ day: new Date(ms).toISOString().slice(0, 10), n: perDay });
+    }
+    return rows;
+  }
+
+  // The read window for the volume probe: [baselineStart - coverageWindow,
+  // baselineEnd] = [asOf - 730 - 30, asOf - 1] days.
+  const VOL_READ_START = new Date(
+    POPSEC_ASOF.getTime() - (BASELINE_CALENDAR_DAYS + EDGAR_COVERAGE_WINDOW_DAYS) * oneDay,
+  );
+  const VOL_READ_END = new Date(POPSEC_ASOF.getTime() - oneDay);
 
   it('POPSEC-F4-1: baseline window is [asOf-730d, asOf-1d] (today EXCLUDED per ADR-042 §4)', async () => {
     const { repo, fake } = makeRepo();
@@ -567,6 +597,9 @@ describe('populateSectorsForCycle (POPSEC-F4-1..4)', () => {
       [{ ticker: 'AAPL', gics_sector: 'Information Technology', snapshot_date: '2024-01-01' }],
     );
     fake.route(q => q.includes('effective_date = ('), [{ ticker: 'AAPL' }]);
+    // ADR-052 D2 — full EDGAR coverage: every baseline day admitted (volume ≫
+    // floor). Registered BEFORE the trades route (matches on `count() AS n`).
+    fake.route(isVolumeQuery, fullCoverageVolumeRows(VOL_READ_START, VOL_READ_END, 1000));
     // Two buys + one sell within today's 90d slice.
     fake.route(q => q.includes('transaction_code IN'),
       [
@@ -632,6 +665,9 @@ describe('populateSectorsForCycle (POPSEC-F4-1..4)', () => {
       ],
     );
     fake.route(q => q.includes('effective_date = ('), [{ ticker: 'AAPL' }]);
+    // ADR-052 D2 — full EDGAR coverage so the strict-PIT bucketing is not
+    // perturbed by coverage exclusion (every panel day admitted).
+    fake.route(isVolumeQuery, fullCoverageVolumeRows(VOL_READ_START, VOL_READ_END, 1000));
     fake.route(q => q.includes('transaction_code IN'),
       [
         // IT-era trade (2024-12-15 < 2025-06-01 swap date)
@@ -667,7 +703,13 @@ describe('populateSectorsForCycle (POPSEC-F4-1..4)', () => {
     assert.ok(ind!.baseline2y.length > 0, 'Industrials sector entry emitted with non-empty baseline');
   });
 
-  it('POPSEC-F4-3: empty-trade days yield rate=0 in baseline2y (NOT dropped per ADR-042 §8)', async () => {
+  // POPSEC-F4-3 — REWORKED for ADR-052 D2. The OLD premise ("empty-trade days
+  // yield rate=0 unconditionally") is now WRONG: a day's rate is admitted ONLY
+  // if EDGAR coverage was active in its trailing window. Two sub-behaviors:
+  //   (a) days with NO system-wide EDGAR coverage are EXCLUDED (never
+  //       zero-filled) → baseline is SHORTER than the panel-day count;
+  //   (b) days WITH coverage but zero sector trades are admitted at rate=0.
+  it('POPSEC-F4-3a: EDGAR coverage-gap days are EXCLUDED from baseline2y (NOT zero-filled) per ADR-052 D2', async () => {
     const { repo, fake } = makeRepo();
     fake.route(q => q.includes('effective_date <= {asOfEnd:Date}'),
       [makePanelConstituentsRow('AAPL', '2024-05-19')],
@@ -679,6 +721,10 @@ describe('populateSectorsForCycle (POPSEC-F4-1..4)', () => {
       [{ ticker: 'AAPL', gics_sector: 'Information Technology', snapshot_date: '2024-01-01' }],
     );
     fake.route(q => q.includes('effective_date = ('), [{ ticker: 'AAPL' }]);
+    // PARTIAL coverage: EDGAR volume present ONLY for a recent ~120-day window
+    // [asOf-130d, asOf-1d]; the prior ~600 days are a coverage GAP (absent).
+    const coverageStart = new Date(POPSEC_ASOF.getTime() - 130 * oneDay);
+    fake.route(isVolumeQuery, fullCoverageVolumeRows(coverageStart, VOL_READ_END, 1000));
     fake.route(q => q.includes('transaction_code IN'), []);
 
     const sectors = await repo.populateSectorsForCycle(POPSEC_ASOF);
@@ -686,9 +732,56 @@ describe('populateSectorsForCycle (POPSEC-F4-1..4)', () => {
     assert.equal(sectors[0].sector, 'Information Technology');
     assert.equal(sectors[0].sectorSize, 1);
     assert.equal(sectors[0].trades.length, 0);
-    assert.ok(sectors[0].baseline2y.length >= 729);
+    // The baseline must be MUCH shorter than the full ~730-day panel because
+    // the ~600 gap days were EXCLUDED (not zero-filled). Coverage spans the
+    // last ~130 days; the trailing-30d coverage window means the EARLIEST
+    // admitted panel day needs ~30d of coverage behind it, so admitted ≈
+    // the days from (coverageStart) to baselineEnd that fall in the panel.
+    assert.ok(
+      sectors[0].baseline2y.length > 0,
+      'recent covered days ARE admitted',
+    );
+    assert.ok(
+      sectors[0].baseline2y.length < 200,
+      `gap days excluded → baseline far shorter than 730 panel days, got ${sectors[0].baseline2y.length}`,
+    );
+    // CRITICALLY: no day is zero-filled spuriously — every admitted day is a
+    // REAL covered day. All sector trades are empty here, so every ADMITTED
+    // day legitimately has rate=0.
     for (const r of sectors[0].baseline2y) {
-      assert.equal(r, 0, 'empty-sector days emit rate=0 per ADR-042 §8');
+      assert.equal(r, 0, 'admitted-but-empty days emit a real rate=0 (D2)');
+    }
+    assert.equal(
+      sectors[0].baseline2ySell.length, sectors[0].baseline2y.length,
+      'buy + sell baselines share the admitted-day cardinality',
+    );
+  });
+
+  it('POPSEC-F4-3b: covered days with zero sector trades ARE admitted at rate=0 (ADR-052 D2)', async () => {
+    const { repo, fake } = makeRepo();
+    fake.route(q => q.includes('effective_date <= {asOfEnd:Date}'),
+      [makePanelConstituentsRow('AAPL', '2024-05-19')],
+    );
+    fake.route(q => q.includes('ticker IN') && q.includes('snapshot_date <= {asOfEnd:Date}'),
+      [{ ticker: 'AAPL', gics_sector: 'Information Technology', snapshot_date: '2024-01-01' }],
+    );
+    fake.route(q => q.includes('FROM quantlab.gics_sector_map FINAL') && q.includes('snapshot_date <= {asOfEnd:Date}'),
+      [{ ticker: 'AAPL', gics_sector: 'Information Technology', snapshot_date: '2024-01-01' }],
+    );
+    fake.route(q => q.includes('effective_date = ('), [{ ticker: 'AAPL' }]);
+    // FULL coverage but ZERO sector trades → every panel day admitted at rate=0.
+    fake.route(isVolumeQuery, fullCoverageVolumeRows(VOL_READ_START, VOL_READ_END, 1000));
+    fake.route(q => q.includes('transaction_code IN'), []);
+
+    const sectors = await repo.populateSectorsForCycle(POPSEC_ASOF);
+    assert.equal(sectors.length, 1);
+    assert.equal(sectors[0].trades.length, 0);
+    // Full coverage → all ~730 panel days admitted, each rate=0 (real zero
+    // observation, NOT a gap-day zero-fill).
+    assert.ok(sectors[0].baseline2y.length >= 729,
+      `all covered days admitted, got ${sectors[0].baseline2y.length}`);
+    for (const r of sectors[0].baseline2y) {
+      assert.equal(r, 0, 'covered-but-empty days emit a real rate=0 (D2)');
     }
   });
 
@@ -697,6 +790,68 @@ describe('populateSectorsForCycle (POPSEC-F4-1..4)', () => {
     fake.route(_ => true, []);
     const sectors = await repo.populateSectorsForCycle(POPSEC_ASOF);
     assert.equal(sectors.length, 0);
+  });
+
+  // POPSEC-F4-5 — ADR-052 D2 coverage-floor BOUNDARY. A panel day whose
+  // trailing-EDGAR_COVERAGE_WINDOW_DAYS system-wide volume == floor is admitted;
+  // floor-1 is excluded.
+  it('POPSEC-F4-5: coverage-floor boundary — sum == floor admits, floor-1 excludes', async () => {
+    // Drive the admission decision directly via two single-day-window probes by
+    // constructing a 1-day coverage window scenario through the public method
+    // is awkward; instead assert on the smallest observable unit: build a panel
+    // with exactly two candidate days whose trailing windows differ by one
+    // filing across the floor.
+    const { repo, fake } = makeRepo();
+    fake.route(q => q.includes('effective_date <= {asOfEnd:Date}'),
+      [makePanelConstituentsRow('AAPL', '2024-05-19')],
+    );
+    fake.route(q => q.includes('ticker IN') && q.includes('snapshot_date <= {asOfEnd:Date}'),
+      [{ ticker: 'AAPL', gics_sector: 'Information Technology', snapshot_date: '2024-01-01' }],
+    );
+    fake.route(q => q.includes('FROM quantlab.gics_sector_map FINAL') && q.includes('snapshot_date <= {asOfEnd:Date}'),
+      [{ ticker: 'AAPL', gics_sector: 'Information Technology', snapshot_date: '2024-01-01' }],
+    );
+    fake.route(q => q.includes('effective_date = ('), [{ ticker: 'AAPL' }]);
+
+    // Put EXACTLY EDGAR_COVERAGE_FLOOR filings on a SINGLE day D = asOf-2d, and
+    // nothing else. Then:
+    //   - panel day D itself: trailing-30d window includes D → sum == floor →
+    //     ADMITTED.
+    //   - any panel day ≥ D + EDGAR_COVERAGE_WINDOW_DAYS: window no longer
+    //     includes D → sum == 0 → EXCLUDED.
+    //   - the day immediately BELOW the floor (D with floor-1) → EXCLUDED;
+    //     we assert the boundary by toggling the single-day count.
+    const floorDayMs = POPSEC_ASOF.getTime() - 2 * oneDay;
+    const floorDay = new Date(floorDayMs).toISOString().slice(0, 10);
+
+    // Case A: exactly floor on the single day → that day is admitted. The
+    // volume route MUST precede the trades route (both contain
+    // 'transaction_code IN'; the volume query is disambiguated by 'count() AS
+    // n' and FakeClickHouse is first-match).
+    fake.route(isVolumeQuery, [{ day: floorDay, n: EDGAR_COVERAGE_FLOOR }]);
+    fake.route(q => q.includes('transaction_code IN'), []);
+    const sectorsA = await repo.populateSectorsForCycle(POPSEC_ASOF);
+    const baselineDaysA = sectorsA[0].baseline2y.length;
+    assert.ok(baselineDaysA >= 1, 'at-floor day is admitted (sum == floor passes)');
+
+    // Case B: floor - 1 on the single day → that day is excluded → strictly
+    // fewer admitted days than Case A (here: zero, since it was the only
+    // coverage).
+    const repoB = makeRepo();
+    repoB.fake.route(q => q.includes('effective_date <= {asOfEnd:Date}'),
+      [makePanelConstituentsRow('AAPL', '2024-05-19')]);
+    repoB.fake.route(q => q.includes('ticker IN') && q.includes('snapshot_date <= {asOfEnd:Date}'),
+      [{ ticker: 'AAPL', gics_sector: 'Information Technology', snapshot_date: '2024-01-01' }]);
+    repoB.fake.route(q => q.includes('FROM quantlab.gics_sector_map FINAL') && q.includes('snapshot_date <= {asOfEnd:Date}'),
+      [{ ticker: 'AAPL', gics_sector: 'Information Technology', snapshot_date: '2024-01-01' }]);
+    repoB.fake.route(q => q.includes('effective_date = ('), [{ ticker: 'AAPL' }]);
+    repoB.fake.route(isVolumeQuery, [{ day: floorDay, n: EDGAR_COVERAGE_FLOOR - 1 }]);
+    repoB.fake.route(q => q.includes('transaction_code IN'), []);
+    const sectorsB = await repoB.repo.populateSectorsForCycle(POPSEC_ASOF);
+    assert.ok(
+      sectorsB[0].baseline2y.length < baselineDaysA,
+      `floor-1 day is EXCLUDED → fewer admitted days than at-floor (A=${baselineDaysA}, B=${sectorsB[0].baseline2y.length})`,
+    );
   });
 });
 
@@ -730,6 +885,7 @@ function fixtureSnapshot(overrides: Partial<Form4InsiderSnapshot> = {}): Form4In
       insiderNetDollar90d: 89500,
       insiderClusterBuyFlag: false,
       insiderClusterSellFlag: false, daysSinceLatestBuy: null, daysSinceLatestSell: null,
+      insiderCountSourceMix: { edgar: 3, finnhub: 0 },
     }],
     inputsAvailableAggregate: 0,
     inputsAvailablePerTicker: 0,
@@ -765,7 +921,9 @@ describe('writeSnapshot', () => {
     const { repo, fake } = makeRepo();
     await repo.writeSnapshot(fixtureSnapshot());
     const row = fake.inserts[0].values[0];
-    assert.equal(row.composite_version, 'form_4_insider_v1');
+    // ADR-052 D5 — version bumped to v2 (EDGAR-canonical cluster path +
+    // coverage-homogeneous baseline = universe-definition change).
+    assert.equal(row.composite_version, 'form_4_insider_v2');
     assert.equal(row.version, undefined);
   });
 
@@ -810,6 +968,7 @@ describe('writeSnapshot', () => {
         insiderNetDollar90d: -11200000,
         insiderClusterBuyFlag: false,
         insiderClusterSellFlag: true, daysSinceLatestBuy: null, daysSinceLatestSell: null,
+        insiderCountSourceMix: { edgar: 6, finnhub: 0 },
       }],
     }));
     const perTicker = JSON.parse(fake.inserts[0].values[0].per_ticker_json as string);
@@ -1197,7 +1356,8 @@ describe('runDaemonForm4InsiderEvaluation', () => {
     fake.route(q => q.includes(`FROM quantlab.cik_ticker_map`), [
       { ticker: 'AAPL', cik: '0000320193' },
     ]);
-    // Three distinct insiders on AAPL within 30d → cluster-buy flag fires
+    // Three distinct insiders on AAPL within 30d → cluster-buy flag fires.
+    // ADR-052 D1: cluster identity is EDGAR-only, so these MUST be EDGAR rows.
     fake.route(q => q.includes('transaction_code IN'), [
       {
         issuer_ticker: 'AAPL', issuer_cik: '0000320193',
@@ -1205,6 +1365,7 @@ describe('runDaemonForm4InsiderEvaluation', () => {
         person_cik: '0001111111', role_flags: 2,
         transaction_code: 'P', accepted_at: '2026-05-01 09:30:00',
         shares: 1000, price_per_share: 180, dollar_amount: 180000,
+        source: 'sec_edgar_form4_xml',
       },
       {
         issuer_ticker: 'AAPL', issuer_cik: '0000320193',
@@ -1212,6 +1373,7 @@ describe('runDaemonForm4InsiderEvaluation', () => {
         person_cik: '0002222222', role_flags: 1,
         transaction_code: 'P', accepted_at: '2026-05-05 11:00:00',
         shares: 500, price_per_share: 182, dollar_amount: 91000,
+        source: 'sec_edgar_form4_xml',
       },
       {
         issuer_ticker: 'AAPL', issuer_cik: '0000320193',
@@ -1219,6 +1381,7 @@ describe('runDaemonForm4InsiderEvaluation', () => {
         person_cik: '0003333333', role_flags: 4,
         transaction_code: 'P', accepted_at: '2026-05-10 14:00:00',
         shares: 200, price_per_share: 184, dollar_amount: 36800,
+        source: 'sec_edgar_form4_xml',
       },
     ]);
 

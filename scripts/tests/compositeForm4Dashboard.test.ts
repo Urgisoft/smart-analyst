@@ -45,6 +45,9 @@ function ptRow(over: Partial<Form4InsiderPerTickerRow> = {}): Form4InsiderPerTic
     insiderNetDollar90d: -96154105.08,
     insiderClusterBuyFlag: false, insiderClusterSellFlag: true,
     daysSinceLatestBuy: null, daysSinceLatestSell: 9,
+    // ADR-052 D3/D4 source-mix label: all 12 P/S counts are EDGAR-canonical
+    // here (consistent with the EDGAR-only cluster-sell flag firing).
+    insiderCountSourceMix: { edgar: 12, finnhub: 0 },
     ...over,
   };
 }
@@ -65,7 +68,7 @@ function snap(over: Partial<Form4InsiderSnapshot> = {}): Form4InsiderSnapshot {
     perTickerRows: [ptRow()],
     inputsAvailableAggregate: 11,
     inputsAvailablePerTicker: 60,
-    version: 'form_4_insider_v1',
+    version: 'form_4_insider_v2',
     ...over,
   };
 }
@@ -156,7 +159,7 @@ describe('form_4 projectPayload', () => {
     const p = projectPayload(snap(), hist, 365, NOW);
     assert.equal(p.composite, 'form_4_insider');
     assert.equal(p.hasData, true);
-    assert.equal(p.compositeVersion, 'form_4_insider_v1');
+    assert.equal(p.compositeVersion, 'form_4_insider_v2');
     assert.equal(p.verdict, 'buy_cluster');                // buy flag only
     assert.equal(p.snapshotDate, '2026-05-22');            // from last history row
     assert.equal(p.staleDays, 6);

@@ -86,9 +86,40 @@
 
 /** Composite version. Bump on any change to window length, cluster threshold,
  *  transaction-code filter, aggregator, or universe definition. Stored
- *  alongside every snapshot for backtest reproducibility. */
-export const FORM_4_INSIDER_COMPOSITE_VERSION = 'form_4_insider_v1' as const;
+ *  alongside every snapshot for backtest reproducibility.
+ *
+ *  **v2 (ADR-052 D5 — S96-146 resolution):** the cluster-path input population
+ *  changes (EDGAR-canonical source restriction + coverage-homogeneous baseline,
+ *  D1+D2), which is a universe-definition change per the rule above. v1
+ *  snapshots (carrying the z=5.57 source-provenance artifact) persist as
+ *  historical record; the re-backfill writes v2 rows. Per ADR-051 Decision 8
+ *  the version bump keeps the "did the composite change after a bad result?"
+ *  audit a single CH query. The bump is provenance hygiene, NOT a formula search
+ *  against a bad backtest, so it is permitted under ADR-051 Decision 5
+ *  (anti-shopping). */
+export const FORM_4_INSIDER_COMPOSITE_VERSION = 'form_4_insider_v2' as const;
 export type Form4InsiderCompositeVersion = typeof FORM_4_INSIDER_COMPOSITE_VERSION;
+
+/** ADR-052 D1 — the canonical source for all cluster-identity computations.
+ *
+ *  `quantlab.insider_trades` is a UNION of two provenance schemes:
+ *    - `sec_edgar_form4_xml` — the real SEC reporting-person CIK (numeric); the
+ *      ONLY identity scheme under which "distinct insider" (F4-2/F4-9) is
+ *      well-defined.
+ *    - `finnhub` — a synthetic `"FH"+sha1(upper(name))[:10]` name-hash that
+ *      collides distinct people sharing a name AND splits one person across
+ *      spelling variants (S96-145). It is unfit as a cluster-distinctness
+ *      identity, independent of its sparse coverage.
+ *
+ *  Per Lakonishok & Lee 2001 *Rev. Fin. Studies* §3 the cluster effect that
+ *  strengthens the insider signal is defined over DISTINCT INSIDERS; a name-hash
+ *  identity breaks that construct. The cluster-rate z, the per-ticker cluster
+ *  flags, and every downstream aggregate (`form4ClusterFlag` /
+ *  `form4SellClusterFlag` / `maxAggregateZ[Sell]`) are therefore computed from
+ *  this source ONLY (ADR-052 D1/D4). Finnhub is demoted to coverage/forensic
+ *  (D3) and may still power identity-agnostic per-ticker raw counts WITH a
+ *  source-mix label. */
+export const EDGAR_CANONICAL_SOURCE = 'sec_edgar_form4_xml' as const;
 
 // ── SPEC-pinned thresholds (re-tuning bumps composite version) ──────────────
 
@@ -166,6 +197,12 @@ export interface InsiderTrade {
    *  DEFAULT") so downstream consumers don't need to recompute. The
    *  composite trusts this field as authoritative. */
   dollarAmount: number;
+  /** Provenance: 'sec_edgar_form4_xml' (real CIK) or 'finnhub' (synthetic
+   *  name-hash). Cluster-identity computations admit EDGAR only per ADR-052 D1.
+   *  The repository carries this through from `insider_trades.source`; absent
+   *  rows default to '' (treated as non-canonical → excluded from cluster
+   *  identity by `filterTradesToCanonicalSource`). */
+  source: string;
 }
 
 /** Deduplicate trades by `(issuerCik, accession, transactionId)`. The
@@ -196,6 +233,28 @@ export function filterTradesToHighSignalCodes(
   trades: ReadonlyArray<InsiderTrade>,
 ): InsiderTrade[] {
   return trades.filter((t) => HIGH_SIGNAL_CODE_SET.has(t.transactionCode));
+}
+
+/** ADR-052 D1 — the cluster-identity gate. Retains ONLY rows whose `source`
+ *  is the EDGAR canonical provenance (`sec_edgar_form4_xml`). Every computation
+ *  whose correctness depends on distinct-insider identity (the 30d cluster
+ *  flags, the sector cluster-rate, hence the z and the aggregate flags) MUST
+ *  run on the output of this filter.
+ *
+ *  Finnhub rows are excluded because their `person_cik` is a synthetic
+ *  `"FH"+sha1(name)` name-hash (S96-145) that collides/splits real people —
+ *  counting "distinct `person_cik`" across the Finnhub population double-counts
+ *  the 8,998 humans who appear under BOTH a numeric EDGAR CIK and an FH-hash
+ *  (ADR-052 Context §2). Per Lakonishok & Lee 2001 §3 the cluster construct is
+ *  defined over real distinct insiders, so the name-hash identity is invalid
+ *  here independent of coverage.
+ *
+ *  Exact string equality on `EDGAR_CANONICAL_SOURCE`. Rows with an empty/absent
+ *  `source` are treated as non-canonical and dropped (fail-closed). */
+export function filterTradesToCanonicalSource(
+  trades: ReadonlyArray<InsiderTrade>,
+): InsiderTrade[] {
+  return trades.filter((t) => t.source === EDGAR_CANONICAL_SOURCE);
 }
 
 /** Filter trades to a rolling window `[asOf - windowDays, asOf]` (inclusive
@@ -432,6 +491,16 @@ export interface Form4InsiderPerTickerRow {
    *  cluster_sell per-ticker rows in the brief. v2 add per gap #7 v2
    *  per-row recency. */
   daysSinceLatestSell: number | null;
+  /** ADR-052 D3/D4 — source-mix label for the dual-source raw counts.
+   *  Counts the in-window 90d P/S trades by provenance:
+   *    - `edgar`   = trades with `source === EDGAR_CANONICAL_SOURCE`
+   *    - `finnhub` = the rest (synthetic-identity Finnhub coverage).
+   *  The raw counts (`insiderBuyCount90d` etc.) remain dual-source (EDGAR ∪
+   *  Finnhub) for coverage value where identity precision does not matter; the
+   *  CLUSTER flags are EDGAR-only (D1). This label makes that split honest —
+   *  e.g. "5 buys but cluster flag off because only 2 were EDGAR." It serializes
+   *  into `per_ticker_json` (no DDL change). */
+  insiderCountSourceMix: { edgar: number; finnhub: number };
 }
 
 /** A flagged sector row — only emitted for sectors with |z| > 2.0. */
@@ -560,6 +629,8 @@ export function evaluateForm4InsiderComposite(
     const deduped = dedupeTrades(row.trades);
     const psFiltered = filterTradesToHighSignalCodes(deduped);
 
+    // Raw counts + net-dollar stay DUAL-SOURCE (EDGAR ∪ Finnhub) per ADR-052
+    // D3/D4 — coverage value where insider-identity precision does not matter.
     const insiderBuyCount90d = countTradesByCode(psFiltered, BUY_CODE, inputs.asOf);
     const insiderSellCount90d = countTradesByCode(psFiltered, SELL_CODE, inputs.asOf);
     const insiderBuyerCount90d = countDistinctInsidersByCode(
@@ -570,11 +641,17 @@ export function evaluateForm4InsiderComposite(
     );
     const insiderNetDollar90d = computeInsiderNetDollar(psFiltered, inputs.asOf);
 
+    // Cluster flags become EDGAR-ONLY per ADR-052 D1 — the cluster metric
+    // counts DISTINCT INSIDERS (distinct `person_cik` ≥ 3), and only the EDGAR
+    // reporting-person CIK is a valid distinct-insider identity (Finnhub's
+    // name-hash collides/splits people, S96-145). Derive the 30d distinct
+    // counts from the canonical-source slice, NOT from the dual-source slice.
+    const edgarPsFiltered = filterTradesToCanonicalSource(psFiltered);
     const distinctBuyers30d = countDistinctInsidersByCode(
-      psFiltered, BUY_CODE, inputs.asOf, CLUSTER_WINDOW_DAYS,
+      edgarPsFiltered, BUY_CODE, inputs.asOf, CLUSTER_WINDOW_DAYS,
     );
     const distinctSellers30d = countDistinctInsidersByCode(
-      psFiltered, SELL_CODE, inputs.asOf, CLUSTER_WINDOW_DAYS,
+      edgarPsFiltered, SELL_CODE, inputs.asOf, CLUSTER_WINDOW_DAYS,
     );
 
     const insiderClusterBuyFlag = flagInsiderCluster(distinctBuyers30d);
@@ -586,6 +663,20 @@ export function evaluateForm4InsiderComposite(
     const daysSinceLatestSell = daysSinceLatestTradeByCode(
       psFiltered, SELL_CODE, inputs.asOf,
     );
+
+    // ADR-052 D3/D4 source-mix label: count in-window 90d P/S trades by
+    // provenance so the dual-source raw counts are honest about how many of
+    // them carry EDGAR (cluster-valid) identity. Computed over the same
+    // in-window slice the raw counts use.
+    const inWindowPs = filterTradesInWindow(psFiltered, inputs.asOf, ROLLING_WINDOW_DAYS);
+    let edgarMix = 0;
+    for (const t of inWindowPs) {
+      if (t.source === EDGAR_CANONICAL_SOURCE) edgarMix++;
+    }
+    const insiderCountSourceMix = {
+      edgar: edgarMix,
+      finnhub: inWindowPs.length - edgarMix,
+    };
 
     if (row.sector != null && row.cik !== '') inputsAvailablePerTicker++;
 
@@ -602,6 +693,7 @@ export function evaluateForm4InsiderComposite(
       insiderClusterSellFlag,
       daysSinceLatestBuy,
       daysSinceLatestSell,
+      insiderCountSourceMix,
     });
   }
 
@@ -625,11 +717,18 @@ export function evaluateForm4InsiderComposite(
       psFilteredSectorTrades, inputs.asOf, ROLLING_WINDOW_DAYS,
     );
 
+    // ADR-052 D1/D4 defense-in-depth: the sector cluster-rate is an
+    // identity-dependent metric, so it must run on EDGAR-canonical rows only.
+    // The repository (populateSectorsForCycle) already delivers EDGAR-only
+    // trades for the sector path, but filtering here makes the composite robust
+    // if it is ever fed a dual-source panel.
+    const edgarSectorTrades = filterTradesToCanonicalSource(inWindowSectorTrades);
+
     const rateBuy = computeSectorClusterRate(
-      inWindowSectorTrades, s.sectorSize, inputs.asOf, BUY_CODE,
+      edgarSectorTrades, s.sectorSize, inputs.asOf, BUY_CODE,
     );
     const rateSell = computeSectorClusterRate(
-      inWindowSectorTrades, s.sectorSize, inputs.asOf, SELL_CODE,
+      edgarSectorTrades, s.sectorSize, inputs.asOf, SELL_CODE,
     );
     const { z, baselineSize } = computeZ(rateBuy, s.baseline2y);
     const { z: zSell, baselineSize: baselineSizeSell } = computeZ(
@@ -710,6 +809,23 @@ export function evaluateForm4InsiderComposite(
 
 /**
  * What could break this:
+ *   - **Source-provenance boundary (ADR-052 D1/D2/D3/D4 — S96-146).** The
+ *     cluster path (per-ticker cluster flags, the sector cluster-rate, hence
+ *     `form4ClusterFlag` / `form4SellClusterFlag` / `maxAggregateZ[Sell]`) is
+ *     EDGAR-ONLY: it runs on `filterTradesToCanonicalSource(...)` output because
+ *     "distinct insider" is only well-defined under the real EDGAR
+ *     reporting-person CIK (Finnhub's name-hash collides/splits people,
+ *     S96-145). The raw per-ticker counts (`insiderBuyCount90d` etc.) remain
+ *     DUAL-SOURCE (EDGAR ∪ Finnhub) for coverage value, carrying an
+ *     `insiderCountSourceMix` label (D3/D4) so the split is honest. The
+ *     coverage-homogeneous baseline (D2) is built in the repository
+ *     (`populateSectorsForCycle`): the z-baseline admits only days where EDGAR
+ *     was actively ingesting, never zero-filling gap days. A regression that
+ *     fed dual-source rows into the cluster path, or that z-scored across the
+ *     2024-Finnhub / 2025-EDGAR provenance break, reproduces the z=5.57
+ *     artifact (AFML §11.3 stationarity precondition). `EDGAR_CANONICAL_SOURCE`
+ *     uses exact string equality; an empty/absent `source` fails closed (row
+ *     dropped from the cluster path).
  *   - **Cross-language drift on the {P, S} filter (S93-37 load-bearing).**
  *     Python ingest's `DEFAULT_HIGH_SIGNAL_CODES = ("P", "S")` and this
  *     module's `HIGH_SIGNAL_TRANSACTION_CODES` are conceptually byte-pinned

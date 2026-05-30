@@ -18,8 +18,10 @@ import {
   HIGH_SIGNAL_TRANSACTION_CODES,
   BUY_CODE,
   SELL_CODE,
+  EDGAR_CANONICAL_SOURCE,
   dedupeTrades,
   filterTradesToHighSignalCodes,
+  filterTradesToCanonicalSource,
   filterTradesInWindow,
   countTradesByCode,
   sumDollarsByCode,
@@ -48,7 +50,12 @@ function assertClose(actual: number | null, expected: number, eps = 1e-9): void 
 }
 
 /** Build a synthetic trade with overrides. Defaults to a code-P insider buy
- *  on AAPL 10 days before ASOF, 100 shares at $150 = $15,000. */
+ *  on AAPL 10 days before ASOF, 100 shares at $150 = $15,000.
+ *
+ *  ADR-052: `source` defaults to `EDGAR_CANONICAL_SOURCE` so every existing
+ *  cluster assertion (which predates the source split) keeps firing — the
+ *  cluster path is now EDGAR-only. Tests of the new source-filter behavior
+ *  pass `source: 'finnhub'` explicitly. */
 function makeTrade(overrides: Partial<InsiderTrade> = {}): InsiderTrade {
   const shares = overrides.shares ?? 100;
   const pricePerShare = overrides.pricePerShare ?? 150;
@@ -64,6 +71,7 @@ function makeTrade(overrides: Partial<InsiderTrade> = {}): InsiderTrade {
     shares,
     pricePerShare,
     dollarAmount: overrides.dollarAmount ?? shares * pricePerShare,
+    source: overrides.source ?? EDGAR_CANONICAL_SOURCE,
   };
 }
 
@@ -1302,7 +1310,7 @@ describe('F4-12 v2 sell-cluster sector aggregation (G2-SELL-*)', () => {
 
 describe('constants (sanity)', () => {
   it('exposes the expected SPEC-pinned values', () => {
-    assert.equal(FORM_4_INSIDER_COMPOSITE_VERSION, 'form_4_insider_v1');
+    assert.equal(FORM_4_INSIDER_COMPOSITE_VERSION, 'form_4_insider_v2');
     assert.equal(ROLLING_WINDOW_DAYS, 90);
     assert.equal(CLUSTER_WINDOW_DAYS, 30);
     assert.equal(CLUSTER_INSIDER_THRESHOLD, 3);
@@ -1382,5 +1390,155 @@ describe('daysSinceLatestTradeByCode', () => {
     const zeroSnap = evaluateForm4InsiderComposite(zeroInputs);
     assert.equal(zeroSnap.perTickerRows[0]!.daysSinceLatestBuy, null);
     assert.equal(zeroSnap.perTickerRows[0]!.daysSinceLatestSell, null);
+  });
+});
+
+// ── ADR-052 D1/D3/D4 — source-provenance normalization (S96-146) ────────────
+//
+// The cluster path (per-ticker cluster flags, sector cluster-rate, aggregate
+// z) is EDGAR-ONLY because "distinct insider" is only well-defined under the
+// real EDGAR reporting-person CIK; Finnhub's `person_cik` is a synthetic
+// name-hash (S96-145). Raw counts stay dual-source with a source-mix label.
+
+describe('ADR-052 source-provenance normalization (D1/D3/D4)', () => {
+  it('T-F4-ADR052-1: filterTradesToCanonicalSource retains EDGAR only', () => {
+    const trades = [
+      makeTrade({ accession: 'e1', source: EDGAR_CANONICAL_SOURCE }),
+      makeTrade({ accession: 'f1', source: 'finnhub' }),
+      makeTrade({ accession: 'x1', source: '' }),
+    ];
+    const filtered = filterTradesToCanonicalSource(trades);
+    assert.equal(filtered.length, 1);
+    assert.equal(filtered[0].source, EDGAR_CANONICAL_SOURCE);
+  });
+
+  it('T-F4-ADR052-2: 3 distinct EDGAR insiders → cluster-buy flag fires', () => {
+    const inputs = makeInputs({
+      perTicker: [{
+        ticker: 'AAPL', cik: '0000320193', sector: 'IT',
+        trades: [
+          makeTrade({ accession: 'a', transactionCode: 'P', personCik: '0001000001',
+            source: EDGAR_CANONICAL_SOURCE,
+            acceptedAt: new Date(ASOF.getTime() - 5 * DAY_MS) }),
+          makeTrade({ accession: 'b', transactionCode: 'P', personCik: '0001000002',
+            source: EDGAR_CANONICAL_SOURCE,
+            acceptedAt: new Date(ASOF.getTime() - 10 * DAY_MS) }),
+          makeTrade({ accession: 'c', transactionCode: 'P', personCik: '0001000003',
+            source: EDGAR_CANONICAL_SOURCE,
+            acceptedAt: new Date(ASOF.getTime() - 20 * DAY_MS) }),
+        ],
+      }],
+    });
+    const row = evaluateForm4InsiderComposite(inputs).perTickerRows[0];
+    assert.equal(row.insiderClusterBuyFlag, true);
+    assert.equal(row.insiderBuyCount90d, 3);
+    assert.deepEqual(row.insiderCountSourceMix, { edgar: 3, finnhub: 0 });
+  });
+
+  it('T-F4-ADR052-3: 2 EDGAR + 1 Finnhub distinct insiders → cluster flag OFF (Finnhub excluded from identity) but raw count still 3, source-mix {2,1}', () => {
+    const inputs = makeInputs({
+      perTicker: [{
+        ticker: 'AAPL', cik: '0000320193', sector: 'IT',
+        trades: [
+          makeTrade({ accession: 'a', transactionCode: 'P', personCik: '0001000001',
+            source: EDGAR_CANONICAL_SOURCE,
+            acceptedAt: new Date(ASOF.getTime() - 5 * DAY_MS) }),
+          makeTrade({ accession: 'b', transactionCode: 'P', personCik: '0001000002',
+            source: EDGAR_CANONICAL_SOURCE,
+            acceptedAt: new Date(ASOF.getTime() - 10 * DAY_MS) }),
+          // Finnhub — synthetic identity; MUST NOT count toward cluster
+          // distinctness even though it is the 3rd distinct person_cik.
+          makeTrade({ accession: 'c', transactionCode: 'P', personCik: 'FHabc1234567',
+            source: 'finnhub',
+            acceptedAt: new Date(ASOF.getTime() - 20 * DAY_MS) }),
+        ],
+      }],
+    });
+    const row = evaluateForm4InsiderComposite(inputs).perTickerRows[0];
+    // Cluster identity EDGAR-only → only 2 distinct → flag OFF (D1).
+    assert.equal(row.insiderClusterBuyFlag, false);
+    // Raw count stays dual-source (D3) → all 3 P trades counted.
+    assert.equal(row.insiderBuyCount90d, 3);
+    assert.equal(row.insiderBuyerCount90d, 3);
+    // Source-mix label makes the split honest (D3/D4).
+    assert.deepEqual(row.insiderCountSourceMix, { edgar: 2, finnhub: 1 });
+  });
+
+  it('T-F4-ADR052-4: sector cluster-rate ignores Finnhub rows (D1/D4 defense-in-depth)', () => {
+    // Baseline centered on the SAME rate a single cluster-ticker would produce
+    // (1/30) so we can read the cluster count straight off clusterRateT.
+    const baseline: number[] = [];
+    for (let i = 0; i < 60; i++) baseline.push(0.02 + ((i % 4) - 1.5) * 0.005);
+
+    // Contaminated sector: ONE ticker with 1 EDGAR + 2 Finnhub buyers → the
+    // EDGAR-only cluster count is 1 (< threshold 3) → 0 cluster tickers →
+    // sector cluster-rate = 0 despite 3 RAW distinct person_ciks.
+    const contaminated = makeInputs({
+      sectors: [{
+        sector: 'Information Technology', sectorSize: 30,
+        trades: [
+          makeTrade({ issuerTicker: 'AAA', accession: 'e1', transactionCode: 'P',
+            personCik: '0001000001', source: EDGAR_CANONICAL_SOURCE }),
+          makeTrade({ issuerTicker: 'AAA', accession: 'f1', transactionCode: 'P',
+            personCik: 'FH1111111111', source: 'finnhub' }),
+          makeTrade({ issuerTicker: 'AAA', accession: 'f2', transactionCode: 'P',
+            personCik: 'FH2222222222', source: 'finnhub' }),
+        ],
+        baseline2y: baseline, baseline2ySell: [],
+      }],
+    });
+    const snapBad = evaluateForm4InsiderComposite(contaminated);
+    // The cluster rate is 0 (Finnhub excluded from identity) — NOT a positive
+    // cluster. maxAggregateZ may be negative (rate 0 below the ~0.02 baseline
+    // mean is a legitimate symmetric anomaly, same posture as G2-SELL-F4-4),
+    // but it must NOT reflect a positive cluster.
+    assert.ok(
+      snapBad.maxAggregateZ == null || snapBad.maxAggregateZ <= 0,
+      'Finnhub-contaminated sector produces NO positive cluster (rate 0)',
+    );
+    // No flagged sector carries a positive clusterRateT.
+    for (const f of snapBad.flaggedSectors) {
+      assert.equal(f.clusterRateT, 0, 'contaminated sector rate is 0, not a real cluster');
+    }
+
+    // CONTROL: the SAME 3 distinct buyers but ALL EDGAR → cluster fires → rate
+    // = 1/30 > 0 → positive z → flagged with a positive rate. This proves the
+    // exclusion in the contaminated case is the Finnhub source, not the data.
+    const control = makeInputs({
+      sectors: [{
+        sector: 'Information Technology', sectorSize: 30,
+        trades: [
+          makeTrade({ issuerTicker: 'AAA', accession: 'e1', transactionCode: 'P',
+            personCik: '0001000001', source: EDGAR_CANONICAL_SOURCE }),
+          makeTrade({ issuerTicker: 'AAA', accession: 'e2', transactionCode: 'P',
+            personCik: '0001000002', source: EDGAR_CANONICAL_SOURCE }),
+          makeTrade({ issuerTicker: 'AAA', accession: 'e3', transactionCode: 'P',
+            personCik: '0001000003', source: EDGAR_CANONICAL_SOURCE }),
+        ],
+        baseline2y: baseline, baseline2ySell: [],
+      }],
+    });
+    const snapGood = evaluateForm4InsiderComposite(control);
+    assert.equal(snapGood.flaggedSectors.length, 1);
+    assertClose(snapGood.flaggedSectors[0].clusterRateT, 1 / 30);
+    assert.ok((snapGood.maxAggregateZ ?? -1) > 0, 'all-EDGAR cluster yields a positive z');
+  });
+
+  it('T-F4-ADR052-5: an absent/empty source is fail-closed (dropped from cluster identity)', () => {
+    const inputs = makeInputs({
+      perTicker: [{
+        ticker: 'AAPL', cik: '0000320193', sector: 'IT',
+        trades: [
+          makeTrade({ accession: 'a', transactionCode: 'P', personCik: '0001000001', source: '' }),
+          makeTrade({ accession: 'b', transactionCode: 'P', personCik: '0001000002', source: '' }),
+          makeTrade({ accession: 'c', transactionCode: 'P', personCik: '0001000003', source: '' }),
+        ],
+      }],
+    });
+    const row = evaluateForm4InsiderComposite(inputs).perTickerRows[0];
+    // None are EDGAR → no cluster identity → flag OFF; raw count still 3.
+    assert.equal(row.insiderClusterBuyFlag, false);
+    assert.equal(row.insiderBuyCount90d, 3);
+    assert.deepEqual(row.insiderCountSourceMix, { edgar: 0, finnhub: 3 });
   });
 });
