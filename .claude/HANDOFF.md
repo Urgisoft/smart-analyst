@@ -13,7 +13,10 @@ decision — pursue single-stock via Polygon, OR conclude the null. Plus two dat
 ## 🔌 Restart recovery — ClickHouse is in Docker Desktop
 ClickHouse runs in container `quantlab-clickhouse`. On reboot: `Start-Process "C:\Program Files\Docker\Docker\Docker Desktop.exe"` → `docker start quantlab-clickhouse` (wait `docker inspect --format '{{.State.Health.Status}}'` = healthy) → verify `curl -s "http://127.0.0.1:8123/?user=quantlab&password=quantlab&database=quantlab" --data-binary "SELECT 1"`.
 **Dev server:** `npm run dev` → http://localhost:3000 (no hot-reload; restart after server edits). NOT running.
-**No background jobs running.** All 4 EDGAR/FINRA backfills COMPLETE; the 30-min watchdog cron was retired (CronDelete'd). Nothing to resume.
+### ⚠️ POLYGON BACKFILL RUNNING (background — dies on /clear, resumable)
+A ~2hr Polygon grouped-daily backfill is running (survivorship-free price panel for equity_xs). **If the chat was /cleared it's dead.** Resume: check `logs/polygon_grouped_daily_*.progress` + `tail logs/polygon_backfill.log`; relaunch (idempotent, skips done days):
+`.venv/Scripts/python.exe scripts/polygon_grouped_daily_ingest.py --start-date 2024-06-01 --end-date 2026-05-29 --apply` (run in background). Done when `equity_daily_polygon` covers 2024-06→2026-05 (~500 trading days, ~6M rows). Verify: `SELECT count(), min(date), max(date) FROM quantlab.equity_daily_polygon`.
+(All 4 EDGAR/FINRA backfills are COMPLETE; the 30-min watchdog cron was retired.)
 
 ---
 
@@ -27,7 +30,7 @@ ClickHouse runs in container `quantlab-clickhouse`. On reboot: `Start-Process "C
 | Q-6 | ETF v1 yfinance primary broken | OPEN — issuer-direct rebuild still queued (lower priority given the null finding) |
 | Q-7 | phase1_v3 yield-curve source | OPEN |
 | Q-8 | Phase C promotion | **DORMANT — nothing is Phase-C-eligible (0 of 6 validated pass)** |
-| **Q-9** | **Single-stock backtest needs survivorship-free prices → Polygon.io FREE tier** (point-in-time delisted prices, 5 calls/min, needs a free API key) OR Kaggle bulk CSVs OR paid (Sharadar/CRSP). **Operator: get a free Polygon key if pursuing single-stock.** | **OPEN — the key fork** |
+| **Q-9** | Single-stock survivorship-free prices: **RESOLVED for the matched window.** Polygon key is in `.env` (`POLYGON_API_KEY`, gitignored). Polygon FREE tier = survivorship-free grouped-daily **~2024-06→present only** (deep history 2008+ is PAID). Ingest BUILT+MERGED (`a2a972f`, `scripts/polygon_grouped_daily_ingest.py` → `equity_daily_polygon`); backfill RUNNING. **NEXT: wire equity_xs to read `equity_daily_polygon` + re-run survivorship-free.** Deep-history (pre-2024) backtest still = paid (deferred). | **IN PROGRESS** |
 
 ---
 
@@ -98,10 +101,14 @@ deeper EDGAR insider backfill) and it can be tested for real. This is where alph
 
 ## Next stage
 ### On `continue` — this is an operator-judgment fork, surface it; don't auto-build
-1. **If operator pursues single-stock (recommended path if any):** get a free Polygon.io API key (Q-9) →
-   build a Polygon survivorship-free delisted-price ingest (`scripts/polygon_prices_ingest.py`, 5 calls/min,
-   PIT) → re-run `npx tsx scripts/phase_b_campaign_equity_xs_v1.ts --apply` on the survivorship-free panel
-   + deepen EDGAR insider history. THIS is the one place alpha might still exist.
+1. **Single-stock survivorship-free re-run (IN PROGRESS — finish this):** Polygon ingest is built+merged
+   and the backfill is RUNNING (resume if /cleared — see ⚠️ above). When `equity_daily_polygon` covers
+   2024-06→present: **wire `equity_xs` to read it** (it currently reads `candles` with the `_SP500`/`_USD`
+   suffix; point its universe+price source at `equity_daily_polygon` for a survivorship-FREE 2024+ panel —
+   Composite worker), **then re-run** `npx tsx scripts/phase_b_campaign_equity_xs_v1.ts --apply`. The verdict
+   will no longer be survivorship-suspect. HONEST caveat: window is only ~2yr (Polygon free), so Phase B
+   robustness is limited — could still be insufficient/beta, but it's a REAL test. If a faint clean signal
+   appears, THAT is the case for paid deep-history data. THIS is the one place alpha might still exist.
 2. **If concluding the null:** write an ADR documenting "alternative-data market-timing composites — null
    result" + the validated-pipeline deliverable. Stop adding composites.
 3. **Lower-priority data fixes (only if continuing the aggregate line, which the evidence discourages):**
