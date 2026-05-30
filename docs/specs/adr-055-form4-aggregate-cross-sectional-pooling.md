@@ -327,8 +327,54 @@ returns a Phase-B verdict — only then is "corrected" even a question.
   EDGAR/FINRA composites share this structure — yes in principle; the three-layer +
   pooling template now applies to all of them).
 
+## Addendum — OQ-C38-1 MEASURED post-D7 (2026-05-30, s96 #36 Cycle 39): D3 projection FALSIFIED
+
+D7 (the EDGAR coverage backfill) was executed via the SEC bulk Form 345 data sets
+(see ADR-052 addendum) and the v5 snapshots re-backfilled over the now-continuous
+2024-04…2026-05 EDGAR coverage. The pooled `effectiveEvents` were then MEASURED (per
+D3's mandate "VERIFIED on the re-backfill, not asserted"):
+
+| metric | pre-D7 | post-D7 | floor |
+| --- | --- | --- | --- |
+| pooled baselineSize (admitted days) | 203 | **730** (the full `BASELINE_CALENDAR_DAYS` window — coverage is now saturated, not the limiter) | — |
+| pooled BUY `effectiveEvents` | 3 | **8** | 20 |
+| pooled SELL `effectiveEvents` | — | **1** | 20 |
+
+**The D3 projection ("~4× continuous coverage → pooled ≈ 20–60 events → clears the
+floor") is FALSIFIED.** 4× coverage (203→730 admitted days) lifted BUY from 3→8 — real
+growth, but far short of 20. The "Negative/watch-outs" caveat ("if the market-wide
+overlap is even stronger than assumed, pooled may still fall short post-D7") is the
+case that obtained.
+
+**Two load-bearing findings:**
+
+1. **The binding constraint moved from coverage to baseline-WINDOW length (BUY).** With
+   coverage saturated, the only remaining lever for the buy side is a LONGER baseline
+   window (> 730 days) fed by a multi-year backfill (OQ-C38-2; trivial now via the bulk
+   mechanism). 8 buy events / 730 days ≈ one independent buy-cluster event per ~90 days;
+   reaching 20 plausibly needs a ~3–5 year baseline. **Extending `BASELINE_CALENDAR_DAYS`
+   is a pinned-parameter change that must be decided a-priori in a NEW ADR (not tuned to
+   clear the floor — anti-shopping, AFML §11.4).**
+
+2. **The SELL side is STRUCTURALLY under-powered under this construct (new).** Pooled
+   SELL `effectiveEvents = 1`: across ~500 issuers the pooled sell-rate is non-zero on
+   *every* admitted day (insider selling is continuous market-wide — Lakonishok-Lee 2001
+   §4: routine diversification/tax), so `countNonZeroRuns` collapses the entire 730-day
+   series to a single plateau = one event. More data EXTENDS the plateau, it does not add
+   runs — so the sell aggregate cannot reach the event floor via coverage OR window
+   length. A viable sell-side aggregate would need a DIFFERENT construct (e.g. an
+   onset/threshold-excess event definition that breaks the plateau), which is a new
+   RESEARCH question, not a data chore.
+
+**Verdict: form_4's aggregate remains `under_review` and is NOT Phase-B-ready.** The v5
+pooled construct is correct and coverage is now honest+saturated; the floor was NOT
+moved. Buy is a longer-window question (OQ-C38-2 + an a-priori window ADR); sell is a
+construct question (new OQ-C39-1). The health_quarantine row stays `accepted-as-warning`.
+
 ## Cross-references
 
+- `docs/specs/adr-052-form4-source-provenance-normalization.md` — the bulk Form 345 D7
+  ingest mechanism (addendum) that produced this measurement.
 - `docs/specs/phase-b-form_4_v1.md` — the Phase-B SPEC this ADR is the construct
   precondition for (build contract + deflation-campaign overlay + readiness gate).
 - `docs/specs/adr-054-form4-aggregate-event-level-effective-sample.md` — the event-floor
