@@ -68,6 +68,11 @@ const ShortInterestApp = lazy(() => import('./components/composite/ShortInterest
 // sector cluster z, GICS sectors — mirrors eight_k) + per-ticker drill; reuses
 // CompositeDetailApp. Empty-state until the EDGAR 8-K Item 5.02 ingest runs.
 const ExecutiveDepartureApp = lazy(() => import('./components/composite/ExecutiveDepartureApp.tsx'));
+// Lazy-load the single-stock decision-support terminal — first UI of the post-validation
+// phase (post-ADR-056). A per-ticker scorecard (technicals / forward options / positioning /
+// macro-fit / fundamentals) assembled read-only from free server-callable sources. NO ALPHA
+// CLAIM — explicitly a data-aggregation terminal, not a validated signal.
+const SingleStockApp = lazy(() => import('./components/singleStock/SingleStockApp.tsx'));
 
 function Router() {
   const [hash, setHash] = useState(window.location.hash);
@@ -255,6 +260,17 @@ function Router() {
         </div>
       }>
         <HealthApp />
+      </Suspense>
+    );
+  }
+  if (path === '#/single-stock' || path.startsWith('#/single-stock/')) {
+    return (
+      <Suspense fallback={
+        <div className="min-h-screen bg-[#050505] text-amber-400/70 flex items-center justify-center text-[10px] font-mono uppercase tracking-widest">
+          loading single-stock terminal…
+        </div>
+      }>
+        <SingleStockApp />
       </Suspense>
     );
   }

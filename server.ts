@@ -77,6 +77,12 @@ import {
   CyclePositionDashboardError,
 } from "./src/server/cycle_position_dashboard.js";
 import {
+  parseTicker as parseSingleStockTicker,
+  isTickerFailure as isSingleStockTickerFailure,
+  fetchSingleStockScorecard,
+  SingleStockDashboardError,
+} from "./src/server/single_stock_dashboard.js";
+import {
   parseQuery as parseVolStructureQuery,
   isQueryFailure as isVolStructureQueryFailure,
   fetchVolStructureState,
@@ -698,6 +704,32 @@ async function startServer() {
         return res.status(e.status).json({ error: e.error, detail: e.detail });
       }
       console.error('cycle-position state error', e);
+      return res.status(503).json({ error: 'clickhouse_unavailable', detail: (e as Error).message });
+    }
+  });
+
+  // Powers /#/single-stock — single-stock decision-support scorecard (first UI
+  // of the post-validation phase). Assembles a per-ticker readout from
+  // server-callable sources: technicals (equity_daily_polygon), forward options
+  // (yfinance_options_summary.py via spawn), positioning (insider_trades +
+  // short_interest + schedule_13d_g_filings), macro fit (macro_regimes + GICS),
+  // and optional Finnhub fundamentals. NO ALPHA CLAIM — ADR-056 concluded the
+  // validation null; this is a data-aggregation terminal, NOT a signal. Each
+  // dimension degrades to an honest unavailable state on missing data; only a
+  // dead ClickHouse yields 503.
+  app.get("/api/single-stock/:ticker", async (req, res) => {
+    const parsed = parseSingleStockTicker({ ticker: req.params.ticker });
+    if (isSingleStockTickerFailure(parsed)) {
+      return res.status(parsed.status).json({ error: parsed.error, detail: parsed.detail });
+    }
+    try {
+      const scorecard = await fetchSingleStockScorecard(parsed.ticker);
+      return res.json(scorecard);
+    } catch (e) {
+      if (e instanceof SingleStockDashboardError) {
+        return res.status(e.status).json({ error: e.error, detail: e.detail });
+      }
+      console.error('single-stock scorecard error', e);
       return res.status(503).json({ error: 'clickhouse_unavailable', detail: (e as Error).message });
     }
   });
