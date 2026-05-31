@@ -13,6 +13,7 @@ guards NaN / None / non-positive IV; the tests pin those guards too.
 """
 from __future__ import annotations
 
+import math
 import sys
 from pathlib import Path
 
@@ -193,3 +194,152 @@ def test_render_runs_without_error():
     assert "OPTIONS READOUT - TEST" in text
     assert "CONTANGO" in text
     assert "IV pts" in text
+
+
+# ── Black-Scholes-Merton Greeks ────────────────────────────────────────────────
+# Pinned against the canonical textbook case (Hull, ch.15/19):
+#   S = K = 100, T = 1yr, sigma = 0.20, r = 0.05, q = 0.
+# Reference values (full-precision closed form):
+#   d1 = (0 + (0.05 + 0.02)*1) / 0.20 = 0.35 ; d2 = 0.15
+#   call delta = N(0.35)            ≈ 0.63683
+#   put  delta = N(0.35) - 1        ≈ -0.36317
+#   gamma      = phi(0.35)/(100*0.20) ≈ 0.018762
+#   vega(/1.0) = 100*phi(0.35)*1     ≈ 37.524   -> per 1% = 0.37524
+#   call rho   = 100*1*e^{-0.05}*N(0.15) ≈ 53.232 -> per 1pt = 0.53232
+#   call theta(per-yr) ≈ -6.4140  ; put theta(per-yr) ≈ -1.6580
+
+_TC = dict(spot=100.0, strike=100.0, t_years=1.0, sigma=0.20, rate=0.05, div_yield=0.0)
+
+
+def test_norm_cdf_pdf_known_values():
+    # N(0)=0.5 ; phi(0)=1/sqrt(2pi) ; N(1.96)≈0.975
+    assert yos._norm_cdf(0.0) == pytest.approx(0.5)
+    assert yos._norm_pdf(0.0) == pytest.approx(0.3989422804, abs=1e-9)
+    assert yos._norm_cdf(1.96) == pytest.approx(0.9750021, abs=1e-6)
+    # symmetry: N(-x) = 1 - N(x)
+    assert yos._norm_cdf(-0.35) == pytest.approx(1.0 - yos._norm_cdf(0.35), abs=1e-12)
+
+
+def test_bs_call_greeks_textbook_case():
+    g = yos.bs_greeks(kind="call", **_TC)
+    assert g is not None
+    assert g.delta == pytest.approx(0.6368, abs=1e-4)
+    assert g.gamma == pytest.approx(0.018762, abs=1e-6)
+    assert g.vega == pytest.approx(37.524, abs=1e-3)          # per 1.00 vol
+    assert g.vega_pct == pytest.approx(0.37524, abs=1e-5)     # per 1 vol point
+    assert g.rho == pytest.approx(53.232, abs=1e-3)           # per 1.00 rate
+    assert g.rho_pct == pytest.approx(0.53232, abs=1e-5)
+    assert g.theta_year == pytest.approx(-6.4140, abs=1e-3)
+    assert g.theta_day == pytest.approx(-6.4140 / 365.0, abs=1e-5)
+
+
+def test_bs_put_greeks_textbook_case():
+    g = yos.bs_greeks(kind="put", **_TC)
+    assert g is not None
+    assert g.delta == pytest.approx(-0.3632, abs=1e-4)
+    # gamma + vega are call/put-identical
+    assert g.gamma == pytest.approx(0.018762, abs=1e-6)
+    assert g.vega == pytest.approx(37.524, abs=1e-3)
+    # put rho is negative
+    assert g.rho == pytest.approx(-100.0 * math.exp(-0.05) * yos._norm_cdf(-0.15), abs=1e-3)
+    assert g.theta_year == pytest.approx(-1.6580, abs=1e-3)
+
+
+def test_call_put_delta_parity():
+    # call_delta - put_delta = e^{-qT}  (here q=0 -> 1.0)
+    c = yos.bs_greeks(kind="call", **_TC)
+    p = yos.bs_greeks(kind="put", **_TC)
+    assert (c.delta - p.delta) == pytest.approx(1.0, abs=1e-9)
+
+
+def test_dividend_yield_lowers_call_delta():
+    # A positive continuous q discounts the call delta by e^{-qT}.
+    base = yos.bs_greeks(kind="call", **_TC)
+    div = yos.bs_greeks(kind="call", **{**_TC, "div_yield": 0.03})
+    assert div.delta < base.delta
+    # call delta with q = e^{-qT} * N(d1_q); just assert it's strictly damped + finite
+    assert 0.0 < div.delta < base.delta
+
+
+def test_bs_greeks_skips_bad_inputs():
+    # T<=0, sigma<=0, S<=0, NaN IV -> None (don't poison the readout).
+    assert yos.bs_greeks(kind="call", spot=100, strike=100, t_years=0.0, sigma=0.2) is None
+    assert yos.bs_greeks(kind="call", spot=100, strike=100, t_years=1.0, sigma=0.0) is None
+    assert yos.bs_greeks(kind="call", spot=-1, strike=100, t_years=1.0, sigma=0.2) is None
+    assert yos.bs_greeks(kind="call", spot=100, strike=100, t_years=1.0, sigma=float("nan")) is None
+
+
+def test_bs_greeks_rejects_bad_kind():
+    with pytest.raises(ValueError):
+        yos.bs_greeks(kind="straddle", spot=100, strike=100, t_years=1.0, sigma=0.2)
+
+
+def test_atm_greeks_for_expiry_picks_atm_and_computes():
+    ag = yos.atm_greeks_for_expiry(NEAR_CALLS, NEAR_PUTS, SPOT, 20, rate=0.05, div_yield=0.0)
+    # ATM strike is 100 each side (nearest spot=100).
+    assert ag["call"]["strike"] == pytest.approx(100)
+    assert ag["put"]["strike"] == pytest.approx(100)
+    # call delta in (0,1), put delta in (-1,0)
+    assert 0.0 < ag["call"]["delta"] < 1.0
+    assert -1.0 < ag["put"]["delta"] < 0.0
+    # gamma positive, theta/day negative for both
+    assert ag["call"]["gamma"] > 0
+    assert ag["call"]["theta_day"] < 0
+    assert ag["put"]["theta_day"] < 0
+
+
+def test_atm_greeks_for_expiry_zero_dte_returns_none_sides():
+    ag = yos.atm_greeks_for_expiry(NEAR_CALLS, NEAR_PUTS, SPOT, 0)
+    assert ag["call"] is None and ag["put"] is None
+
+
+def test_aggregate_exposures_oi_weighted():
+    ex = yos.aggregate_exposures(NEAR_CALLS, NEAR_PUTS, SPOT, 20, rate=0.05, div_yield=0.0)
+    assert ex["contracts_used"] == 10           # all 5 calls + 5 puts have IV+OI
+    assert ex["total_gamma"] > 0                # unsigned magnitude
+    assert ex["net_delta"] is not None
+    # Recompute independently to pin the OI-weighting math.
+    expect_delta = 0.0
+    for side, rows in (("call", NEAR_CALLS), ("put", NEAR_PUTS)):
+        for c in rows:
+            g = yos.bs_greeks(kind=side, spot=SPOT, strike=c["strike"],
+                              t_years=20 / 365.0, sigma=c["impliedVolatility"],
+                              rate=0.05, div_yield=0.0)
+            expect_delta += g.delta * c["openInterest"]
+    assert ex["net_delta"] == pytest.approx(expect_delta, rel=1e-9)
+
+
+def test_aggregate_exposures_empty_when_no_oi():
+    no_oi = [_c(100, 0.4, 0, 0)]
+    ex = yos.aggregate_exposures(no_oi, no_oi, SPOT, 20)
+    assert ex["contracts_used"] == 0
+    assert ex["net_delta"] is None and ex["total_gamma"] is None
+
+
+# ── Greeks integrated into build_summary (additive; existing keys preserved) ────
+
+def test_build_summary_has_greeks_block_and_preserves_old_keys():
+    s = yos.build_summary(_snapshot(), skew_pct=0.10, rate=0.05, div_yield=0.0)
+    # Existing keys still present + unchanged (UI panel contract preserved).
+    for k in ("ticker", "spot", "term_structure", "term_structure_flag",
+              "pc_volume_all", "pc_oi_all", "nearest_expiry", "skew"):
+        assert k in s
+    # New greeks block.
+    g = s["greeks"]
+    assert g["model"] == "black-scholes-merton"
+    assert g["rate"] == pytest.approx(0.05)
+    assert g["div_yield"] == pytest.approx(0.0)
+    assert len(g["atm_term"]) == 2                       # one row per expiry
+    assert g["nearest"] == g["atm_term"][0]              # nearest == first term row
+    # nearest ATM call delta sane
+    assert 0.0 < g["nearest"]["call"]["delta"] < 1.0
+    # aggregate exposures present for nearest expiry
+    assert g["nearest_exposures"]["contracts_used"] > 0
+
+
+def test_render_includes_greeks_section():
+    s = yos.build_summary(_snapshot(), skew_pct=0.10, rate=0.05, div_yield=0.0)
+    text = yos.render(s)
+    assert "GREEKS (Black-Scholes-Merton" in text
+    assert "NEAREST-EXPIRY ATM detail" in text
+    assert "OI-WEIGHTED EXPOSURE" in text
