@@ -119,7 +119,13 @@ def fetch_with_retry(ticker: str, start: _dt.date, end: _dt.date) -> pd.DataFram
                 df.columns = [c[0] for c in df.columns]
             df = df.rename(columns={c: c.lower() for c in df.columns})
             df = df.reset_index()
-            df = df.rename(columns={"Date": "ts", "date": "ts"})
+            # yfinance's DatetimeIndex used to be named "Date"; current versions
+            # return it UNNAMED, so reset_index() yields a column literally named
+            # "index" (and intraday data uses "Datetime"). Normalize whatever the
+            # first column is — reset_index always inserts the former index at
+            # position 0 — to "ts", rather than matching a hard-coded name that
+            # drifts with the vendor. (Fixes the 2026-06 "['ts'] not in index".)
+            df = df.rename(columns={df.columns[0]: "ts"})
             return df[["ts", "open", "high", "low", "close", "volume"]]
         except Exception as e:
             last_err = e

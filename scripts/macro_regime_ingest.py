@@ -214,7 +214,12 @@ def fetch_yfinance_series(ticker: str, start: _dt.date, end: _dt.date) -> pd.Dat
             df.columns = [c[0] for c in df.columns]
         df = df.rename(columns={c: c.lower() for c in df.columns})
         df = df.reset_index()
-        df = df.rename(columns={"Date": "ts", "date": "ts"})
+        # Current yfinance returns an UNNAMED DatetimeIndex, so reset_index()
+        # yields a column named "index" (not "Date"/"date"). Normalize the
+        # first column (always the former index after reset) to "ts" rather
+        # than matching a vendor-drifting name. Fixes the 2026-06 macro-fetch
+        # "['ts'] not in index" that left VIX/SPY/HYG candles stale.
+        df = df.rename(columns={df.columns[0]: "ts"})
         # ^VIX and ^VIX3M return volume=NaN. Coerce to 0 so to_candle_rows
         # doesn't reject every row. The volume column is not load-bearing
         # for the regime classifier; it's stored for schema-uniformity.
