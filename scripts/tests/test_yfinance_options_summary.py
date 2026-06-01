@@ -343,3 +343,107 @@ def test_render_includes_greeks_section():
     assert "GREEKS (Black-Scholes-Merton" in text
     assert "NEAREST-EXPIRY ATM detail" in text
     assert "OI-WEIGHTED EXPOSURE" in text
+
+
+# ── IV repair: invert BSM from price when Yahoo's IV is a junk sentinel ──────────
+# Regression for the live bug: pre-market, yfinance returns impliedVolatility ≈
+# 1e-5 for every NVDA strike while lastPrice is valid; the readout then showed
+# ATM IV ≈ 0.001% instead of ~45%. The repair solves IV from price.
+
+def test_bs_price_call_put_textbook_case():
+    # Hull S=K=100,T=1,sigma=0.2,r=0.05,q=0 → call≈10.4506, put≈5.5735.
+    c = yos.bs_price(100, 100, 1.0, 0.20, kind="call", rate=0.05, div_yield=0.0)
+    p = yos.bs_price(100, 100, 1.0, 0.20, kind="put", rate=0.05, div_yield=0.0)
+    assert c == pytest.approx(10.4506, abs=1e-3)
+    assert p == pytest.approx(5.5735, abs=1e-3)
+    # put-call parity: c - p = S - K e^{-rT}
+    assert (c - p) == pytest.approx(100 - 100 * math.exp(-0.05), abs=1e-6)
+
+
+def test_bs_price_guards_bad_inputs():
+    assert yos.bs_price(100, 100, 0.0, 0.2, kind="call") is None   # T<=0
+    assert yos.bs_price(100, 100, 1.0, 0.0, kind="call") is None   # sigma<=0
+
+
+def test_implied_vol_round_trip():
+    # Price a known sigma, then invert → recover it.
+    for kind in ("call", "put"):
+        px = yos.bs_price(211.14, 210, 17 / 365.0, 0.45, kind=kind, rate=0.043, div_yield=0.0)
+        iv = yos.implied_vol_from_price(px, 211.14, 210, 17 / 365.0, kind=kind, rate=0.043, div_yield=0.0)
+        assert iv == pytest.approx(0.45, abs=1e-3)
+
+
+def test_implied_vol_unsolvable_outside_no_arb_band():
+    # A price below discounted intrinsic is not solvable → None (refuse to fake).
+    iv = yos.implied_vol_from_price(0.01, 211.14, 150, 17 / 365.0, kind="call")
+    assert iv is None
+    # Non-positive price → None.
+    assert yos.implied_vol_from_price(0.0, 100, 100, 1.0, kind="call") is None
+
+
+def test_repair_iv_trusts_plausible_yahoo_iv():
+    # IV already plausible (0.45) → returned unchanged, not repaired.
+    c = {"strike": 100, "impliedVolatility": 0.45, "lastPrice": 9.0}
+    iv, was = yos.repair_iv(c, 100, 20, kind="call")
+    assert iv == pytest.approx(0.45) and was is False
+
+
+def test_repair_iv_solves_from_price_when_yahoo_sentinel():
+    # The exact live failure: IV=1e-5 sentinel, but lastPrice usable → solve.
+    c = {"strike": 210, "impliedVolatility": 0.00001, "lastPrice": 9.0, "bid": 0.0, "ask": 0.0}
+    iv, was = yos.repair_iv(c, 211.14, 17, kind="call", rate=0.043, div_yield=0.0)
+    assert was is True
+    assert 0.30 < iv < 0.70          # recovers a realistic ~45% IV
+
+
+def test_repair_iv_prefers_mid_over_last_when_two_sided():
+    c = {"strike": 210, "impliedVolatility": 1e-5, "bid": 8.9, "ask": 9.1, "lastPrice": 100.0}
+    iv, was = yos.repair_iv(c, 211.14, 17, kind="call", rate=0.043, div_yield=0.0)
+    assert was is True and 0.30 < iv < 0.70   # uses mid (≈9.0), not the stale 100.0 last
+
+
+def test_repair_iv_marks_unusable_when_unsolvable():
+    # Sentinel IV + no usable price → None (skip downstream, never propagate 1e-5).
+    c = {"strike": 210, "impliedVolatility": 1e-5, "bid": 0.0, "ask": 0.0, "lastPrice": 0.0}
+    iv, was = yos.repair_iv(c, 211.14, 17, kind="call")
+    assert iv is None and was is False
+
+
+def test_repair_chain_iv_counts_and_preserves_other_fields():
+    chain = [
+        {"strike": 210, "impliedVolatility": 1e-5, "lastPrice": 9.0, "openInterest": 100, "volume": 5},
+        {"strike": 215, "impliedVolatility": 0.50, "lastPrice": 1.4, "openInterest": 50, "volume": 2},
+    ]
+    out, n = yos.repair_chain_iv(chain, 211.14, 17, kind="call", rate=0.043, div_yield=0.0)
+    assert n == 1                                   # only the sentinel one repaired
+    assert out[1]["impliedVolatility"] == pytest.approx(0.50)   # plausible kept
+    assert out[0]["openInterest"] == 100 and out[0]["volume"] == 5  # other fields intact
+    assert 0.30 < out[0]["impliedVolatility"] < 0.70
+
+
+def test_build_summary_repairs_sentinel_chain_and_reports_count():
+    # A whole chain of 1e-5 sentinels with valid lastPrice → ATM IV becomes real.
+    spot = 100.0
+    calls = [{"strike": k, "impliedVolatility": 1e-5,
+              "lastPrice": yos.bs_price(spot, k, 30 / 365.0, 0.40, kind="call"),
+              "openInterest": 100, "volume": 10} for k in (95, 100, 105)]
+    puts = [{"strike": k, "impliedVolatility": 1e-5,
+             "lastPrice": yos.bs_price(spot, k, 30 / 365.0, 0.40, kind="put"),
+             "openInterest": 100, "volume": 10} for k in (95, 100, 105)]
+    snap = {"ticker": "T", "spot": spot, "asof": "2026-06-01T00:00:00+00:00",
+            "expirations": [{"date": "2026-07-01", "dte": 30, "calls": calls, "puts": puts}]}
+    s = yos.build_summary(snap)
+    assert s["iv_repaired"] == 6                    # all 6 contracts solved from price
+    assert s["near_atm_iv"] == pytest.approx(0.40, abs=1e-2)   # recovered the true 40%
+
+
+def test_build_summary_drops_same_day_expiry():
+    # dte<=0 expiry is filtered so it can't pollute the near end of the term.
+    snap = {"ticker": "T", "spot": 100.0, "asof": "2026-06-01T00:00:00+00:00",
+            "expirations": [
+                {"date": "2026-06-01", "dte": 0, "calls": [_c(100, 0.9, 1, 1)], "puts": [_c(100, 0.9, 1, 1)]},
+                {"date": "2026-06-19", "dte": 20, "calls": NEAR_CALLS, "puts": NEAR_PUTS},
+            ]}
+    s = yos.build_summary(snap, skew_pct=0.10)
+    assert s["num_expirations"] == 1                # the dte=0 entry dropped
+    assert s["near_atm_iv"] == pytest.approx(0.40)  # near = the dte=20 expiry's ATM

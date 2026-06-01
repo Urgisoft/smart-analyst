@@ -233,6 +233,12 @@ function OptionsPanel({ options }: { options: OptionsBlock }) {
       accent="violet"
       subtitle={`spot ${fmtNum(options.spot, 2)} · ${options.numExpirations ?? 0} expirations · yfinance live chain @ ${options.asOf?.slice(0, 19).replace('T', ' ') ?? 'n/a'}Z`}
     >
+      {(options.ivRepaired ?? 0) > 0 && (
+        <div className="text-[10px] font-mono text-amber-300/80 mb-2 leading-snug">
+          ⚠ {options.ivRepaired} contracts' IV solved from price (Yahoo IV unavailable — likely
+          pre/post-market). Volatilities are model-derived from last trade, not live quotes.
+        </div>
+      )}
       <div className="grid grid-cols-1 lg:grid-cols-[1.3fr_1fr_1fr] gap-4">
         {/* IV term structure mini-table */}
         <div>

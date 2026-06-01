@@ -60,6 +60,8 @@ export interface OptionsBlock {
   asOf: string | null;
   spot: number | null;
   numExpirations: number | null;
+  /** Contracts whose IV was solved from price (Yahoo IV sentinel; pre/post-market). */
+  ivRepaired: number | null;
   termStructure: OptionsTermPoint[];
   termStructureFlag: string | null; // contango | backwardation | flat | insufficient
   nearAtmIv: number | null;
@@ -165,6 +167,7 @@ interface RawOptionsJson {
   spot: number;
   asof: string;
   num_expirations: number;
+  iv_repaired?: number;
   term_structure: Array<{ date: string; dte: number; atm_iv: number | null }>;
   term_structure_flag: string;
   near_atm_iv: number | null;
@@ -188,7 +191,7 @@ interface RawOptionsJson {
 function optionsUnavailable(note: string): OptionsBlock {
   return {
     available: false, note,
-    asOf: null, spot: null, numExpirations: null,
+    asOf: null, spot: null, numExpirations: null, ivRepaired: null,
     termStructure: [], termStructureFlag: null,
     nearAtmIv: null, farAtmIv: null, pcVolumeAll: null, pcOiAll: null,
     nearestExpiry: null, skew: null,
@@ -224,6 +227,7 @@ export function projectOptions(raw: RawOptionsJson): OptionsBlock {
     asOf: raw.asof ?? null,
     spot: numOrNull(raw.spot),
     numExpirations: numOrNull(raw.num_expirations),
+    ivRepaired: numOrNull(raw.iv_repaired),
     termStructure: (raw.term_structure ?? []).map(p => ({
       date: p.date, dte: p.dte, atmIv: numOrNull(p.atm_iv),
     })),

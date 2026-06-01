@@ -382,6 +382,214 @@ def bs_greeks(
     )
 
 
+# ── Implied-vol repair layer (invert BSM from price when Yahoo's IV is junk) ───
+#
+# yfinance's per-contract `impliedVolatility` is computed Yahoo-side from the
+# last trade and is frequently UNUSABLE outside regular trading hours: it
+# collapses to a ~1e-5 sentinel (or an absurd sub-1% value) pre/post-market and
+# on illiquid strikes, even though a valid `lastPrice` is present. Reading that
+# field blindly makes the whole readout report ~0% IV (observed live on NVDA
+# pre-open: every ATM strike showed atm_iv≈1e-5 while the true IV was ~45%).
+#
+# Fix per the data-source policy ("never emit a silent fabricated number"):
+# when Yahoo's IV is implausible we SOLVE it ourselves by inverting the same
+# Black-Scholes-Merton model used for the Greeks, from the contract's own market
+# price (mid if a two-sided quote exists, else lastPrice). If we cannot solve a
+# real IV either, the contract's IV is marked None so downstream selection SKIPS
+# it (an honest "n/a") rather than propagating the 1e-5 sentinel as if it were a
+# 0.001% volatility. This is decision-support repair of a known vendor data
+# defect, not a calculation-logic change to any validated signal (ADR-056).
+
+# Below IV_PLAUSIBLE_MIN we treat Yahoo's value as a missing-data sentinel, not a
+# real quote: no listed US equity option trades at <1% annualized IV. Above
+# IV_PLAUSIBLE_MAX (=1000%) we treat it as a parse artifact. Both trigger a
+# price-based re-solve.
+IV_PLAUSIBLE_MIN: float = 0.01
+IV_PLAUSIBLE_MAX: float = 10.0
+
+
+def bs_price(
+    spot: float,
+    strike: float,
+    t_years: float,
+    sigma: float,
+    *,
+    kind: str,
+    rate: float = RISK_FREE_DEFAULT,
+    div_yield: float = DIV_YIELD_DEFAULT,
+) -> Optional[float]:
+    """Black-Scholes-Merton price of one European option (dividend-adjusted).
+
+    The forward model whose inverse `implied_vol_from_price` solves. Same
+    conventions + guards as `bs_greeks`. Returns None on a non-finite /
+    non-positive required input.
+
+        call = S e^{-qT} N(d1) - K e^{-rT} N(d2)
+        put  = K e^{-rT} N(-d2) - S e^{-qT} N(-d1)
+    """
+    k = (kind or "").lower()
+    if k not in ("call", "put"):
+        raise ValueError(f"kind must be 'call' or 'put', got {kind!r}")
+    S = _finite(spot); K = _finite(strike); T = _finite(t_years)
+    vol = _finite(sigma); r = _finite(rate); q = _finite(div_yield)
+    if S is None or K is None or T is None or vol is None or r is None or q is None:
+        return None
+    if S <= 0 or K <= 0 or T <= 0 or vol <= 0:
+        return None
+    sqrt_t = math.sqrt(T)
+    d1 = (math.log(S / K) + (r - q + 0.5 * vol * vol) * T) / (vol * sqrt_t)
+    d2 = d1 - vol * sqrt_t
+    disc_q = math.exp(-q * T)
+    disc_r = math.exp(-r * T)
+    if k == "call":
+        return S * disc_q * _norm_cdf(d1) - K * disc_r * _norm_cdf(d2)
+    return K * disc_r * _norm_cdf(-d2) - S * disc_q * _norm_cdf(-d1)
+
+
+def implied_vol_from_price(
+    price: float,
+    spot: float,
+    strike: float,
+    t_years: float,
+    *,
+    kind: str,
+    rate: float = RISK_FREE_DEFAULT,
+    div_yield: float = DIV_YIELD_DEFAULT,
+    lo: float = 1e-4,
+    hi: float = 5.0,
+    tol: float = 1e-6,
+    max_iter: int = 100,
+) -> Optional[float]:
+    """Invert BSM to recover IV from an option's market price (bisection).
+
+    BSM price is strictly increasing in sigma between its no-arbitrage bounds
+    (intrinsic, discounted) and S e^{-qT} (call) / K e^{-rT} (put), so a simple
+    bracketed bisection is robust and derivative-free. Returns None when:
+      - any required input is non-finite/non-positive, OR
+      - the price lies outside the solvable no-arb band (e.g. a stale lastPrice
+        below discounted intrinsic) — in which case we refuse to fabricate.
+
+    Source: Hull ch.15 (BSM) — IV is the sigma equating model price to market.
+    """
+    S = _finite(spot); K = _finite(strike); T = _finite(t_years)
+    px = _finite(price); r = _finite(rate); q = _finite(div_yield)
+    if S is None or K is None or T is None or px is None or r is None or q is None:
+        return None
+    if S <= 0 or K <= 0 or T <= 0 or px <= 0:
+        return None
+    k = (kind or "").lower()
+    if k not in ("call", "put"):
+        raise ValueError(f"kind must be 'call' or 'put', got {kind!r}")
+
+    disc_q = math.exp(-q * T)
+    disc_r = math.exp(-r * T)
+    if k == "call":
+        lower, upper = max(0.0, S * disc_q - K * disc_r), S * disc_q
+    else:
+        lower, upper = max(0.0, K * disc_r - S * disc_q), K * disc_r
+    # Price must sit strictly inside the band for a finite-sigma solution.
+    eps = 1e-8
+    if px <= lower + eps or px >= upper - eps:
+        return None
+
+    def f(sig: float) -> float:
+        p = bs_price(S, K, T, sig, kind=k, rate=r, div_yield=q)
+        return (p if p is not None else 0.0) - px
+
+    f_lo, f_hi = f(lo), f(hi)
+    if f_lo == 0.0:
+        return lo
+    if f_lo * f_hi > 0:  # not bracketed (shouldn't happen given band check)
+        return None
+    a, b = lo, hi
+    for _ in range(max_iter):
+        m = 0.5 * (a + b)
+        fm = f(m)
+        if abs(fm) < tol:
+            return m
+        if f_lo * fm < 0:
+            b = m
+        else:
+            a, f_lo = m, fm
+    return 0.5 * (a + b)
+
+
+def _contract_price(contract: dict) -> Optional[float]:
+    """Best usable option price: bid/ask mid if a two-sided quote exists, else lastPrice.
+
+    Pre/post-market, bid==ask==0 (no live quote) but lastPrice carries the prior
+    session's trade — usable to back out IV. Returns None if neither is usable.
+    """
+    bid = _finite(contract.get("bid"))
+    ask = _finite(contract.get("ask"))
+    if bid is not None and ask is not None and bid > 0 and ask > 0:
+        return 0.5 * (bid + ask)
+    last = _finite(contract.get("lastPrice"))
+    if last is not None and last > 0:
+        return last
+    return None
+
+
+def repair_iv(
+    contract: dict,
+    spot: float,
+    dte: Optional[int],
+    *,
+    kind: str,
+    rate: float = RISK_FREE_DEFAULT,
+    div_yield: float = DIV_YIELD_DEFAULT,
+) -> tuple[Optional[float], bool]:
+    """Resolve a usable IV for one contract; (iv, was_repaired).
+
+    Policy:
+      1. Yahoo's impliedVolatility in [MIN, MAX]  → trust it (iv, False).
+      2. Otherwise solve from the contract's market price → (solved, True).
+      3. If unsolvable too → (None, False): mark unusable so downstream SKIPS it
+         (never propagate the ~1e-5 sentinel as a real 0.001% vol).
+    """
+    yiv = _finite(contract.get("impliedVolatility"))
+    if yiv is not None and IV_PLAUSIBLE_MIN <= yiv <= IV_PLAUSIBLE_MAX:
+        return yiv, False
+    if dte is None or dte <= 0:
+        return (None, False)
+    px = _contract_price(contract)
+    strike = _finite(contract.get("strike"))
+    if px is None or strike is None:
+        return (None, False)
+    solved = implied_vol_from_price(
+        px, spot, strike, dte / 365.0, kind=kind, rate=rate, div_yield=div_yield,
+    )
+    if solved is not None and IV_PLAUSIBLE_MIN <= solved <= IV_PLAUSIBLE_MAX:
+        return solved, True
+    return (None, False)
+
+
+def repair_chain_iv(
+    contracts: list[dict],
+    spot: float,
+    dte: Optional[int],
+    *,
+    kind: str,
+    rate: float = RISK_FREE_DEFAULT,
+    div_yield: float = DIV_YIELD_DEFAULT,
+) -> tuple[list[dict], int]:
+    """Return (contracts with repaired `impliedVolatility`, n_repaired).
+
+    Pure: copies each contract dict, overwriting only `impliedVolatility` with
+    the repaired value (which may be None → downstream selection skips it).
+    """
+    out: list[dict] = []
+    n_repaired = 0
+    for c in contracts:
+        iv, was = repair_iv(c, spot, dte, kind=kind, rate=rate, div_yield=div_yield)
+        c2 = dict(c)
+        c2["impliedVolatility"] = iv
+        if was:
+            n_repaired += 1
+        out.append(c2)
+    return out, n_repaired
+
+
 def _atm_contract(rows: list[dict], spot: float) -> Optional[dict]:
     """Return the contract whose strike is nearest spot with a usable IV.
 
@@ -639,6 +847,28 @@ def build_summary(
     spot = snap["spot"]
     exps = snap["expirations"]
 
+    # Drop same-day / expired entries (dte<=0): their IV is degenerate and they
+    # pollute the near end of the term structure. Keep all if that empties it
+    # (never crash on `exps[0]` downstream).
+    live = [e for e in exps if (e.get("dte") is None) or (e.get("dte") > 0)]
+    if live:
+        exps = live
+
+    # Repair per-contract IV BEFORE any computation: Yahoo's impliedVolatility is
+    # unusable pre/post-market (≈1e-5 sentinel) — solve it from the contract's own
+    # price via BSM inversion, else mark it unusable. This makes atm_iv / skew /
+    # Greeks read real volatilities instead of the vendor's near-zero sentinels.
+    iv_repaired = 0
+    repaired_exps = []
+    for e in exps:
+        rc, nc = repair_chain_iv(e["calls"], spot, e.get("dte"), kind="call",
+                                 rate=rate, div_yield=div_yield)
+        rp, npu = repair_chain_iv(e["puts"], spot, e.get("dte"), kind="put",
+                                  rate=rate, div_yield=div_yield)
+        iv_repaired += nc + npu
+        repaired_exps.append({**e, "calls": rc, "puts": rp})
+    exps = repaired_exps
+
     # ATM IV term structure (per expiry, calls side).
     term = []
     for e in exps:
@@ -692,6 +922,9 @@ def build_summary(
         "spot": spot,
         "asof": snap["asof"],
         "num_expirations": len(exps),
+        # Count of contracts whose IV we solved from price because Yahoo's was a
+        # missing/implausible sentinel (typically all of them pre/post-market).
+        "iv_repaired": iv_repaired,
         "term_structure": term,
         "term_structure_flag": ts_flag,
         "near_atm_iv": near["atm_iv"] if near else None,
@@ -761,6 +994,9 @@ def render(summary: dict) -> str:
     out.append(f" as-of {s['asof']}  .  source: yfinance (live chain)")
     out.append("=" * 70)
     out.append(f" Spot: {s['spot']:.2f}   .   {s['num_expirations']} expirations listed")
+    if s.get("iv_repaired"):
+        out.append(f" NOTE: {s['iv_repaired']} contracts' IV solved from price (Yahoo IV "
+                   f"unavailable - likely pre/post-market). Decision-support, not live quotes.")
     out.append("")
 
     # 1+2. Term structure
