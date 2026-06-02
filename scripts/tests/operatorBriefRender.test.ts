@@ -730,9 +730,11 @@ describe('renderBriefMarkdown — market-cycle-position panel (SPEC §3 + Option
         compositeVersion: 'cycle_v1',
       },
     }));
-    assert.match(md, /## 7\. Market cycle position — EARLY \(score 0\.720\)/);
+    // Honest recession-distance descriptor (was "EARLY — recovery/expansion",
+    // operator-flagged 2026-06-02 as conflating low-recession-risk with early-cycle).
+    assert.match(md, /## 7\. Market cycle position — EXPANSION \(low recession risk\) \(score 0\.720\)/);
     assert.match(md, /\*\*Score:\*\* 0\.720 \/ 1\.00/);
-    assert.match(md, /\*\*Phase:\*\* early/);
+    assert.match(md, /\*\*Reading:\*\* EXPANSION \(low recession risk\)/);
     assert.match(md, /\*\*12-month recession probability:\*\* 13\.3%/);
   });
 

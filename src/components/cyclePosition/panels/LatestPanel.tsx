@@ -28,11 +28,17 @@ const PHASE_TEXT: Record<Phase, string> = {
   unknown:      'text-zinc-300',
 };
 
+// Honest descriptors: this composite is a RECESSION-DISTANCE / expansion-health
+// gauge (Estrella-Mishkin 10Y-3M + credit + employment), NOT an NBER early/mid/
+// late cycle-phase classifier. A high score = low near-term recession risk —
+// which at market highs with low unemployment is consistent with a LATE-cycle
+// expansion, NOT "early recovery". The old 'EARLY — recovery/expansion' label
+// conflated low-recession-risk with early-cycle (operator-flagged 2026-06-02).
 const PHASE_LABEL: Record<Phase, string> = {
-  early:        'EARLY — recovery / expansion',
-  mid:          'MID — no clear directional signal',
-  late:         'LATE — multiple inputs softening',
-  contraction:  'CONTRACTION — recession near / here',
+  early:        'EXPANSION — low recession risk',
+  mid:          'MID-EXPANSION — mixed leading signals',
+  late:         'SLOWING — leading indicators softening',
+  contraction:  'CONTRACTION — recession signal',
   unknown:      'UNKNOWN — yield-curve input missing',
 };
 
@@ -65,7 +71,7 @@ export function LatestPanel({
       <div className={`border-2 rounded p-5 flex flex-col justify-between ${PHASE_BG[phase]}`}>
         <div>
           <div className="text-[9px] font-black uppercase tracking-[0.25em] text-white/60 mb-2">
-            Current cycle phase
+            Expansion health · recession distance
           </div>
           <div className={`text-3xl lg:text-4xl font-black ${PHASE_TEXT[phase]} mb-1`}>
             {PHASE_LABEL[phase]}
@@ -73,8 +79,14 @@ export function LatestPanel({
           <div className={`text-[11px] font-mono ${PHASE_TEXT[phase]}/80 mb-3`}>
             score {score.toFixed(3)} / 1.000{'  '}
             <span className="text-white/40">
-              · bands: contraction&lt;0.20 · late&lt;0.40 · mid&lt;0.65 · early≥0.65
+              · bands: contraction&lt;0.20 · slowing&lt;0.40 · mid&lt;0.65 · expansion≥0.65
             </span>
+          </div>
+          <div className="text-[10px] font-mono text-amber-300/70 mb-3 leading-snug">
+            ⚠ Recession-distance gauge (Estrella-Mishkin 10Y-3M + credit + employment),
+            NOT an NBER early/mid/late phase call. High = low near-term recession risk —
+            at market highs with low unemployment that is consistent with a LATE-cycle
+            expansion, not early recovery.
           </div>
         </div>
         <div className="flex items-center justify-between text-[10px] font-mono text-white/50 mt-2 pt-2 border-t border-white/10">

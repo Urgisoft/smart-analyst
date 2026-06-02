@@ -1809,13 +1809,23 @@ function renderCyclePositionSection(b: MorningBrief): string {
     return lines.join('\n');
   }
   const c = b.cyclePosition;
-  const phaseUpper = c.phaseLabel.toUpperCase();
+  // Honest descriptors — this is a recession-distance / expansion-health gauge,
+  // NOT an NBER early/mid/late phase classifier (operator-flagged 2026-06-02).
+  // A high score = low near-term recession risk (can be mid OR late expansion).
+  const PHASE_DESC: Record<string, string> = {
+    early: 'EXPANSION (low recession risk)',
+    mid: 'MID-EXPANSION (mixed signals)',
+    late: 'SLOWING (indicators softening)',
+    contraction: 'CONTRACTION (recession signal)',
+    unknown: 'UNKNOWN',
+  };
+  const phaseDesc = PHASE_DESC[c.phaseLabel] ?? c.phaseLabel.toUpperCase();
   const scoreStr = c.score.toFixed(3);
   const probStr = c.recessionProbPct.toFixed(1);
-  lines.push(`## 7. Market cycle position — ${phaseUpper} (score ${scoreStr})`);
+  lines.push(`## 7. Market cycle position — ${phaseDesc} (score ${scoreStr})`);
   lines.push(``);
-  lines.push(`**Score:** ${scoreStr} / 1.00 (0 = late-cycle/contraction, 1 = early-cycle)`);
-  lines.push(`**Phase:** ${c.phaseLabel}`);
+  lines.push(`**Score:** ${scoreStr} / 1.00 (recession-distance: 0 = recession-near, 1 = healthy expansion — NOT an NBER early/late phase)`);
+  lines.push(`**Reading:** ${phaseDesc}`);
   lines.push(`**12-month recession probability:** ${probStr}%`);
   lines.push(``);
   lines.push(`### Per-bucket contributions`);
