@@ -402,3 +402,71 @@ def test_ingest_universe_all_failures_returns_zero_succeeded():
     assert summary["succeeded"] == 0
     assert summary["attempted"] == 2
     assert summary["failed"] == ["SPY", "QQQ"]
+
+
+# ── Q-6 fallback: current-shares snapshot when get_shares_full is dead ────────
+# Regression for the 2026-06 fix. Yahoo's get_shares_full returns empty for
+# ETFs; the ingest falls back to a CURRENT snapshot from Ticker.info, preferring
+# the NAV-implied count (totalAssets / navPrice) over the unreliable
+# sharesOutstanding field, and writes ONE row at the latest close date.
+
+def _info_factory(info_by_ticker, close=None):
+    """Factory whose get_shares_full is empty but Ticker.info carries fields."""
+    def factory(ticker: str):
+        mock = MagicMock()
+        mock.get_shares_full.return_value = pd.Series(dtype=float)  # dead endpoint
+        c = close if close is not None else SPY_CLOSE_DENSE
+        mock.history.return_value = pd.DataFrame({"Close": c})
+        mock.info = info_by_ticker.get(ticker, {})
+        return mock
+    return factory
+
+
+def test_fetch_current_shares_prefers_nav_implied():
+    # totalAssets / navPrice = 735.06B / 756.28 ≈ 971.9M — preferred over the
+    # (wrong, lower) sharesOutstanding=917.78M.
+    f = _info_factory({"SPY": {
+        "sharesOutstanding": 917_782_016,
+        "totalAssets": 735_060_819_968,
+        "navPrice": 756.2813,
+    }})
+    v = etf.fetch_current_shares("SPY", ticker_factory=f)
+    assert v == pytest.approx(735_060_819_968 / 756.2813, rel=1e-9)
+    assert abs(v - 917_782_016) > 50_000_000  # NOT the sharesOutstanding value
+
+
+def test_fetch_current_shares_falls_back_to_shares_outstanding():
+    # No totalAssets/navPrice → use sharesOutstanding.
+    f = _info_factory({"QQQ": {"sharesOutstanding": 393_100_000}})
+    assert etf.fetch_current_shares("QQQ", ticker_factory=f) == pytest.approx(393_100_000)
+
+
+def test_fetch_current_shares_none_when_no_usable_fields():
+    assert etf.fetch_current_shares("ZZZ", ticker_factory=_info_factory({"ZZZ": {}})) is None
+    # navPrice<=0 must not divide-by-zero → None (no sharesOutstanding either).
+    f = _info_factory({"ZZZ": {"totalAssets": 1e9, "navPrice": 0}})
+    assert etf.fetch_current_shares("ZZZ", ticker_factory=f) is None
+
+
+def test_ingest_universe_snapshot_fallback_writes_one_row():
+    # get_shares_full empty + info present → exactly ONE row at the latest close
+    # date, shares = totalAssets/navPrice, aum = shares * close.
+    f = _info_factory({"TLT": {"totalAssets": 42_905_042_944, "navPrice": 85.706}})
+    summary = etf.ingest_universe(
+        ["TLT"], _dt.date(2026, 5, 1), _dt.date(2026, 5, 7),
+        apply_mode=False, client=None, ticker_factory=f,
+    )
+    assert summary["succeeded"] == 1
+    assert summary["rows_per_ticker"]["TLT"] == 1  # snapshot = single row, no backfill
+    assert summary["failed"] == []
+
+
+def test_ingest_universe_still_fails_when_both_paths_dead():
+    # get_shares_full empty AND info empty → ticker fails (S96-89 diagnostic path).
+    f = _info_factory({"SPY": {}})
+    summary = etf.ingest_universe(
+        ["SPY"], _dt.date(2026, 5, 1), _dt.date(2026, 5, 7),
+        apply_mode=False, client=None, ticker_factory=f,
+    )
+    assert summary["succeeded"] == 0
+    assert summary["failed"] == ["SPY"]

@@ -29,12 +29,18 @@ Known regression (s96 #17 Cycle 12 / S96-89): Yahoo broke
 `Ticker.get_shares_full` for ETFs (~2026). The endpoint returns empty for all
 21 F-UNIVERSE tickers while still working for equities (AAPL/MSFT/etc.).
 yfinance 1.4.0 does not fix it (Yahoo-side regression, library-independent).
-This script will print "FAILED (shares=0, close=N)" for all 21 tickers and
-exit 1 in that case; the failure pattern is detected and a structured
-diagnostic stderr line is emitted so the daemon step 1jb anomaly path can
-surface the regression instead of "run the ingest for catchup". See HANDOFF
-S96-89 + operator queue Q-6 (methodology amendment OR paid-data subscription)
-for the resolution paths.
+
+Q-6 resolution (2026-06, operator-directed "wire a real free source"): when
+`get_shares_full` returns empty, the ingest falls back to `fetch_current_shares`
+— a CURRENT shares snapshot from `Ticker.info` (`sharesOutstanding`, or
+`totalAssets / navPrice` when null, e.g. VOO). This is Yahoo's fund-info
+surface, INDEPENDENT of the v3.1 secondary (SSGA + stockanalysis.com), so the
+primary↔secondary cross-validation stays meaningful. The fallback writes one
+SNAPSHOT row per ticker at the latest close date (no fabricated backfill); the
+daemon (step 1jb) appends one row per run, rebuilding the panel forward. If BOTH
+the historical endpoint AND `.info` fail for every ticker, the script still
+exits 1 with the structured S96-89 diagnostic (defense-in-depth). See operator
+queue Q-6.
 
 Usage
 -----
@@ -280,6 +286,63 @@ def fetch_total_assets(ticker: str, ticker_factory=None) -> float | None:
         return None
 
 
+def fetch_current_shares(ticker: str, ticker_factory=None) -> float | None:
+    """Current shares-outstanding SNAPSHOT from yfinance `Ticker.info`.
+
+    F-DATA-SOURCE fallback for the dead `get_shares_full` ETF endpoint (Q-6,
+    confirmed 2026-06: Yahoo returns empty for the full F-UNIVERSE). `Ticker.info`
+    still exposes a current snapshot: prefer `sharesOutstanding`; when absent
+    (observed for VOO) derive it from `totalAssets / navPrice` (NAV-implied
+    share count). Returns None when neither path yields a positive value.
+
+    INDEPENDENT of the v3.1 secondary (SSGA navhist + stockanalysis.com), so the
+    primary↔secondary cross-validation stays meaningful — this is Yahoo's
+    fund-info surface, a different source from either secondary feed.
+
+    Source PREFERENCE = NAV-implied shares (`totalAssets / navPrice`) FIRST,
+    `sharesOutstanding` only as a fallback. Empirically (2026-06) Yahoo's
+    `sharesOutstanding` field is stale/wrong for many ETFs — e.g. TLT reports
+    109.7M vs the true ~500M (78% low), IVV/QQQ ~40% low — whereas totalAssets/
+    navPrice matches the v3.1 secondary's issuer values to ~2-6%. Using the
+    NAV-implied count keeps the materialized AUM (shares × close) consistent
+    with the reported totalAssets (the sanity-check gate) and avoids writing a
+    wrong share count (data-integrity: no plausible-but-false numbers).
+
+    A SNAPSHOT (not a historical panel): the caller writes a single row at the
+    latest close date; the daemon appends one row per run, rebuilding the panel
+    forward. We never carry a current value backward over past dates (that would
+    fabricate history — data-source policy: no silent fabricated numbers).
+    """
+    factory = ticker_factory or yf.Ticker
+    try:
+        info = factory(ticker).info
+    except Exception:  # noqa: BLE001 — yfinance raises a wide variety
+        return None
+    if not isinstance(info, dict):
+        return None
+    # Preferred: NAV-implied share count = totalAssets / navPrice (accurate +
+    # internally consistent with the AUM sanity gate).
+    ta = info.get("totalAssets")
+    nav = info.get("navPrice")
+    try:
+        if ta is not None and nav is not None and float(nav) > 0:
+            v = float(ta) / float(nav)
+            if v > 0:
+                return v
+    except (TypeError, ValueError):
+        pass
+    # Fallback: Yahoo's reported sharesOutstanding (less reliable for ETFs).
+    so = info.get("sharesOutstanding")
+    if so:
+        try:
+            v = float(so)
+            if v > 0:
+                return v
+        except (TypeError, ValueError):
+            pass
+    return None
+
+
 # ── Panel builder (forward-fill + AUM materialization) ───────────────────────
 
 def build_panel(
@@ -412,6 +475,17 @@ def ingest_universe(
         close = fetch_daily_close(
             ticker, start, end, ticker_factory=ticker_factory
         )
+        # F-DATA-SOURCE fallback (Q-6, 2026-06): get_shares_full is dead for
+        # ETFs, but Ticker.info exposes a CURRENT shares snapshot. When the
+        # historical path is empty, write a single row at the latest close date
+        # (today's reported shares) — NOT a flat backfill. Indexing the snapshot
+        # at close.index[-1] makes build_panel's ffill keep exactly one row
+        # (earlier dates precede the print → NaN → dropped). The daemon appends
+        # one row/run, rebuilding the panel forward.
+        if shares.empty and not close.empty:
+            snap = fetch_current_shares(ticker, ticker_factory=ticker_factory)
+            if snap is not None and snap > 0:
+                shares = pd.Series([snap], index=[close.index[-1]])
         if shares.empty or close.empty:
             summary["failed"].append(ticker)
             print(
