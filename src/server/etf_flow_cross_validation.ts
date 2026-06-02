@@ -225,6 +225,66 @@ export function compareEtfFlowPanels(
   return { divergences, totalCompared };
 }
 
+/** Reduce a panel to its LATEST row per ticker (max ISO date; ties → last seen). */
+function latestByTicker(
+  panel: ReadonlyArray<EtfFlowSecondaryPoint>,
+): Map<string, EtfFlowSecondaryPoint> {
+  const m = new Map<string, EtfFlowSecondaryPoint>();
+  for (const p of panel) {
+    const cur = m.get(p.ticker);
+    if (cur == null || p.date >= cur.date) m.set(p.ticker, p);
+  }
+  return m;
+}
+
+/** Compare the LATEST snapshot per ticker from each panel — join on TICKER
+ *  (not ticker|date). Used as a fallback when the two sources share no date
+ *  (e.g. a snapshot primary dated today vs a secondary lagging to the prior
+ *  close): shares-outstanding is slow-moving, so latest-vs-latest is the
+ *  meaningful consistency check. NOTE this can blend a small date gap into the
+ *  diff (the two latest rows may be different days), so it is intentionally the
+ *  FALLBACK — the precise same-date intersection (`compareEtfFlowPanels`) is
+ *  preferred and auto-resumes once both sources publish the same date.
+ *
+ *  Deterministic: tickers iterated in sorted order. The divergence row's `date`
+ *  is the primary's latest date. */
+export function compareEtfFlowPanelsLatest(
+  primary: ReadonlyArray<EtfFlowPrimaryPoint>,
+  secondary: ReadonlyArray<EtfFlowSecondaryPoint>,
+  opts: CompareOptions = {},
+): { divergences: EtfFlowDivergence[]; totalCompared: number } {
+  const entry = opts.entryThreshold ?? XV_DIVERGENCE_ENTRY_THRESHOLD;
+  const primLatest = latestByTicker(primary);
+  const secLatest = latestByTicker(secondary);
+  const divergences: EtfFlowDivergence[] = [];
+  let totalCompared = 0;
+  for (const ticker of [...primLatest.keys()].sort()) {
+    const p = primLatest.get(ticker)!;
+    const s = secLatest.get(ticker);
+    if (s == null) continue;
+    totalCompared++;
+    const primaryAum = p.shares * p.close;
+    const secondaryAum = s.shares * s.close;
+    const sharesPctDiff = symmetricPctDiff(p.shares, s.shares);
+    const aumPctDiff = symmetricPctDiff(primaryAum, secondaryAum);
+    const absShares = Math.abs(sharesPctDiff);
+    const absAum = Math.abs(aumPctDiff);
+    if (absShares <= entry && absAum <= entry) continue;
+    divergences.push({
+      ticker,
+      date: p.date,
+      primaryShares: p.shares,
+      secondaryShares: s.shares,
+      sharesPctDiff,
+      primaryAum,
+      secondaryAum,
+      aumPctDiff,
+      severity: classifySeverity(Math.max(absShares, absAum)),
+    });
+  }
+  return { divergences, totalCompared };
+}
+
 /** Aggregate a divergence list into the snapshot-payload summary.
  *  `totalCompared` is the intersection size from `compareEtfFlowPanels`. */
 export function summarizeDivergences(

@@ -13,6 +13,7 @@ import assert from 'node:assert/strict';
 import {
   classifySeverity,
   compareEtfFlowPanels,
+  compareEtfFlowPanelsLatest,
   summarizeDivergences,
   XV_DIVERGENCE_ENTRY_THRESHOLD,
   XV_SEVERITY_INFO_UPPER,
@@ -280,5 +281,65 @@ describe('evaluateEtfFlowComposite — secondary-panel wiring (T-EFXV-8)', () =>
     // ingest mismatches but large enough to ignore T+1 settlement noise.
     assert.ok(XV_DIVERGENCE_ENTRY_THRESHOLD > 0.0001);
     assert.ok(XV_DIVERGENCE_ENTRY_THRESHOLD < 0.01);
+  });
+});
+
+// ── compareEtfFlowPanelsLatest — latest-per-ticker fallback (Q-6 snapshot) ────
+// When the snapshot primary (dated today) and the secondary (dated the prior
+// close) share NO date, the same-date intersection is empty; the dashboard
+// falls back to this latest-per-ticker comparator so the page shows a real
+// comparison instead of "0 pairs · agree".
+
+describe('compareEtfFlowPanelsLatest', () => {
+  it('joins on ticker across DIFFERENT dates (intersection would be 0)', () => {
+    const primary: EtfFlowPrimaryPoint[] = [
+      { ticker: 'SPY', date: '2026-06-01', shares: 1_000_000, close: 600 },
+    ];
+    const secondary: EtfFlowSecondaryPoint[] = [
+      { ticker: 'SPY', date: '2026-05-29', shares: 1_200_000, close: 600 },
+    ];
+    // Same-date intersection is empty:
+    assert.equal(compareEtfFlowPanels(primary, secondary).totalCompared, 0);
+    // Latest-per-ticker compares them:
+    const { divergences, totalCompared } = compareEtfFlowPanelsLatest(primary, secondary);
+    assert.equal(totalCompared, 1);
+    assert.equal(divergences.length, 1);             // 1M vs 1.2M ≈ 16.7% → diverges
+    assert.equal(divergences[0].ticker, 'SPY');
+    assert.equal(divergences[0].date, '2026-06-01'); // primary's latest date
+    assert.equal(divergences[0].severity, 'critical');
+  });
+
+  it('uses the LATEST row per ticker on each side', () => {
+    const primary: EtfFlowPrimaryPoint[] = [
+      { ticker: 'QQQ', date: '2026-05-20', shares: 999, close: 100 },     // stale, ignored
+      { ticker: 'QQQ', date: '2026-06-01', shares: 500_000, close: 100 }, // latest
+    ];
+    const secondary: EtfFlowSecondaryPoint[] = [
+      { ticker: 'QQQ', date: '2026-05-29', shares: 500_000, close: 100 }, // matches latest primary
+    ];
+    const { divergences, totalCompared } = compareEtfFlowPanelsLatest(primary, secondary);
+    assert.equal(totalCompared, 1);
+    assert.equal(divergences.length, 0);             // 500k == 500k → agree, no divergence
+  });
+
+  it('counts agreement (within threshold) as compared, not diverged', () => {
+    const primary: EtfFlowPrimaryPoint[] = [
+      { ticker: 'IWM', date: '2026-06-01', shares: 1_000_000, close: 290 },
+    ];
+    const secondary: EtfFlowSecondaryPoint[] = [
+      { ticker: 'IWM', date: '2026-05-29', shares: 1_001_000, close: 290 }, // 0.1% → within entry
+    ];
+    const { divergences, totalCompared } = compareEtfFlowPanelsLatest(primary, secondary);
+    assert.equal(totalCompared, 1);
+    assert.equal(divergences.length, 0);
+  });
+
+  it('skips tickers absent from the secondary', () => {
+    const primary: EtfFlowPrimaryPoint[] = [
+      { ticker: 'VOO', date: '2026-06-01', shares: 2_300_000, close: 695 }, // secondary lacks VOO
+    ];
+    const { divergences, totalCompared } = compareEtfFlowPanelsLatest(primary, []);
+    assert.equal(totalCompared, 0);
+    assert.equal(divergences.length, 0);
   });
 });

@@ -36,6 +36,7 @@ import {
 import { ETF_UNIVERSE } from './etf_flow.js';
 import {
   compareEtfFlowPanels,
+  compareEtfFlowPanelsLatest,
   summarizeDivergences,
   type EtfFlowPrimaryPoint,
   type EtfFlowSecondaryPoint,
@@ -182,15 +183,23 @@ export function buildEtfFlowCrossValidationState(opts: {
     };
   }
 
-  // Mode 1 — cross-validation. Both panels have data. If the intersection
-  // happens to be empty (asymmetric coverage), totalCompared will be 0
-  // and the summary still renders (UI shows "0 pairs compared"); we keep
-  // `hasData:true` because there IS data to show — the operator just
-  // sees that no comparison was possible.
-  const { divergences, totalCompared } = compareEtfFlowPanels(
+  // Mode 1 — cross-validation. Both panels have data. Prefer the precise
+  // same-date intersection. But when the primary is a snapshot (one row dated
+  // today, post the get_shares_full→.info Q-6 fix) and the secondary lags to
+  // the prior close, the intersection is empty → fall back to latest-per-ticker
+  // so the operator sees a real comparison instead of a vacuous "0 pairs ·
+  // agree". The intersection path auto-resumes once both sources publish the
+  // same date (it's preferred whenever it yields ≥1 pair).
+  let { divergences, totalCompared } = compareEtfFlowPanels(
     opts.primary,
     opts.secondary,
   );
+  if (totalCompared === 0 && opts.primary.length > 0 && opts.secondary.length > 0) {
+    ({ divergences, totalCompared } = compareEtfFlowPanelsLatest(
+      opts.primary,
+      opts.secondary,
+    ));
+  }
   const summary = summarizeDivergences(
     divergences,
     totalCompared,
