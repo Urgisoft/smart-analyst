@@ -1566,7 +1566,9 @@ const HEALTH_STATUS_PRIORITY: Record<HealthStatus, number> = {
   'never-populated': 2,
   'stale': 3,
   'unknown-cadence': 4,
-  'fresh': 5,
+  // expected-empty is a non-fault state — lowest urgency, never the worst-pick.
+  'expected-empty': 5,
+  'fresh': 6,
 };
 
 /**
@@ -1580,7 +1582,10 @@ const HEALTH_STATUS_PRIORITY: Record<HealthStatus, number> = {
 function pickWorstSource(
   sources: ReadonlyArray<HealthSourceProbe>,
 ): BriefHealthDigestFreshnessBlock['worstSource'] {
-  const nonFresh = sources.filter(s => s.status !== 'fresh');
+  // Exclude both 'fresh' AND 'expected-empty' — the latter is a non-fault state
+  // (vestigial/superseded table that's empty by design), never a worst-source
+  // to flag in the morning brief.
+  const nonFresh = sources.filter(s => s.status !== 'fresh' && s.status !== 'expected-empty');
   if (nonFresh.length === 0) return null;
   const sorted = [...nonFresh].sort((a, b) => {
     const pa = HEALTH_STATUS_PRIORITY[a.status];
@@ -1589,9 +1594,9 @@ function pickWorstSource(
     return a.label.localeCompare(b.label);
   });
   const top = sorted[0];
-  // 'fresh' is filtered out above; the renderer's union type excludes
-  // it. Defensive narrowing for the type system.
-  if (top.status === 'fresh') return null;
+  // 'fresh' / 'expected-empty' are filtered out above; the renderer's union
+  // type excludes them. Defensive narrowing for the type system.
+  if (top.status === 'fresh' || top.status === 'expected-empty') return null;
   return {
     label: top.label,
     status: top.status,

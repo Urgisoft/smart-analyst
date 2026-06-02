@@ -22,7 +22,7 @@ function fakePhase1(): HealthCheckResponse {
     sources: [],
     migrations: [],
     summary: {
-      fresh: 0, stale: 0, veryStale: 0, missing: 0, neverPopulated: 0, unknownCadence: 0,
+      fresh: 0, stale: 0, veryStale: 0, missing: 0, neverPopulated: 0, expectedEmpty: 0, unknownCadence: 0,
       pendingMigrations: 0, appliedMigrations: 0, allGreen: true,
     },
   };

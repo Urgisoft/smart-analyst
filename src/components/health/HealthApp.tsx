@@ -165,6 +165,7 @@ function SummaryBanner({ data }: { data: HealthCheckResponse }) {
     { label: 'Very stale', value: summary.veryStale, color: 'text-red-300', emphasis: summary.veryStale > 0 },
     { label: 'Missing table', value: summary.missing, color: 'text-red-300', emphasis: summary.missing > 0 },
     { label: 'Never populated', value: summary.neverPopulated, color: 'text-amber-300', emphasis: summary.neverPopulated > 0 },
+    { label: 'Expected-empty', value: summary.expectedEmpty, color: 'text-zinc-400', emphasis: false },
     { label: 'Pending migrations', value: summary.pendingMigrations, color: 'text-amber-300', emphasis: summary.pendingMigrations > 0 },
     { label: 'Applied migrations', value: summary.appliedMigrations, color: 'text-emerald-300', emphasis: false },
   ];
@@ -209,7 +210,8 @@ function FreshnessPanel({ sources }: { sources: ReadonlyArray<HealthSourceProbe>
     'stale': 2,
     'never-populated': 3,
     'unknown-cadence': 4,
-    'fresh': 5,
+    'expected-empty': 5,
+    'fresh': 6,
   };
   const sorted = [...sources].sort((a, b) => {
     const oa = order[a.status];
@@ -272,10 +274,13 @@ function FreshnessPanel({ sources }: { sources: ReadonlyArray<HealthSourceProbe>
                     : '—'}
                 </td>
                 <td className="py-1.5 px-2">
-                  {(s.status !== 'fresh') && (
+                  {(s.status !== 'fresh' && s.status !== 'expected-empty') && (
                     <code className="text-[9px] text-amber-200 bg-amber-500/10 border border-amber-500/30 rounded px-1.5 py-0.5">
                       {s.operatorAction}
                     </code>
+                  )}
+                  {s.status === 'expected-empty' && (
+                    <span className="text-[9px] text-zinc-500 italic">{s.operatorAction}</span>
                   )}
                   {s.status === 'fresh' && (
                     <span className="text-[9px] text-zinc-600">—</span>
@@ -643,6 +648,7 @@ function StatusBadge({ status }: { status: HealthStatus }) {
     'very-stale': { bg: 'bg-red-500/10', border: 'border-red-500/40', text: 'text-red-300', label: 'very stale' },
     'missing-table': { bg: 'bg-red-500/10', border: 'border-red-500/40', text: 'text-red-300', label: 'missing' },
     'never-populated': { bg: 'bg-amber-500/10', border: 'border-amber-500/40', text: 'text-amber-300', label: 'empty' },
+    'expected-empty': { bg: 'bg-zinc-500/5', border: 'border-zinc-600/40', text: 'text-zinc-400', label: 'expected' },
     'unknown-cadence': { bg: 'bg-zinc-500/10', border: 'border-zinc-500/40', text: 'text-zinc-300', label: 'unknown' },
   };
   const cls = map[status];

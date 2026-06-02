@@ -41,6 +41,7 @@ function phase1(overrides?: Partial<HealthCheckResponse>): HealthCheckResponse {
       veryStale: 0,
       missing: 0,
       neverPopulated: 0,
+      expectedEmpty: 0,
       unknownCadence: 0,
       pendingMigrations: 0,
       appliedMigrations: 18,

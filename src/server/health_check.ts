@@ -88,6 +88,14 @@ export interface HealthSourceConfig {
   operatorAction: string;
   /** Short rationale for the cadence + autonomy choice. */
   why: string;
+  /**
+   * When true, a zero-row table is EXPECTED (not a fault) — render as a neutral
+   * 'expected-empty' state instead of an alarming 'never-populated' with a
+   * doomed action button. Use for genuinely-vestigial / superseded sources
+   * whose suggested command cannot populate them (ADR-044 UI-correctness: an
+   * empty state must tell the truth about whether action would help).
+   */
+  expectedEmpty?: boolean;
 }
 
 /**
@@ -365,8 +373,16 @@ export const HEALTH_SOURCES: ReadonlyArray<HealthSourceConfig> = [
     autonomous: true,
     timestampCol: 'resolved_at',
     timestampType: 'datetime',
-    operatorAction: 'npm run migrate:create-cusip-ticker-map:apply',
-    why: 'GAP-18 — populated lazily by the FINRA short-interest ingest via SEC EDGAR submissions API. One-shot cadence: Infinity thresholds — row count surfaces in the UI without freshness noise.',
+    // expected-empty (2026-06): the consolidated FINRA DAPI feed (post-72a5978)
+    // is TICKER-NATIVE — it returns symbols directly, so cusip='' on every row
+    // and there are no CUSIPs to resolve into this cache. The GAP-18 lazy-
+    // population path (FINRA ingest → EDGAR submissions API) is dormant by
+    // design, not broken; the migration only re-creates the (already-existing)
+    // empty table. Surfaced as a neutral expected-empty row, not an alarming
+    // EMPTY with a doomed action button.
+    expectedEmpty: true,
+    operatorAction: 'none — vestigial (FINRA feed is ticker-native; no CUSIPs to resolve)',
+    why: 'GAP-18 — was populated lazily by the FINRA short-interest ingest via SEC EDGAR submissions API WHEN the legacy CSV feed carried CUSIPs. The current consolidated DAPI feed is ticker-native (cusip=\'\'), so the cache is vestigial. Retained (not dropped) because the healthCheck migration-target convention pins it to a HEALTH_SOURCES entry; reclassified expected-empty so it reads honestly.',
   },
   // ── ADR-044 Phase 2 v1 quarantine + auto-fix log (cadence='one-shot') ────
   // Cycle 3 Worker A: surfaces the quarantine table on the freshness panel
@@ -534,6 +550,7 @@ export type HealthStatus =
   | 'very-stale'
   | 'missing-table'
   | 'never-populated'
+  | 'expected-empty'
   | 'unknown-cadence';
 
 export interface HealthSourceProbe {
@@ -568,6 +585,7 @@ export interface HealthSummary {
   veryStale: number;
   missing: number;
   neverPopulated: number;
+  expectedEmpty: number;
   unknownCadence: number;
   pendingMigrations: number;
   appliedMigrations: number;
@@ -665,9 +683,10 @@ export function classifyStatus(
   lastUpdateAgeHours: number,
   tableExists: boolean,
   timestampType: 'date' | 'datetime' = 'datetime',
+  expectedEmpty: boolean = false,
 ): HealthStatus {
   if (!tableExists) return 'missing-table';
-  if (rowCount === 0) return 'never-populated';
+  if (rowCount === 0) return expectedEmpty ? 'expected-empty' : 'never-populated';
   if (!Number.isFinite(lastUpdateAgeHours) || lastUpdateAgeHours < 0) {
     return 'unknown-cadence';
   }
@@ -681,13 +700,14 @@ export function summarize(
   sources: ReadonlyArray<HealthSourceProbe>,
   migrations: ReadonlyArray<HealthMigrationProbe>,
 ): HealthSummary {
-  let fresh = 0, stale = 0, veryStale = 0, missing = 0, neverPopulated = 0, unknownCadence = 0;
+  let fresh = 0, stale = 0, veryStale = 0, missing = 0, neverPopulated = 0, expectedEmpty = 0, unknownCadence = 0;
   for (const s of sources) {
     if (s.status === 'fresh') fresh++;
     else if (s.status === 'stale') stale++;
     else if (s.status === 'very-stale') veryStale++;
     else if (s.status === 'missing-table') missing++;
     else if (s.status === 'never-populated') neverPopulated++;
+    else if (s.status === 'expected-empty') expectedEmpty++;
     else if (s.status === 'unknown-cadence') unknownCadence++;
   }
   const appliedMigrations = migrations.filter(m => m.applied).length;
@@ -698,6 +718,7 @@ export function summarize(
     veryStale,
     missing,
     neverPopulated,
+    expectedEmpty,
     unknownCadence,
     pendingMigrations,
     appliedMigrations,
@@ -722,6 +743,8 @@ function statusMessage(status: HealthStatus, ageHours: number, rowCount: number)
       return 'Table does not exist in ClickHouse. Apply the migration.';
     case 'never-populated':
       return 'Table exists but has zero rows. Run the ingest.';
+    case 'expected-empty':
+      return 'Expected-empty (no fault) — table exists with zero rows by design; no operator action would populate it.';
     case 'unknown-cadence':
       return `Cannot determine age — ${rowCount.toLocaleString()} rows; timestamp column unreadable.`;
   }
@@ -846,7 +869,7 @@ async function probeSource(
     };
   }
   if (rowCount === 0 || lastTsSec === 0) {
-    const status: HealthStatus = 'never-populated';
+    const status: HealthStatus = source.expectedEmpty ? 'expected-empty' : 'never-populated';
     return {
       name: source.name,
       label: source.label,
