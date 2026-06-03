@@ -7,6 +7,10 @@ coverage/
 .env*
 !.env.example
 data/
+
+# MCP server config — carries the Finnhub API key; developer-local, never commit.
+.mcp.json
+
 # Claude Code per-user config — bash/MCP allowlists, env vars, and other developer-local
 # preferences. Stays out of the repo so each user's permissions are their own.
 # EXCEPT the project-canonical files (HANDOFF brief + Vector Core system prompt),
@@ -58,3 +62,4 @@ docs/dashboard.md
 /react-example@0.0.0
 /tsx
 /node
+reports/

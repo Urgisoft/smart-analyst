@@ -51,4 +51,9 @@ Log "Running polygon ingest $start .. $end ..."
 & "$repo\.venv\Scripts\python.exe" "$repo\scripts\polygon_grouped_daily_ingest.py" --start-date $start --end-date $end --apply *>> $log
 Log "polygon ingest exit=$LASTEXITCODE (3 = hit a not-yet-published day; expected)"
 
+# 3) Deterministic FTEC / AI-sector decision-support brief -> reports/ + Telegram.
+Log "Running ftec_daily_brief ..."
+& "$repo\.venv\Scripts\python.exe" "$repo\scripts\ftec_daily_brief.py" *>> $log
+Log "ftec_daily_brief exit=$LASTEXITCODE"
+
 Log "=== daily_refresh done ==="
