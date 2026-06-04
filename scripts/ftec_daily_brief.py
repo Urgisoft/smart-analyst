@@ -118,6 +118,31 @@ def _scenarios(p0: float) -> list[tuple]:
     return out
 
 
+# FTEC top-10 holdings + weights (stockanalysis snapshot; ~59% of the fund).
+FTEC_TOP10 = [("NVDA", 16.7), ("AAPL", 14.5), ("MSFT", 9.4), ("MU", 4.2), ("AVGO", 4.2),
+              ("AMD", 3.2), ("INTC", 2.0), ("CSCO", 1.9), ("LRCX", 1.6), ("ORCL", 1.5)]
+
+
+def _holdings() -> list[dict]:
+    """Per-holding price, today's % move, and 1yr % — batch yfinance download."""
+    import yfinance as yf
+    tks = [t for t, _ in FTEC_TOP10]
+    rows: list[dict] = []
+    try:
+        df = yf.download(tks, period="1y", auto_adjust=True, progress=False, threads=True)["Close"]
+    except Exception:
+        return rows
+    for t, w in FTEC_TOP10:
+        try:
+            s = df[t].dropna()
+            last, prev, first = float(s.iloc[-1]), float(s.iloc[-2]), float(s.iloc[0])
+            rows.append({"t": t, "w": w, "px": last,
+                         "day": (last / prev - 1) * 100, "yr": (last / first - 1) * 100})
+        except Exception:
+            rows.append({"t": t, "w": w, "px": None, "day": None, "yr": None})
+    return rows
+
+
 def build_report() -> str:
     today = _dt.date.today().isoformat()
     f = _ftec_stats()
@@ -126,6 +151,8 @@ def build_report() -> str:
     regime = _ch("SELECT concat(regime,' (',toString(trade_date),')') FROM macro_regimes ORDER BY trade_date DESC LIMIT 1") or "n/a"
     cyc = _ch("SELECT concat(phase_label,' | score ',toString(round(score,3)),' | recession_prob ',toString(round(recession_prob_pct,1)),'%') FROM cycle_position_snapshots ORDER BY snapshot_date DESC LIMIT 1") or "n/a"
     sect = _ch("SELECT concat(regime_flag,' | top sector ',top_sector_symbol) FROM sector_rotation_snapshots ORDER BY snapshot_date DESC LIMIT 1") or "n/a"
+    # ifNull on each numeric field — a single NULL would otherwise null the whole concat (-> '\N').
+    backdrop = _ch("SELECT concat('VIX ',ifNull(toString(round(vix_close,1)),'n/a'),' | yield curve (10Y-3M) ',ifNull(toString(round(yield_curve_value,2)),'n/a'),'% | categories firing ',ifNull(toString(categories_firing),'?'),'/4') FROM macro_regimes ORDER BY trade_date DESC LIMIT 1") or "n/a"
 
     L = []
     L.append(f"# FTEC daily brief — {today}")
@@ -138,13 +165,17 @@ def build_report() -> str:
     L.append(f"- **Market regime:** {regime}")
     L.append(f"- **Cycle (recession-distance gauge):** {cyc}")
     L.append(f"- **Sector rotation:** {sect}")
+    L.append(f"- **Macro backdrop:** {backdrop}")
     L.append("")
     L.append("## FTEC snapshot")
     # Compute the daily % move from price vs prior close (yfinance's .info
     # change-percent field is inconsistent across versions — don't trust it).
     chg = f"{(p0/f['prev']-1)*100:+.2f}%" if f.get("prev") else "n/a"
-    L.append(f"- **Price:** ${p0:,.2f}  ({chg} today)"
-             + (f" · after-hours ${f['post']:,.2f}" if f.get("post") else ""))
+    # Only show after-hours when it meaningfully differs from the regular price.
+    post_s = ""
+    if f.get("post") and p0 and abs(f["post"] - p0) / p0 > 0.0005:
+        post_s = f" · after-hours ${f['post']:,.2f}"
+    L.append(f"- **Price:** ${p0:,.2f}  ({chg} today){post_s}")
     if f.get("sma50") and f.get("sma200"):
         trend = "above" if p0 > f["sma50"] and p0 > f["sma200"] else "mixed"
         L.append(f"- **Trend:** 50d ${f['sma50']:,.0f} · 200d ${f['sma200']:,.0f} → price {trend} both"
@@ -155,6 +186,28 @@ def build_report() -> str:
     L.append(f"- **Valuation:** trailing P/E {pe:.0f}x" if pe else "- **Valuation:** trailing P/E n/a"
              + "")
     L[-1] += f" · ~{PE_FWD_NOW:.0f}x forward · realized vol {f['vol']*100:.0f}% · 12.6yr CAGR {f['cagr']*100:.0f}%"
+    L.append("")
+    L.append("## FTEC top-10 holdings (~59% of the fund)")
+    hold = _holdings()
+    if hold:
+        L.append("| Holding | Weight | Today | 1yr | Price |")
+        L.append("|---|---|---|---|---|")
+        for h in hold:
+            day = f"{h['day']:+.1f}%" if h["day"] is not None else "n/a"
+            yr = f"{h['yr']:+.0f}%" if h["yr"] is not None else "n/a"
+            px = f"${h['px']:,.2f}" if h["px"] is not None else "n/a"
+            L.append(f"| {h['t']} | {h['w']:.1f}% | {day} | {yr} | {px} |")
+        moved = [h for h in hold if h["day"] is not None]
+        if moved:
+            up = max(moved, key=lambda x: x["day"]); dn = min(moved, key=lambda x: x["day"])
+            nvda = next((h["day"] for h in hold if h["t"] == "NVDA" and h["day"] is not None), None)
+            nvda_s = f" · NVDA (the ~17% driver) {nvda:+.1f}%" if nvda is not None else ""
+            L.append("")
+            L.append(f"**Today's holding movers:** best {up['t']} {up['day']:+.1f}% · worst {dn['t']} {dn['day']:+.1f}%{nvda_s}")
+        L.append("")
+        L.append("_For WHY each name moved + the upcoming economic calendar (jobs/CPI/Fed/earnings), see the AI-narrative briefing in the Claude app._")
+    else:
+        L.append("_(holdings fetch unavailable this run)_")
     L.append("")
     L.append("## P(price higher) by horizon")
     L.append("| Horizon | Historical drift | **Base (10%)** | Zero-drift floor |")
