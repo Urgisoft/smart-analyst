@@ -143,6 +143,43 @@ def _holdings() -> list[dict]:
     return rows
 
 
+def _ch_rows(sql: str) -> list[list[str]]:
+    """Multi-row ClickHouse query -> list of tab-split string rows ([] on failure)."""
+    out = _ch(sql)
+    return [ln.split("\t") for ln in out.splitlines() if ln] if out else []
+
+
+# Top holdings we surface positioning/options for (the load-bearing names).
+POS_NAMES = ["NVDA", "AAPL", "MSFT", "AVGO", "AMD", "MU"]
+
+
+def _positioning() -> tuple[dict, dict]:
+    """Smart-money positioning for top names: latest short interest + 365d insider net $."""
+    names = ",".join(f"'{t}'" for t in POS_NAMES)
+    si = {r[0]: r for r in _ch_rows(
+        f"SELECT symbol, round(argMax(days_to_cover,settlement_date),1), round(argMax(change_pct,settlement_date),1) "
+        f"FROM short_interest WHERE symbol IN ({names}) GROUP BY symbol")}
+    ins = {r[0]: r[1] for r in _ch_rows(
+        f"SELECT issuer_ticker, round(sum(if(transaction_code='P',dollar_amount,-dollar_amount))/1e6,1) "
+        f"FROM insider_trades WHERE issuer_ticker IN ({names}) AND transaction_date >= today()-365 GROUP BY issuer_ticker")}
+    return si, ins
+
+
+def _opt(ticker: str) -> dict | None:
+    """Options read for one ticker: ATM IV (near), term-structure flag, P/C OI, skew.
+    Uses the IV-repair-aware options summarizer (works pre/post-market)."""
+    import sys as _s
+    _s.path.insert(0, str(REPO / "scripts"))
+    try:
+        import yfinance_options_summary as o
+        s = o.build_summary(o.fetch_chain(ticker))
+        sk = s.get("skew") or {}
+        return {"near": s.get("near_atm_iv"), "flag": s.get("term_structure_flag"),
+                "pc": s.get("pc_oi_all"), "skew": sk.get("skew_pts")}
+    except Exception:
+        return None
+
+
 def build_report() -> str:
     today = _dt.date.today().isoformat()
     f = _ftec_stats()
@@ -151,8 +188,10 @@ def build_report() -> str:
     regime = _ch("SELECT concat(regime,' (',toString(trade_date),')') FROM macro_regimes ORDER BY trade_date DESC LIMIT 1") or "n/a"
     cyc = _ch("SELECT concat(phase_label,' | score ',toString(round(score,3)),' | recession_prob ',toString(round(recession_prob_pct,1)),'%') FROM cycle_position_snapshots ORDER BY snapshot_date DESC LIMIT 1") or "n/a"
     sect = _ch("SELECT concat(regime_flag,' | top sector ',top_sector_symbol) FROM sector_rotation_snapshots ORDER BY snapshot_date DESC LIMIT 1") or "n/a"
-    # ifNull on each numeric field — a single NULL would otherwise null the whole concat (-> '\N').
-    backdrop = _ch("SELECT concat('VIX ',ifNull(toString(round(vix_close,1)),'n/a'),' | yield curve (10Y-3M) ',ifNull(toString(round(yield_curve_value,2)),'n/a'),'% | categories firing ',ifNull(toString(categories_firing),'?'),'/4') FROM macro_regimes ORDER BY trade_date DESC LIMIT 1") or "n/a"
+    backdrop = _ch("SELECT concat('VIX ',ifNull(toString(round(vix_close,1)),'n/a'),' | categories firing ',ifNull(toString(categories_firing),'?'),'/4') FROM macro_regimes ORDER BY trade_date DESC LIMIT 1") or "n/a"
+    # Cross-asset (oil / dollar / rates) — the live macro swing factor; t10y3m here
+    # also fills the yield-curve the macro_regimes row leaves null.
+    xa = _ch_rows("SELECT round(dxy_close,1), round(dxy_20d_change_pct*100,1), round(uso_close,1), round(t10y3m,2) FROM cross_asset_snapshots ORDER BY snapshot_date DESC LIMIT 1")
 
     L = []
     L.append(f"# FTEC daily brief — {today}")
@@ -166,6 +205,9 @@ def build_report() -> str:
     L.append(f"- **Cycle (recession-distance gauge):** {cyc}")
     L.append(f"- **Sector rotation:** {sect}")
     L.append(f"- **Macro backdrop:** {backdrop}")
+    if xa:
+        d = xa[0]
+        L.append(f"- **Cross-asset:** DXY {d[0]} ({d[1]}% 20d) · oil(USO) ${d[2]} · yield curve 10Y-3M {d[3]}%")
     L.append("")
     L.append("## FTEC snapshot")
     # Compute the daily % move from price vs prior close (yfinance's .info
@@ -208,6 +250,38 @@ def build_report() -> str:
         L.append("_For WHY each name moved + the upcoming economic calendar (jobs/CPI/Fed/earnings), see the AI-narrative briefing in the Claude app._")
     else:
         L.append("_(holdings fetch unavailable this run)_")
+    L.append("")
+    # Positioning — smart money (short interest + insider) on the top names.
+    si, ins = _positioning()
+    if si or ins:
+        L.append("## Positioning — smart money (top names)")
+        L.append("| Name | Days-to-cover | Insider net 365d |")
+        L.append("|---|---|---|")
+        for t in POS_NAMES:
+            r = si.get(t)
+            dtc = r[1] if (r and len(r) > 1) else "n/a"
+            netv = ins.get(t)
+            net = f"${netv}M" if netv is not None else "n/a"
+            L.append(f"| {t} | {dtc} | {net} |")
+        L.append("")
+        L.append("_Days-to-cover = short-squeeze fuel (higher = more shorts to unwind); insider net = "
+                 "open-market buys−sells over 365d (SEC Form 4; positive = insiders net buying)._")
+        L.append("")
+    # Options sentiment — what the options market is pricing (FTEC + the 17% driver NVDA).
+    of, on = _opt("FTEC"), _opt("NVDA")
+
+    def _optline(name: str, od: dict | None) -> str:
+        if not od or od.get("near") is None:
+            return f"- **{name}:** options read unavailable this run"
+        sk = f"{od['skew']:+.0f}pts" if od.get("skew") is not None else "n/a"
+        pc = f"{od['pc']:.2f}" if od.get("pc") is not None else "n/a"
+        return f"- **{name}:** ATM IV {od['near']*100:.0f}% ({od['flag']}) · P/C OI {pc} · skew {sk}"
+
+    L.append("## Options sentiment (what the options market is pricing)")
+    L.append(_optline("FTEC", of))
+    L.append(_optline("NVDA", on))
+    L.append("_IV = expected move size; backwardation = near-term event/stress priced in; "
+             "P/C OI <1 = call-heavy (bullish lean); positive skew = paying up for downside protection (fear)._")
     L.append("")
     L.append("## P(price higher) by horizon")
     L.append("| Horizon | Historical drift | **Base (10%)** | Zero-drift floor |")
