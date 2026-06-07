@@ -45,6 +45,28 @@ PLAUS = {               # impossible-value bounds (the 937T% class)
 }
 KNOWN_REGIMES = {"green", "yellow", "red", "risk_on", "risk_off", "neutral", "transition"}
 
+# Full freshness sweep: (table, ref, max_stale_days, expected_empty).
+#   ref='today' for daily-cadence snapshots (should have a row today); 'ltd' (last trading day) for
+#   market-data / trading-cadence tables. expected_empty=True for gated/informational ingests (EDGAR
+#   filing composites, etc.) — those report INFO, never STALE/EMPTY, so the sweep doesn't cry wolf
+#   (the F1 false-positive lesson). The date column is auto-detected per table (no hardcoded guesses).
+FRESHNESS = [
+    ("macro_regimes",                "ltd",   4, False),
+    ("equity_daily_polygon",         "ltd",   4, False),
+    ("cross_asset_snapshots",        "today", 2, False),
+    ("cycle_position_snapshots",     "today", 2, False),
+    ("sector_rotation_snapshots",    "today", 2, False),
+    ("vol_structure_snapshots",      "today", 2, False),
+    ("short_interest",               "ltd",  25, False),   # FINRA bi-monthly — lenient window
+    ("etf_shares_outstanding",       "ltd",  10, False),
+    ("etf_flow_snapshots",           "today", 5, True),     # informational; empty OK
+    ("short_interest_snapshots",     "today", 5, True),
+    ("form_4_insider_snapshots",     "today", 9999, True),  # EDGAR ingests gated — empty expected
+    ("schedule_13d_g_snapshots",     "today", 9999, True),
+    ("eight_k_classifier_snapshots", "today", 9999, True),
+    ("executive_departure_snapshots","today", 9999, True),
+]
+
 
 def _ch(sql: str) -> str | None:
     url = "http://127.0.0.1:8123/?user=quantlab&password=quantlab&database=quantlab"
@@ -111,6 +133,49 @@ def gather_online() -> dict:
 def _plaus(kind, v):
     lo, hi = PLAUS[kind]
     return v is not None and (lo <= v <= hi)
+
+
+def _date_col(table: str) -> str | None:
+    """Auto-detect a table's date/datetime column (prefer a name containing 'date')."""
+    out = _ch(f"SELECT name FROM system.columns WHERE database='quantlab' AND table='{table}' "
+              f"AND type LIKE '%Date%' ORDER BY (positionCaseInsensitive(name,'date')>0) DESC, position ASC LIMIT 1")
+    return out.strip() if out else None
+
+
+def freshness_sweep(today: _dt.date, ltd: _dt.date) -> list[dict]:
+    """Sweep every configured table for freshness + presence. Trading-day / expected-empty aware."""
+    out = []
+
+    def add(table, status, detail, tier=""):
+        out.append({"metric": f"fresh:{table}", "status": status, "detail": detail, "tier": tier})
+
+    for table, ref, max_stale, exp_empty in FRESHNESS:
+        col = _date_col(table)
+        if not col:
+            add(table, "NODATA", "no date column / table missing"); continue
+        r = _ch(f"SELECT toString(max(toDate({col}))), count() FROM quantlab.{table}")
+        if not r:
+            add(table, "NODATA", "query failed"); continue
+        parts = r.split("\t")
+        maxd_s = parts[0]
+        cnt = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+        if cnt == 0:
+            add(table, "INFO", "empty (expected — gated/informational ingest)") if exp_empty \
+                else add(table, "EMPTY", "0 rows", "Tier-1")
+            continue
+        try:
+            maxd = _dt.date.fromisoformat(maxd_s)
+        except Exception:
+            add(table, "OK", f"{cnt} rows, max {maxd_s}"); continue
+        refd = today if ref == "today" else ltd
+        age = (refd - maxd).days
+        if exp_empty:
+            add(table, "OK", f"{cnt} rows, latest {maxd_s} (informational)")
+        elif age > max_stale:
+            add(table, "STALE", f"latest {maxd_s}, {age}d behind {ref} (>{max_stale}d)", "Tier-1")
+        else:
+            add(table, "OK", f"{cnt} rows, latest {maxd_s} ({age}d)")
+    return out
 
 
 def run() -> dict:
@@ -232,6 +297,9 @@ def run() -> dict:
         except Exception:
             pass
 
+    # ── Full freshness + presence sweep across every configured table ──
+    findings += freshness_sweep(today, ltd)
+
     return {"ts": _dt.datetime.now().isoformat(timespec="seconds"),
             "today": today.isoformat(), "last_trading_day": ltd.isoformat(),
             "findings": findings, "online_errs": online.get("_yf_err")}
@@ -240,12 +308,12 @@ def run() -> dict:
 def render(res: dict) -> str:
     f = res["findings"]
     by = lambda s: [x for x in f if x["status"] == s]
-    issues = by("DISCREPANCY") + by("IMPLAUSIBLE") + by("STALE")
+    issues = by("DISCREPANCY") + by("IMPLAUSIBLE") + by("STALE") + by("EMPTY")
     L = ["🔎 SignalForge reconciliation — " + res["today"] + (f" (vs live online; last trading day {res['last_trading_day']})"),
          res["ts"], ""]
     ok = by("OK")
     L.append(f"SUMMARY: {len(ok)} OK · {len(by('DISCREPANCY'))} discrepancy · {len(by('IMPLAUSIBLE'))} implausible · "
-             f"{len(by('STALE'))} stale · {len(by('NODATA'))} no-data")
+             f"{len(by('STALE'))} stale · {len(by('EMPTY'))} empty · {len(by('INFO'))} info · {len(by('NODATA'))} no-data")
     L.append("")
     if issues:
         L.append("⚠️ NEEDS ATTENTION:")
@@ -254,9 +322,9 @@ def render(res: dict) -> str:
     else:
         L.append("✅ No discrepancies, stale sources, or implausible values found.")
     L.append("")
-    nod = by("NODATA")
+    nod = by("NODATA") + by("INFO")
     if nod:
-        L.append("ℹ️ Could not compare (degraded, not necessarily a fault):")
+        L.append("ℹ️ Informational / could not compare (not necessarily a fault):")
         L.extend(f"• {x['metric']}: {x['detail']}" for x in nod)
         L.append("")
     L.append("✓ Verified OK:")
