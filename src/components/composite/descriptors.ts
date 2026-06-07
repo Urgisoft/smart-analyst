@@ -327,7 +327,7 @@ export const crossAssetDescriptor: CompositeDescriptor = {
     {
       key: 'dxy20dChangePct',
       label: 'Broad dollar 20d change',
-      short: 'DXY',
+      short: 'BROAD-$',
       unit: 'raw',
       glossary: 'DTWEXBGS broad-dollar index 20-day change (decimal). Fires the dollar-shock flag above +3% — a strong dollar tightens global financial conditions.',
     },
@@ -372,7 +372,7 @@ export const crossAssetDescriptor: CompositeDescriptor = {
   },
   defaultTone: 'neutral',
   inputBits: [
-    { bit: 1 << 0, label: 'DXY' },
+    { bit: 1 << 0, label: 'BROAD-$' },
     { bit: 1 << 1, label: 'REAL-RT' },
     { bit: 1 << 2, label: 'CURVE' },
     { bit: 1 << 3, label: 'COMMOD' },

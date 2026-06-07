@@ -153,7 +153,7 @@ export function projectPayload(
 }
 
 export const INPUT_BIT_LABELS: { bit: number; label: string }[] = [
-  { bit: INPUT_DXY, label: 'DXY' },
+  { bit: INPUT_DXY, label: 'BROAD-$' },  // FRED DTWEXBGS broad trade-weighted $, NOT ICE DXY (~100)
   { bit: INPUT_REAL_RATES, label: 'REAL-RT' },
   { bit: INPUT_CURVE_SEGMENTS, label: 'CURVE' },
   { bit: INPUT_COMMODITIES, label: 'COMMOD' },
