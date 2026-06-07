@@ -56,4 +56,9 @@ Log "Running ftec_daily_brief ..."
 & "$repo\.venv\Scripts\python.exe" "$repo\scripts\ftec_daily_brief.py" *>> $log
 Log "ftec_daily_brief exit=$LASTEXITCODE"
 
+# 4) Sell-off & stabilization monitor + escalation-risk read -> reports/ (no urgent push, per spec).
+Log "Running selloff_monitor ..."
+& "$repo\.venv\Scripts\python.exe" "$repo\scripts\selloff_monitor.py" *>> $log
+Log "selloff_monitor exit=$LASTEXITCODE"
+
 Log "=== daily_refresh done ==="
