@@ -103,13 +103,19 @@ def opus_text(payload: dict) -> str | None:
         "concise Telegram alert (<=12 short lines, plain language for a non-statistician):\n"
         "1) a one-line headline, 2) what changed + the likely cause, 3) what it means / what to watch.\n\n"
         "STRICT RULES: decision-support only; NEVER recommend buy/sell or position sizing; no price "
-        "targets; you are NOT a licensed advisor. End with the exact line 'Not investment advice.' "
-        "Output ONLY the alert text, no preamble."
+        "targets; you are NOT a licensed advisor. If a web search does NOT confirm the cause, say "
+        "'cause unconfirmed' — do NOT invent specific figures, dates, or events. End with the exact "
+        "line 'Not investment advice.' Output ONLY the alert text, no preamble."
     )
     try:
-        r = subprocess.run([claude, "-p", "--model", "opus", prompt],
-                           capture_output=True, text=True, timeout=180,
-                           shell=(os.name == "nt"))
+        # Prompt via STDIN (not argv) avoids Windows quoting/injection with the JSON payload; .cmd
+        # shims must run through cmd /c. Verified end-to-end against claude 2.1.168 on Max.
+        args = [claude, "-p", "--model", "opus"]
+        if os.name == "nt":
+            args = ["cmd", "/c"] + args
+        # encoding=utf-8 is REQUIRED: Opus output has →/—/etc.; Windows' default cp1252 decode throws.
+        r = subprocess.run(args, input=prompt, capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=180)
         txt = (r.stdout or "").strip()
         return txt if (r.returncode == 0 and len(txt) > 40) else None
     except Exception:
