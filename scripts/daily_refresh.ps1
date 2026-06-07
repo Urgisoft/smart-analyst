@@ -61,4 +61,10 @@ Log "Running selloff_monitor ..."
 & "$repo\.venv\Scripts\python.exe" "$repo\scripts\selloff_monitor.py" *>> $log
 Log "selloff_monitor exit=$LASTEXITCODE"
 
+# 5) Data-integrity reconciliation: every stored number vs independent online sources + freshness +
+#    plausibility. Pushes a detailed integrity report to Telegram (--push). Detect+report only.
+Log "Running reconcile ..."
+& "$repo\.venv\Scripts\python.exe" "$repo\scripts\reconcile.py" --push *>> $log
+Log "reconcile exit=$LASTEXITCODE"
+
 Log "=== daily_refresh done ==="

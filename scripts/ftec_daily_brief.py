@@ -207,7 +207,9 @@ def build_report() -> str:
     L.append(f"- **Macro backdrop:** {backdrop}")
     if xa:
         d = xa[0]
-        L.append(f"- **Cross-asset:** DXY {d[0]} ({d[1]}% 20d) · oil(USO) ${d[2]} · yield curve 10Y-3M {d[3]}%")
+        # NB: dxy_close is FRED DTWEXBGS (broad trade-weighted $, ~119) — NOT the ICE "DXY" (~100).
+        # Labeled explicitly so the reader doesn't think the dollar index is at 119. (reconcile.py pins this.)
+        L.append(f"- **Cross-asset:** USD broad idx {d[0]} (FRED DTWEXBGS, not ICE DXY~100; {d[1]}% 20d) · oil(USO) ${d[2]} · yield curve 10Y-3M {d[3]}%")
     L.append("")
     # Sell-off & stabilization read (broad-market risk context BEFORE drilling into FTEC).
     # Embedded here — not a separate push — because the spec forbids urgent/reactive alerts;
