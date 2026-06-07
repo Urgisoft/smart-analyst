@@ -1,48 +1,68 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-06-03 (session 96 #40 — **decision-support + full autonomy session**:
-shipped the cycle-label honesty fix; built the **autonomous daily pipeline** (Windows Task
-Scheduler → daemon + polygon + FTEC brief → file + Telegram) so data + a quantitative brief
-refresh hands-off every morning; created a **cloud scheduled Claude agent** that writes the daily
-AI market narrative to the Claude app; enriched the local FTEC brief with top-10 holdings,
-positioning (short-interest + insider), options IV/skew, and cross-asset (oil/DXY/yield); did a
-large interactive FTEC/AI/macro analysis (probabilities, scenarios, capex, recession, Fed).
-Validation conclusion (ADR-056 null) UNCHANGED — no new strategy composites, no live trading.**)
-On `continue`: optional polish only (see "Next stage"). Nothing is mid-build.
+Last updated: 2026-06-07 (session 96 #41 — **decision-support automation session**: added the
+**Sell-Off & Stabilization Monitor + Escalation-Risk Read** (operator PDFs → specs + working v1),
+embedded its compact read into the daily FTEC Telegram brief, and built the **autonomous
+event-driven Market Watch** (Tier-1 deterministic change detector + Tier-2 alerter + 30-min
+market-hours scheduled task) so the operator is pinged on Telegram ONLY when something material
+changes — hands-off. Opus-narration of the alert is built but OFF pending a local `claude` CLI
+install + login. ADR-056 null UNCHANGED — all decision-support, no strategy composites, no live
+trading.**) On `continue`: finish the Opus-CLI upgrade (operator-gated install) OR build the
+"Today" command-center UI page (see "Next stage"). Nothing is mid-build/broken.
 
 ---
 
-## 🔌 Restart recovery — ClickHouse in Docker + the daily automation
-ClickHouse runs in container `quantlab-clickhouse` (Docker Desktop). **Container restart policy is
-now `unless-stopped`** + Docker Desktop launches at login → CH auto-recovers on reboot. Verify:
-`docker start quantlab-clickhouse` → health=healthy → `curl -s "http://127.0.0.1:8123/?user=quantlab&password=quantlab&database=quantlab" --data-binary "SELECT 1"`.
-**Dev server:** `npm run dev` → http://localhost:3000 (NO hot-reload — restart after ANY .ts edit; it
-died once this session, just restart it). **Python:** `.venv\Scripts\python.exe`.
-**⏰ Autonomous daily refresh (NEW):** Windows Task Scheduler task **"SignalForge Daily Refresh"**
-(weekday-agnostic daily 7:00 AM America/Denver, wake-to-run, start-when-available, run-as-user) runs
-`scripts/daily_refresh.ps1` → CH-wait → `daemon:daily --no-telegram` → polygon ingest (trailing 5d)
-→ `ftec_daily_brief.py`. Logs to `logs/daily_refresh_<date>.log`. Manage: `Get-ScheduledTask`.
+## 🔌 Restart recovery — ClickHouse in Docker + the automations
+ClickHouse runs in container `quantlab-clickhouse` (Docker Desktop, restart policy `unless-stopped`
++ Docker launches at login → auto-recovers on reboot). Verify: `docker start quantlab-clickhouse`
+→ healthy → `curl -s "http://127.0.0.1:8123/?user=quantlab&password=quantlab&database=quantlab" --data-binary "SELECT 1"`.
+**Dev server:** `npm run dev` → http://localhost:3000 (NO hot-reload — restart after ANY .ts edit).
+**Python:** `.venv\Scripts\python.exe`. **Confirmed live this session:** CH healthy (23h uptime),
+dev server serving HTTP 200.
+
+**⏰ TWO Windows Task Scheduler jobs now (both run-as-user, America/Denver):**
+1. **"SignalForge Daily Refresh"** — daily 7:00 AM → `scripts/daily_refresh.ps1`: CH-wait →
+   `daemon:daily --no-telegram` → polygon ingest (5d) → `ftec_daily_brief.py` → **`selloff_monitor.py`**.
+   Logs `logs/daily_refresh_<date>.log`.
+2. **"SignalForge Market Watch" (NEW)** — weekdays, every 30 min for 7.5h from 7:00 AM (≈pre-market
+   to close) → `scripts/market_watch_cycle.ps1`: CH-check (non-fatal) → `market_watch.py` →
+   `market_watch_alert.py`. Event-driven: a quiet cycle sends NOTHING. Logs `logs/market_watch_<date>.log`.
+   Disable: `Unregister-ScheduledTask -TaskName 'SignalForge Market Watch'`.
 
 ---
 
-## 🤖 Daily analysis automation (NEW this session — the headline deliverable)
-Two complementary daily outputs, fully hands-off:
-1. **Local deterministic brief** — `scripts/ftec_daily_brief.py` (runs in the 7am task). Writes
-   `reports/ftec_daily_brief_<date>.md` AND pushes plain-text to **Telegram** (TELEGRAM_BOT_TOKEN +
-   TELEGRAM_ALERT_CHAT_ID in `.env`, both set; 3× retry for the slow link). Sections: SignalForge
-   macro lens (regime/cycle/sector/VIX/cross-asset), FTEC snapshot, **top-10 holdings table +
-   today's movers**, **positioning (short-interest days-to-cover + 365d insider net $)**, **options
-   IV/skew (FTEC+NVDA)**, P(higher) table, bull/base/bear price scenarios. No LLM/auth needed.
-2. **Cloud scheduled Claude agent** — routine `trig_01V7PkD8Zgsv9bHJvFhZK5ag` ("Daily Market Briefing
-   — FTEC & AI Sector"), **weekdays 7:30 AM America/Denver (cron `30 13 * * 1-5` UTC)**, model
-   sonnet-4-6, tools WebSearch/WebFetch + the auto-attached **Bigdata** connector. Writes the AI
-   NARRATIVE (what moved & why, movers + AI/semi movers, top-10 holdings analysis, earnings
-   scorecard, overnight/pre-market, oil/DXY, outlook, macro, economic calendar, risks) → delivered to
-   the **Claude app**. Manage/edit prompt: https://claude.ai/code/routines/trig_01V7PkD8Zgsv9bHJvFhZK5ag
-   (or RemoteTrigger via the `schedule` skill). Cloud agent CANNOT reach local CH — it's web/Bigdata.
+## 🤖 Autonomous outputs (what the operator gets hands-off)
+1. **Daily local brief** (7am task) — `ftec_daily_brief.py` → `reports/` + **Telegram** (plain text).
+   Sections: macro lens, **sell-off & stabilization compact read** (NEW, embedded near top), FTEC
+   snapshot, top-10 holdings + movers, positioning (short-interest + insider), options IV/skew,
+   cross-asset, P(higher), scenarios. Total ~3.7k chars (fits Telegram's 4k cap). Telegram send
+   re-confirmed working this session.
+2. **Daily sell-off report** (7am task) — `selloff_monitor.py` → `reports/selloff_monitor_<date>.md`
+   (full read; no separate push — rides the brief's compact section).
+3. **Event-driven Market Watch alerts (NEW)** — every 30 min in market hours; Telegram alert ONLY on
+   a material change. Currently deterministic text; Opus enrichment pending CLI (see Next stage).
+4. **Cloud Claude routine** `trig_01V7PkD8Zgsv9bHJvFhZK5ag` — weekdays 7:30 AM, AI market narrative →
+   Claude app. CANNOT see local CH (web/Bigdata only). Manage: https://claude.ai/code/routines/trig_01V7PkD8Zgsv9bHJvFhZK5ag
 
-**Delivery channels:** Claude app ✅ (cloud), file ✅ + Telegram ✅ (local brief). **Email = NOT wired**
-(needs a Gmail/Outlook connector at claude.ai/customize/connectors → attach to the routine, OR SMTP creds).
+**Delivery:** Claude app ✅ (cloud), file ✅, Telegram ✅ (brief + sell-off + market-watch). **Email NOT wired.**
+
+---
+
+## The autonomous Market Watch — how it works (NEW this session)
+**Two tiers, the design that won't cry wolf or burn Max limits:**
+- **Tier 1 `scripts/market_watch.py`** — deterministic detector. Snapshots discrete BUCKETS of:
+  regime, recession-prob band, sell-off state, stabilization/escalation verdicts, VIX band, 10Y
+  band, top-6 holding move-bands, quarantine count. DIFFS vs prior run (`reports/market_watch_state.json`).
+  Materiality gate = **"alert on transition, not persistence"**: fires only when a bucket changes/
+  worsens, so a standing condition (VIX at 22 for hours) does NOT re-alert. First run + first cycle
+  of a new day (for daily-move signals) = silent baseline. Writes `reports/market_watch_latest.json`
+  `{material, changes[], state, headline}`. Reuses `selloff_monitor` scoring (can't drift). Never raises.
+- **Tier 2 `scripts/market_watch_alert.py`** — reads latest.json; if material, pushes Telegram.
+  ALWAYS-available deterministic alert (severity-sorted changes + rule-based "what this means" +
+  not-advice disclaimer). IF `claude` CLI present (PATH or `CLAUDE_CLI=` in .env) → Opus web-searches
+  the CAUSE + writes the alert (hard no-buy/sell prompt wall); any failure silently falls back.
+- **Validated:** baseline silent → re-run quiet (dedup) → simulated calmer-prior fired all deltas with
+  correct severities; alert composes cleanly; `claude` CLI confirmed ABSENT (deterministic tier active).
 
 ---
 
@@ -51,98 +71,97 @@ Two complementary daily outputs, fully hands-off:
 | --- | --- | --- |
 | Q-1 | First real-capital deployment | **INDEFINITELY DEFERRED** — nothing passed validation |
 | Q-2 | Capital-deployment-ramp ADR | **INDEFINITELY DEFERRED** |
-| Q-4 | Push unpushed commits to origin/main | OPEN — last push left at `d4aa10a`; **5 new unpushed**: `cc98ea0` `26489ce` `cc84559` `198b6c3` `82fe8ef`. `git push` operator-gated. |
-| Q-6 | ETF v1 primary broken | **RESOLVED** (NAV-implied yfinance source; daemon refreshes it) |
-| Q-7 | phase1_v3 yield-curve source | OPEN — macro_regimes.yield_curve_value is NULL; brief now sources t10y3m from cross_asset_snapshots as a workaround |
+| Q-4 | Push unpushed commits to origin/main | OPEN — origin at `d4aa10a`; **10 unpushed** (see Files). `git push` operator-gated. |
+| Q-7 | phase1_v3 yield-curve source | OPEN — macro_regimes.yield_curve_value NULL; brief/monitor source t10y3m from cross_asset_snapshots |
 | Q-8 | Phase C promotion | DORMANT (0/6 pass) |
-| Q-9 | Single-stock survivorship-free test | RESOLVED-null (ADR-056) |
+| Q-10 | **Opus-narration for Market Watch** (NEW) | OPEN — needs `claude` CLI install (`npm i -g @anthropic-ai/claude-code`) + one-time `claude` login (interactive, operator-only) so headless `claude -p --model opus` runs on Max. Then set `CLAUDE_CLI=` in .env if not on PATH. Alerter auto-upgrades. |
 
 ---
 
 ## THE finding (unchanged — read first)
 **6 Layer-0 composites validated via Phase B; 0 pass; the alternative-data market-timing thesis is
-null (ADR-056, operator-ratified).** Deflation pipeline correctly rejects them as beta. **Deliverable =
-the validated pipeline + the honest null + the decision-support layer.** Do NOT build more aggregate
-strategy composites, do NOT relax gates, do NOT go live. We are in the **UI / decision-support phase**
-(memory `project-phase-ordering`): per-symbol + FTEC/AI analysis is decision-support (no alpha claim),
-which is why building briefs over it is fine (not the "false confidence over unvalidated signals" the
-phase-order warned against).
+null (ADR-056, operator-ratified).** Deliverable = the validated pipeline + the honest null + the
+decision-support layer. Do NOT build strategy composites, relax DSR/PBO/HLZ gates, or go live. We
+are in the **UI / decision-support phase** — per-symbol/FTEC/market analysis + monitors are
+decision-support (no alpha claim), which is why building briefs/monitors over it is fine.
 
 ---
 
-## Decisions locked in (session #40)
-- **Cycle composite is a recession-distance / expansion-health gauge, NOT an NBER phase classifier.**
-  Relabeled (presentation-only; score/bands/recession-model untouched): early→"EXPANSION — low
-  recession risk", mid→"MID-EXPANSION", late→"SLOWING", contraction→"CONTRACTION" + caveat. The old
-  "EARLY" conflated low-recession-risk with early-cycle (it's actually late-cycle at ATH/low-unemp).
-- **Autonomous daily refresh = Windows Task Scheduler** (local), NOT cloud — the daemon needs local CH.
-  Cloud is used only for the LLM narrative (which is web/Bigdata-based).
-- **Daily analysis is split:** deterministic numbers (local brief, no LLM) + AI narrative (cloud agent).
-- **ETF cross-validation = latest-per-ticker fallback** when same-date intersection is empty (snapshot
-  primary vs lagging secondary) — `compareEtfFlowPanelsLatest` in etf_flow_cross_validation.ts.
+## Decisions locked in (session #41)
+- **Sell-off monitor = informational v1**, faithful to the two operator PDFs: state detection +
+  stabilization signals (CONFIRM a turn, never forecast; dead-cat guard) + escalation lean
+  (credit double-weighted = the key tell; "mixed is valid"). NO urgent push (rides the brief).
+- **Market Watch cadence = event-driven only** (operator-chosen): check every ~30 min market hours,
+  alert ONLY on material change. Quietest, lowest Max usage.
+- **Alert architecture = deterministic floor + graceful Opus enrichment.** Cheap detector gates the
+  expensive narrator; Opus runs only on real events; degrades to deterministic if no CLI.
+- **"Recommendations" = situational decision-support, NOT buy/sell.** Hard wall (ADR-056 + not a
+  licensed advisor) baked into both the deterministic text and the Opus prompt.
+- **Cloud agent can't see local CH** → the SignalForge-aware monitor MUST run locally; Opus-on-Max
+  runs locally via headless `claude -p` (pending CLI).
 
 ---
 
-## Open questions / loose ends (none blocking; optional)
-- **Email delivery** for the daily reports — needs a connector or SMTP creds (operator action).
-- **Brief enhancements offered but not built:** pre-market/overnight + earnings-scorecard ARE now in
-  the CLOUD agent; could also add to the local brief; analyst-revisions + key technical levels not done.
-- **F1 weekend-stale false-positives** (FRED/CBOE/SSGA flagged stale Mon mornings — publication lag, not
-  a fault). Business-day-aware threshold offered, not taken. Self-heals on the next weekday run.
-- **OQ-C41-2 (13D base-filing ingest)** + **OQ-C41-3 (eight_k pooled rebuild)** — known, low value vs null.
-- **Q-7 yield curve** — macro_regimes.yield_curve_value is NULL; brief works around via cross_asset.t10y3m.
+## Open questions / loose ends (none blocking)
+- **Q-10 Opus CLI** (above) — the only thing between "deterministic alerts" and "Opus-narrated alerts."
+- **UI overload** (operator raised it): 16 flat nav links, no synthesis layer. Recommended a **"Today"
+  command-center page** (visual version of the brief: verdict → drivers → what-changed → attention →
+  drill-down), plain-language number translation, nav collapsed to ~5 groups. Not yet built.
+- **Email delivery** — needs connector/SMTP (operator action).
+- **Sell-off UI panel** `/#/selloff` — the v2 follow-on (Bloomberg-density), not built.
+- **F1 weekend-stale false-positives** (publication lag; self-heals weekday).
+- **Q-7 yield curve** NULL at source; worked around via cross_asset.t10y3m.
 
 ---
 
 ## Next stage
-### On `continue` — NOTHING is mid-build. The autonomous daily analysis is live (first cloud run + 7am task fire tomorrow).
-1. **Most likely operator-initiated:** live per-symbol "analyze <TICKER>" decision-support, or tweak the
-   daily briefs (time/days/contents), or wire Email delivery.
-2. **Optional polish:** add positioning/options to MORE holdings; analyst-revisions in the cloud prompt;
-   F1 business-day staleness; fix Q-7 yield-curve at the source.
-3. **Do NOT:** build more strategy composites; relax DSR/PBO/HLZ; go live; `git push` without operator OK.
+### On `continue` — nothing mid-build. Pick:
+1. **Finish Opus narration (Q-10):** install `@anthropic-ai/claude-code` (operator OKs the install) →
+   operator runs `claude` login once → verify `claude -p --model opus` works → market_watch_alert.py
+   auto-upgrades (set `CLAUDE_CLI=` in .env if needed). **This is the direct continuation of #41.**
+2. **Build the "Today" command-center UI page** (highest-leverage UI fix for the operator's "too much
+   data" pain) — new default route mirroring the brief; ships with browser validation.
+3. **Optional:** sell-off `/#/selloff` panel; nav→5-groups; Email delivery; F1 business-day staleness.
+4. **Do NOT:** build strategy composites; relax gates; go live; `git push` without explicit OK.
 
 ---
 
 ## Files / code state
-- **Commits this session (on `main`, unpushed — Q-4):** `cc98ea0` (cycle relabel), `26489ce`
-  (daily_refresh wrapper + Task Scheduler), `cc84559` + `198b6c3` + `82fe8ef` (FTEC daily brief:
-  base → +holdings → +positioning/options/cross-asset). Earlier-session pushed: through `d4aa10a`.
-- **NEW files:** `scripts/daily_refresh.ps1` (Task-Scheduler wrapper), `scripts/ftec_daily_brief.py`
-  (deterministic brief). `reports/` + `logs/` gitignored.
-- **Touched:** `src/components/cyclePosition/panels/LatestPanel.tsx` + `src/server/operator_brief_render.ts`
-  (cycle relabel), `scripts/tests/operatorBriefRender.test.ts`. (Earlier #39/#40: options IV, yfinance ts,
-  etf_flow_ingest, health_check expected-empty, etf_flow_cross_validation latest-per-ticker.)
-- **Gates:** tsc=13 baseline. Brief tested live (file + Telegram send OK). All prior test suites green.
-- **Key CH facts:** candles current; equity_daily_polygon to 6/1 (FTEC technicals); etf_shares_outstanding
-  21 rows; cusip_ticker_map expected-empty; regime currently **yellow** (6/2 pullback); recession_prob 17%.
-- **npm/scripts:** `npm run dev` / `daemon:daily [-- --no-telegram]` / `etf:flow:ingest` / `health:check`;
-  `.venv\Scripts\python.exe scripts\ftec_daily_brief.py` (manual brief); `scripts\daily_refresh.ps1` (full).
+- **NEW this session:** `scripts/selloff_monitor.py` (sell-off v1; `compact_summary()` + `build_report()`
+  share pure scoring helpers), `scripts/market_watch.py` (Tier-1 detector), `scripts/market_watch_alert.py`
+  (Tier-2 alerter), `scripts/market_watch_cycle.ps1` (cycle wrapper), `docs/specs/selloff-stabilization-monitor.md`
+  + `docs/specs/selloff-escalation-risk-read.md`. `reports/` + `logs/` gitignored (incl. market_watch_state.json).
+- **Touched:** `scripts/daily_refresh.ps1` (+selloff step 4), `scripts/ftec_daily_brief.py` (embed sell-off compact read).
+- **10 unpushed commits (origin at `d4aa10a`):** `814f4f3` `964ce55` `0df0bfd` `4b38195` `adfa910`
+  `82fe8ef` `198b6c3` `cc84559` `26489ce` `cc98ea0`. (`git log origin/main..HEAD` for the list.)
+- **Gates:** tsc=13 baseline (no .ts changed this session — pure Python/PS + docs). Telegram send re-verified.
+- **Scheduled tasks:** "SignalForge Daily Refresh" (7am) + "SignalForge Market Watch" (30-min market hours) — both Ready.
+- **npm/scripts:** `npm run dev` / `daemon:daily [-- --no-telegram]` / `health:check`;
+  `.venv\Scripts\python.exe scripts\ftec_daily_brief.py` (brief) · `\selloff_monitor.py` (sell-off) ·
+  `\market_watch.py` (detector) · `\market_watch_alert.py` (alerter); `scripts\market_watch_cycle.ps1` (one watch cycle).
 
 ---
 
 ## Watch-outs
-- **Cloud routine ≠ local data:** the cloud agent can't see SignalForge CH — it's web/Bigdata only. The
-  local brief is the SignalForge-overlay half. Don't expect the cloud narrative to cite local composites.
-- **NO hot-reload** — restart `npm run dev` after ANY `.ts` edit.
-- **Telegram brief is PLAIN TEXT** (Telegram 400s on markdown tables); the file copy is full markdown.
-- **EDGAR per-IP throttle:** running daemon many times/day stalls the form-4/8-K steps (saw this validating
-  the scheduler). First-of-day runs are clean. Not a scheduler bug.
-- **yfinance API drift** is a recurring theme (fixed the unnamed-index + options-IV-sentinel bugs this
-  cycle). If a fetch silently returns 0 rows, suspect a column/shape change first.
-- **Windows console = cp1252:** python scripts that print unicode need `sys.stdout.reconfigure('utf-8')`
-  (ftec_daily_brief does this); commit msgs via `git commit -F -` heredoc in the Bash tool.
-- **single-stock deep-link is `?ticker=NVDA`** (query), not `/NVDA`. Browser audits: hit `/audit-reset`
-  path-buster before a `#/route` (hash-only nav leaves stale DOM in Claude-in-Chrome).
+- **Market Watch is event-driven** — silence = nothing material changed (NOT a failure). The 7am brief is
+  the daily heartbeat. If you want a "still calm" daily confirm, switch cadence to events+heartbeats.
+- **No Opus narration yet** — alerts are deterministic until Q-10 done. `claude` CLI NOT on PATH (GUI install).
+- **Cloud routine ≠ local data** (web/Bigdata only).
+- **NO hot-reload** — restart `npm run dev` after any `.ts` edit.
+- **Telegram = PLAIN TEXT** (400s on markdown tables); file copies are full markdown.
+- **EDGAR per-IP throttle:** many daemon runs/day stall form-4/8-K steps; first-of-day is clean.
+- **yfinance API drift** recurring (^TNX returns yield directly e.g. 4.54 — do NOT /10; fixed this session).
+- **Windows console = cp1252:** python scripts printing unicode need `sys.stdout.reconfigure('utf-8')`; commit via `git commit -F -` heredoc.
+- **single-stock deep-link is `?ticker=NVDA`** (query). Browser audits: hit `/audit-reset` before a `#/route`.
 - Anti-shopping paramount (ADR-056 null stands); worktree merges leave changes uncommitted.
 
 ---
 
 ## For the next session
-Session #40 turned the decision-support layer into a **hands-off daily system**: a 7am local Task
-Scheduler job refreshes data + emits a quantitative FTEC brief (file + Telegram), and a 7:30am cloud
-Claude routine writes the AI market narrative (Claude app). It also corrected the misleading cycle
-"EARLY" label and enriched the brief (holdings, positioning, options, cross-asset). The ADR-056 null is
-unchanged — this is all decision-support, not strategy. On `continue`, nothing is pending — offer the
-optional polish (Email delivery, more-holdings positioning, F1 staleness, Q-7 yield source) or await
-operator direction. Do not go live, do not relax gates, do not push without an explicit OK (Q-4: 5 unpushed).
+Session #41 made the decision-support layer **actively watch the market for the operator**: a daily
+brief now leads with a sell-off/stabilization read, and a new event-driven Market Watch pings Telegram
+only when something material changes (regime flip, sell-off escalation, big holding move, VIX/10Y break,
+new data-quarantine) — hands-off, every 30 min in market hours. The Opus "why" narration is built and
+one operator step away (install + login the `claude` CLI → Q-10). The other big open item is the operator's
+UI-overload pain → the recommended fix is a "Today" command-center page. ADR-056 null unchanged — all
+decision-support, not strategy. Do not go live, do not relax gates, do not push without an explicit OK (Q-4: 10 unpushed).
