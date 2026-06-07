@@ -209,6 +209,20 @@ def build_report() -> str:
         d = xa[0]
         L.append(f"- **Cross-asset:** DXY {d[0]} ({d[1]}% 20d) · oil(USO) ${d[2]} · yield curve 10Y-3M {d[3]}%")
     L.append("")
+    # Sell-off & stabilization read (broad-market risk context BEFORE drilling into FTEC).
+    # Embedded here — not a separate push — because the spec forbids urgent/reactive alerts;
+    # this rides the existing brief schedule. Wrapped defensively so a yfinance hiccup in the
+    # monitor can never break the rest of the brief.
+    try:
+        import sys as _sys
+        _sys.path.insert(0, str(REPO / "scripts"))
+        import selloff_monitor as _sm
+        _so = _sm.compact_summary(_sm._pull())
+        if _so:
+            L.append(_so)
+            L.append("")
+    except Exception:
+        pass
     L.append("## FTEC snapshot")
     # Compute the daily % move from price vs prior close (yfinance's .info
     # change-percent field is inconsistent across versions — don't trust it).
