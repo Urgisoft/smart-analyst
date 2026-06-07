@@ -47,7 +47,7 @@ dev server serving HTTP 200.
    compares every stored number (FTEC+top-holding prices, VIX, dollar, oil, t10y3m, recession_prob,
    regime) vs INDEPENDENT online (yfinance + FRED via pandas_datareader), trading-day-aware freshness +
    plausibility bounds. DEFINITION-AWARE (dxy_close↔FRED DTWEXBGS, NOT ICE DXY). Detect+report only;
-   chunked Telegram. First run: 11/11 OK. Caveat: FRED was timing out → dxy/t10y3m degrade to NODATA
+   chunked Telegram. Now 25 checks (7 prices + VIX/regime/USO/recession + 14-table freshness sweep, auto-detected date cols, trading-day + expected-empty aware), all OK. Caveat: FRED was timing out → dxy/t10y3m degrade to NODATA
    until FRED recovers. `reconcile.py` (no --push) for a silent local run.
 
 **Delivery:** Claude app ✅ (cloud), file ✅, Telegram ✅ (brief + sell-off + market-watch + reconciliation). **Email NOT wired.**
@@ -77,10 +77,10 @@ dev server serving HTTP 200.
 | --- | --- | --- |
 | Q-1 | First real-capital deployment | **INDEFINITELY DEFERRED** — nothing passed validation |
 | Q-2 | Capital-deployment-ramp ADR | **INDEFINITELY DEFERRED** |
-| Q-4 | Push unpushed commits to origin/main | OPEN — origin at `d4aa10a`; **12 unpushed** (`git log origin/main..HEAD`). `git push` operator-gated. |
+| Q-4 | Push unpushed commits to origin/main | OPEN — origin at `d4aa10a`; **~17 unpushed** (`git log origin/main..HEAD`). `git push` operator-gated. |
 | Q-7 | phase1_v3 yield-curve source | OPEN — macro_regimes.yield_curve_value NULL; brief/monitor source t10y3m from cross_asset_snapshots |
 | Q-8 | Phase C promotion | DORMANT (0/6 pass) |
-| Q-10 | **Opus-narration for Market Watch** (NEW) | OPEN — needs `claude` CLI install (`npm i -g @anthropic-ai/claude-code`) + one-time `claude` login (interactive, operator-only) so headless `claude -p --model opus` runs on Max. Then set `CLAUDE_CLI=` in .env if not on PATH. Alerter auto-upgrades. |
+| Q-10 | Opus-narration for Market Watch | **RESOLVED** — CLI 2.1.168 installed + already authed on Max (no separate login needed); `CLAUDE_CLI=C:\Users\Pejman\AppData\Roaming\npm\claude.cmd` in .env. `opus_text` runs `cmd /c claude.cmd -p --model opus` (prompt via STDIN, encoding=utf-8). Verified live; material alerts now Opus-narrated (web-researched cause, no buy/sell), deterministic fallback on any failure. |
 
 ---
 
@@ -114,11 +114,10 @@ decision-support (no alpha claim), which is why building briefs/monitors over it
   command-center page** (visual version of the brief: verdict → drivers → what-changed → attention →
   drill-down), plain-language number translation, nav collapsed to ~5 groups. Not yet built.
 - **Email delivery** — needs connector/SMTP (operator action).
-- **DXY label on `/#/cross-asset` dashboard** — reconcile.py confirmed `dxy_close` is correct (FRED
-  DTWEXBGS broad $, ~119), NOT a bug. The daily brief was relabeled honestly; the React dashboard
-  (`src/server/cross_asset_dashboard.ts` line ~156, `label: 'DXY'`) still says "DXY" → misleading
-  (reader expects ICE DXY ~100). Tier-1 relabel pending a browser-validated UI slice. (Switching the
-  SOURCE to ICE DXY would be a Tier-2 design change — operator call, NOT auto.)
+- **DXY label** — DONE. reconcile.py confirmed `dxy_close` is correct (FRED DTWEXBGS broad $, ~119),
+  NOT a bug. Relabeled DXY→`BROAD-$` in the brief + dashboard chips (`cross_asset_dashboard.ts` +
+  `descriptors.ts` ×2); tsc=13, dev restarted, served-module verified (Chrome ext NOT connected, so no
+  visual click — eyeball `/#/cross-asset` when convenient). Source unchanged (ICE-DXY swap = Tier-2/operator).
 - **Sell-off UI panel** `/#/selloff` — the v2 follow-on (Bloomberg-density), not built.
 - **F1 weekend-stale false-positives** (publication lag; self-heals weekday).
 - **Q-7 yield curve** NULL at source; worked around via cross_asset.t10y3m.
