@@ -101,6 +101,10 @@ import {
   CrossAssetDashboardError,
 } from "./src/server/cross_asset_dashboard.js";
 import {
+  fetchTodayState,
+  TodayDashboardError,
+} from "./src/server/today_dashboard.js";
+import {
   parseQuery as parseForm4Query,
   isQueryFailure as isForm4QueryFailure,
   fetchForm4InsiderState,
@@ -792,6 +796,21 @@ async function startServer() {
         return res.status(e.status).json({ error: e.error, detail: e.detail });
       }
       console.error('cross-asset state error', e);
+      return res.status(503).json({ error: 'clickhouse_unavailable', detail: (e as Error).message });
+    }
+  });
+
+  // Powers /#/today — the answer-first command-center synthesis over regime / cycle /
+  // cross-asset / sector / FTEC. Read-only; every sub-query degrades to a missing field
+  // rather than 500ing the page. DECISION-SUPPORT ONLY (ADR-056).
+  app.get("/api/today", async (_req, res) => {
+    try {
+      return res.json(await fetchTodayState());
+    } catch (e) {
+      if (e instanceof TodayDashboardError) {
+        return res.status(e.status).json({ error: e.error, detail: e.detail });
+      }
+      console.error('today state error', e);
       return res.status(503).json({ error: 'clickhouse_unavailable', detail: (e as Error).message });
     }
   });

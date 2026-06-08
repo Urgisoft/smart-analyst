@@ -73,6 +73,10 @@ const ExecutiveDepartureApp = lazy(() => import('./components/composite/Executiv
 // macro-fit / fundamentals) assembled read-only from free server-callable sources. NO ALPHA
 // CLAIM — explicitly a data-aggregation terminal, not a validated signal.
 const SingleStockApp = lazy(() => import('./components/singleStock/SingleStockApp.tsx'));
+// Lazy-load the "Today" command-center — the answer-first synthesis landing page (s96 #41).
+// The NEW DEFAULT route: one screen of verdict → drivers → numbers → what-changed → attention,
+// with drill-downs into the 16 dense panels. The old dense terminal moves to #/terminal.
+const TodayApp = lazy(() => import('./components/today/TodayApp.tsx'));
 
 function Router() {
   const [hash, setHash] = useState(window.location.hash);
@@ -87,6 +91,22 @@ function Router() {
   // URL-param hydration depends on `?` being passed through — the validator app
   // itself reads `location.hash` and parses query params on mount.
   const path = hash.split('?')[0];
+  // The "Today" command-center is the default landing page (synthesis-first). The old dense
+  // terminal grid lives at #/terminal. Unknown/empty routes fall through to Today (bottom return).
+  if (path === '#/terminal' || path.startsWith('#/terminal/')) {
+    return <App />;
+  }
+  if (path === '#/today' || path.startsWith('#/today/')) {
+    return (
+      <Suspense fallback={
+        <div className="min-h-screen bg-[#050505] text-yellow-400/70 flex items-center justify-center text-[10px] font-mono uppercase tracking-widest">
+          loading today…
+        </div>
+      }>
+        <TodayApp />
+      </Suspense>
+    );
+  }
   if (path === '#/validator' || path.startsWith('#/validator/')) {
     return (
       <Suspense fallback={
@@ -285,7 +305,16 @@ function Router() {
       </Suspense>
     );
   }
-  return <App />;
+  // Default landing → the Today command-center (synthesis-first). #/terminal reaches the old grid.
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-[#050505] text-yellow-400/70 flex items-center justify-center text-[10px] font-mono uppercase tracking-widest">
+        loading today…
+      </div>
+    }>
+      <TodayApp />
+    </Suspense>
+  );
 }
 
 createRoot(document.getElementById('root')!).render(

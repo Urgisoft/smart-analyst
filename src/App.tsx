@@ -1306,6 +1306,13 @@ export default function App() {
           
           <div className="flex items-center gap-4">
             <a
+              href="#/today"
+              className="text-[9px] font-black text-white hover:text-yellow-200 uppercase tracking-[0.2em] border border-yellow-400/60 hover:border-yellow-300 rounded-lg px-3 py-1.5 transition-colors"
+              title="Today command-center — the answer-first synthesis landing page"
+            >
+              ← Today
+            </a>
+            <a
               href="#/validator"
               className="text-[9px] font-black text-yellow-400/80 hover:text-yellow-300 uppercase tracking-[0.2em] border border-yellow-400/30 hover:border-yellow-400 rounded-lg px-3 py-1.5 transition-colors"
               title="Four-gate defensive validator (DSR / OOS-IS / HLZ / PBO)"
