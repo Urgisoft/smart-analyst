@@ -77,7 +77,7 @@ dev server serving HTTP 200.
 | --- | --- | --- |
 | Q-1 | First real-capital deployment | **INDEFINITELY DEFERRED** — nothing passed validation |
 | Q-2 | Capital-deployment-ramp ADR | **INDEFINITELY DEFERRED** |
-| Q-4 | Push unpushed commits to origin/main | OPEN — origin at `d4aa10a`; **~17 unpushed** (`git log origin/main..HEAD`). `git push` operator-gated. |
+| Q-4 | Push unpushed commits to origin/main | OPEN — origin at `d4aa10a`; **~19 unpushed** (`git log origin/main..HEAD`). `git push` operator-gated. |
 | Q-7 | phase1_v3 yield-curve source | OPEN — macro_regimes.yield_curve_value NULL; brief/monitor source t10y3m from cross_asset_snapshots |
 | Q-8 | Phase C promotion | DORMANT (0/6 pass) |
 | Q-10 | Opus-narration for Market Watch | **RESOLVED** — CLI 2.1.168 installed + already authed on Max (no separate login needed); `CLAUDE_CLI=C:\Users\Pejman\AppData\Roaming\npm\claude.cmd` in .env. `opus_text` runs `cmd /c claude.cmd -p --model opus` (prompt via STDIN, encoding=utf-8). Verified live; material alerts now Opus-narrated (web-researched cause, no buy/sell), deterministic fallback on any failure. |
@@ -112,7 +112,11 @@ decision-support (no alpha claim), which is why building briefs/monitors over it
 - **Q-10 Opus CLI** (above) — the only thing between "deterministic alerts" and "Opus-narrated alerts."
 - **UI overload** (operator raised it): 16 flat nav links, no synthesis layer. Recommended a **"Today"
   command-center page** (visual version of the brief: verdict → drivers → what-changed → attention →
-  drill-down), plain-language number translation, nav collapsed to ~5 groups. Not yet built.
+  drill-down), plain-language number translation, nav collapsed to ~5 groups. **DONE** — built `/#/today`
+  (NEW DEFAULT route) + `src/server/today_dashboard.ts` (GET /api/today); old dense terminal moved to
+  `/#/terminal`. Validated via API + tsc=13 (no visual click — Chrome ext off; eyeball /#/today). Caught
+  a UTC-vs-local date bug (false-stale every evening) + fixed. v2 ideas: collapse the terminal's own
+  16-link nav; richer what-changed; put the sell-off state into the verdict line.
 - **Email delivery** — needs connector/SMTP (operator action).
 - **DXY label** — DONE. reconcile.py confirmed `dxy_close` is correct (FRED DTWEXBGS broad $, ~119),
   NOT a bug. Relabeled DXY→`BROAD-$` in the brief + dashboard chips (`cross_asset_dashboard.ts` +
@@ -126,6 +130,8 @@ decision-support (no alpha claim), which is why building briefs/monitors over it
 
 ## Next stage
 ### On `continue` — nothing mid-build. Pick:
+> **#41-followup DONE this session:** item 1 (Opus narration → Q-10 RESOLVED, live on Max) AND item 2
+> (the "Today" command-center → `/#/today`, NEW DEFAULT route) are both shipped. Remaining = item 3 options.
 1. **Finish Opus narration (Q-10):** install `@anthropic-ai/claude-code` (operator OKs the install) →
    operator runs `claude` login once → verify `claude -p --model opus` works → market_watch_alert.py
    auto-upgrades (set `CLAUDE_CLI=` in .env if needed). **This is the direct continuation of #41.**
