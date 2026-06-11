@@ -1,0 +1,15 @@
+<#
+  week_ahead.ps1 — weekly "week ahead" catalyst digest -> Telegram.
+
+  Run by Windows Task Scheduler on Sunday evening so the operator starts the week knowing every
+  scheduled catalyst (top-holding earnings + CPI / FOMC / jobs / PCE) in the next ~10 days.
+  Awareness, not prediction. Logs to logs\week_ahead_<date>.log.
+#>
+$ErrorActionPreference = 'Continue'
+$repo = 'C:\Users\Pejman\Downloads\signalforge---technical-analysis-lab (1)'
+Set-Location $repo
+New-Item -ItemType Directory -Force -Path "$repo\logs" | Out-Null
+$log = "$repo\logs\week_ahead_$(Get-Date -Format yyyyMMdd).log"
+"$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  week_ahead start" | Tee-Object -FilePath $log -Append
+& "$repo\.venv\Scripts\python.exe" "$repo\scripts\catalyst_calendar.py" --push --days 10 *>> $log
+"$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  week_ahead exit=$LASTEXITCODE" | Tee-Object -FilePath $log -Append

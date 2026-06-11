@@ -67,4 +67,11 @@ Log "Running reconcile ..."
 & "$repo\.venv\Scripts\python.exe" "$repo\scripts\reconcile.py" --push *>> $log
 Log "reconcile exit=$LASTEXITCODE"
 
+# 6) Catalyst day-before ping: pushes a Telegram heads-up ONLY when a known event (earnings / CPI /
+#    FOMC / jobs / PCE) is today or tomorrow. Silent otherwise. The full month-ahead calendar rides
+#    inside the FTEC brief (step 3).
+Log "Running catalyst_calendar --alert ..."
+& "$repo\.venv\Scripts\python.exe" "$repo\scripts\catalyst_calendar.py" --alert *>> $log
+Log "catalyst_calendar exit=$LASTEXITCODE"
+
 Log "=== daily_refresh done ==="

@@ -57,29 +57,62 @@ def _earnings() -> list[tuple]:
     return out
 
 
-def build(days: int = 45) -> str:
+def _events(days: int):
+    """Sorted (date, label, firm, why) for known catalysts within `days` of today."""
     today = _dt.date.today()
     horizon = today + _dt.timedelta(days=days)
     rows = [(_dt.date.fromisoformat(d), lbl, firm, why) for d, lbl, firm, why in MACRO]
     rows += _earnings()
     rows = [r for r in rows if today <= r[0] <= horizon]
     rows.sort(key=lambda r: r[0])
+    return today, rows
 
+
+def _line(today, d, lbl, firm, why, with_why: bool = True) -> str:
+    dn = (d - today).days
+    when = "TODAY" if dn == 0 else ("TOMORROW" if dn == 1 else f"{d:%a %b %d} (in {dn}d)")
+    tag = " [~approx date]" if firm == "~approx" else ""
+    return f"- {when}{tag}: {lbl}" + (f" — {why}" if with_why else "")
+
+
+def build(days: int = 45) -> str:
+    """Full report (CLI + --push + weekly digest)."""
+    today, rows = _events(days)
     L = [f"CATALYST CALENDAR — next {days} days (as of {today})",
          "Known SCHEDULED events for FTEC + the macro tape. Awareness for prep, NOT a prediction.", ""]
     if not rows:
         L.append(f"(No known scheduled catalysts in the next {days} days.)")
     for d, lbl, firm, why in rows:
-        dn = (d - today).days
-        when = "TODAY" if dn == 0 else f"{d:%a %b %d} (in {dn}d)"
-        tag = " [~approx date]" if firm == "~approx" else ""
-        L.append(f"- {when}{tag}: {lbl} — {why}")
-    # Note the big-but-further-out names so they're on the radar beyond the window.
-    far = [(t, w) for t, w in HOLDINGS if t in ("NVDA", "AVGO", "AMD")]
+        L.append(_line(today, d, lbl, firm, why))
     L.append("")
     L.append("Further out (beyond window): NVDA earnings ~late Aug, AVGO ~early Sep, AMD ~early Aug "
              "(the heavyweight AI names — none report in the next ~6 weeks).")
     L.append("Decision-support only — dates to prepare for, never a forecast of the outcome.")
+    return "\n".join(L)
+
+
+def compact(days: int = 16, with_why: bool = True) -> str:
+    """Tight calendar for embedding in the daily brief (no header banner/footer).
+    with_why=False drops the rationale text to stay well under Telegram's 4k cap."""
+    today, rows = _events(days)
+    if not rows:
+        return f"## Catalysts ahead (next {days}d)\n- (none scheduled)"
+    L = [f"## Catalysts ahead (next {days}d) — known events, not predictions"]
+    for d, lbl, firm, why in rows:
+        L.append(_line(today, d, lbl, firm, why, with_why=with_why))
+    return "\n".join(L)
+
+
+def alert_text(days: int = 2) -> str:
+    """Focused heads-up for catalysts TODAY or within `days` days. Empty string if none —
+    so the caller pushes only on imminent events (the 'day-before ping'), never noise."""
+    today, rows = _events(days)
+    if not rows:
+        return ""
+    L = ["⚠️ SignalForge catalyst heads-up:"]
+    for d, lbl, firm, why in rows:
+        L.append(_line(today, d, lbl, firm, why))
+    L.append("Known scheduled event — prepare for volatility around it. Not a forecast, not advice.")
     return "\n".join(L)
 
 
@@ -94,6 +127,16 @@ def main() -> int:
             days = int(sys.argv[sys.argv.index("--days") + 1])
         except Exception:
             pass
+    # --alert: push ONLY when a catalyst is today/tomorrow (the day-before ping). Silent otherwise.
+    if "--alert" in sys.argv:
+        txt = alert_text(2)
+        if not txt:
+            print("[catalyst-calendar] no imminent catalyst (today/tomorrow) — nothing pushed.")
+            return 0
+        print(txt)
+        from ftec_daily_brief import _load_env, push_telegram
+        print("[catalyst-calendar] " + push_telegram(_load_env(), txt))
+        return 0
     report = build(days)
     print(report)
     if "--push" in sys.argv:

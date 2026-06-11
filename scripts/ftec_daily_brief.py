@@ -225,6 +225,17 @@ def build_report() -> str:
             L.append("")
     except Exception:
         pass
+    # Catalyst calendar — known upcoming events (holdings' earnings + macro releases) so the operator
+    # gets prepared EARLY, especially for the AI/semis names. Awareness, not prediction. (with_why off
+    # to stay under Telegram's 4k cap; the full calendar is `catalyst_calendar.py`.)
+    try:
+        import catalyst_calendar as _cc
+        _cat = _cc.compact(16, with_why=False)
+        if _cat:
+            L.append(_cat)
+            L.append("")
+    except Exception:
+        pass
     L.append("## FTEC snapshot")
     # Compute the daily % move from price vs prior close (yfinance's .info
     # change-percent field is inconsistent across versions — don't trust it).
