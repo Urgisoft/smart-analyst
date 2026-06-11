@@ -11,5 +11,9 @@ Set-Location $repo
 New-Item -ItemType Directory -Force -Path "$repo\logs" | Out-Null
 $log = "$repo\logs\week_ahead_$(Get-Date -Format yyyyMMdd).log"
 "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  week_ahead start" | Tee-Object -FilePath $log -Append
+# 1) Catalyst week-ahead (earnings + macro releases, next 10 days).
 & "$repo\.venv\Scripts\python.exe" "$repo\scripts\catalyst_calendar.py" --push --days 10 *>> $log
-"$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  week_ahead exit=$LASTEXITCODE" | Tee-Object -FilePath $log -Append
+"$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  catalyst exit=$LASTEXITCODE" | Tee-Object -FilePath $log -Append
+# 2) Sector landscape (descriptive relative-strength scan — diversification context, not a signal).
+& "$repo\.venv\Scripts\python.exe" "$repo\scripts\sector_scan.py" --push *>> $log
+"$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  sector_scan exit=$LASTEXITCODE" | Tee-Object -FilePath $log -Append
