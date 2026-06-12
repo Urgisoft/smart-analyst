@@ -17,3 +17,7 @@ $log = "$repo\logs\week_ahead_$(Get-Date -Format yyyyMMdd).log"
 # 2) Sector landscape (descriptive relative-strength scan — diversification context, not a signal).
 & "$repo\.venv\Scripts\python.exe" "$repo\scripts\sector_scan.py" --push *>> $log
 "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  sector_scan exit=$LASTEXITCODE" | Tee-Object -FilePath $log -Append
+# 3) Expected moves — what the options market is pricing this week + into near earnings (the market's
+#    own priced range, not a prediction). Pairs with the catalyst calendar (when) -> how big.
+& "$repo\.venv\Scripts\python.exe" "$repo\scripts\expected_move.py" --push *>> $log
+"$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  expected_move exit=$LASTEXITCODE" | Tee-Object -FilePath $log -Append
