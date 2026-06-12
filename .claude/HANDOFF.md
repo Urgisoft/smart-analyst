@@ -149,11 +149,14 @@ decision-support (no alpha claim), which is why building briefs/monitors over it
 4. **Optional UI:** sell-off `/#/selloff` panel; a `/#/sectors` page (sector_scan); nav→5-groups; Email.
 5. **Do NOT:** build strategy composites; relax gates; go live; `git push` without explicit OK.
 
-**⚠️ OPERATIONAL (end of s96 #41-cont):** Docker Desktop was found CLOSED → ClickHouse down. Relaunched
-Docker Desktop but the engine hadn't come up by session end. On `continue`, FIRST verify CH:
-`docker start quantlab-clickhouse` → `curl ".../?..." --data-binary "SELECT 1"`. The yfinance-based tools
-(catalyst calendar, sector scan, expected move, brief's price half) work WITHOUT CH; the SignalForge
-composites + dashboards + regime history need it. (This is exactly why priority #2 above matters.)
+**✅ OPERATIONAL (RESOLVED end of s96 #41-cont):** Docker Desktop was found closed → CH down for ~1-2
+days. Operator restarted Docker; data was then refreshed to current on 06-11: `daemon:daily --no-telegram`
+(candles+macro+9 composites+regime+paper cells) + polygon ingest (equity_daily_polygon→06-10; 06-11 not
+yet published) + `npm run finra:short-interest:ingest` (short_interest→05-29 settlement). Reconcile = 24/24
+OK, 0 discrepancies; **regime recomputed GREEN** (sell-off easing post-CPI, VIX ~19.4). The ~2-day outage
+silently broke the 7am refresh while the operator was away — **this is exactly why priority #2 (reliability
+heartbeat) matters.** If CH is down again: `docker start quantlab-clickhouse` → `curl ... "SELECT 1"`; the
+yfinance tools (calendar/sector/expected-move) work without CH, composites/dashboards/regime need it.
 
 ---
 
