@@ -21,3 +21,7 @@ $log = "$repo\logs\week_ahead_$(Get-Date -Format yyyyMMdd).log"
 #    own priced range, not a prediction). Pairs with the catalyst calendar (when) -> how big.
 & "$repo\.venv\Scripts\python.exe" "$repo\scripts\expected_move.py" --push *>> $log
 "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  expected_move exit=$LASTEXITCODE" | Tee-Object -FilePath $log -Append
+# 4) Implied probability — the options market's RISK-NEUTRAL odds (P(down >5/10%), middle-50% range)
+#    around the week + the next FOMC. The market's pricing of each outcome, not a forecast.
+& "$repo\.venv\Scripts\python.exe" "$repo\scripts\implied_probability.py" --push *>> $log
+"$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  implied_probability exit=$LASTEXITCODE" | Tee-Object -FilePath $log -Append
