@@ -337,7 +337,14 @@ def render(res: dict) -> str:
 
 def push_chunked(env, text):
     from ftec_daily_brief import push_telegram
-    lines, chunk, out = text.split("\n"), [], []
+    # Hard-wrap any single line longer than the budget so it is not silently truncated downstream
+    # (push_telegram caps at 4000). reconcile's lines are short today — this is defensive.
+    lines: list[str] = []
+    for ln in text.split("\n"):
+        while len(ln) > 3800:
+            lines.append(ln[:3800]); ln = ln[3800:]
+        lines.append(ln)
+    chunk, out = [], []
     for ln in lines:
         if sum(len(x) + 1 for x in chunk) + len(ln) > 3800:
             out.append("\n".join(chunk)); chunk = []

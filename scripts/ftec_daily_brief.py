@@ -72,6 +72,8 @@ def _ftec_stats() -> dict:
         pass
     h = t.history(period="max", auto_adjust=True)["Close"].dropna()
     c = h.values
+    if len(c) < 2:  # yfinance drift: empty/1-row Close would crash c[-1]/c[0]/diff → kill the whole brief
+        raise RuntimeError("FTEC price history unavailable from yfinance (empty/short series)")
     lr = np.diff(np.log(c))
     sig = float(lr.std(ddof=1) * sqrt(252))            # annualized realized vol
     cagr = float((c[-1] / c[0]) ** (252.0 / (len(c) - 1)) - 1)
@@ -185,10 +187,10 @@ def build_report() -> str:
     f = _ftec_stats()
     p0 = f["price"]
 
-    regime = _ch("SELECT concat(regime,' (',toString(trade_date),')') FROM macro_regimes ORDER BY trade_date DESC LIMIT 1") or "n/a"
+    regime = _ch("SELECT concat(regime,' (',toString(trade_date),')') FROM macro_regimes WHERE classifier_version='phase1_v3' ORDER BY trade_date DESC LIMIT 1") or "n/a"
     cyc = _ch("SELECT concat(phase_label,' | score ',toString(round(score,3)),' | recession_prob ',toString(round(recession_prob_pct,1)),'%') FROM cycle_position_snapshots ORDER BY snapshot_date DESC LIMIT 1") or "n/a"
     sect = _ch("SELECT concat(regime_flag,' | top sector ',top_sector_symbol) FROM sector_rotation_snapshots ORDER BY snapshot_date DESC LIMIT 1") or "n/a"
-    backdrop = _ch("SELECT concat('VIX ',ifNull(toString(round(vix_close,1)),'n/a'),' | categories firing ',ifNull(toString(categories_firing),'?'),'/4') FROM macro_regimes ORDER BY trade_date DESC LIMIT 1") or "n/a"
+    backdrop = _ch("SELECT concat('VIX ',ifNull(toString(round(vix_close,1)),'n/a'),' | categories firing ',ifNull(toString(categories_firing),'?'),'/6',if(inputs_missing>0,concat(' [!] ',toString(bitCount(inputs_missing)),' input(s) missing'),'')) FROM macro_regimes WHERE classifier_version='phase1_v3' ORDER BY trade_date DESC LIMIT 1") or "n/a"
     # Cross-asset (oil / dollar / rates) — the live macro swing factor; t10y3m here
     # also fills the yield-curve the macro_regimes row leaves null.
     xa = _ch_rows("SELECT round(dxy_close,1), round(dxy_20d_change_pct*100,1), round(uso_close,1), round(t10y3m,2) FROM cross_asset_snapshots ORDER BY snapshot_date DESC LIMIT 1")
@@ -364,7 +366,17 @@ def main() -> int:
     except Exception:
         pass
     env = _load_env()
-    report = build_report()
+    try:
+        report = build_report()
+    except Exception as e:
+        # Never go fully dark: if the brief can't build (e.g. yfinance returns an empty FTEC
+        # history, or CH is unreachable), push a short failure notice so the operator KNOWS,
+        # instead of a silent no-brief. The daily heartbeat must fail loud, not vanish.
+        msg = (f"[!] SignalForge daily brief FAILED to build: {type(e).__name__}: "
+               f"{str(e)[:140]} (data-fetch/CH issue; check logs/daily_refresh).")
+        print(msg)
+        print(f"[ftec-brief] {push_telegram(env, msg)}")
+        return 1
     out_dir = REPO / "reports"
     out_dir.mkdir(exist_ok=True)
     out_file = out_dir / f"ftec_daily_brief_{_dt.date.today():%Y%m%d}.md"

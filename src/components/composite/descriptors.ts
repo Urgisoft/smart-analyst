@@ -368,7 +368,7 @@ export const crossAssetDescriptor: CompositeDescriptor = {
     credit_internals_divergence: { tone: 'warn', meaning: 'High-yield stress diverging from investment-grade (sole active flag).' },
     curve_distortion: { tone: 'warn', meaning: 'Yield curve inverted across both tracked segments (sole active flag).' },
     normal: { tone: 'neutral', meaning: 'No cross-asset stress flags active.' },
-    unknown: { tone: 'unknown', meaning: 'A required input category (DXY / real rates / curve / commodities / credit-z) was missing — could not classify.' },
+    unknown: { tone: 'unknown', meaning: 'A required input category (BROAD-$ / real rates / curve / commodities / credit-z) was missing — could not classify.' },
   },
   defaultTone: 'neutral',
   inputBits: [

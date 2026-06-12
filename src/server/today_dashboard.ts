@@ -92,12 +92,17 @@ export async function fetchTodayState(): Promise<TodayPayload> {
   const ltd = isoDate(lastTradingDay(now));
 
   // ── latest composite snapshots (each defensive) ─────────────────────────
+  // classifier_version='phase1_v3' filter is REQUIRED: the table holds v1/v2/v3 rows; every other
+  // consumer (brief, regime_dashboard) pins v3. Without it, a lagging v3 ingest or a v1/v2 backfill
+  // with a later trade_date would silently flip the verdict/headline to a different classifier.
   const regime = await one<{ regime: string; d: string; vix: number | null; cats: number | null }>(
     `SELECT regime, toString(trade_date) d, vix_close vix, categories_firing cats
-     FROM quantlab.macro_regimes ORDER BY trade_date DESC, ingested_at DESC LIMIT 1`);
+     FROM quantlab.macro_regimes WHERE classifier_version='phase1_v3'
+     ORDER BY trade_date DESC, ingested_at DESC LIMIT 1`);
   const regimePrev = await one<{ regime: string }>(
     `SELECT regime FROM quantlab.macro_regimes
-     WHERE trade_date < (SELECT max(trade_date) FROM quantlab.macro_regimes)
+     WHERE classifier_version='phase1_v3'
+       AND trade_date < (SELECT max(trade_date) FROM quantlab.macro_regimes WHERE classifier_version='phase1_v3')
      ORDER BY trade_date DESC LIMIT 1`);
   const cycle = await one<{ phase: string; rp: number; d: string }>(
     `SELECT phase_label phase, round(recession_prob_pct,1) rp, toString(snapshot_date) d
@@ -236,14 +241,16 @@ export async function fetchTodayState(): Promise<TodayPayload> {
 
   // ── attention (freshness + stress) ───────────────────────────────────────
   const attention: TodayAttention[] = [];
-  const checkFresh = (name: string, d: string | undefined | null, ref: string) => {
+  const checkFresh = (name: string, d: string | undefined | null, ref: string, tol = 1) => {
     if (!d) { attention.push({ level: 'warn', text: `${name}: no data` }); return; }
-    if (daysBetween(d, ref) >= 1) attention.push({ level: 'warn', text: `${name} stale — latest ${d} (expected ${ref})` });
+    if (daysBetween(d, ref) >= tol) attention.push({ level: 'warn', text: `${name} stale — latest ${d} (expected ${ref})` });
   };
-  checkFresh('Regime', regime?.d, ltd);
-  checkFresh('Cross-asset', xasset?.d, today);
+  // EOD sources (regime, equity prices) only land for "today" AFTER the close + the 7am ingest, so
+  // T-1 is legitimately fresh — flag only at >=2 days behind (kills the false-stale on the default page).
+  checkFresh('Regime', regime?.d, ltd, 2);
+  checkFresh('Cross-asset', xasset?.d, today);   // daily snapshot (runs 7am) — expect today
   checkFresh('Cycle', cycle?.d, today);
-  checkFresh('FTEC price', ftecMove.asOf, ltd);
+  checkFresh('FTEC price', ftecMove.asOf, ltd, 2);
   if (regime && (regime.regime === 'red' || regime.regime === 'orange'))
     attention.push({ level: 'warn', text: `Regime is ${regime.regime.toUpperCase()} — review the macro page.` });
   if (!attention.length) attention.push({ level: 'info', text: 'All core sources fresh; no stress flags.' });

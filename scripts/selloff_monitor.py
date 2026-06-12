@@ -57,6 +57,8 @@ def _drawdown(c, win=20):
 
 def _state(name, c):
     """Phase 1 — normal / pullback / active sell-off (spec thresholds, tunable)."""
+    if len(c) == 0:  # yfinance can return a ticker present-but-all-NaN → guard before _drawdown's max([])
+        return name, None, None, "n/a"
     day = _ret(c, 1)
     dd = _drawdown(c, 20)
     if day is None:
@@ -112,7 +114,7 @@ def _stabilization(d: dict):
         v = vix["close"]
         peak10 = max(v[-10:]) if len(v) >= 10 else max(v)
         rolled = v[-1] < peak10 * 0.97 and v[-1] <= v[-2]  # off the peak + declining
-        term = (v[-1] / vix3["close"][-1]) if (vix3 and vix3["close"][-1]) else None
+        term = (v[-1] / vix3["close"][-1]) if (vix3 and len(vix3["close"]) and vix3["close"][-1]) else None
         backwardation = term is not None and term > 1.0
         st = "stabilizing" if (rolled and not backwardation) else ("deteriorating" if backwardation or v[-1] >= peak10 else "neutral")
         stab.append(1 if (rolled and not backwardation) else (-1 if (backwardation or v[-1] >= peak10) else 0))

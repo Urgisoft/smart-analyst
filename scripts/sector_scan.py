@@ -39,11 +39,18 @@ def _ch(sql: str) -> str | None:
 
 
 def _rsi(c, n: int = 14) -> float:
+    """Wilder's RSI(14) — the canonical SMOOTHED version (matches TradingView/Yahoo). A simple
+    n-day mean diverges from those and would fire the oversold/extended flags at the wrong times."""
     import numpy as np
     d = np.diff(c)
+    if len(d) < n:
+        return float("nan")
     up = np.where(d > 0, d, 0.0)
     dn = np.where(d < 0, -d, 0.0)
-    au, ad = up[-n:].mean(), dn[-n:].mean()
+    au, ad = up[:n].mean(), dn[:n].mean()        # seed: SMA of the first n changes
+    for i in range(n, len(d)):                    # then Wilder's smoothing
+        au = (au * (n - 1) + up[i]) / n
+        ad = (ad * (n - 1) + dn[i]) / n
     return 100.0 if ad == 0 else 100 - 100 / (1 + au / ad)
 
 
@@ -56,10 +63,16 @@ def scan():
     def ret(c, n):
         return (c[-1] / c[-1 - n] - 1) * 100 if len(c) > n else float("nan")
 
-    spy = df["SPY"].dropna().values
-    spy3 = ret(spy, 63)
+    # yfinance drift: if nearly all tickers fail it can collapse to a single Series (no .columns) →
+    # return honest empty rather than a stack trace. Per-ticker access is guarded below too.
+    if not hasattr(df, "columns"):
+        return [], float("nan")
+    spy = df["SPY"].dropna().values if "SPY" in df.columns else []
+    spy3 = ret(spy, 63) if len(spy) else float("nan")
     rows = []
     for t, name in SECTORS.items():
+        if t not in df.columns:
+            continue
         c = df[t].dropna().values
         if len(c) < 200:
             continue
@@ -76,6 +89,9 @@ def scan():
 
 def build() -> str:
     rows, spy3 = scan()
+    if not rows:
+        return ("SECTOR SCAN — data unavailable this run (yfinance returned no usable sector series). "
+                "Decision-support only; not investment advice.")
     L = ["SECTOR SCAN — where the 11 SPDR sectors stand (descriptive, NOT a buy signal)", ""]
     L.append(f"{'ETF':5}{'Sector':13}{'3mo':>7}{'1mo':>7}{'5d':>7}{'200d':>7}{'RSI':>4}{'vSPY':>6}")
     for r in rows:
