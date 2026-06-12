@@ -198,7 +198,8 @@ def diff(prior: dict | None, cur: dict) -> list[dict]:
 
     # Sell-off state change (to ACTIVE = alert; easing = info).
     if "selloff" in cur and prior.get("selloff") not in (None, cur["selloff"]):
-        worse = _SELLOFF_RANK.get(cur["selloff"], 0) > _SELLOFF_RANK.get(prior.get("selloff"), 0)
+        cr, pr = _SELLOFF_RANK.get(cur["selloff"]), _SELLOFF_RANK.get(prior.get("selloff"))
+        worse = cr is None or pr is None or cr > pr  # unknown state vocabulary → alert, never silently "easing"
         chg("selloff", f"Sell-off state: {prior['selloff']} → {cur['selloff']}", "alert" if worse else "info",
             prior.get("selloff"), cur["selloff"])
 

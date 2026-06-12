@@ -2094,7 +2094,7 @@ function renderCrossAssetSection(b: MorningBrief): string {
   lines.push(``);
   lines.push(`**Regime flag:** ${x.regimeFlag}`);
   lines.push(`**Active indicator flags:** ${x.activeFlagCount}/5`);
-  lines.push(`**DXY strength:** ${x.dxyStrengthActive ? 'active' : 'no'}` +
+  lines.push(`**BROAD-$ strength:** ${x.dxyStrengthActive ? 'active' : 'no'}` +
     ` · **Real-rate spike:** ${x.realRateSpikeActive ? 'active' : 'no'}` +
     ` · **Commodity collapse:** ${x.commodityGrowthCollapseActive ? 'active' : 'no'}`);
   lines.push(`**Credit internals divergence:** ${x.creditInternalsDivergenceActive ? 'active' : 'no'}` +
@@ -2106,7 +2106,7 @@ function renderCrossAssetSection(b: MorningBrief): string {
   lines.push(`| Indicator | Value | Reading |`);
   lines.push(`|---|---|---|`);
   lines.push(renderCrossAssetIndicatorRow(
-    'DXY 20d change',
+    'BROAD-$ 20d change',
     x.dxy20dChangePct, v => (v * 100).toFixed(2) + '%', crossAssetReadingDxy,
   ));
   lines.push(renderCrossAssetIndicatorRow(

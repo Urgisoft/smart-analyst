@@ -136,7 +136,9 @@ def _stabilization(d: dict):
     if sp and len(sp["close"]) >= 4:
         c = sp["close"]
         rets = [(c[-i] / c[-i - 1] - 1) * 100 for i in (1, 2, 3)]  # last 3 daily returns (most recent first)
-        decel = abs(rets[0]) < abs(rets[1]) if rets[1] != 0 else False
+        # Decelerating = today's move smaller than yesterday's. Use a 0.25% floor so a ~flat prior
+        # day (rets[1]≈0) doesn't force "not decelerating" — a small move after a flat day IS calm.
+        decel = abs(rets[0]) < max(abs(rets[1]), 0.25)
         cs = _close_strength(sp)
         strong_close = cs is not None and cs > 0.6
         st = "stabilizing" if (decel or strong_close) else ("deteriorating" if cs is not None and cs < 0.25 else "neutral")
