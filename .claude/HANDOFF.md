@@ -1,6 +1,9 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-06-07 (session 96 #41 — **decision-support automation session**: added the
+Last updated: 2026-06-11 (s96 #41 + **continuation**: shipped the `/#/today` command-center (NEW DEFAULT
+route), data-integrity reconciliation (25 checks), the forward catalyst calendar (+brief embed +day-before
+ping +Sunday digest), the sector-scan, and the options expected-move tool — all decision-support, ADR-056.
+**⚠️ Docker/CH was DOWN at session end — verify CH first (see Next stage).** The original #41 session added the
 **Sell-Off & Stabilization Monitor + Escalation-Risk Read** (operator PDFs → specs + working v1),
 embedded its compact read into the daily FTEC Telegram brief, and built the **autonomous
 event-driven Market Watch** (Tier-1 deterministic change detector + Tier-2 alerter + 30-min
@@ -20,14 +23,20 @@ ClickHouse runs in container `quantlab-clickhouse` (Docker Desktop, restart poli
 **Python:** `.venv\Scripts\python.exe`. **Confirmed live this session:** CH healthy (23h uptime),
 dev server serving HTTP 200.
 
-**⏰ TWO Windows Task Scheduler jobs now (both run-as-user, America/Denver):**
+**⏰ THREE Windows Task Scheduler jobs (run-as-user, America/Denver) + 1 local one-time:**
 1. **"SignalForge Daily Refresh"** — daily 7:00 AM → `scripts/daily_refresh.ps1`: CH-wait →
-   `daemon:daily --no-telegram` → polygon ingest (5d) → `ftec_daily_brief.py` → **`selloff_monitor.py`**.
-   Logs `logs/daily_refresh_<date>.log`.
-2. **"SignalForge Market Watch" (NEW)** — weekdays, every 30 min for 7.5h from 7:00 AM (≈pre-market
-   to close) → `scripts/market_watch_cycle.ps1`: CH-check (non-fatal) → `market_watch.py` →
-   `market_watch_alert.py`. Event-driven: a quiet cycle sends NOTHING. Logs `logs/market_watch_<date>.log`.
-   Disable: `Unregister-ScheduledTask -TaskName 'SignalForge Market Watch'`.
+   `daemon:daily --no-telegram` → polygon (5d) → `ftec_daily_brief.py` (now also embeds the sell-off
+   read + the **catalyst calendar**) → `selloff_monitor.py` → **`reconcile.py --push`** (data-integrity
+   audit) → **`catalyst_calendar.py --alert`** (day-before earnings/CPI/Fed ping). Logs `logs/daily_refresh_<date>.log`.
+2. **"SignalForge Market Watch"** — weekdays, every 30 min for 7.5h from 7:00 AM → `market_watch_cycle.ps1`
+   → `market_watch.py` → `market_watch_alert.py` (Opus-narrated). Event-driven: a quiet cycle sends NOTHING.
+3. **"SignalForge Week Ahead" (NEW)** — Sundays 5:00 PM → `scripts/week_ahead.ps1`: catalyst week-ahead
+   (`catalyst_calendar.py --push --days 10`) + sector scan (`sector_scan.py`) + expected moves
+   (`expected_move.py`), all → Telegram.
+- **Local one-time (scheduled-tasks MCP, runs only while the app is open):** `ftec-fomc-reanalysis`
+  fires once **Jun 17 ~1:00 PM MT** (post-FOMC) → re-runs the FTEC analysis to the Claude app. Manage
+  in the app's "Scheduled" sidebar.
+Disable a Windows task: `Unregister-ScheduledTask -TaskName '<name>'`.
 
 ---
 
@@ -129,16 +138,22 @@ decision-support (no alpha claim), which is why building briefs/monitors over it
 ---
 
 ## Next stage
-### On `continue` — nothing mid-build. Pick:
-> **#41-followup DONE this session:** item 1 (Opus narration → Q-10 RESOLVED, live on Max) AND item 2
-> (the "Today" command-center → `/#/today`, NEW DEFAULT route) are both shipped. Remaining = item 3 options.
-1. **Finish Opus narration (Q-10):** install `@anthropic-ai/claude-code` (operator OKs the install) →
-   operator runs `claude` login once → verify `claude -p --model opus` works → market_watch_alert.py
-   auto-upgrades (set `CLAUDE_CLI=` in .env if needed). **This is the direct continuation of #41.**
-2. **Build the "Today" command-center UI page** (highest-leverage UI fix for the operator's "too much
-   data" pain) — new default route mirroring the brief; ships with browser validation.
-3. **Optional:** sell-off `/#/selloff` panel; nav→5-groups; Email delivery; F1 business-day staleness.
-4. **Do NOT:** build strategy composites; relax gates; go live; `git push` without explicit OK.
+### On `continue` — nothing mid-build. But FIRST check CH/Docker (see ⚠️ below). Then pick from the
+### "what's genuinely missing" priorities (impact order; given to operator s96 #41-cont):
+1. **Downside-preparedness framing** — reframe the P(higher) table into expected-shortfall / "bad week"
+   sizing (what a −2σ week costs on FTEC; worst 1mo in N yrs). Honest risk for a concentrated holder.
+2. **Reliability heartbeat** — a watchdog that PINGS when the daily brief didn't run / CH is down. The
+   operator just lived this gap (Docker died silently while away). Guards the machinery, not the numbers.
+3. **Position/concentration awareness** — if operator inputs FTEC size (local), show true single-name
+   exposure + $ impact. Highest personal value; gated on their input.
+4. **Optional UI:** sell-off `/#/selloff` panel; a `/#/sectors` page (sector_scan); nav→5-groups; Email.
+5. **Do NOT:** build strategy composites; relax gates; go live; `git push` without explicit OK.
+
+**⚠️ OPERATIONAL (end of s96 #41-cont):** Docker Desktop was found CLOSED → ClickHouse down. Relaunched
+Docker Desktop but the engine hadn't come up by session end. On `continue`, FIRST verify CH:
+`docker start quantlab-clickhouse` → `curl ".../?..." --data-binary "SELECT 1"`. The yfinance-based tools
+(catalyst calendar, sector scan, expected move, brief's price half) work WITHOUT CH; the SignalForge
+composites + dashboards + regime history need it. (This is exactly why priority #2 above matters.)
 
 ---
 
@@ -148,6 +163,15 @@ decision-support (no alpha claim), which is why building briefs/monitors over it
   (Tier-2 alerter), `scripts/market_watch_cycle.ps1` (cycle wrapper), `docs/specs/selloff-stabilization-monitor.md`
   + `docs/specs/selloff-escalation-risk-read.md`. `reports/` + `logs/` gitignored (incl. market_watch_state.json).
 - **Touched:** `scripts/daily_refresh.ps1` (+selloff step 4), `scripts/ftec_daily_brief.py` (embed sell-off compact read).
+- **NEW (decision-support tools, s96 #41-continuation — big multi-tool batch):**
+  `scripts/reconcile.py` (data-integrity audit, 25 checks vs yfinance+FRED, daily --push),
+  `scripts/catalyst_calendar.py` (forward earnings+macro calendar; brief embed + `--alert` day-before ping + weekly),
+  `scripts/sector_scan.py` (11-sector relative-strength landscape), `scripts/expected_move.py` (options-implied
+  ±moves; reuses yfinance_options_summary), `scripts/week_ahead.ps1` (Sun digest = calendar+sectors+expected-move),
+  `src/server/today_dashboard.ts` + `src/components/today/TodayApp.tsx` (the `/#/today` command-center = NEW DEFAULT
+  route; old terminal → `/#/terminal`; new `/api/today`), `docs/teach/2026-06-11-options-expected-move.md`.
+  Also: DXY→`BROAD-$` relabel (brief + cross_asset dashboard chips). All ADR-056 framing; mostly CH-optional (yfinance).
+  Many commits unpushed (`git log origin/main..HEAD`); `git push` operator-gated.
 - **10 unpushed commits (origin at `d4aa10a`):** `814f4f3` `964ce55` `0df0bfd` `4b38195` `adfa910`
   `82fe8ef` `198b6c3` `cc84559` `26489ce` `cc98ea0`. (`git log origin/main..HEAD` for the list.)
 - **Gates:** tsc=13 baseline (no .ts changed this session — pure Python/PS + docs). Telegram send re-verified.
