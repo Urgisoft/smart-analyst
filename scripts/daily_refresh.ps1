@@ -39,8 +39,12 @@ if (-not $chOk) { Log "ABORT: ClickHouse not reachable after retries (is Docker 
 Log "ClickHouse OK."
 
 # 1) Daily daemon (candles + macro + composites + paper cells).
+# Telegram ON (operator request 2026-06-12): the daemon's report includes the paper swing cells'
+# NEW/EXIT/OPEN signals (mr_v1 p=14, trend_v1 p=30) — the operator wants those delivered daily.
+# (They are PAPER-tracked, unvalidated signals — decision-support, not recommendations.)
+# To re-mute: add `-- --no-telegram` back.
 Log "Running daemon:daily ..."
-& npm run daemon:daily -- --no-telegram *>> $log
+& npm run daemon:daily *>> $log
 Log "daemon:daily exit=$LASTEXITCODE"
 
 # 2) Polygon equity panel (single-stock technicals). Trailing 5-day window;
@@ -73,5 +77,12 @@ Log "reconcile exit=$LASTEXITCODE"
 Log "Running catalyst_calendar --alert ..."
 & "$repo\.venv\Scripts\python.exe" "$repo\scripts\catalyst_calendar.py" --alert *>> $log
 Log "catalyst_calendar exit=$LASTEXITCODE"
+
+# 7) Swing-candidate screen: whole-market scan (equity_daily_polygon) for names matching the
+#    operator's swing criteria (pullback-in-uptrend + volume breakout). Telegram + email (--push).
+#    CANDIDATES for operator validation — NOT validated signals (ADR-056).
+Log "Running swing_screener ..."
+& "$repo\.venv\Scripts\python.exe" "$repo\scripts\swing_screener.py" --push *>> $log
+Log "swing_screener exit=$LASTEXITCODE"
 
 Log "=== daily_refresh done ==="

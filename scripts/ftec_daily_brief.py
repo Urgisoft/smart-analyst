@@ -384,6 +384,11 @@ def main() -> int:
     print(report)
     print(f"\n[ftec-brief] wrote {out_file}")
     print(f"[ftec-brief] {push_telegram(env, report)}")
+    try:
+        from send_email import send_email
+        print(f"[ftec-brief] {send_email(f'SignalForge daily brief — {_dt.date.today()}', report, env)}")
+    except Exception as e:
+        print(f"[ftec-brief] email: error ({type(e).__name__})")
     return 0
 
 
