@@ -1,6 +1,14 @@
 # Handoff brief — Vector Core / SignalForge
 
-Last updated: 2026-06-11 (s96 #41 + **continuation**: shipped the `/#/today` command-center (NEW DEFAULT
+Last updated: 2026-07-02 (s96 #42 — **swing-screener + delivery session**: built the daily
+whole-market **swing-candidate screener** (operator criteria; CANDIDATES not signals — ADR-056),
+wired **email delivery** (SMTP scaffolding; operator must add 5 SMTP_* keys to .env — see
+scripts/send_email.py header), **un-muted the daemon's Telegram** so the paper swing cells'
+NEW/EXIT signals are delivered daily, and pushed everything to origin. **⚠ Docker/CH is STUCK
+(engine hangs even after clean WSL+Docker restart) — needs operator eyes / machine reboot; see
+the OPERATIONAL block. CH data is ~3 weeks stale (last refresh 06-11/12) — after Docker is fixed,
+run a catch-up: `npm run daemon:daily` + polygon ingest with `--start-date 2026-06-11`.**
+Prior session s96 #41-cont: 2026-06-11 (`/#/today` command-center (NEW DEFAULT
 route), data-integrity reconciliation (25 checks), the forward catalyst calendar (+brief embed +day-before
 ping +Sunday digest), the sector-scan, and the options expected-move tool — all decision-support, ADR-056.
 **⚠️ Docker/CH was DOWN at session end — verify CH first (see Next stage).** The original #41 session added the
@@ -27,7 +35,9 @@ dev server serving HTTP 200.
 1. **"SignalForge Daily Refresh"** — daily 7:00 AM → `scripts/daily_refresh.ps1`: CH-wait →
    `daemon:daily --no-telegram` → polygon (5d) → `ftec_daily_brief.py` (now also embeds the sell-off
    read + the **catalyst calendar**) → `selloff_monitor.py` → **`reconcile.py --push`** (data-integrity
-   audit) → **`catalyst_calendar.py --alert`** (day-before earnings/CPI/Fed ping). Logs `logs/daily_refresh_<date>.log`.
+   audit) → **`catalyst_calendar.py --alert`** (day-before earnings/CPI/Fed ping) → **`swing_screener.py
+   --push`** (swing candidates → Telegram+email). **Daemon Telegram is now ON** (s96 #42 — delivers the
+   paper cells' NEW/EXIT; re-mute = add `-- --no-telegram` back). Logs `logs/daily_refresh_<date>.log`.
 2. **"SignalForge Market Watch"** — weekdays, every 30 min for 7.5h from 7:00 AM → `market_watch_cycle.ps1`
    → `market_watch.py` → `market_watch_alert.py` (Opus-narrated). Event-driven: a quiet cycle sends NOTHING.
 3. **"SignalForge Week Ahead" (NEW)** — Sundays 5:00 PM → `scripts/week_ahead.ps1`: catalyst week-ahead
@@ -59,7 +69,16 @@ Disable a Windows task: `Unregister-ScheduledTask -TaskName '<name>'`.
    chunked Telegram. Now 25 checks (7 prices + VIX/regime/USO/recession + 14-table freshness sweep, auto-detected date cols, trading-day + expected-empty aware), all OK. Caveat: FRED was timing out → dxy/t10y3m degrade to NODATA
    until FRED recovers. `reconcile.py` (no --push) for a silent local run.
 
-**Delivery:** Claude app ✅ (cloud), file ✅, Telegram ✅ (brief + sell-off + market-watch + reconciliation). **Email NOT wired.**
+6. **Daily swing-candidate screen (NEW s96 #42)** — `scripts/swing_screener.py --push` (daily-refresh
+   step 7): whole-market scan for operator-criteria matches (pullback-in-uptrend + volume breakout;
+   editable CRITERIA block). Preferred universe = 12k-ticker CH panel; auto-falls back to S&P 500 via
+   yfinance when CH is down (same _classify code). CANDIDATES for operator validation, NOT signals.
+7. **Paper-cell swing signals (un-muted s96 #42)** — the 7am daemon Telegram report now delivers
+   mr_v1/p=14 + trend_v1/p=30 NEW/EXIT/OPEN (paper-tracked, unvalidated — decision-support).
+
+**Delivery:** Claude app ✅ (cloud), file ✅, Telegram ✅ (brief + sell-off + market-watch + reconciliation
++ screener + daemon report). **Email: wired, awaiting operator's 5 SMTP_* keys in .env** (Gmail app
+password; 2-min setup in scripts/send_email.py header) — brief + screener then email automatically.
 
 ---
 
@@ -86,7 +105,7 @@ Disable a Windows task: `Unregister-ScheduledTask -TaskName '<name>'`.
 | --- | --- | --- |
 | Q-1 | First real-capital deployment | **INDEFINITELY DEFERRED** — nothing passed validation |
 | Q-2 | Capital-deployment-ramp ADR | **INDEFINITELY DEFERRED** |
-| Q-4 | Push unpushed commits to origin/main | OPEN — origin at `d4aa10a`; **~19 unpushed** (`git log origin/main..HEAD`). `git push` operator-gated. |
+| Q-4 | Push unpushed commits to origin/main | **RESOLVED s96 #42** — operator authorized; origin current at `d0e4543` (0 unpushed). Future pushes: session-pattern authorized, keep origin current on commit. |
 | Q-7 | phase1_v3 yield-curve source | OPEN — macro_regimes.yield_curve_value NULL; brief/monitor source t10y3m from cross_asset_snapshots |
 | Q-8 | Phase C promotion | DORMANT (0/6 pass) |
 | Q-10 | Opus-narration for Market Watch | **RESOLVED** — CLI 2.1.168 installed + already authed on Max (no separate login needed); `CLAUDE_CLI=C:\Users\Pejman\AppData\Roaming\npm\claude.cmd` in .env. `opus_text` runs `cmd /c claude.cmd -p --model opus` (prompt via STDIN, encoding=utf-8). Verified live; material alerts now Opus-narrated (web-researched cause, no buy/sell), deterministic fallback on any failure. |
@@ -149,14 +168,23 @@ decision-support (no alpha claim), which is why building briefs/monitors over it
 4. **Optional UI:** sell-off `/#/selloff` panel; a `/#/sectors` page (sector_scan); nav→5-groups; Email.
 5. **Do NOT:** build strategy composites; relax gates; go live; `git push` without explicit OK.
 
-**✅ OPERATIONAL (RESOLVED end of s96 #41-cont):** Docker Desktop was found closed → CH down for ~1-2
+**⚠️ OPERATIONAL (s96 #42, 2026-07-02): Docker/CH is STUCK — needs operator.** Docker Desktop's engine
+hangs indefinitely (`docker ps` never returns) even after the full clean-restart recipe (`wsl --shutdown`
+→ kill Docker processes → relaunch). Likely fixes: eyeball the Docker Desktop GUI for a stuck
+update/WSL-update dialog, or reboot the machine. UNTIL FIXED: composites/dashboards/regime/daemon are
+blocked (tomorrow's 7am daemon step will fail); the yfinance tools still work (screener falls back to
+S&P 500, brief prices, calendar, sector scan, expected move). AFTER FIXED: CH data is ~3 weeks stale —
+run `npm run daemon:daily` AND `.venv\Scripts\python.exe scripts\polygon_grouped_daily_ingest.py
+--start-date 2026-06-11 --end-date <today> --apply`, then `reconcile.py` to verify. **This third silent
+outage is the standing case for the reliability heartbeat (priority #2).**
+(Historical note, s96 #41-cont: Docker Desktop was found closed → CH down for ~1-2
 days. Operator restarted Docker; data was then refreshed to current on 06-11: `daemon:daily --no-telegram`
 (candles+macro+9 composites+regime+paper cells) + polygon ingest (equity_daily_polygon→06-10; 06-11 not
 yet published) + `npm run finra:short-interest:ingest` (short_interest→05-29 settlement). Reconcile = 24/24
 OK, 0 discrepancies; **regime recomputed GREEN** (sell-off easing post-CPI, VIX ~19.4). The ~2-day outage
 silently broke the 7am refresh while the operator was away — **this is exactly why priority #2 (reliability
 heartbeat) matters.** If CH is down again: `docker start quantlab-clickhouse` → `curl ... "SELECT 1"`; the
-yfinance tools (calendar/sector/expected-move) work without CH, composites/dashboards/regime need it.
+yfinance tools (calendar/sector/expected-move) work without CH, composites/dashboards/regime need it.)
 
 ---
 
